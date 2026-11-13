@@ -1,0 +1,2630 @@
+{
+ "pack": "t14_push_surprise_1030",
+ "title": "Bot surprise behaviours and navigation (2026-10-30)",
+ "facts": [
+  {
+   "id": "sp-rarity-gate",
+   "title": "Surprise behaviours go through one rarity gate, sp_roll",
+   "subject": {
+    "kind": "concept",
+    "id": "sp-rarity-gate"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "ma2_bot_surprise.c sp_roll_p is the only way a surprise trick starts. Order: trick switch (master RECOMP_BOT_SURPRISE / [Bots] Surprises, then RECOMP_BOT_SP_<NAME> / Sp<Name>); 20 s hold-off per bot per trick; per-bot cooldown (cool_min x 0.7-1.3); the random roll p[skill]; per-victim budget (2 per rolling 600 s, per trick); no same trick on the same victim back-to-back (not applied to side keys 0xFFFF0000|nation); 45 s spacing per victim. Counters go to [C7] sp_all (rolls, blocked_cool/budget/repeat/spacing, victim_human, trick_s, bot_s, tick_ms).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_surprise.c",
+     "line": 162
+    }
+   ],
+   "tags": [
+    "bots",
+    "surprise",
+    "push-surprise-1030"
+   ],
+   "date": "2026-10-30",
+   "how_to_use": "RECOMP_BOT_SURPRISE=0 turns every surprise off (A/B arm). RECOMP_BOT_SP_FORCE=revenge,grudge,mood,rookie|all makes p=1 and skips cooldown/budget/repeat/spacing (trigger conditions still apply)."
+  },
+  {
+   "id": "sp-killer-lookup",
+   "title": "Killer of a player = the scoreboard kill (stat 2) that went up within 1 s",
+   "subject": {
+    "kind": "concept",
+    "id": "sp-killer-lookup"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "sp_world_tick diffs each slot's kills/deaths once per frame, keeps a ring of kill events and death events, and matches each death with the nearest unused enemy kill within +-1 s (an enemy by nation in team modes). A death with no kill after 0.4 s is resolved with an unknown killer. Position of the victim is its last live position. Same attribution idea as hg_kills (high ground).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_surprise.c",
+     "line": 222
+    }
+   ],
+   "tags": [
+    "bots",
+    "surprise",
+    "push-surprise-1030"
+   ],
+   "date": "2026-10-30",
+   "how_to_use": "RECOMP_BOT_SP_DIAG_KILLER=1 logs [SP-KILL] per death with victim and killer slots."
+  },
+  {
+   "id": "sp-revenge",
+   "title": "Revenge on a teammate's killer (12)",
+   "subject": {
+    "kind": "concept",
+    "id": "sp-revenge"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A bot that sees a teammate die within 80 m (inside its field of view and a budgeted ray clear) rolls; the first witness to pass becomes the avenger for 30 s. The killer's target score is x1.3/1.5/1.8/2.0 by skill, the hunt pick weighs him x8 and always hunts, and an F27 knowledge entry is injected at the death spot. Not for pilots on foot, objective locks or vehicle trips. C7 sp_revenge: witnessed, fired_<skill>, found (killer visible within 15 s), avenged, avenger_died. Forced run: 9 witnessed, 9 fired, 8 found.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_surprise.c",
+     "line": 286
+    }
+   ],
+   "tags": [
+    "bots",
+    "surprise",
+    "push-surprise-1030",
+    "revenge"
+   ],
+   "date": "2026-10-30",
+   "how_to_use": "RECOMP_BOT_SP_REVENGE=0 / [Bots] SpRevenge=0"
+  },
+  {
+   "id": "sp-grudge",
+   "title": "Grudge: same killer twice within 5 min",
+   "subject": {
+    "kind": "concept",
+    "id": "sp-grudge"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "On our death the killer is stored; a second death to the same player within 300 s rolls a grudge. After the next spawn, for 60 s that player's target score is x1.3-1.9 and his hunt weight x2; an F27 entry is seeded at the killer's position. Ends on a kill of him (paid_back), our next death, or 60 s. C7 sp_grudge: armed, fired_<skill>, paid_back, expired, grudge_s_sum, grudge_kills, grudge_alive_s. Forced run (first death arms): 37 fired, 3 paid back (8 %), so the spec's 25 % payback line is not met by this mild bias.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_surprise.c",
+     "line": 318
+    }
+   ],
+   "tags": [
+    "bots",
+    "surprise",
+    "push-surprise-1030",
+    "grudge"
+   ],
+   "date": "2026-10-30",
+   "how_to_use": "RECOMP_BOT_SP_GRUDGE=0 / [Bots] SpGrudge=0"
+  },
+  {
+   "id": "sp-mood",
+   "title": "Momentum mood: HOT after 3 kills, COLD after 3 deaths",
+   "subject": {
+    "kind": "concept",
+    "id": "sp-mood"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "One roll per streak (the kill/death that makes streak 3; COLD waits for the respawn), p 0.5/0.45/0.35/0.25, budget key per side. 60 s. HOT: aggr +0.25, retreat_hp x0.8, flank chance x1.5 (flank_try), fight_band x0.85. COLD: caution +0.3, retreat_hp x1.2, G_COVER floor 0.92 when hurt (<75 %) and under fire. HOT ends on death, COLD on a kill. Deltas are applied to b->aggr/caution/sk.retreat_hp and subtracted at the end. C7 sp_mood: hot_/cold_<skill>, hot_/cold_/base_ kills, deaths, seconds, attack and cover seconds. RECOMP_BOT_SP_MOOD_STREAK=2 shortens the streak for tests.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_surprise.c",
+     "line": 358
+    }
+   ],
+   "tags": [
+    "bots",
+    "surprise",
+    "push-surprise-1030",
+    "mood"
+   ],
+   "date": "2026-10-30",
+   "how_to_use": "RECOMP_BOT_SP_MOOD=0 / [Bots] SpMood=0"
+  },
+  {
+   "id": "sp-rookie",
+   "title": "Rookie mistakes A-F (Recruit p 0.12, Regular 0.04)",
+   "subject": {
+    "kind": "concept",
+    "id": "sp-rookie"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A tunnel vision (hold the first-picked target 12 s, choose_target hook), B ignore flanks (look_start skipped for 10 s, ends at 25 % health lost), C straight lines (Ma2Order.sp_straight: ctrl_fight lateral=0, dodge off, no peek_search; 12 s), D fire out of range (Ma2Order.sp_far: ctrl_fire weapon range x1.4; 8 s; triggered when the target is just beyond the shortest gun group), E chase a visible VTOL (10 s), F re-target whoever hit last (12 s). One mistake at a time per bot; ends on a heavy hit, a retreat/cover/objective goal or the target gone. C7 sp_rookie: <sub>_<skill>, died_during, mistake_s_sum, ended_time/interrupt/target/death.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_surprise.c",
+     "line": 384
+    }
+   ],
+   "tags": [
+    "bots",
+    "surprise",
+    "push-surprise-1030",
+    "rookie"
+   ],
+   "date": "2026-10-30",
+   "how_to_use": "RECOMP_BOT_SP_ROOKIE=0, or RECOMP_BOT_SP_ROOKIE_<A.F>=0 for one. RECOMP_BOT_SP_SKILL=0 makes every brain a Recruit for tests."
+  },
+  {
+   "id": "sp-c7-limits",
+   "title": "C7 table limits matter for the surprise pieces",
+   "subject": {
+    "kind": "concept",
+    "id": "sp-c7-limits"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "c7 allows 96 pieces and 24 counters per piece. sp_mood uses 22 counters; sp_rookie 18; adding counters to those pieces silently drops the extras. Surprise pieces: sp_all, sp_revenge, sp_grudge, sp_mood, sp_rookie.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_surprise.c",
+     "line": 505
+    }
+   ],
+   "tags": [
+    "bots",
+    "surprise",
+    "push-surprise-1030"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "sp-time-budget",
+   "title": "Time in tricks is dominated by mood and rookie episodes",
+   "subject": {
+    "kind": "concept",
+    "id": "sp-time-budget"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "With the spec's first probabilities (mood p .5/.45/.35/.25 re-rolled every 20 s, rookie p .35/.12, 120 s moods) the share of alive bot-seconds in any trick was 9-10 % in natural UC runs. Rolling mood once per streak, 60 s moods, rookie p .12/.04 and shorter episodes brought it to 3.4-4.6 %. The module's own CPU cost is about 0.02 ms per frame (tick_max under 1 ms); no frame-rate change versus OFF once other game processes are accounted for.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_surprise.c",
+     "line": 505
+    }
+   ],
+   "tags": [
+    "bots",
+    "surprise",
+    "push-surprise-1030"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "sp-test-load-confound",
+   "title": "Frame rate comparisons on this PC are confounded by other game processes",
+   "subject": {
+    "kind": "concept",
+    "id": "sp-test-load-confound"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "One ON run showed 38 steps/s against 75 for OFF, with 400 against 24 hitch lines; a repeat ON run gave 75 steps/s and 25 hitches. Compare only runs that had no other game running, or use the module's own tick_ms.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_surprise.c",
+     "line": 505
+    }
+   ],
+   "tags": [
+    "bots",
+    "surprise",
+    "push-surprise-1030"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "a-plan-from-a-body-on-a-hard-blocked-cliff-returns-n-0",
+   "title": "A plan from a body on a hard-blocked cliff returns n=0",
+   "subject": {
+    "kind": "concept",
+    "id": "a-plan-from-a-body-on-a-hard-blocked-cliff-returns-n-0"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Planning from world 384,1168 / 443,1330 / 452,1325 / 392,1195 on Nuclear Reactor C fails (ma2_bot_path.c plan_begin: no free start cell within PATH_SNAP_START 10 m, n=0). Those points sit on a hard-blocked cliff mass (free ground x<=368; mesa 47-49 m high at 450,1356). Reproduce offline in one launch with RECOMP_BOT_PATHTEST=\"384,1168,1086,792,9,1,60\" and RECOMP_BOT_NAV_REGION=\"340,1140,470,1350\" (x/z world metres, cell 2 m).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "with-no-route-ctrl-travel-steers-and-jets-at-the-raw-far",
+   "title": "With no route, ctrl_travel steers and jets at the raw far goal",
+   "subject": {
+    "kind": "concept",
+    "id": "with-no-route-ctrl-travel-steers-and-jets-at-the-raw-far"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "While a Mech or BattleArmor has no route (PathSlice plan queued, or plan failed) ctrl_travel sets dest = the raw goal (about 700 m away), so MECH_JUMP / BA hop jets toward dest burn into the cliff face. Stall recovery (ma2_bot_ctrl.c ~2150) hops up again, the bot ends about 27 m up in a pocket with path=0/0, and trapped-bail ejects it after 4 stalls (BOT-TRAPPED). Deterministic at 384,1168 in 4 of 4 base (c44d849) NRC CTF runs. PathSlice made the no-route window common.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "nopathhold-and-snapwide-remove-the-nrc-ledge-trap-defaul",
+   "title": "NoPathHold and SnapWide remove the NRC ledge trap (default ON)",
+   "subject": {
+    "kind": "concept",
+    "id": "nopathhold-and-snapwide-remove-the-nrc-ledge-trap-defaul"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "NoPathHold (env RECOMP_BOT_NOPATH_HOLD, [Bots] NoPathHold): Mech/BA with no route and goal > 40 m fire no travel jets; after a failed plan dest = the oldest breadcrumb. SnapWide (RECOMP_BOT_SNAP_WIDE, [Bots] SnapWide): plan_begin snaps the start within 60 m when no free cell is within 10 m and the body can drop (g_drop >= 20), preferring the goal's own ground component. Evidence: NRC CTF 5v6 skill 4: base BOT-TRAPPED 5 times in 4 NRC CTF runs (2 in the paired run), push-x 0 in 3 NRC CTF and 0 in 3 TD runs; ICALL/FAULT/CRASH 0/0/0; frame median equal (13.87 vs 13.84 ms paired). Counters: [C7] nopath_hold frames/back_s, snapwide plans.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "swapunstick-bounds-a-stuck-vehicle-swap-to-10-s-default",
+   "title": "SwapUnstick bounds a stuck vehicle swap to 10 s (default ON)",
+   "subject": {
+    "kind": "concept",
+    "id": "swapunstick-bounds-a-stuck-vehicle-swap-to-10-s-default-"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "[Bots] SwapUnstick / RECOMP_BOT_SWAP_UNSTICK: ma2_bot_brain.c order_swap and the status block give up a swap that has not moved the bot 4 m in 10 s, or no_path/stalled on goal=swap (ride barred 60 s, swap cool 10 s). [C7] swapfix: tries, giveups_ba/_vtol/_other/_nopath, unstuck_s. Unproven in game: the snag did not recur, giveups stayed 0.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "ba-latch-climb-the-radial-tac-climb-scan-returns-no-roof",
+   "title": "BA latch climb: the radial tac_climb scan returns no_roof in open ground",
+   "subject": {
+    "kind": "concept",
+    "id": "ba-latch-climb-the-radial-tac-climb-scan-returns-no-roof"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The BA roll runs only after tac_high found nothing within 4-22 m up, which is when no building is near. On UC and NRC (TD 5v6 skill 4, RECOMP_BOT_HG_FORCE_CLIMB=1) tac_climb with height 10-60 m, radius 12-45 m, 16 headings x 5 rings (80 samples) still returned no_roof every roll (cand_low 716/720). The scan, not the limits, is the problem. Counters: [C7] hg_climb cand_nosurf/low/high/notflat/nolos/nobudget. Next: candidate roofs from the building list or a dense raster; prove the claw first with RECOMP_BOT_CLIMB_TEST=<bot index>; keep the trip across target switches; exclude hold orders from the stall counter.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "pathslice-code-default-on-shipped-ini-still-0-push-x-rec",
+   "title": "PathSlice: code default ON, shipped ini still 0; push-x recommends 1",
+   "subject": {
+    "kind": "concept",
+    "id": "pathslice-code-default-on-shipped-ini-still-0-push-x-rec"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "With push-x, NRC CTF/TD runs show BOT-TRAPPED 0 in 6 runs and stalls 10-44 per run (base 31 per 300 s). NoPathHold also applies with PathSlice=0. PathSlice=0 stall comparison was not re-run.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "mech-far-side-drop-under-fire-still-works-no-new-work",
+   "title": "Mech far-side drop under fire still works (no new work)",
+   "subject": {
+    "kind": "concept",
+    "id": "mech-far-side-drop-under-fire-still-works-no-new-work"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "NRC TD FORCE_CLIMB run: hg_drop triggers_elite 2, dropped 1, back_up 1; hg_mech tries 1-4 per run; 0 faults. A drop under fire is logged above 0.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "mp-crates-expire-a-generator-crate-vanishes-about-61-s-a",
+   "title": "MP crates expire: a generator crate vanishes about 61 s after it appears if nobody takes it, and a new one (new entity id, same spot) returns 18 s later",
+   "subject": {
+    "kind": "concept",
+    "id": "mp-crates-expire-a-generator-crate-vanishes-about-61-s-a"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "GoCommando RetailTDKit (MACrateGenerator): crates at 363,693 and 386,694 went at t=79.1/158.1/237.1 with no player within 8 m and came back 18.0/17.9/17.9 s later (log [SP-PU] back . after 18.0 s, resp learned). RespawnTime on this map = 18 s (not the usual 30). The respawned crate is a new object: match the old one by position (<3 m). push-s2 ma2_bot_surprise_b.c s2_world_tick.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "uc-and-nrc-copies-have-no-crate-generators-their-power-u",
+   "title": "UC and NRC copies have no crate generators; their power-ups are only death drops from a pool of crates",
+   "subject": {
+    "kind": "concept",
+    "id": "uc-and-nrc-copies-have-no-crate-generators-their-power-u"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "All pickups first seen on uc_copy/nrc_copy appear after a kill; the pool crates are parked at 0,0 (ignored by ma2_bots_core.c:2985) and a pool entity id is reused for a later drop at another place (log: same entity, position jumps >3 m). A bot that waits for a returning crate only has something to wait for on a map with MACrateGenerator (found in the GoCommando129 RetailTDKit maps; dictionary: 107 placed in 11 worlds). push-s2 S2Pu.gen = first seen in the first 45 s or has come back once.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "a-taken-or-expired-crate-leaves-the-bots-pickup-view-its",
+   "title": "A taken or expired crate leaves the bots' pickup view; its return is seen as a reappearing entry",
+   "subject": {
+    "kind": "concept",
+    "id": "a-taken-or-expired-crate-leaves-the-bots-pickup-view-its"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "scan_entities drops a power-up parked within 15 m of the map edge; w->pickups therefore holds only live crates. Taker = nearest player within 8 m when the entry goes (0 for an expiry). In GoCommando 8 of 9 generator crates went with nobody near (expiry), so 'a team saw it go' (bot within the know radius, spec 60 m, test hook RECOMP_BOT_SP_PU_KNOW_R) is rare. push-s2.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "surprise-6a-6b-elite-waits-10-20-m-off-a-crate-due-back",
+   "title": "Surprise 6a/6b: Elite waits 10-20 m off a crate due back, or holds a spot with sight of a pickup a hurt enemy is walking onto",
+   "subject": {
+    "kind": "concept",
+    "id": "surprise-6a-6b-elite-waits-10-20-m-off-a-crate-due-back-"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "ma2_bot_surprise_b.c s2_pu_tick; switch RECOMP_BOT_SP_POWERUP / [Bots] SpPowerup; counters sp_powerup rolls, fired_time_elite, fired_deny_elite, timed_take, timed_late, not_back, deny_hit, deny_taken, deny_kept, wait_s_sum. Forced run (SP_FORCE=powerup,bait, all Elite, GoCommando 5v6): 5 time + 3 deny fires, waits ended by an enemy in 4 of 5, deny_taken 2, deny_hit 1 (small n).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "choose-target-flips-the-target-every-second-in-a-group-f",
+   "title": "choose_target flips the target every second in a group fight, so a trick that needs a fixed target must pin b->tgt itself",
+   "subject": {
+    "kind": "concept",
+    "id": "choose-target-flips-the-target-every-second-in-a-group-f"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "First-version pincer/bait ended with 'target' within 3-4 s in most fires. s2_hold_target (ma2_bot_surprise_b.c) re-points b->tgt/b->target at the trick's enemy after choose_target ran; target_held counts 45-107 re-points per 300 s with tricks forced.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "tac-pt-tac-kind-tac-tgt-tac-until-is-the-way-to-send-a-b",
+   "title": "tac_pt/tac_kind/tac_tgt/tac_until is the way to send a bot to a point while it fires at a target without editing order_attack",
+   "subject": {
+    "kind": "concept",
+    "id": "tac-pt-tac-kind-tac-tgt-tac-until-is-the-way-to-send-a-b"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "order_attack (G_ATTACK, tac_tgt == target, now < tac_until, > 5 m away) and order_cover (tac_kind == goal) both emit FIGHT_MOVE to tac_pt with fire=1; refresh tac_until each tick and it stops 1 s after the trick ends. Used for bait (goal ATTACK/COVER/RETREAT) and pincer (ATTACK). Port of flank_try's pattern.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "vet-elite-pincer-spots-two-firing-spots-about-90-deg-apa",
+   "title": "Vet/Elite pincer spots: two firing spots about 90 deg apart around the target, replanned when it moves 40 m",
+   "subject": {
+    "kind": "concept",
+    "id": "vet-elite-pincer-spots-two-firing-spots-about-90-deg-apa"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "s2_pin_plan; counters sp_pincer fired_vv/ve/ee, both_arrived, angle_sum/angle_n, replans, target_killed_20s, plain_n/plain_killed_20s (baseline: same-pair gang-ups that did not roll ). Arrival = within 20 m of the spot. GoCommando (all-BA melee) p5: pincer target killed within 20 s 4 of 5 vs plain 11 of 16.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "python-edits-from-the-bash-tool-a-literal-backslash-n-ty",
+   "title": "Python edits from the Bash tool: a literal backslash-n typed in a command arrives as a real newline",
+   "subject": {
+    "kind": "concept",
+    "id": "python-edits-from-the-bash-tool-a-literal-backslash-n-ty"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "and Windows python cannot read msys /tmp paths; write scripts to a Windows path and build the backslash with chr(92). Python text-mode writes also turn LF into CRLF (a whole-file diff of ma2_bot_brain.c) - use binary mode.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "entity-flags-0x84-bits-13-14-are-set-on-every-body-kind",
+   "title": "Entity flags +0x84 bits 13/14 are set on every body kind",
+   "subject": {
+    "kind": "concept",
+    "id": "entity-flags-0x84-bits-13-14-are-set-on-every-body-kind"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RECOMP_BOT_STOMP_GATE=1 logs `[SPC-GATE]` (ma2_bot_objective.c spc_gate_diag): pilot f84=A40C6602, tank 847C6702, VTOL 84786702, 'Mech 84AC6702 -> CausesCollisionDamage (bit 13) and ReceivesCollisionDamage (bit 14) both 1 for pilot, 'Mech, tank, VTOL. So a 'Mech walking onto a pilot is not excluded by the flags (whether the damage lands is untested: no enemy pilot came within 14 m of an Elite 'Mech in 300 s). Pilots have hp 10/10.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "ai-los-returns-the-blocking-entity-and-mabuilding-is-cla",
+   "title": "ai_los returns the blocking entity, and MABuilding is class id C3E3D036",
+   "subject": {
+    "kind": "concept",
+    "id": "ai-los-returns-the-blocking-entity-and-mabuilding-is-cla"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "ma2_bots_core.c bld_view/sn_bld_ray (new): `Ma2Senses.bld_ray` = the AI ray (ignores self/target) and `bld_get`; HP = actor_int(e,0x74,0x000C9476) / (e,0x6C,0x000C8C2A), position = scene node +0xF0. Other things that block a bot-to-target ray on Under Cover copy: classes 49BB7821 (most common), B2B36E32, CA77C1A6 (not buildings). [gate1.txt]",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "level-works-end-to-end",
+   "title": "Level works end to end",
+   "subject": {
+    "kind": "concept",
+    "id": "level-works-end-to-end"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "All-Elite UC copy, 300 s: 7 looks, 5 too tough (>8 s of fire), 1 fired: 100-hp building at 17 m, target 42 m behind it, TRAVEL order with `structure` (the Destruction fire path) fired 64 ticks, building took damage (hurt=1), the target walked back into view after 4.5 s (end_seen). A building whose hp does not drop in 3.5 s is put on the immune list (no Indestructible bool offset known; learned by observing the hp).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "f4-skip-for-peel-off-is-an-order-field",
+   "title": "F4 skip for peel-off is an order field",
+   "subject": {
+    "kind": "concept",
+    "id": "f4-skip-for-peel-off-is-an-order-field"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Ma2Order.ff_skip / ff_rider -> BotCtrl -> g_ff_skip in ma2_bot_ctrl.c ctrl_fire (only when the shot's target is the rider, direct-fire groups only: splash/lobbed/seeker/flame skipped). Counter sp_peeloff f4_skips.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "recomp-test-hijack-stages-a-human-ba-hack-but-no-helpers",
+   "title": "RECOMP_TEST_HIJACK stages a human BA hack but no helpers come",
+   "subject": {
+    "kind": "concept",
+    "id": "recomp-test-hijack-stages-a-human-ba-hack-but-no-helpers"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "hij1 run: the human's BA clamped an enemy 'Mech at t=106 and lost; hack cover saw it (6 looks) but no enemy stood within 80 m of the hacked 'Mech (no_helper=6), so no guard rolled; peel-off needs a visible clinging BA 25-120 m from a teammate, none appeared. Neither action path has run in a game yet.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "a-uc-5v6-mixed-300-s-run-spent-no-time-in-the-c-tricks",
+   "title": "A UC 5v6 Mixed 300 s run spent no time in the C tricks",
+   "subject": {
+    "kind": "concept",
+    "id": "a-uc-5v6-mixed-300-s-run-spent-no-time-in-the-c-tricks"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Elite-only Level (p 0.25 after the budget halving) and event-gated Hack cover / Peel-off: sp_all trick_s absent in the normal run; in the all-Elite gate run 4.5 s of 3164 bot-seconds (0.14 %). [on1.txt, gate1.txt]",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "ba-latch-climb-uc-tall-buildings-are-static-colliders-no",
+   "title": "BA latch climb: UC tall buildings are static colliders, not MABuilding (push-x2 roof scan)",
+   "subject": {
+    "kind": "concept",
+    "id": "ba-latch-climb-uc-tall-buildings-are-static-colliders-no"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "BA latch climb root cause: UC's tall buildings (25x25 m, tops 25-40 m, ground -10) are static colliders, not MABuilding (only 16 small base buildings, 1 with a roof); only a surface raster finds them (5 m grid, >= 8 m over terrain: 988 cells, 39 blobs). ma2_bots_core.c roofs_step/sn_roofs build the per-map roof list (UC 204x409 grid, 11 roofs; Ma2Senses.roofs); brain tac_climb uses it (75 m, 10-60 m up, LOS to target). climb_order's face finder now scans 24 headings (old: 5 headings, no_face 5 of 5 on UC). Claw latch/top on a building is UNPROVEN in game (run stopped); watch [C7] hg_climb faces/latched/topped/roof_reached/roof_stood and [HG-CLIMB] REACHED. RECOMP_TEST_ONLY_BA=1 forces bots into BattleArmor for tests.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "a-vtol-s-claim-on-a-lift-request-never-lapsed",
+   "title": "A VTOL's claim on a lift request never lapsed",
+   "subject": {
+    "kind": "concept",
+    "id": "a-vtol-s-claim-on-a-lift-request-never-lapsed"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "ma2_bot_brain.c g_lift[].vtol was kept as long as the BattleArmor re-posted, so a VTOL that went into a fight (or died) kept every other VTOL off a flag carrier (run y2: carrier walked 900 m past a VTOL stuck in `attack`). Fixed: g_lift[].go_t + lift_claim_live (4 s), switch LiftClaimFix.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "a-flag-carrier-never-boarded-the-vtol-that-came-for-it",
+   "title": "A flag carrier never boarded the VTOL that came for it",
+   "subject": {
+    "kind": "concept",
+    "id": "a-flag-carrier-never-boarded-the-vtol-that-came-for-it"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "y3: VTOL 23 m away, carrier `goal=objective` the whole time. G_RIDE was set to objective+0.05 but the running goal keeps MA2B_HYSTERESIS 0.15. Fixed: ride_margin = 0.15+0.5 for OP_CARRY (LiftBoardFix).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "end-to-end-for-a-bot-carrier",
+   "title": "End to end for a bot carrier",
+   "subject": {
+    "kind": "concept",
+    "id": "end-to-end-for-a-bot-carrier"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "y9 BD CTF 5v6 Mixed + RECOMP_TEST_BA_CARRIER + RECOMP_TEST_ROLES: carrier_taken_elite=1, carrier_boarded_bot=2, carrier_home_bot=1 (ridden 38 s, released 68 m from the stand, VTOL hp 0.73). Other runs: boarded and flew home 322 m / 109 m until the VTOL fell under 0.3 hp (the BA lets go by design).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "player-ferry-to-the-enemy-flag-works-carrier-leg-unseen",
+   "title": "Player ferry to the enemy flag works, carrier leg unseen",
+   "subject": {
+    "kind": "concept",
+    "id": "player-ferry-to-the-enemy-flag-works-carrier-leg-unseen"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "y10/y11 RECOMP_TEST_HUMAN_FERRY: boarded_human, VtolWaitPlayer run started_player, human let go 14.5 m from their flag and took it (step 3), but his team's only healthy VTOL was gone (both on repair) and he died 21 s later; carrier_posted_human never fired. Lift posted -> clamp took 73-94 s (no VTOL near).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "push-y-test-hooks-recomp-test-roles-recomp-bot-lift-trac",
+   "title": "Push-y test hooks: RECOMP_TEST_ROLES, RECOMP_BOT_LIFT_TRACE, RECOMP_TEST_BA_CARRIER, RECOMP_TEST_HUMAN_FERRY",
+   "subject": {
+    "kind": "concept",
+    "id": "push-y-test-hooks-recomp-test-roles-recomp-bot-lift-trac"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RECOMP_TEST_ROLES=1 (bot index%3==0 picks VTOL, ==1 BattleArmor), RECOMP_BOT_LIFT_TRACE=1 ([LIFT-TR] carrier + claim + every friendly VTOL each second, [LIFT-WHY] why a VTOL passes a carrier request, [LIFT-FLY] ferry leg), RECOMP_TEST_HUMAN_FERRY now also keeps the human's team bots off their flag.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "apu-front-end-trap-clobber-fix-r4-p2-1-recomp-apu-fe-tra",
+   "title": "APU front end trap clobber fix (R4 P2-1, RECOMP_APU_FE_TRAP_FIX)",
+   "subject": {
+    "kind": "concept",
+    "id": "apu-front-end-trap-clobber-fix-r4-p2-1-recomp-apu-fe-tra"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "apu_vp.c fe_method: a game-thread PIO write while FEDECMETH is TRAPPED (idle-voice notification pending) happened 65,536+ times in 420 s (~150/s), each overwriting the pair the DirectSound ISR reads. Now kept (RECOMP_APU_FE_TRAP_FIX, default on, =0 measures only); log `[APU-FE] clobber n=`. No [XACT-LIST]/[XACT-UAF]/ICALL/CRASH in 12 runs (UAF tracer on in 3). Root cause of the XACT freed node still unproven; this race can mis-release a voice but nothing shows it frees an XACT node.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "vtolthreatalt-counters-are-confounded-by-terrain",
+   "title": "VtolThreatAlt counters are confounded by terrain",
+   "subject": {
+    "kind": "concept",
+    "id": "vtolthreatalt-counters-are-confounded-by-terrain"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "height over the surface at the VTOL's own spot is higher while threatened (elite 22.7 m threat vs 14.8 m clear, y13): threats sit over bases and buildings, and the low branch (lo+8 over 60 m ahead) cannot go under its own surroundings. A paired same-spot measure is needed before claiming a lower flight.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "ma2-path-off-with-next-0-compared-pt-0-with-pt-0-so-a-fr",
+   "title": "ma2_path_off with next == 0 compared pt[0] with pt[0], so a fresh ground path read as off-",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2-path-off-with-next-0-compared-pt-0-with-pt-0-so-a-fr"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "ma2_path_off with next == 0 compared pt[0] with pt[0], so a fresh ground path read as off-route until 8 m from its first corner; Ma2Path.from fixes it (push-x3: pathslice jobs 3332 -> 1931 per 300 s on NRC CTF 5v6).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "a-sliced-plan-used-to-keep-its-submit-time-as-path-t-pat",
+   "title": "A sliced plan used to keep its submit time as path_t / path_epoch",
+   "subject": {
+    "kind": "concept",
+    "id": "a-sliced-plan-used-to-keep-its-submit-time-as-path-t-pat"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A sliced plan used to keep its submit time as path_t / path_epoch; a plan queued more than 6 s was \"too old\" when taken. Take now re-stamps.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "plan-begin-goal-cells-outside-the-grid-and-nan-positions",
+   "title": "plan_begin: goal cells outside the grid and NaN positions are now safe (NavGuard)",
+   "subject": {
+    "kind": "concept",
+    "id": "plan-begin-goal-cells-outside-the-grid-and-nan-positions"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "plan_begin: goal cells outside the grid kept out-of-range gx/gz and indexed comp[] / sf[]; NaN positions went through (int)NaN. to_cell is now safe and the goal is clamped, forced ok=0 (NavGuard).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "the-drop-jet-up-exceptions-to-the-goal-in-another-region",
+   "title": "The drop / jet-up exceptions to the \"goal in another region\" re-snap need a bare, non-wate",
+   "subject": {
+    "kind": "concept",
+    "id": "the-drop-jet-up-exceptions-to-the-goal-in-another-region"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The drop / jet-up exceptions to the \"goal in another region\" re-snap need a bare, non-water goal cell (drops and up links land only there), else the search exhausts (400k cells, 100-200 ms).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "ma2-trav-build-begin-did-not-bump-the-grid-epoch",
+   "title": "ma2_trav_build_begin did not bump the grid epoch",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2-trav-build-begin-did-not-bump-the-grid-epoch"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "ma2_trav_build_begin did not bump the grid epoch; it does now.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "recomp-bot-pathtest-gains-exp-and-a-10th-field-up",
+   "title": "RECOMP_BOT_PATHTEST gains exp= and a 10th field,up",
+   "subject": {
+    "kind": "concept",
+    "id": "recomp-bot-pathtest-gains-exp-and-a-10th-field-up"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RECOMP_BOT_PATHTEST: new `exp=` (cells expanded) and optional 10th field `,up`; NaN coordinates parse (sscanf %f).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "ctrl-travel-at-a-partial-route-s-end-end-gap-12-no-longe",
+   "title": "ctrl_travel at a partial route's end (end_gap > 12) no longer overshoots into the wall",
+   "subject": {
+    "kind": "concept",
+    "id": "ctrl-travel-at-a-partial-route-s-end-end-gap-12-no-longe"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "ctrl_travel at a partial route's end (end_gap > 12) no longer overshoots into the wall: hold + no_path (NavFix).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "c7-replan-reasons-count-frames-not-plans",
+   "title": "[C7] replan reasons count frames, not plans",
+   "subject": {
+    "kind": "concept",
+    "id": "c7-replan-reasons-count-frames-not-plans"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "[C7] replan reasons count frames, not plans; [C7] pathslice queue_ms_max / sum is the real submit-to-activate wait.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "c7-table-sizes-after-merge",
+   "title": "C7 table enlarged to 256 pieces x 128 counters, 32 KB dump line (push-merge)",
+   "subject": {
+    "kind": "file",
+    "id": "c7-table-sizes-after-merge"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "ma2_bot_c7.c enum C7_PIECES 96->256 and C7_COUNTERS 24->128 (about 1.7 MB BSS). The merged tree has 127+ literal pieces (plus the sp_* pieces named through d->piece) and several pieces that exceed 24 counters: vtthreat (16 names x 4 skills = 50+), hg_perch, hg_climb 24, sp_mood 22, sp_b 20. c7_dump formats each piece into a static 32 KB line (was 1 KB, which silently cut long pieces); c7_piece/c7_counter try a pointer compare first and strcmp second; the first overflow of either table logs \"[C7] table full:\" once.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_c7.c",
+     "line": 14
+    }
+   ],
+   "tags": [
+    "bots",
+    "push-surprise",
+    "diagnostics"
+   ],
+   "date": "2026-10-30",
+   "how_to_use": "grep \"[C7] table full\" in a game log: no hit means every piece and counter had a slot."
+  },
+  {
+   "id": "all-new-switches-default-on-after-merge",
+   "title": "After the merge each new c7_on defaults to 1: Surprises (master) and Sp<Name> for revenge, grudge, mood, rooki",
+   "subject": {
+    "kind": "concept",
+    "id": "all-new-switches-default-on-after-merge"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "After the merge each new c7_on defaults to 1: Surprises (master) and Sp<Name> for revenge, grudge, mood, rookie (A-F), bait, pincer, powerup, level, stomp, hackcover, peeloff via the g_spdef table (default 1 in sp_on); SpBaitEnable (was 0, parked by push-s2, now 1); NoPathHold, SnapWide, SwapUnstick, ReplanFix, NavFix, NavGuard, LanePin, UnreachableGoal, LiftClaimFix, LiftBoardFix, LiftCarrier, LiftHuman, VtolWaitPlayer, VtolThreatAlt, VtolFetchFix, VtolTerrainClimb, VtolFastPad, BaWallClimb, HighGroundDrop, MechHighGround, HighGroundStay; env RECOMP_APU_FE_TRAP_FIX is on unless it is \"0\". Still default 0 by design: CarrierDanger, FlankCap, EliteHeat88 (older, not part of this push). Test hooks (RECOMP_BOT_SP_FORCE/SKILL, STOMP_GATE, HG_FORCE_CLIMB, TEST_ROLES, LIFT_TRACE .) are env-only and off.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_surprise_b.c",
+     "line": 234
+    }
+   ],
+   "tags": [
+    "bots",
+    "push-surprise",
+    "switches",
+    "defaults"
+   ],
+   "date": "2026-10-30",
+   "how_to_use": "RECOMP_BOT_SURPRISE=0 turns every surprise trick off; each [C7] <piece> switch=on|off line shows the live value."
+  },
+  {
+   "id": "merge-conflict-recipe-module-added-three-times",
+   "title": "Three branches add the same bare surprise module; take push-s1 whole",
+   "subject": {
+    "kind": "concept",
+    "id": "merge-conflict-recipe-module-added-three-times"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "push-s1, push-s2 and push-s3 each carry the shared module commit (ma2_bot_surprise.c/.h, c8c59d9 / 71625b8 / cherry-pick) so git sees add/add. s1 grew the module (SpBrain.mood_try, hpf, sp_rk_* prototypes); s2 and s3 never changed those two files. Merge s1 first, then take --ours for both files on the s2 and s3 merges, and keep the union of the brain.c include/forward-declaration lines: ma2_bot_surprise.h, ma2_bot_surprise_c.h, then ma2_bot_surprise.c, the sp2_pu_take forward declaration, ma2_bot_surprise_c.c, ma2_bot_brain_obj.c; ma2_bot_surprise_b.c is included later, before brain_tick_body. push-x2 and push-x3 both descend from push-x, so only the Ma2Senses initialiser line in ma2_bots_core.c needed a union (bld_ray/bld_get from s3 plus roofs from x2). push-y adds two brain.c hunks next to the surprise ones (the VtolThreatAlt block and the vt_air_t lines): keep both sides.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise",
+    "merge"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "apu-vp-compiled-from-overlay",
+   "title": "apu_vp.c (push-y) is built from the overlay through the xbox_apu.lib ninja edge",
+   "subject": {
+    "kind": "file",
+    "id": "apu-vp-compiled-from-overlay"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "kit/source/game/src/apu/apu_vp.c has a compile edge in combined.ninja (xbox_apu.dir/apu_vp.c.obj) that points at the worktree source, and the xbox_apu.lib edge re-archives it when the exe target is built, so the push-y front-end edit reaches the dev exe and the kit without a lib-replace step. All other files edited by this push (kit/source/game/src/bots/*) are #included into ma2_bots_core.c / ma2_bot_brain.c and are built from source.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-surprise",
+    "build"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "roof-scan-bounds-guard",
+   "title": "The x2 roof scan sizes its grid from the terrain header and now rejects garbage values",
+   "subject": {
+    "kind": "file",
+    "id": "roof-scan-bounds-guard"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "ma2_bots_core.c roofs_step reads the terrain cell size and grid dimensions from guest memory; the grid step grew in a loop until the grid held 300k cells. A NaN/inf/huge header could spin that loop or size the allocation from UB, so the scan now bails (state 2, no roofs) unless 0 < cell < 1000 and the map is under 100 km, and the step is capped at 200 m. Normal maps are unchanged (UC: 204x409 cells at 5 m, 11 roofs).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2922
+    }
+   ],
+   "tags": [
+    "bots",
+    "push-surprise",
+    "safety",
+    "roofs"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "wall-climb-state-resets-on-new-body",
+   "title": "A BattleArmor wall climb in progress no longer leaks into the next body",
+   "subject": {
+    "kind": "file",
+    "id": "wall-climb-state-resets-on-new-body"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "BotCtrl.co_phase (x2 wall climb) survived a body change. If the BA died or was boarded away while latched (phase 3), the next climb_order call ran ba_release on the NEW actor (a pilot or Mech), calling the claw-release routine on an object that is not a BattleArmor. The new-body block in ma2_bot_ctrl.c now clears co_phase, co_done, co_res, the stick axis and climb_state.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 3346
+    }
+   ],
+   "tags": [
+    "bots",
+    "push-surprise",
+    "safety",
+    "climb"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "level-trick-skips-own-side-buildings",
+   "title": "Level never shoots a building of its own side",
+   "subject": {
+    "kind": "file",
+    "id": "level-trick-skips-own-side-buildings"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Ma2BldView gained nation (actor_int +0xA8, the same read objective_update uses; 1/2 = team, -1 unknown). spc_level_look returns when v.nation == me->nation, so an Elite whose enemy ducked behind a team building (Base War, own base) does not level it. The kill-delta loop in sp_world_tick is also capped to SP_KEV events per frame so a scoreboard jump cannot spin it.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_surprise_c.c",
+     "line": 100
+    }
+   ],
+   "tags": [
+    "bots",
+    "push-surprise",
+    "safety",
+    "teamfire"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "roof-scan-uc-grid",
+   "title": "Roof scan: 400 surface rays per game step, RF_MAX 192 roofs, flood fill of cells 8 m over terrain",
+   "subject": {
+    "kind": "file",
+    "id": "roof-scan-uc-grid"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "ma2_bots_core.c roofs_step/roofs_finish (push-x2): once per map, after the nav grid is ready, samples surface_height on a <=300k-cell grid (5 m step on UC), flood-fills cells >= 8 m above the terrain into blobs, and keeps blobs of >= 6 cells whose flat top is >= 10 m over ground as one stand point each. sn_roofs returns the nearest 8 within maxd and re-checks each with one surface ray (a destroyed building drops out). Log line [BOT-ROOFS] grid . -> N roofs; env RECOMP_BOT_ROOFS=0 disables. Only 11 of about 25 UC buildings qualify; NRC was not scanned.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2852
+    }
+   ],
+   "tags": [
+    "bots",
+    "push-surprise",
+    "roofs",
+    "climb"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "vtol-two-riders",
+   "title": "VtolTwoRiders: a bot VTOL holds for and carries two BattleArmor (the player + a bot)",
+   "subject": {
+    "kind": "setting",
+    "id": "RECOMP_BOT_VTOL_TWO_RIDERS / [Bots] VtolTwoRiders"
+   },
+   "addresses": [],
+   "related": [
+    "VtolMuster",
+    "VtolWaitPlayer",
+    "MusterWhere",
+    "g_frun",
+    "order_lift",
+    "lift_hold"
+   ],
+   "fact": "Default on. VtolMuster now holds while fewer than two ride (never with their flag carrier aboard), prefers the player over a nearer bot, also over a lift request from a BattleArmor within 50 m, and also on its own flag run at pickup/inbound when 400 m or more from their flag (MusterWhere's 200 m rule kept). order_lift with one rider aboard hovers for the second via lift_hold (bot: 9 m + 1.5 m so the hanging rider clears the ground; player: 12 m over him, 12 m ahead), or fetches the run's BattleArmor within 150 m with the player aboard (else that run ends, 'too far to fetch'). frun_consider still rolls while holding for the player, so a bot partner comes too.",
+   "how_to_use": "[BOT-MUSTER] lines print '(N aboard, run <phase>)'; [BOT-TWORIDERS] 'carries two'; [C7] tworiders hold_second_bot/player, two_aboard_player_bot, hold_filled, fetch_second, second_joined_*, muster_short_hop_skipped.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 248
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 4650
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "battlearmor",
+    "ctf",
+    "lift"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "frun-second-ba",
+   "title": "g_frun[n].ba2: the second BattleArmor on a flag run; whoever takes the flag is flown home",
+   "subject": {
+    "kind": "global",
+    "id": "g_frun[].ba2"
+   },
+   "addresses": [],
+   "related": [
+    "frun_step",
+    "frun_eval",
+    "frun_member",
+    "order_ride"
+   ],
+   "fact": "When the run's VTOL carries a rider that is not g_frun.ba, the VTOL eval records it as ba2 ([BOT-TWORIDERS] joins the flag run). frun_member counts ba2, so a bot ba2 gets order_ride's flagrun-drop over their flag, and frun_eval sends it to OP_GRAB in FR_GRAB. frun_step swaps ba/ba2 (.human) when ba2 carries their flag ('second_carries') or when ba is lost ('second_takes_over'), so FR_EXTRACT fetches the actual carrier. Proven: player + bot flown , the bot took the flag and was flown home and captured (test wa2r3 11-01); in wa2r4 the player took it, captured as a player run.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 2749
+    }
+   ],
+   "tags": [
+    "bots",
+    "ctf",
+    "flagrun"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "vtol-two-riders-physics",
+   "title": "Two BattleArmor can clamp onto one VTOL at once (rider list actor+0x1A8)",
+   "subject": {
+    "kind": "concept",
+    "id": "VTOL rider list"
+   },
+   "addresses": [
+    "0010239A",
+    "001019EB"
+   ],
+   "related": [
+    "ba_clamp",
+    "build_player"
+   ],
+   "fact": "The VTOL rider vector (12-byte entries at actor+0x1A8.+0x1AC) takes a second BattleArmor: a bot clamped (ba_clamp, 10.9-11.0 m horizontal) under a VTOL already carrying the player; both stayed on for the 18 s flight to their flag and both were set down there. Hovering 10.5 m over the bot (cargo 3 + 1.5 m) the player hung 1-4 m off the ground and was not knocked off.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 4796
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "battlearmor"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "muster-short-hop",
+   "title": "A bot BattleArmor no longer boards a mustering VTOL for a ride shorter than 150 m",
+   "subject": {
+    "kind": "concept",
+    "id": "g_muster BattleArmor side"
+   },
+   "addresses": [],
+   "related": [
+    "VtolMuster",
+    "order_ride",
+    "BaReclaw"
+   ],
+   "fact": "order_ride lets a generic rider go within 150 m of its lift destination, so a bot BattleArmor standing beside a VTOL at our stand after a capture was mustered, clawed on, let go at once and reclawed every 2 s (BaReclaw). Under VtolTwoRiders the BA side skips the muster when its lift destination (or objective / roam point) is within 150 m and it is not carrying their flag ([C7] tworiders muster_short_hop_skipped).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 3677
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "battlearmor"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "ba-hack-close",
+   "title": "BaHackClose: per-skill NeuroHack odds for an enemy 'Mech within 25 m, +15 points against the player",
+   "subject": {
+    "kind": "setting",
+    "id": "RECOMP_BOT_BA_HACK_CLOSE / [Bots] BaHackClose"
+   },
+   "addresses": [],
+   "related": [
+    "G_HACK",
+    "F19",
+    "BaHackSeek",
+    "BaHackCommit"
+   ],
+   "fact": "Default on (playtest 11-01). The hack pick was a bare utility race (1.0 under 45 m) that an Elite already in G_ATTACK never lost (~0.87 + 0.15 hysteresis). Now an engageable enemy 'Mech within 25 m (BA health >= 0.35, not hacked in the last 30 s) is rolled for once per encounter: Recruit 45%, Regular 60%, Veteran 75%, Elite 85%, +15 points (cap 95%) against the human's 'Mech. A win sets s[G_HACK] = 1.4 for that 'Mech while it stays within 25 m; F19's commit then holds the hack. The result is kept per memory slot; a new roll needs another 'Mech, or this one out of 25 m for 5 s and the last roll 5 s old. A loss leaves the old rules.",
+   "how_to_use": "[BOT-HACKROLL] t= bot= (skill) 'Mech . (player) d: p% -> hack/no; [C7] bahackclose rolls_<skill>, wins_<skill>, rolls_vs_player, wins_vs_player.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 256
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 3579
+    }
+   ],
+   "tags": [
+    "bots",
+    "battlearmor",
+    "hack"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "test-two-riders-hooks",
+   "title": "Test hooks RECOMP_TEST_BOT_BA / RECOMP_TEST_BOT_VTOL / RECOMP_TEST_HFERRY_REACH",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_TEST_BOT_BA"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_TEST_HUMAN_FERRY",
+    "vehicle_pref_b"
+   ],
+   "fact": "RECOMP_TEST_BOT_BA=<bot index> / RECOMP_TEST_BOT_VTOL=<bot index> set that bot's preference for a BattleArmor / VTOL to 3.0 in vehicle_pref_b (it takes and keeps one; a vehicle_value bonus alone was swapped away). RECOMP_TEST_HFERRY_REACH=1 (with RECOMP_TEST_HUMAN_FERRY) walks the human BattleArmor toward a bot VTOL within 40 m and holds Space 0.9 s every 2.5 s within 15 m (the jet up to VtolMuster's 12 m player hover; the game's own claw then took him), tries ba_clamp every 0.3 s, and clears his lift request once he rides. Proof recipe on BoggedDown_Plateau CTF 5v6: HUMAN_FERRY=0, HFERRY_REACH=1, BOT_BA=2, BOT_VTOL=1, RECOMP_BOT_FLAGRUN_TEST=1.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 2202
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 5285
+    }
+   ],
+   "tags": [
+    "bots",
+    "test-hook"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "mech-death-blast-fuse-2-2s-reach-45m",
+   "title": "A 'Mech death blast goes off 2.2 s after its health reaches 0 and kills out to ~45-50 m",
+   "subject": {
+    "kind": "behaviour",
+    "id": "death_blast"
+   },
+   "addresses": [],
+   "related": [
+    "DeathBlastFlee"
+   ],
+   "fact": "Measured over 269 MCP test matches ([DEATH] pairs + [BOT-BLAST]): units within 60 m of a 'Mech that goes down die 2.2-2.3 s after its health reaches 0 (609 of the nearby deaths in that bin; 52 of 63 at exactly +2.2 s from hp zero); 120-400 m apart the timing is flat, so it is the blast. A second peak at +4.4 s is a chain (a 'Mech killed by the first blast blows 2.2 s later). Deaths by distance before any fleeing: 0-29 m ~60%, 30-39 m 40%, 40-49 m 29%, 50-59 m 18% (already-damaged units die further out). Core now models 45 m for 2.6 s (was 35 m for 6 s).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3820
+    }
+   ],
+   "tags": [
+    "bots",
+    "death-blast",
+    "measurement"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "mech-turnaround-pivot-1s",
+   "title": "A running 'Mech told to go behind itself plays a ~1 s pivot at walk pace; backing out is faster",
+   "subject": {
+    "kind": "behaviour",
+    "id": "mech_locomotion"
+   },
+   "addresses": [
+    "002AD5C0"
+   ],
+   "related": [
+    "002AD5C0",
+    "body_walk_direct"
+   ],
+   "fact": "MechAI MoveTo (mode 6, run=1) to a point behind a 'Mech running at full speed: actor+0x268 bit 0 (run) drops to 0 and anim 6 plays for ~1 s while it turns at ~walk pace, then anim 1, then anim 2 (run) again (trace game-bA bot 2 t=24.4). A death-blast escape lost ~half its 2.2 s that way: escaping 'Mechs averaged 0.51 of top speed against 0.93 in normal travel. sub_2AD5C0 forward speed takes a SIGNED percent (cvtsi2ss * comp+0xBC * 0.01, clamped to +-comp+0xC0), so body_walk_direct(. -100) with the nose held on the hazard backs straight out with no pivot. A/B (RECOMP_TEST_FAKE_BLAST, ~48 escapes each): outward speed old 4.2, 80 m carrot 5.4, direct walk 3.1 (walk pace), back-out 6.6 m/s. CAUTION: driving a 'Mech backwards from the bot tick crashed a real match (game-bR1, t=144.7): wild guest write in the 'Mech animation update (MAMech vt slot 51 sub_FED88 -> +0x868 track table) while four 'Mechs backed out (anim 37). The campaign AI never reverses; do not ship a negative-speed drive without finding that fault.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 3940
+    }
+   ],
+   "tags": [
+    "bots",
+    "locomotion",
+    "death-blast"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "blast-escape-fixes-1101",
+   "title": "Death-blast escape fixes 11-01: BattleArmor hop out, 'Mechs back out, fire held, overrides closed",
+   "subject": {
+    "kind": "feature",
+    "id": "BlastDrive"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_TEST_FAKE_BLAST",
+    "BaHackFlee"
+   ],
+   "fact": "ctrl_bomb_escape: BattleArmor leave on jet hops (BlastHop; their MoveTo walk is 0 m/s, so a fleeing BA in a travel order stood still: 318 frames at speed 0 in one match); 'Mechs steer at a point 80 m out along the escape line (BlastDrive, RECOMP_BOT_BLAST_DRIVE 0-3, default 1; 3 = back out, test only: it crashed a real match); no shots while leaving a death blast (BlastHoldFire). Reaction by skill now Recruit 0.4 / Regular 0.3 / Veteran 0.2 / Elite 0.1 s (was 0.6/0.4). Overrides closed: a pilot's own-pack run-off (bomb_flee_until) skipped the escape and then re-steered it to 32 m; a BattleArmor on a wall-climb order (climb_order returns first) never ran it. Test hook RECOMP_TEST_FAKE_BLAST=<s> puts a harmless blast 18 m ahead of the next bot every <s> s; scratch tools blastmon.py / fleespeed.py audit escapes from [TRACE].",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 3850
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3857
+    }
+   ],
+   "tags": [
+    "bots",
+    "death-blast",
+    "test-hook"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "type-map-runtime-read-1101",
+   "title": "Reading the terrain type map at run time: [0x50C8E0] MATerrainInfo -> layer [+0x84] -> picture [+0xC]",
+   "subject": {
+    "kind": "function",
+    "id": "000F7AC7"
+   },
+   "addresses": [
+    "000F7AC7",
+    "000F7A96",
+    "000F7AA6",
+    "00189E62",
+    "001899C6",
+    "002674A0",
+    "00267410",
+    "00267420",
+    "0050C8E0"
+   ],
+   "related": [
+    "MATerrainInfo",
+    "1F1646EA",
+    "VtolEdgeKeep"
+   ],
+   "fact": "sub_F7AC7(this = active MATerrainInfo [0x50C8E0], layer, category, x, z) tests a terrain category at a point: sub_F7A96 picks the layer [TI+0x84+layer*4] (layer 0 = the type map), sub_F7AA6 the category record [TI+0x88+(layer*11+cat)*4] (mask +0x10, shift +0x14), sub_189E62 turns the position into a picture cell (cell = picture width sub_267410 [pic+0x58] / (terrain samples [0x4EAF64]+4 x cell size +0x814) x position; height [pic+0x5C] likewise; picture = [layer+0xC], valid when [pic+0x38] != 0) and sub_1899C6 -> sub_2674A0 reads the pixel at [pic+0x4C] + x*[pic+0x24] + z*[pic+0x50] (16-bit when [pic+0xC] & 7). The raw 16-bit value is the type (0 play, 1 out of bounds, 2 border, 8/16/32 water). ti_type_at in ma2_bot_ctrl.c reads it the same way natively.",
+   "how_to_use": "RECOMP_BOT_DIAG=1 RECOMP_BOT_VTOL_EDGE_DUMP=1 prints the map as the bot air planner sees it ([BOT-VEDGE] z= rows: # out of bounds, + border band, play).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1180
+    }
+   ],
+   "tags": [
+    "terrain",
+    "type-map",
+    "bots",
+    "vtol"
+   ],
+   "date": "2026-11-01",
+   "addresses_unverified": [
+    "004EAF64"
+   ]
+  },
+  {
+   "id": "invisible-wall-2-1-edge-1101",
+   "title": "The out-of-bounds wall stands at the type-map 2/1 edge and holds at any height; band 2 also rims cliffs inside the arena",
+   "subject": {
+    "kind": "concept",
+    "id": "type map out-of-bounds wall"
+   },
+   "addresses": [],
+   "related": [
+    "MATerrainInfo",
+    "1F1646EA",
+    "Deliverance",
+    "Bogged Down"
+   ],
+   "fact": "So the invisible wall is at the 2/1 edge, not the 0/2 edge, and VTOL height does not get past it. Deliverance's whole middle hill (85-100 m) is type 1: the playable area is the valley that bends round it. Type 2 is not only the outer rim: Bogged Down marks its plateau cliff faces inside the arena with 2, so 2 cells must stay passable for fliers.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1168
+    }
+   ],
+   "tags": [
+    "terrain",
+    "type-map",
+    "vtol",
+    "boundary"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "vtol-lane-route-1101",
+   "title": "VtolLaneRoute: VTOL long legs planned on a 20 m air grid (valley/lane following, no gratuitous climbs)",
+   "subject": {
+    "kind": "setting",
+    "id": "VtolLaneRoute"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_VTOL_LANE_ROUTE",
+    "VtolTerrainClimb",
+    "ModClimb",
+    "vtol_air_route"
+   ],
+   "fact": "In a playtest (11-01) Deliverance VTOLs climbed high over the hill instead of following the valleys. Legs of 150 m+ are planned by an A* on a 20 m grid built once a match from the walk grid's surface (highest per cell): cost = length x lane factor (0.9 on a lane, 0.75 on the flight's favoured lane) x (1 + height over max(start, goal height)/K) + 2 per metre climbed, then pulled tight where the straight cut stands no more than `slack` over the cells it replaces. A goal on a plateau costs nothing extra (Bogged Down ferry 848 m vs 834 m straight); a wide high crossing costs about a 1.5x valley detour. Routes needing a climb past a learned cap or 90 m still take the ground route; short legs stay VtolTerrainClimb's straight line. Before: Deliverance VTOLs at 104-107 m over the hill (max_y 107.6, ground_tall 25 a match); after: ferries along the valley at a median 28-36 m, flag runs completed inbound -> grab -> extract with the rider on. Plans cost 1-2.6 ms max.",
+   "how_to_use": "RECOMP_BOT_VTOL_LANE_ROUTE=0 / [Bots] VtolLaneRoute=0 restores the straight leg. RECOMP_BOT_DIAG: [BOT-VROUTE] per plan (straight vs route length, hi400, closest edge, roll, points). [C7] vtlane: plans, bends, straight, fail, lane_s, plan_ms, ground_tall/ceiling.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1145
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "pathing"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "vtol-route-vary-1101",
+   "title": "VtolRouteVary: each VTOL flight rolls its own route (K, lane, cost field, corner slack, cruise band)",
+   "subject": {
+    "kind": "setting",
+    "id": "VtolRouteVary"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_VTOL_ROUTE_VARY",
+    "VtolLaneRoute"
+   ],
+   "fact": "In a playtest (11-01) every VTOL flight between the same two points took the same route. A flight (a goal 80 m+ from the last, or 90 s on) rolls K 45-90 (rider caps it at 50), a favoured lane (30% none), a smooth +-35% cost field on a 160 m lattice, slack 6-18 m (10 with a rider) and a cruise band 0-12 m (4 with a rider), seeded from the clock per match, the bot and the flight count; replans keep the roll (no jitter). Over four Deliverance runs the north-base-to-west-flag flights left the base by different exits (east round 1590,350-1590,470 or straight SW by 1430,430 / 1290,590) and cut the valley corner differently.",
+   "how_to_use": "RECOMP_BOT_VTOL_ROUTE_VARY=0 / [Bots] VtolRouteVary=0: fixed K 60, lanes 0.85, no field. [C7] vtvary: flights, lane_none/lane_0.2, band_hi, k_lo.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1145
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "pathing"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "vtol-edge-keep-1101",
+   "title": "VtolEdgeKeep: VTOL routes keep off type-map out-of-bounds cells (general, any map incl. custom)",
+   "subject": {
+    "kind": "setting",
+    "id": "VtolEdgeKeep"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_VTOL_EDGE_KEEP",
+    "MATerrainInfo",
+    "1F1646EA"
+   ],
+   "fact": "In a playtest (11-01) VTOLs flew right up to the invisible wall on the tall cliff tops, exploiting the map edge. The air grid marks cells with any type-1 sample (4 m sampling) as out of bounds and band-only cells as border; routes never cross out-of-bounds cells, keep 25 m off them (waived within 60 m of start/goal; over a band now, the way out is open), pay up to x2.5 within 60 m and x1.5 on band cells; a goal on an out-of-bounds cell is moved to the nearest cell 20 m+ inside (a retreat spot on Deliverance's hill had sent a VTOL to 111 m against the wall); fight hide/slide spots keep 25 m off. Measured per flight ([BOT-VEDGE] closest approach to type-1): Deliverance final run over_oob_s 0.5 s / 180 s (0.5 s while hovering cover near the west flag), Ill Wind 0, Bogged Down 0; closest approaches under 20 m only at flags that sit near the edge.",
+   "how_to_use": "RECOMP_BOT_VTOL_EDGE_KEEP=0 / [Bots] VtolEdgeKeep=0. [C7] vtedge: flights, flights_lt20/lt40, near20_s, over_border_s, over_oob_s, goal_pulled_in, spot_moved, nomap.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1168
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "boundary"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "ba-hack-flee-1101",
+   "title": "BaHackFlee: bot 'Mechs leave an enemy BattleArmor inside 18 m like a death blast",
+   "subject": {
+    "kind": "setting",
+    "id": "BaHackFlee"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_BA_HACK_FLEE",
+    "ctrl_bomb_escape",
+    "DeathBlastFlee"
+   ],
+   "fact": "A successful NeuroHack is an instant kill, so 'Mechs move away from a BattleArmor at close range as they do from a self-destructing 'Mech (playtest 11-01). In ctrl_bomb_escape every alive enemy BattleArmor within 18 m (and 15 m of height), not riding a VTOL and not clamped to anyone, is a hazard of radius 26 m with the death blast's reaction by skill; not once one is clamped on (the QTE code answers that). Verified: [BOT-BOMBAV] '(enemy BattleArmor)' escapes in every 5v6 CTF run (Deliverance 7 in one match, by skills 0/2/3), and one from the human's BattleArmor on Bogged Down (vs_human=1).",
+   "how_to_use": "RECOMP_BOT_BA_HACK_FLEE=0 / [Bots] BaHackFlee=0. [C7] bahackflee: fled, fled_sk0.3, vs_human, flee_s.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 3905
+    }
+   ],
+   "tags": [
+    "bots",
+    "battlearmor",
+    "neurohack"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "vtol-edge-all-1101",
+   "title": "VtolEdgeAll: every VTOL steer target and leg keeps off the type map's out-of-bounds cells (25 m, more when high)",
+   "subject": {
+    "kind": "setting",
+    "id": "VtolEdgeAll"
+   },
+   "addresses": [
+    "0050C8E0"
+   ],
+   "related": [
+    "RECOMP_BOT_VTOL_EDGE_ALL",
+    "VtolEdgeKeep",
+    "vt_keep_in",
+    "vt_route_keep",
+    "ef_ready"
+   ],
+   "fact": "In a playtest (11-01) bot VTOLs still hugged the map edge, on custom maps too. VtolEdgeKeep covered only long planned legs. VtolEdgeAll builds a distance field at the type map's own resolution (MATerrainInfo [0x50C8E0] layer +0x84 picture +0xC; bit 1 = out of bounds; Deliverance 512x512 at 4 m, built in 1.5-3.3 ms) and keeps every VTOL goal, carrot and cargo hover off it (25 m; 10 m for hook/drop tether work), the keep growing 1 m per metre over 20 m above the ground (to 55 m). A point in the band moves up the field's slope (the edge normal), else to the nearest ring point clear. Every route (air A*, straight short leg, ground route) has its corners kept in and gets a bend where a leg dips 3 m+ into the band (not the way out of a band it starts ). The missile dodge flips away from the edge, and a craft that drifts in anyway (carried past its point, a firing hover where it stopped) is flown back out to 30 m. Measured 5v6 CTF, player ferried, off -> on: Deliverance closest approach 0.0 -> 34.3 m, 4.0 -> 0 s within 25 m, peak 61 -> 43 m up; Bogged Down 0.0 -> 29.6 m, 8.5 -> 0 s, high-near-edge 6.7 -> 0 s; the Bogged Down ferry still flew the plateau edge straight (767 m closed in 774 flown). Plain 5v6 Deliverance matches vary: 9.4 s within 25 m of 237 s airborne before the drift recovery, 1.0 s of 190 s after it. Follow-up: the route keep is 28 m, the recovery acts under 24 m and only 12 m+ up (MoveTo at 6 m held a craft taking off from a pad 8 s), and a craft closing on the edge fast is braked on the reversed stick (a firing hover let go at 58 m/s coasted 20 m over the line).",
+   "how_to_use": "RECOMP_BOT_VTOL_EDGE_ALL=0 / [Bots] VtolEdgeAll=0 = VtolEdgeKeep alone. [C7] vtedgeall: goal_in_s, dest_in_s, hover_in_s, pts_in, bends, keep_fail, dodge_flip, and (switch on or off) air_s, in25_s, in15_s, hi_near_s, worst_in_m. RECOMP_BOT_VTOL_TRACE=1 prints [BOT-VEDGE2] pos/agl/edge twice a second.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1236
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "map-edge",
+    "type-map"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "vtol-edge-grid-chamfer-bug-1101",
+   "title": "VtolEdgeKeep's 20 m edge grid chamfer read unvisited neighbours: distances stopped two cells from out of bounds",
+   "subject": {
+    "kind": "function",
+    "id": "ag_build"
+   },
+   "addresses": [],
+   "related": [
+    "VtolEdgeKeep",
+    "VtolEdgeAll",
+    "g_ag.ed"
+   ],
+   "fact": "In ag_build (ma2_bot_ctrl.c) the two chamfer passes used s = pass ? 1: -1 with neighbours i - s, so the forward pass read the right/below neighbours (not yet visited) and the backward pass the left/above ones: each pass moved a distance one cell, so g_ag.ed was exact only within ~40 m of out of bounds and 1e9 beyond (the 60 m cost ramp was cut at 40 m). The same pattern copied into the fine field left 1e9 beyond 8 m. Fixed (s = pass ? -1: 1) for the fine field always and for the 20 m grid under VtolEdgeAll.",
+   "how_to_use": "A two-pass chamfer must read only neighbours already visited in that pass's order.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1373
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "bug"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "ba-hack-hop-1101",
+   "title": "BaHackHop: BattleArmor walk is 0 m/s, so a hack needs aimed hops; the jump's direction ai+0x244 can be steered mid-burn",
+   "subject": {
+    "kind": "setting",
+    "id": "BaHackHop"
+   },
+   "addresses": [
+    "0018ABB5",
+    "0018AD06",
+    "0010239A"
+   ],
+   "related": [
+    "RECOMP_BOT_BA_HACK_HOP",
+    "BaHackCommit",
+    "F19",
+    "BaHackFlee",
+    "ctrl_do_hack",
+    "ba_hack_hop"
+   ],
+   "fact": "Why bot BattleArmor rarely clamped: a BA's MoveTo walk is 0 m/s and F19 blocked every hop inside 40 m of the 'Mech (a travel hop flew 52-65 m past it), so inside 40 m a hacking BA stood still and only clamped a 'Mech that walked up; BaHackFlee 'Mechs walk off at 18 m. BaHackHop hops at the 'Mech inside 60 m: aimed at its position + velocity x flight time x a skill lead share (0.35/0.6/0.85/1.0), steered during the burn by rewriting the StartJump direction ai+0x244/+0x24C (sub_18AD06 reads it every tick; turn rate 1.2-4 rad/s by skill), the burn cut by setting the end time ai+0x250 to now once the coast would carry it on, the next hop after a skill reaction and the fuel the distance needs (0.4 s + 1 s per 38 m), the claw tried every 0.15 s within 11 m. Vs the player lead and turn are 0.6x. Measured over 3 off / 4 on 5v6 CTF matches: won hack rolls 9 -> 12, clamps on 'Mechs 1 -> 7, NeuroHacks done 1 -> 6; all 7 claw tries inside 11 m took. A 'Mech running 17-22 m/s outruns the hops.",
+   "how_to_use": "RECOMP_BOT_BA_HACK_HOP=0 / [Bots] BaHackHop=0 = the old F19 approach. [C7] bahackhop: hops, hops_vs_player, steer_s, cuts, fuel_wait_s, tries_air/ground, refused_air/ground, clamps, clamps_vs_player, miss_m_sum/miss_n. [BOT-HACKHOP] per hop (DIAG).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 3736
+    }
+   ],
+   "tags": [
+    "bots",
+    "battlearmor",
+    "neurohack"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "mechai-startjump-fields-1101",
+   "title": "StartJump sub_18ABB5 jump state: ai+0x240 jumping, +0x244 unit direction, +0x250 end time, +0x254 duration, +0x258 strength",
+   "subject": {
+    "kind": "function",
+    "id": "sub_0018ABB5"
+   },
+   "addresses": [
+    "0018ABB5",
+    "0018AD06"
+   ],
+   "related": [
+    "ai_startjump",
+    "body_jump_fuel_max"
+   ],
+   "fact": "sub_18ABB5(ebx=ai; dir*, dur, str) needs jet fuel actor+0x49C > 1, clamps dur to the fuel, normalises dir (sub_464C0) into ai+0x244.+0x24C, sets ai+0x240 = 1, +0x258 = strength, +0x254 = duration and +0x250 = game time + duration. The per-tick jet flight sub_18AD06 (only under MoveTo / AI mode 6) reads +0x244/+0x248/+0x24C and +0x258 every tick and clears +0x240 once the time passes +0x250. Measured on a BattleArmor: ~24-27 m/s along the ground while airborne (burn and coast), gravity ~44 m/s2, fuel burns ~1/s and refills ~0.9/s, a 1.5 s burn flew ~65 m, an 0.85 s burn ~11 m; a body held in AI mode 7 (body_stop) does not fly a started jump.",
+   "how_to_use": "Steer a jump mid-burn by rewriting the x/z of ai+0x244 (keep it unit length); end the burn early with ai+0x250 = now.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 317
+    }
+   ],
+   "tags": [
+    "bots",
+    "battlearmor",
+    "jumpjet"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "ba-dip-hop-1101",
+   "title": "BaDipHop: a BattleArmor with somewhere to go that stays within 4 m for 3.5 s hops out toward the lowest rim",
+   "subject": {
+    "kind": "setting",
+    "id": "BaDipHop"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_BA_DIP_HOP",
+    "BaUnstick",
+    "DropLedge",
+    "ba_dip_hop"
+   ],
+   "fact": "Logs 11-01 (Bogged Down) showed two shapes: (a) in a hollow under 20 m high ground, held in place by a stop each step so a started jump never flew, 11 s at 969,5,1247; (b) a drop leg begun mid-hop: drop_y0 was taken in the air, landing 8 m lower read as 'came down', so neither the 5 s give-up nor DropLedge's jet ran: 49 s at 886,17,1185 'stepping off'. BaDipHop: after any order step, a BA whose TRAVEL / FIGHT_MOVE / HACK / ENGAGE goal is away and that stayed within 4 m for 3.5 s (not jumping, not holding a partial route's end) waits for fuel 1.2, scores 12 bearings by the highest surface 4-20 m out plus 6 m per (1 - cos) off the route's next point, jets at that rim + 3 m and steers there under MoveTo until it lands; a drop attempt seen in the air restarts on landing. BA-heavy Bogged Down match: 2 stuck spells, 2 hops, both freed (8 m+ away 5 s later).",
+   "how_to_use": "RECOMP_BOT_BA_DIP_HOP=0 / [Bots] BaDipHop=0. [C7] badiphop: stuck_n, hops, fuel_wait_s, freed, still, drop_reseat. [BOT-DIPHOP] (DIAG).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 3802
+    }
+   ],
+   "tags": [
+    "bots",
+    "battlearmor",
+    "stuck"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "ferry-deliverance-stall-1101",
+   "title": "Deliverance player ferry 'stall at the pickup' = the test hook's 8 m claw gate, plus a 45 s second-rider chase",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_TEST_HUMAN_FERRY"
+   },
+   "addresses": [
+    "0010239A",
+    "001019EB"
+   ],
+   "related": [
+    "VtolMuster",
+    "VtolTwoRiders",
+    "TwoWaitCap",
+    "order_lift",
+    "ba_clamp"
+   ],
+   "fact": "(1) For 120 s no friendly bot flew a VTOL (all took 'Mechs): use RECOMP_TEST_BOT_VTOL. (2) The VTOL then came down 10 m off and 8 m up the standing human (lift-pickup; MoveTo settles short) and hung there 45 s, but the hook only tried the claw under 8 m horizontal: the game's clamp test sub_10239A accepts a friendly VTOL much further out (clamped at 13.0 m / 12.3 m up = 17.9 m 3D in wd_f1, refused at 13.0 m / 15.3 m up in wcdel0). (3) With the player aboard, the VTOL held for the run's bot BattleArmor, which chased it jetting 40-50 m away for 45 s; the hold's 8-11 s clock restarted every time the BA hopped out of 50 m, the run ended 'pickup too long' and was rolled again at once with the same BA (twice). The hook now tries the claw within 13 m / 16 m up and lets go within 30 m of their flag (up to 30 m up, as a player would); TwoWaitCap fixes (3). Proof wd_f1: clawed on at the base (1460,281), flown 1400 m to within 47-58 m of their flag at (357,1208).",
+   "how_to_use": "RECOMP_TEST_HUMAN_FERRY=0 RECOMP_TEST_BOT_VTOL=4 on Deliverance_Test (bot 4 = nation 1; on Bogged Down use 1). [TEST-HFERRY] lines.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 5333
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "ferry",
+    "test-hook"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "two-wait-cap-1101",
+   "title": "TwoWaitCap: a VTOL with one rider waits at most 12 s for a second, and rolls no run while the player hangs on",
+   "subject": {
+    "kind": "setting",
+    "id": "TwoWaitCap"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_TWO_WAIT_CAP",
+    "VtolTwoRiders",
+    "VtolMuster",
+    "frun_consider",
+    "order_lift"
+   ],
+   "fact": "TwoWaitCap (RECOMP_BOT_TWO_WAIT_CAP / [Bots] TwoWaitCap, default on): (a) a VtolMuster hold that lapses under 4 s (the BattleArmor hopped out of 50 m) and comes back keeps its 8-11 s clock; (b) with one rider aboard, holding (lift_hold) or fetching the run's BattleArmor for a second rider lasts 12 s at most (two_wait_over), then the pickup run ends ('the second BattleArmor did not make it aboard', [C7] frun ends_second_missed), the hold is given up 45 s, no second hold for 30 s, and the one aboard is flown (the player's VtolWaitPlayer run); (c) frun_consider rolls no new run while the player hangs on (it used to restart the same pickup run with him aboard). Cause: a VTOL flying with a rider overshoots a moving BattleArmor at 20-50 m/s, so the BA never got under it (wbdel1, 100 s lost). [C7] twowaitcap capped_player_aboard / capped_bot_aboard / resumed / no_run_rider.",
+   "how_to_use": "RECOMP_BOT_TWO_WAIT_CAP=0 restores the old hold. [BOT-TWORIDERS] '. stops waiting for a second rider after 12 s'.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 250
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "ferry",
+    "ctf"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "player-run-hurt-1101",
+   "title": "PlayerRunHurt: a badly damaged VTOL carrying the player decides once -- press on to their flag, or set him down",
+   "subject": {
+    "kind": "setting",
+    "id": "PlayerRunHurt"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_PLAYER_RUN_HURT",
+    "VtolWaitPlayer",
+    "frun_step",
+    "order_lift",
+    "RECOMP_TEST_FERRY_HURT"
+   ],
+   "fact": "Cause of the restart loop: frun_step ended the player's flag run when the VTOL fell below the give-up health (Recruit 0.5 / Regular 0.42 / Veteran 0.35 / Elite 0.28), and order_lift's VtolWaitPlayer start, which had no health test, began it again the next tick while he still hung on (wa2r4: 81 starts / 79 '0 s' damage ends in 10 s, [C7] frun started_player 13 / ends_damaged 11). PlayerRunHurt (RECOMP_BOT_PLAYER_RUN_HURT / [Bots] PlayerRunHurt, default on): with the player aboard the VTOL calls it once (hurt_decide, g_hurt[nation]): within Recruit 200 / Regular 280 / Veteran 360 / Elite 450 m of their flag it presses on (the run's damage end is skipped while he rides); further out it sets him down -- at our stand if within 350 m, else 150 m back toward it -- coming down low there (note lift-hurt-setdown, ends_damaged_setdown). The call stands while he hangs on (the lift goal is kept down to 8 % health) and 45 s after he lets go. Verified: wd_h3 (Bogged Down, Recruit VTOL set to 20 % 4 s after pickup, 828 m out) set him down at our stand 8 s later, one player-run start in the match; wd_f1 (Deliverance, Veteran at 34 %, 57 m out) pressed on.",
+   "how_to_use": "RECOMP_TEST_FERRY_HURT=frac[:delay] with RECOMP_TEST_HUMAN_FERRY=0: delay s (default 4) after the human claws on, his VTOL's health is set to frac (test only). [BOT-HURTRUN] lines; [C7] hurtrun press / setdown / setdown_s / player_off.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 2749
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "ferry",
+    "ctf"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "vtol-rider-flag-overshoot-deliverance-1101",
+   "title": "Open: on Deliverance a VTOL with a rider never comes down over their flag; it overshoots and circles",
+   "subject": {
+    "kind": "concept",
+    "id": "vtol-rider-flag-arrival"
+   },
+   "addresses": [],
+   "related": [
+    "order_lift",
+    "ctrl_travel",
+    "RiderHover",
+    "HoverFix"
+   ],
+   "fact": "wd_f1: carrying the player, the VTOL crossed Deliverance's nation-2 base at ~40 m (about 35 m over the ground), passed over the flag at up to ~80 m/s, overshot 80-150 m, turned and came back for 25 s ('lift-to-flag', with 'lift-climb' over the buildings) until the base guns shot it down; it never got within ctrl's 14 m switch to the low cargo hover. On Bogged Down the same leg settles 5-11 m from the flag at 8 m. Bot riders get off anyway (order_ride: 10 s within 30 m), so it costs time, not the run.",
+   "how_to_use": "RECOMP_TEST_HUMAN_FERRY=0 RECOMP_TEST_BOT_VTOL=4 on Deliverance_Test; RECOMP_BOT_VTOL_TRACE=1 for [BOT-VMAN].",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 4794
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "open"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "capture-reset-1101",
+   "title": "CaptureReset: a flag carrier's ride-home request ends at the capture, so its VTOL can start the next run",
+   "subject": {
+    "kind": "setting",
+    "id": "CaptureReset"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_CAPTURE_RESET",
+    "LiftHuman",
+    "LiftCarrier",
+    "VtolWaitPlayer",
+    "order_lift",
+    "g_lift",
+    "RECOMP_TEST_HFERRY_NOPOST"
+   ],
+   "fact": "In a playtest (log 2026-11-01 match 2, Deliverance) the human scored while aboard, and the VTOL that carried him kept flying him back to his team's flag stand. Cause: g_lift requests are never cleared, and order_lift used lift_find(rider) whatever its age; the carrier's ride-home request (LiftHuman / LiftCarrier, and the flag run's extract post) still pointed at the team's own stand, so the rider got 'lift-fly' to 1364,861 instead of 'lift-to-flag', hovered there t=76-106, and VtolWaitPlayer (which needs no request) never started a new run. Fix (RECOMP_BOT_CAPTURE_RESET / [Bots] CaptureReset, default on): g_lift[].car marks a carrier's ride home (lift_post_carrier, frun_eval in FR_EXTRACT); order_lift drops it once the rider no longer carries their flag ([BOT-CAPRESET]); a bot rider that scored aboard gets a fresh FR_INBOUND run within 10 s, and order_ride restarts the rider's 60/90 s clock when it stops carrying. Also (TwoWaitCap c) our own solo cover run gives way when the player claws on. Verified wd_cap1 (Bogged Down, NOPOST + REACH): captured aboard at t=59.4, request (12 s old) dropped, '[text omitted]' at 59.4/60.0, orders lift-to-flag toward their flag. [C7] capreset carrier_lift_cleared_player / _bot, new_run_player / new_run_bot, rider_clock_reset.",
+   "how_to_use": "RECOMP_TEST_HUMAN_FERRY=0 RECOMP_TEST_HFERRY_NOPOST=1 RECOMP_TEST_HFERRY_REACH=1 RECOMP_TEST_BOT_VTOL=1 on Bogged Down: the human walks / jets to a holding VTOL, posts no lift of his own.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 4794
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "ctf",
+    "ferry"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "blast-wary-1101",
+   "title": "BlastWary: bots keep 40 m off a nearly dead 'Mech and wait outside a pending death blast",
+   "subject": {
+    "kind": "setting",
+    "id": "BlastWary"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_BLAST_WARY",
+    "DeathBlastFlee",
+    "ctrl_bomb_escape",
+    "blasts_update",
+    "order_attack",
+    "ctrl_fight"
+   ],
+   "fact": "BlastWary (RECOMP_BOT_BLAST_WARY / [Bots] BlastWary, default on; brain blast_wary after the goal's order): every 'Mech's health is sampled every 0.25 s (g_mhp, 2 s ring) to get its time to 0 at the damage it is taking. A bot in a 'Mech or tank with a 'Mech within 55 m (either side, the player's too) at or under Recruit 5 / Regular 8 / Veteran 12 / Elite 15 % while hit, or gone within 1.0 / 1.5 / 2.0 / 2.5 s, notices it after its reaction time with 35 / 60 / 80 / 95 % (rolled once per dying 'Mech): fighting that 'Mech, the ENGAGE band starts at 40 m (ctrl_fight steps out inside band_min); within 30 m of any other dying 'Mech it moves out to ~48 m (FIGHT_MOVE, still firing); an order that would take it within 40 m slides round at its distance. The episode survives 2 s gaps in the dying reading, is capped at 8 s (then that 'Mech is ignored 20 s), and covers combat goals plus objective duty except the races (carry, grab, return, chase-it, bomb). BattleArmor do not claw onto it. Any ground bot just outside a pending blast (hp 0, <= 2.6 s; 45 m + hull) whose order goes nearer holds where it stands until it goes off, unless a dying 'Mech is within 30 m. Measured (real 5v6 CTF, no fake blasts): mixed skill, 7 runs ON vs 5 OFF: blast deaths 0.09 vs 0.29 per blast (4/47 vs 10/35), units inside 45 m when a blast goes off 0.21 vs 0.37 per blast; all-Regular (skill 1): no change (0.57 vs 0.57, small n). Kills/scores not skewed.",
+   "how_to_use": "RECOMP_BOT_BLAST_WARY=0 for the A/B; RECOMP_TEST_BLAST_WARY_ALL=1 makes every bot notice. [BOT-WARY] lines; [C7] blastwary noticed_<sk> / missed_<sk> / episodes / band_s / out_s / slide_s / entry_holds / entry_hold_s / ended_* / blast_out45 / blast_in45.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 5226
+    }
+   ],
+   "tags": [
+    "bots",
+    "death-blast",
+    "fair-play"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "vtol-arrive-1101",
+   "title": "VtolArrive: a VTOL bound for an exact stop brakes on a curve (the stick reversed) and with a rider sinks to drop height",
+   "subject": {
+    "kind": "setting",
+    "id": "VtolArrive"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_VTOL_ARRIVE",
+    "vt_arrive",
+    "vt_arrive_measure",
+    "ModClimb",
+    "VtolEdgeAll"
+   ],
+   "fact": "on Deliverance a VTOL with a rider crossed the enemy base ~35 m up at up to ~80 m/s, overshot their flag 80-150 m and circled. The stick flight (vtol_manual) holds full forward thrust while the nose is on the point; MoveTo's cargo hover only takes over inside 14 m. vt_arrive (stick branch of ctrl_travel, stop <= 5 m, goal not overhead) holds forward speed to 4 + sqrt(2 x 20 m/s2 x the route left), latched once begun (unlatched it let go and sped up 66 -> 94 m/s), the stick reversed when faster (a reversed stick took 94 -> 42 m/s in 0.5 s), the drift across the nose steered to the point; with a rider aboard inside 90 m it sinks with comp+0x90 = -30 (a player's Ctrl) to 12 m over the drop point's ground (10 m over what stands under it). Human ferry, off -> on: Deliverance the player let go 30 m from their flag 25.6 -> 8.8 m up with the VTOL 34 -> 13 m up, ~60 -> 15 m/s; Bogged Down 13.6 -> 8.1 m up, 40 -> 23 m/s; both ~0.9 s after first coming within 60 m.",
+   "how_to_use": "RECOMP_BOT_VTOL_ARRIVE=0 / [Bots] VtolArrive=0. [C7] vtarrive: brakes, brake_s, sink_s, overshoot_n; measured on or off: t60_n, t60_drop_s/drop_n, t60_off_s/off_n, off_agl_sum, off_sp_sum, crawl_s. [BOT-VARRIVE] (4 Hz with RECOMP_BOT_VTOL_TRACE), [BOT-VCRAWL] (DIAG).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 2432
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "ferry"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "vtol-climb-up-1101",
+   "title": "VtolClimbUp: the pick-up's 'up first' point overhead counted as reached by ground distance; a ferry hung 93 s with its rider 8.6 m up",
+   "subject": {
+    "kind": "setting",
+    "id": "VtolClimbUp"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_VTOL_CLIMB_UP",
+    "order_lift lift-climb",
+    "ctrl_travel",
+    "VtolEdgeAll"
+   ],
+   "fact": "order_lift's 'lift-climb' sends a VTOL whose rider hangs under 12 m to a point 25 m on and 25 m up (re-set every step). ctrl_travel's arrival test was horizontal only, and the stick flight never climbs to a goal's height (only to what the route's ground needs); once VtolEdgeAll moved that point in under the craft it 'arrived', stopped, and hung still 93 s (Deliverance wcar1, bot 8 at 700,33,1388: rider 8.6 m up). VtolClimbUp: a VTOL goal 4 m+ overhead is not reached until the craft is up there, and the stick branch climbs to it (+30 demand) with forward thrust eased to 0.3 inside 30 m.",
+   "how_to_use": "RECOMP_BOT_VTOL_CLIMB_UP=0 / [Bots] VtolClimbUp=0. [C7] vtclimbup: climb_s. [BOT-VCRAWL] reports any rider-carrying VTOL under 9 m/s for 3 s+ on a leg 100 m+ long, with the branch (S stick, M/W MoveTo, A awake drive).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 2439
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "ferry",
+    "stuck"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "vtol-lift-off-1101",
+   "title": "VtolLiftOff: Bogged Down's slow pick-up takeoff (4-7 s) came from ctrl_underfoot and a stale parked-drive clock, not VtolArrive / VtolClimbUp",
+   "subject": {
+    "kind": "setting",
+    "id": "VtolLiftOff"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_VTOL_LIFT_OFF",
+    "ctrl_underfoot",
+    "vt_park_window",
+    "ctrl_travel",
+    "VtolClimbUp",
+    "VtolArrive"
+   ],
+   "fact": "(1) ctrl_underfoot holds any vehicle boarded under 6 s ago still while a teammate's pilot is within 9 m across the ground (height ignored); a pilot walking under the VTOL to his 'Mech froze it 7-16 m up, rider just clawed on, for 1.5-1.6 s (ai mode 7, no ctrl_travel). (2) ctrl_travel's parked-drive check (under 2 m/s for 1.5 s, point 30 m+ off -> MoveTo 4 s) kept vt_slow_t from an earlier branch or life, so the first slow non-stick step of a takeoff opened MoveTo's window at once; MoveTo climbed it at 0 m/s across for 2.4 s. VtolLiftOff: a VTOL 4 m+ off the ground or with a rider is never held for a pilot under it; the parked clock runs only over consecutive steps and not while climbing (|vy| > 2). Player ferry claw -> 40 m away on Bogged Down: before 3812551 2.5-2.6 s; e1c20284 3.0 / 4.5 / 7.0 s; with the fix 2.5-3.1 s (20 m/s at 1.5-2.1 s).",
+   "how_to_use": "RECOMP_BOT_VTOL_LIFT_OFF=0 / [Bots] VtolLiftOff=0. [C7] vtliftoff: underfoot_skip_s, park_windows, park_stale. Measure: [C7] vttakeoff (n, away_s, to20_s, clear_s, hold_s, br_*_s) and [BOT-VTAKEOFF] (DIAG); [BOT-VTKTR] 5 Hz after the claw with RECOMP_BOT_VTOL_TRACE=1.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 2549
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "ferry",
+    "takeoff"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "vtol-slow-time-sources-1101",
+   "title": "VTOL slow_s (under 3 m/s on travel legs) follows the match, not 3812551: mostly engage slides and turning on the spot",
+   "subject": {
+    "kind": "concept",
+    "id": "[C7] vtclimb slow_s"
+   },
+   "addresses": [],
+   "related": [
+    "vtol_track",
+    "vt_slow_note",
+    "VtolArrive",
+    "VtolClimbUp",
+    "VtolEdgeAll",
+    "vtol_manual"
+   ],
+   "fact": "vtclimb slow_s counts a VTOL under 3 m/s on a ctrl_travel leg 50 m+ from a steady goal, world y over 6. The vtslow breakdown: VtolArrive's brake / sink, VtolClimbUp and the edge recovery / brake acted in 1-13 % per run (5 % in all); in the runs with 19-38 s of it, 78-90 % was on legs with a stop over 5 m where VtolArrive never acts; 22-36 % was turning on the spot (point 1.2 rad+ off the nose) and engage slides (stop 8) were the largest order share (up to 58 %).",
+   "how_to_use": "[C7] vtslow: slow_s, br_stick/moveto/window/awake/hover/pad/other_s, climbup/brake/sink/edgerec/edgebrake_s, rider_s, stop5_s, edge40_s, low_s, turn_s, window_s, ord_*_s, parked_s / dip_s; [BOT-VSLOW] (DIAG) for spells of 1 s+. Either switch state.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 2575
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "measurement"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "vtol-turn-in-place-1101",
+   "title": "Open: the stick flight gives no thrust while turning (point 1.2 rad+ off, ~70 deg/s yaw), so a VTOL leg from a hover starts with up to 2 s at 0 m/s; a side-stick slide trial cut slow time but put a craft at the edge",
+   "subject": {
+    "kind": "function",
+    "id": "vtol_manual"
+   },
+   "addresses": [],
+   "related": [
+    "ctrl_travel",
+    "vt_arrive",
+    "VtolEdgeAll",
+    "[C7] vtslow turn_s"
+   ],
+   "fact": "vtol_manual sets forward thrust 1 inside 0.5 rad of the point, 0.4 inside 1.2 rad, else 0; the full yaw stick turns the craft ~70 deg/s (VMAN err -154, -119, -84, -48 deg at 0.5 s steps). After a claw facing away from the ferry leg the craft sat 2.1 s at 0 m/s; firing-hover slides start the same way; turn_s was 22-36 % of slow_s. Trial: in ctrl_travel's stick branch under 8 m/s with the point 0.5 rad+ off, axis[8] = sin(angle) x (1 - speed/8) (+ = right of the nose, sign checked in-game). Slow share fell to 7.4 % (Deliverance) / 4.1 % (Bogged Down) with drops and ferries unchanged, but its plain Deliverance run had 11.7 s within 25 m of out of bounds (closest 0.1 m; 0 s without it), likely the sideways drift it leaves. Needs drift damping and an edge check before it can ship.",
+   "how_to_use": "[C7] vtslow turn_s; [BOT-VMAN] err / thr columns (RECOMP_BOT_VTOL_TRACE=1).",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 2282
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "flight",
+    "open"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "vtol-stick-world-height-1101",
+   "title": "ctrl_travel flies a VTOL on the stick only above world y 6, not 6 m over the ground: on Bogged Down's base (ground -12) the awake drive / MoveTo fly the first 18 m",
+   "subject": {
+    "kind": "function",
+    "id": "ctrl_travel"
+   },
+   "addresses": [],
+   "related": [
+    "vtol_manual",
+    "body_steer",
+    "vt_park_window",
+    "RECOMP_BOT_VTOL_MANUAL"
+   ],
+   "fact": "The stick branch needs me->pos.y > 6 (world height), w->time past vt_moveto_until and no StickClimb MoveTo climb. On maps whose ground is above 6 (Deliverance) the stick flies even a landed craft; on Bogged Down's low base the awake FlyerAI (body_steer, climbs 20-25 m/s up from the ground) or a MoveTo window flies the takeoff until 18 m up. A takeoff there: ~1.3 s awake climb then the stick (turn + accelerate), 2.5-3.1 s from the claw to 40 m away.",
+   "how_to_use": "[BOT-VTKTR] br= column (S stick, A awake, M/W MoveTo, H cargo hover, - none: e.g. ctrl_underfoot).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 3110
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "takeoff"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "vtol-bot-rider-crawl-1101",
+   "title": "SUPERSEDED: a bot VTOL ferrying a bot BattleArmor crawled 4-9 m/s at full stick -- NOT the height ceiling; real cause = stale AI forward speed (see vtol-ferry-stale-ai-forward-speed)",
+   "subject": {
+    "kind": "concept",
+    "id": "VTOL ferry crawl"
+   },
+   "addresses": [],
+   "related": [
+    "vtol_track",
+    "[BOT-VCRAWL]",
+    "order_ride",
+    "ctrl_fire",
+    "VtolClimbUp",
+    "vtol-ferry-stale-ai-forward-speed"
+   ],
+   "fact": "CORRECTION 2026-11-10: the 2026-11-04 \"height ceiling\" resolution was wrong. Real cause: the AI MoveTo of the rider pick-up hover left a forward-speed target on the flight comp (comp+0x98 = -53.4 m/s), and the body integrator sub_002AD940 adds heading x that ground speed to the stick flight velocity, so 60 m/s forward on the stick became ~6 m/s. Fixed in v26-vtol b91f768 (vtol_stick_take, StickSpeed0). Original observation kept: e1c20284, Bogged Down weB0, bot 10 (team 1) flew a bot rider (bot 6, BattleArmor, ord idle, ctl=attack, firing at a target) toward 495,903: stick branch, thr 1.00, err 0-3 deg, no climb demand (c90 0), y held at 47.2 (that match's max_y so far), speed 3.6-9.6 m/s from t=14 to ~79 s. Other bot-rider ferries flew 40-106 m/s. Cause not found; suspects: the rider's attack state pulling on the clamp, or a height cap. [BOT-VCRAWL] missed it because the speed jittered over 9 m/s; it now uses a 1.5 s smoothed speed. RESOLVED 2026-11-04: 47.2 m was Bogged Down's stick-flight ceiling there (terrain height + MaxVTOLHeight 55 - ~6.6; the stick cannot climb further), so the ferry at full stick could only press on level, slowed by whatever stood ahead at that height (cause inferred from the same picture; the ceiling and its terrain dependence measured 11-04). Fixed by StickCeil (the planner knows the ceiling) and RiderRay (real collision rays at ceiling - 9 m shut the way); see facts ctfvtol-maxvtolheight, ctfvtol-tall-areas.",
+   "status": "superseded",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 2393
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "ferry",
+    "open"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "vtol-arrive-late-sink-1101",
+   "title": "Open: VtolArrive starts the rider's sink inside 90 m of route left, so a bent lane route can bring the craft in 37 m up and the rider lets go 12 m up",
+   "subject": {
+    "kind": "setting",
+    "id": "VtolArrive"
+   },
+   "addresses": [],
+   "related": [
+    "vt_arrive",
+    "path_length",
+    "VtolLaneRoute",
+    "RECOMP_TEST_HUMAN_FERRY"
+   ],
+   "fact": "vt_arrive's r is max(straight distance, path_length of the route left); the sink to drop height (12 m over the drop's ground) runs only while r < 90. On Deliverance weD3 the route left stayed over 90 m until the flag was 47 m away, the craft came in 37 m over the ground, the sink's own speed term stopped it at 21 m, and the test hook let the player go 12.1 m up. A trigger by the height to lose (e.g. r < 90 + 2.5 x the excess) would fix it; not changed.",
+   "how_to_use": "[BOT-VARRIVE] 4 Hz trace (r, sp, vy, agl, rider_agl, brake, lift) with RECOMP_BOT_VTOL_TRACE=1; the let-go line now gives the rider's last height.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 2447
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "ferry",
+    "open"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "vtol-pad-stale-lift-1102",
+   "title": "VTOL repair-pad run never healed: the pad branch returned before the drive step that clears vt_lift_demand, so ModClimb's +30 latched and the craft shot up to 60-100 m",
+   "subject": {
+    "kind": "setting",
+    "id": "VtolPadLift"
+   },
+   "addresses": [],
+   "related": [
+    "vtol_manual",
+    "ma2_bot_vtol_lift",
+    "VtolFastPad",
+    "vt_manual_need"
+   ],
+   "fact": "Y (the lower control) sinks the craft (comp+0x90 = -30); vtol_manual's ModClimb test (y + 0.6 vy < route surface need, 27 m at the pad) answers with vt_lift_demand = +30; the pad branch returns before ctrl_move clears it, so +30 stayed written every flyer tick (sw63 bot 5 t=79.6: vy +31 m/s, 66 m, stick full forward, speed 0). vtpad runs 16 / healed 0 over 7 sweep cells. Fix (ma2_bot_ctrl.c, VtolPadLift): the pad branch clears vt_lift_demand after vtol_stick. Rerun swA63c with RECOMP_TEST_VTOL_HURT=40:40:0.15: runs 2, healed_n 2, hp_gain 1700, approach_max 2.6 s (was 28.9 s).",
+   "how_to_use": "Read before touching this branch of ma2_bot_ctrl.c.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": ""
+    }
+   ],
+   "tags": [
+    "bots",
+    "wp2",
+    "1.0"
+   ],
+   "date": "2026-11-02"
+  },
+  {
+   "id": "vtol-hang-after-brake-1102",
+   "title": "A VTOL braked to a stop (reversed stick) hangs at 0-1 m/s with the stick full forward for ~27 s: its thrust ramps with its speed",
+   "subject": {
+    "kind": "setting",
+    "id": "VtolPadKick"
+   },
+   "addresses": [],
+   "related": [
+    "VtolFastPad",
+    "vtol_manual"
+   ],
+   "fact": "swA63b bot 5 came in at 50 m/s low, the pad run's P controller reversed the stick (-1) and stopped it dead 68 m from the pad (50 -> 0 in 2 s); with the stick +1 and nose on the pad it sat at 0.5-1.2 m/s for 27 s, then once it stirred went 0.5 -> 5.4 -> 23 -> 66 m/s in 0.4 s. The older 'full throttle, < 4 m/s' vtol_crawl spans are likely the same. Fix (VtolPadKick): reverse stick limited to -0.4 on the run , and < 2.5 m/s for 1.2 s with the pad 18 m+ off gives it a 3.5 s MoveTo window.",
+   "how_to_use": "Read before touching this branch of ma2_bot_ctrl.c.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": ""
+    }
+   ],
+   "tags": [
+    "bots",
+    "wp2",
+    "1.0"
+   ],
+   "date": "2026-11-02"
+  },
+  {
+   "id": "mech-spawn-mode6-freeze-1102",
+   "title": "A freshly boarded 'Mech with the awake goto drive (ai mode 6) can stand 6-22 s: it turns to each new carrot and does not walk; a 0.5 s body_stop (mode 7) frees it",
+   "subject": {
+    "kind": "setting",
+    "id": "AiKick"
+   },
+   "addresses": [],
+   "related": [
+    "body_steer",
+    "body_stop",
+    "ai_setmode"
+   ],
+   "fact": "Rush Hour mech spawns at x=744 (sw44 bots 9/5/7, sw85 bot 7), On the Rocks 1536,1448 (sw65). Recording: yaw follows the new carrot at the 6 s stall tick, position frozen, ai+0x12C = 6, ai+0x90 = 1. The two that freed (sw44 5, 7) had a 0.5 s yield (S3098 body_stop -> mode 7) before the next A305 drive set mode 6 again. AiKick (ma2_bot_ctrl.c): a ground mech / BattleArmor still < 1 m for 1.6 s with the carrot 6 m+ away is given the same 0.5 s yield, <= 3 per spell, checked ([C7] aikick kicks/freed/failed): swA44 28 kicks, 20 freed in 120 s; no spawn-trap stuck span left.",
+   "how_to_use": "Read before touching this branch of ma2_bot_ctrl.c.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": ""
+    }
+   ],
+   "tags": [
+    "bots",
+    "wp2",
+    "1.0"
+   ],
+   "date": "2026-11-02"
+  },
+  {
+   "id": "ctrl-stall-detector-gaps-1102",
+   "title": "The controller's stall watchdog does fire (c->stalls 1.8, 6 s ticks); the sweep's stalled=0 is a one-frame flag, and early-return branches (raised-surface straight walk, yield) skip the watchdog",
+   "subject": {
+    "kind": "setting",
+    "id": "RaisedGuard"
+   },
+   "addresses": [],
+   "related": [
+    "on_raised",
+    "stall watchdog",
+    "status.stalled"
+   ],
+   "fact": "status.stalled/trapped are cleared every step and set only on the stall tick, so a detector sampling them at 10 Hz sees 0. The real gap: the 'Up on a roof or ledge' branch (on_raised) walks straight at the goal and returns before the watchdog, so Proving Ground ledge pilots (y 174-205) were never counted stalled. RaisedGuard: 4 s without 3 m there counts a stall and hands the planner 12 s ([C7] raisedguard stalls). Ledge pilots still lose 20+ s (swA33b: 23 s and 21 s, was 43 and 31): the planner cannot route from a raised top; open for the nav/terrain track.",
+   "how_to_use": "Read before touching this branch of ma2_bot_ctrl.c.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": ""
+    }
+   ],
+   "tags": [
+    "bots",
+    "wp2",
+    "1.0"
+   ],
+   "date": "2026-11-02"
+  },
+  {
+   "id": "pilot-board-zone-edge-1102",
+   "title": "Pilots stop at the rim of the entry zone and the game offers no prompt: most boarding failures are zone-edge stops",
+   "subject": {
+    "kind": "setting",
+    "id": "ctrl_board stop depth"
+   },
+   "addresses": [],
+   "related": [
+    "pick_vehicle",
+    "ctrl_board"
+   ],
+   "fact": "In sweep recordings (sw30, sw33) every successful boarding had the pilot 1.0-1.7 m (r 3) / up to 3.6 m (r 4.5) from the zone centre when the pilot became a vehicle; every no-prompt failure with a tank/mech had the pilot stopped at dzone = r-0.2 (2.7-2.8 of 3.0, 4.8 of 5.0, 3.8) with player+0x428 = 0 for 3 s. BattleArmor refusals happened even at dzone 0.7 (LMS). ctrl_board stops at r-0.2: walking to ~0.5 r before waiting is the fix (open, ma2_bot_ctrl.c, controller track). Each failure costs the whole roster 90 s of that hull (refused_add) and the pilot a 30-200 m walk.",
+   "how_to_use": "Read before changing pilot vehicle picking or boarding.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": ""
+    }
+   ],
+   "tags": [
+    "bots",
+    "wp2",
+    "1.0"
+   ],
+   "date": "2026-11-02"
+  },
+  {
+   "id": "pilot-stale-nopath-chain-1102",
+   "title": "A stale status.no_path dropped three rides in one tick",
+   "subject": {
+    "kind": "setting",
+    "id": "UnreachOnce"
+   },
+   "addresses": [],
+   "related": [
+    "pick_vehicle",
+    "ctrl_board"
+   ],
+   "fact": "After the brain dropped a ride for no_path/stalled, the next tick still saw the same status flag and dropped the new pick as well (3 [BOT-NOBOARD] veh-unreachable at t=26.6 in swC33b, 30 s each) leaving the pilot with no ride. UnreachOnce ignores the flag for 2 s after a drop ([C7] unreachonce stale_ignored).",
+   "how_to_use": "Read before changing pilot vehicle picking or boarding.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": ""
+    }
+   ],
+   "tags": [
+    "bots",
+    "wp2",
+    "1.0"
+   ],
+   "date": "2026-11-02"
+  },
+  {
+   "id": "foot-progress-giveup-1102",
+   "title": "FootProgress / FootNear: pilots walking to a ride",
+   "subject": {
+    "kind": "setting",
+    "id": "FootProgress"
+   },
+   "addresses": [],
+   "related": [
+    "pick_vehicle",
+    "ctrl_board"
+   ],
+   "fact": "FootProgress: a pilot in goal getveh that has not moved 3 m in 7 s (and is >8 m from the zone) drops that ride for 45 s and re-picks ([C7] footprog stuck_giveups, [BOT-FOOTPROG]); the 60 s on-foot rule no longer cuts a walk that is making headway. FootNear: vehicle_value subtracts (d-120)/300 for pilots (straight-line pick was 300 m walks to rides that were taken first). Sweep sw33 LMS Proving Ground: no_vehicle 9->7, stuck 5->1; sw30 LMS In Your Face: no_vehicle 8->6.",
+   "how_to_use": "Read before changing pilot vehicle picking or boarding.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": ""
+    }
+   ],
+   "tags": [
+    "bots",
+    "wp2",
+    "1.0"
+   ],
+   "date": "2026-11-02"
+  },
+  {
+   "id": "sp-stomp-level-gates-1102",
+   "title": "sp_stomp never looked: it wanted an enemy pilot within 8 m moving under 3 m/s; sp_level always too_tough",
+   "subject": {
+    "kind": "setting",
+    "id": "StompWide"
+   },
+   "addresses": [],
+   "related": [
+    "pick_vehicle",
+    "ctrl_board"
+   ],
+   "fact": "Pilots on foot jog 8-10 m/s so the stomp look never held (no counter in 30 cells). StompWide: 12 m and up to 9 m/s (the action already leads the target). sp_level: building hp / my dps was over 8 s in 30 of 30 looks (buckets need_le8/le14/le30/gt30 now counted; the cap is 14 s with a 17 s act). In swC60 3 looks: 2 need_gt30, 1 need_le30 (buildings take 30+ s of one weapon): the act stays rare.",
+   "how_to_use": "Read before changing pilot vehicle picking or boarding.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": ""
+    }
+   ],
+   "tags": [
+    "bots",
+    "wp2",
+    "1.0"
+   ],
+   "date": "2026-11-02"
+  },
+  {
+   "id": "snapwide2-tactical-drop-1102",
+   "title": "SnapWide2: a tactical move (Ma2Order.drop_mode=1) used to switch off the wide start snap, so a perched 'Mech had no plan at all",
+   "subject": {
+    "kind": "setting",
+    "id": "SnapWide2"
+   },
+   "addresses": [],
+   "related": [
+    "SnapWide",
+    "nopath_hold",
+    "NoPathHold"
+   ],
+   "fact": "ctrl_plan limits g_drop to the measured jet climb minus 2 m on a tactical move (8-14 m), and plan_begin's SnapWide (start snapped out to 60 m when no free cell lies within 10 m) was gated on g_drop >= 20. A 'Mech standing on a wall top (sw72 bot 4 at 518,1375,y46) therefore failed every plan (c->nostart 1.12, have_path 0, speed 0) for tens of seconds: 46 s in sw72, 30 s sw92, 31 s sw93, 24 s sw81 (all drop_mode 1 on kind MECH; recordings game-sw72 etc). Fix (ma2_bot_path.c): any g_drop > 0 or g_up > 0 snaps wide. Switch RECOMP_BOT_SNAP_WIDE2 / [Bots] SnapWide2, counter snapwide2.plans. sw72 replan.none 6857 -> 552, nopath_hold.frames 6313 -> 80.",
+   "status": "current",
+   "confidence": "inferred",
+   "tags": []
+  },
+  {
+   "id": "upstretch-canals-1102",
+   "title": "UpStretch: jet-up links to a ledge 20 m+ at +40 cost; the Going Commando canals (17 m walls) were a one-way trap for BattleArmor",
+   "subject": {
+    "kind": "setting",
+    "id": "UpStretch"
+   },
+   "addresses": [],
+   "related": [
+    "f38",
+    "JetUpLedges",
+    "PathCap"
+   ],
+   "fact": "Going Commando (and its canal/bridge grid) has 2 m-thick walls around trenches 17 m deep (floor y=-3.5, plateau y=13.5). The planner's up-link limit is jet_gain-2 where jet_gain is learned from ground hops (9-15 m); measured full-tank burns (fuel 2.0): BA median 16.9 m, p90 18.5 m, best 34.5 m ([BOT-JETGAIN] over the 30-cell sweep). So a BA that stepped into a canal planned no way out (sw62 bot 4 stayed 127 s until it died; navfix.end_hold_frames 13601). g_upx = max(g_up+4, 20) now bounds the up-link search; a link taller than g_up costs +40 (PATH_UP_STRETCH_PEN), so ramps and plain jet-ups still win; the plan_begin 'higher goal' test no longer needs the goal within 150 m when it is 6 m+ up. RECOMP_BOT_UP_STRETCH / [Bots] UpStretch; counter upstretch.links. sw62 end_hold_frames 13601 -> 5744, pathcap.hits 40 -> 7, no_path spans 7 -> 3.",
+   "status": "current",
+   "confidence": "inferred",
+   "tags": []
+  },
+  {
+   "id": "pitpartial-drop-landing-1102",
+   "title": "PitPartial: a search that ran dry never ends its partial route on a one-way drop landing",
+   "subject": {
+    "kind": "setting",
+    "id": "PitPartial"
+   },
+   "addresses": [],
+   "related": [
+    "navfix",
+    "end_hold_frames"
+   ],
+   "fact": "plan_run keeps best0 = the reached cell nearest the goal without a drop link (S.ow[] marks cells reached through one). When the heap runs dry and the goal was not found (not capped), plan_finish ends the route at best0 instead of the overall nearest cell. Before, a BA planned a drop 35 m into a gully 22 m from a roof powerup (sw14, 223-240 s, hp 350) and stood there. A best0 equal to the start gives a one-point route at the start (the controller holds and reports no path) rather than the raw line to the goal. RECOMP_BOT_PIT_PARTIAL / [Bots] PitPartial; counter pitpartial.replaced.",
+   "status": "current",
+   "confidence": "inferred",
+   "tags": []
+  },
+  {
+   "id": "pocketdrop-raised-island-1102",
+   "title": "PocketDrop: a body on a small raised island (pilot on a 2-cell ledge top, tank on a tactical move) re-plans with a 40 m drop limit",
+   "subject": {
+    "kind": "setting",
+    "id": "PocketDrop"
+   },
+   "addresses": [],
+   "related": [
+    "RaisedGuard",
+    "dropgiveup"
+   ],
+   "fact": "Proving Ground has 2-cell ledge tops at y=174 inside blocked terrain, 25-35 m above the ground (NAV-REGION dump, region 340,420,740,720). Pilots (drop limit 10 m) and tanks on a tactical move (limit 0) explored those few cells, found no goal, and stood still (sw33 bots 0 and 9: 21-43 s). A search that ran dry over < 40000 cells with the nearest reached cell > 30 m from the goal is restarted once with g_drop = 40 (second pass, new generation stamps, obstacles re-marked). RECOMP_BOT_POCKET_DROP / [Bots] PocketDrop; counter pocketdrop.restarts. The routes now exist (sw33: pilot with have_path 1 and a 2.6 m end gap) but the pilot's step-off walk (ctrl drop leg / RaisedGuard) can still stand still on the edge: execution is in ma2_bot_ctrl.c.",
+   "status": "current",
+   "confidence": "inferred",
+   "tags": []
+  },
+  {
+   "id": "path-same-ground-1102",
+   "title": "ma2_path_same_ground(a, b, heavy): is b on a's walkable region (no drop or jet link)? 1 / 0 / -1 unknown",
+   "subject": {
+    "kind": "setting",
+    "id": "ma2_path_same_ground"
+   },
+   "addresses": [],
+   "related": [
+    "unreachable_goal",
+    "UnreachableGoal"
+   ],
+   "fact": "Added to ma2_bot_path.c / ma2_bot_api.h in the 1.0 pass. Compares the grid's connected-component ids at the two points (nearest walkable cell within 8 m). A roof powerup (In Your Face 793,805,y18: mech held 27 s at its foot) or a pickup in another pocket returns 0, so the brain can skip it. Not yet called from the brain.",
+   "status": "current",
+   "confidence": "inferred",
+   "tags": []
+  },
+  {
+   "id": "ba-entry-pilot-1102",
+   "title": "Pilots get no entry prompt at parked BattleArmor (LMS maps); mech/tank board 2.4-2.5 s after entering the zone",
+   "subject": {
+    "kind": "setting",
+    "id": "BaEnterBan"
+   },
+   "addresses": [],
+   "related": [
+    "pick_vehicle",
+    "ctrl_board"
+   ],
+   "fact": "Recordings (zone.py over sw14/16/30/33/34/44/46/63/72/25): every successful pilot boarding takes 2.4-2.5 s from entering the zone (the entry animation; no tap is visible, offer frames rarely sampled). Mechs/tanks board from anywhere inside r (dz up to 4.9 of 6.8). BattleArmor: the successes (sw14 dz 0.8, sw63 dz 0.7) stood within 1 m of the centre; every failure (sw30/34 pre-fix 3.7-3.8 of r 4.0, sw30 after BoardDeep 2.0) stood further out. The BA zone is centred on the BA (entry-hull 0 m) and the planner keeps the pilot a hull outline (1.8 m) off it, so the pilot never reaches the 1 m. Brain: BaEnterBan bans BA 150 s for the pilot after one failure and for the roster after 2 failures with 0 BA boardings ([C7] baenterban ba_fails / ba_boarded). Open for ctrl: walk a pilot into the BA centre. Two tanks (02121070, 02134850 on In Your Face) refused pilots at 1.5 m of a 6.1 m-offset entry in all runs.",
+   "how_to_use": "Read before changing BA pilot boarding.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": ""
+    }
+   ],
+   "tags": [
+    "bots",
+    "wp2",
+    "1.0"
+   ],
+   "date": "2026-11-02"
+  },
+  {
+   "id": "planner-hopout-1102",
+   "title": "HopOut: a dry search for a jet body gets a third pass with wall hops and steep-face climbs",
+   "subject": {
+    "kind": "setting",
+    "id": "HopOut"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_path_plan",
+    "LinkFoot"
+   ],
+   "fact": "ma2_bot_path.c plan_run: when pass 1 (and PocketDrop pass 1) ends dry 10 m+ short of the goal and the body has jets (g_up>0), pass 2 (st->boost==2, <=50000 expansions) adds one-way jet-up legs (drop kind 2) from any surface: a hop over a blocked band <=12 m whose tops <= start+g_up-1, onto ground 60 m down.stretched climb up; or a climb up a face <=28 m that never rises above the landing. Cases: sw81 Ill Wind yard (raised built platform with rim colliders: no drop from built ground, goal 112 m, 48.6 s no_path), sw54 Proving Ground mesa behind a 10 m low-wall band, sw85 Rush Hour 25 m plateau over a 45-degree embankment (heavy-blocked by slope, 2 m rise per 2 m cell). A goal the pass failed to reach is memoised 20 s per start ground region. Switch RECOMP_BOT_HOP_OUT, counters hopout.* (links, climbs, found, failed, memo_skips). RECOMP_BOT_NAV_REGION now also prints an S layer (collider top per cell, capitals = hard-blocked).",
+   "status": "current",
+   "confidence": "inferred",
+   "tags": []
+  },
+  {
+   "id": "planner-linkfoot-1102",
+   "title": "A jet-up leg that starts at the start cell had pt[0] = landing, so the controller's executor (next>0) never ran",
+   "subject": {
+    "kind": "setting",
+    "id": "LinkFoot"
+   },
+   "addresses": [],
+   "related": [
+    "HopOut"
+   ],
+   "fact": "plan_finish: when the first link of the route starts at the start cell itself, string pulling emitted the landing as pt[0] with drop[0]=2; Ma2Path.next starts at 0 so ctrl's `drop[next]==2 && next>0` jet-up test never fired and the body walked at the landing through the wall. LinkFoot (RECOMP_BOT_LINK_FOOT) inserts the start cell centre as pt[0] for kind-2 first legs. Plain drops (kind 1) from the start cell are not changed (walking at the landing steps off anyway).",
+   "status": "current",
+   "confidence": "inferred",
+   "tags": []
+  }
+ ]
+}

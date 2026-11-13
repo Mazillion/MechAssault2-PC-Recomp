@@ -1,0 +1,1 @@
+[[5314,0,["extern float ma2_mouse_pov_pitch(uint32_t actor,float controller_value);\r\n"]],[5328,0,["    xmm0.f[0] = ma2_mouse_pov_pitch(eax,xmm0.f[0]);\r\n"]]]

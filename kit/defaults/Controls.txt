@@ -1,0 +1,191 @@
+MechAssault 2 on PC - controls, menus and settings
+==================================================
+
+Start the game with "MechAssault 2.exe" in the game folder (or the Desktop or
+Start-menu shortcut).
+
+
+MENUS AND MOUSE
+---------------
+- Enter, Space, Esc or a left click skips an intro movie. Skipping does not
+  select anything in the next menu.
+- Enter or a left click continues from the title screen.
+- Enter selects a menu item, Esc goes back. On the main menu itself Esc asks
+  whether to quit; on a message box Esc closes the message.
+- Point at menu items and click to select them. The arrow keys and a
+  controller work as well. The key hints at the bottom of a menu, for example
+  [Esc] Back, light up under the pointer and can be clicked.
+- In the main lobby, click the 3D scene above the menu to hide the pointer and
+  turn the camera. Esc gives the pointer back without leaving the menu.
+- During play Esc pauses. Click the game to capture the mouse again. F8 turns
+  mouse capture on and off.
+- Switching to another window pauses play and silences the game; it carries on
+  when you come back. To keep it running, set PauseOnFocusLoss=0 and
+  MuteInBackground=0 in your settings file (see FILES below).
+
+Greyed out, because this PC version has nothing behind them: Conquest (main
+menu), System Link and Xbox Live (Multiplayer), Multiplayer Options and Add
+Guest (Player Options). Game Demos is replaced by Custom Scenarios.
+
+Player Options: press 1 in the lobby (RB on a controller) or pause during
+play. Video Settings, Volume and Controls hold the PC options, drawn in the
+game's own style. On-screen prompts follow the device you used last and your
+current key bindings.
+
+
+CONTROLLER
+----------
+Xbox-style (XInput) controllers work as soon as they are plugged in, together
+with keyboard and mouse. PlayStation and older DirectInput-only pads need a
+tool such as Steam Input or DS4Windows.
+
+Controls (with a controller in use) has "Invert right stick Y" and
+"Vibration"; they are saved in your player profile. Each Controls page links
+to the other device's page, so you can set up the controller with the mouse.
+Vibration works on Xbox-style (XInput) controllers. It stops when you switch
+to keyboard and mouse or leave the game window.
+
+In the tutorials, "Start" is shown as Esc while you play with the keyboard,
+because Esc is the PC pause key. Quick-time prompts show your key or mouse
+button inside the game's button art.
+
+
+KEYBOARD AND MOUSE
+------------------
+Default keys. Every row can be changed under Player Options > Controls >
+Keyboard and mouse bindings (three pages; each row is named by what it does,
+with the Xbox button in brackets).
+
+  Key                What it does                           Xbox button
+  -----------------  -------------------------------------  -----------------
+  W A S D            move                                   left stick
+  Mouse              aim and turn the camera                right stick
+  Left mouse or V    fire                                   right trigger
+  Right mouse or C   next weapon                            left trigger
+  Space              jump jets; neurohack (quick-time)      A
+  Q                  enter or leave a vehicle               Y
+  F                  the game's B-button action             B
+  R                  the game's X-button action             X
+  1                  White button; Player Options in lobby  White (RB)
+  2                  Black button                           Black (LB)
+  Shift              left stick click (VTOL: climb)         left stick click
+  Ctrl               right stick click (VTOL: descend)      right stick click
+  Enter or Esc       pause / objectives                     Start
+  Backspace          Back button (during play only)         Back
+  Arrow keys         D-pad (fixed)                          D-pad
+  I J K L            right stick (fixed)                    right stick
+
+To change a key: choose the row, then press the new key or mouse button
+("Press any key or mouse button..."). Esc cancels. Enter, Esc, F8 and F11 are
+kept for the menus. If the key you choose is already used by another row, both
+rows now use it: change the other row as well.
+
+W A S D follow the key positions, so on an AZERTY or Dvorak keyboard they sit
+where W A S D are on a US keyboard.
+
+Mouse aiming is direct: no acceleration or dead zone, and it feels the same at
+any frame rate. Controls also has mouse sensitivity, invert mouse, invert
+flight controls, and keyboard and mouse on or off.
+
+
+BOT MATCHES
+-----------
+Main menu > Multiplayer > Bot Match > New Game has three extra rows: Red Bots
+and Blue Bots (or Bots in free-for-all modes) and Bot Skill. Bots play every
+mode and map, including your own multiplayer maps, use every vehicle, and wait
+while the game is paused.
+
+A new profile starts with 3 Red bots, 4 Blue bots, 5 bots in free-for-all
+modes and skill Mixed.
+
+Team sizes: a team holds 6 players, you included, and you join the side the
+counts leave short. For example 6 Red and 5 Blue puts you on Blue for 6
+against 6; 1 Red and 4 Blue puts you on Red, 2 against 4. Free-for-all takes
+up to 11 bot opponents (Off plays the map alone). Grinder is two-player
+co-op: one bot partner at most.
+
+Bot Skill: Green, Regular, Veteran, Elite, Dragoon (past Elite: reacts at once
+and never lets up) or Mixed (a lobby spread: on each side one Dragoon ace,
+Elites, Veterans, Regulars and Greens, with the team you face a notch
+stronger). Skill changes reactions, aim and decisions only; every bot has the
+same armour and weapons you would have.
+
+More in Docs\Bots guide.txt.
+
+
+CUSTOM SCENARIOS
+----------------
+"MA2 Scenario Editor.exe", next to the game, makes multiplayer maps and
+single-player missions from your own disc's models and textures. It saves
+.ma2map files to Documents\MechAssault 2\Scenarios (change the folder under
+File > Settings > General in the editor).
+
+- Multiplayer maps are listed in Multiplayer > Bot Match > New Game with the
+  original maps, for every game type they support. A map saved while the game
+  runs shows up the next time you open the Multiplayer menu.
+- Missions are under Custom Scenarios on the main menu. Pick one with the
+  arrows and press Enter. Custom missions keep their own save: your campaign
+  progress is never touched.
+- Two scenarios with the same name are listed with their file names.
+- The editor's Test button (F5) saves and starts the game with that scenario.
+  Test refuses to start while Check scenario shows red (Must fix) items.
+
+More in Docs\Scenario editor.txt.
+
+
+DISPLAY AND AUDIO
+-----------------
+Video Settings: window mode, resolution, textures, VSync, frame limit, aspect
+ratio, smooth scaling, draw distance, frame-rate display, cutscene videos and
+shader pre-loading. Click a row to step its value forward; right-click or Left
+steps back. "Apply display settings" applies window changes; Back saves.
+
+- The first launch picks borderless fullscreen at your desktop resolution.
+- Resolution is the size the game renders at. In borderless fullscreen your
+  desktop resolution does not change; the picture is scaled to the screen.
+- F11 or Alt+Enter switches between window and fullscreen, also while the
+  settings are open.
+- Frame limit: 30 to 360 FPS, 144 by default.
+- Textures: Original, 2x Enhanced or 4x Enhanced. Only packs made during the
+  install are offered; without any it reads "(enhanced packs not installed)".
+  The change takes effect in the current mission. The first use of a pack can
+  pause briefly while textures load.
+- Cutscene videos: plays the 2x enhanced movies if they were made during the
+  install; otherwise Original.
+- Pre-load shaders on loading screens: prepares the graphics a level is known
+  to use while its loading screen is up, so new effects do not stutter the
+  first time. It lengthens loading slightly; on by default.
+- Draw distance: 0 to 100; 50 = the original, 0 = half, 100 = twice as far.
+  Click or drag the bar, or use Left/Right in steps of five. Higher values can
+  lower the frame rate. "Restore display defaults" sets it back to 50.
+- Aspect ratio Automatic widens the 3D view for widescreen and ultrawide
+  screens; Original 4:3 adds side bars. Movies keep their own shape.
+
+Volume: master, effects, speech and music. Changes are heard at once and saved
+when you leave the page.
+
+
+COMMAND LINE
+------------
+  "MechAssault 2.exe" --scenario <file> --mode <m> --skill <n> --bots <r>v<b>
+      starts a scenario file directly (what the editor's Test button does)
+  "MechAssault 2.exe" --browse
+      opens Custom Scenarios
+  "MechAssault 2.exe" --skip-intro
+      skips the intro movies
+
+
+FILES
+-----
+  %LOCALAPPDATA%\MechAssault2\pc_settings.ini   your settings
+  %LOCALAPPDATA%\MechAssault2\Saved Games       your saves
+  %LOCALAPPDATA%\MechAssault2\Logs              logs, crash and hang reports,
+                                                bot match recordings
+  %LOCALAPPDATA%\MechAssault2\ShaderCache       graphics shader cache
+  %LOCALAPPDATA%\MechAssault2\NavCache          the bots' route cache
+
+The two cache folders and Logs can be deleted at any time; the game rebuilds
+them. The pc_settings.ini beside the game only holds the first-launch
+defaults. Closing the game window quits the game.
+
+Problems: see Docs\Troubleshooting.txt, or report at {{MA2_SUPPORT_URL}}.

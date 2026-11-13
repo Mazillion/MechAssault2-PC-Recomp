@@ -1,0 +1,49 @@
+{
+ "pack": "t25_dsound_defer_guard_1109",
+ "title": "DirectSound deferred-list double insert (audio-thread crash at 0x3A8A02)",
+ "facts": [
+  {
+   "id": "dsound-defer-double-insert",
+   "title": "Audio-thread crash at guest 0x3A8A02 / read 0xFE000268 = a voice queued twice on the DirectSound deferred list",
+   "subject": {
+    "kind": "function",
+    "id": "sub_3AD1A5"
+   },
+   "addresses": [
+    "003AD1A5",
+    "003AD345",
+    "003AACE7",
+    "003A65A0",
+    "003A89C5",
+    "003A666A",
+    "00453448",
+    "004535B0"
+   ],
+   "related": [
+    "sub_3AD1A5",
+    "sub_3AACE7",
+    "sub_3A65A0",
+    "sub_3A89C5",
+    "sub_3A666A",
+    "sub_3AAEE1",
+    "ma2_audio_defer_insert_ok",
+    "ma2_audio_defer_drain_ok",
+    "RECOMP_AUDIO_DEFER_GUARD",
+    "[AUDIO-DEFER]"
+   ],
+   "fact": "Root cause of the recurring audio-thread access violation (guest stack 0x3A8A02 <- 0x3AAD59 <- 0x3C4C70 <- 0x3AB348 <- 0x3AB3C5; edi=ecx=0xFE000264, esi=0x00980334 = DSound core, ebx=core+0x4A0). sub_3AD1A5(voice, 1) (called by the APU interrupt release 0x3AAEE1) unlinks a finished voice from the active list (+0x4C) and tail-inserts its entry +0x54 on the core's deferred list +0x4A0 (0x3AD345, with ma2_audio_deferred_retain taking one ref). On the Xbox the DPC drains that list straight after the interrupt; here the DPC runs on another host thread, so a short voice can be restarted and finish again while its +0x54 entry is still queued. The second tail insert self-links the entry while the list head still points at it; RemoveEntryList sub_3A65A0 returns a self-linked entry unchanged, so the drain loop sub_3AACE7 calls the voice's poll (vtable 0x4535B0 slot 6 = 0x3AECB7) and Release (sub_3A666A) on the same voice again and again until it is destroyed. The base destructor 0x3A79F7 resets the vtable to 0x453448, whose slot 6 is sub_3A89C5, a stdcall API wrapper called thiscall-style, so it reads its object argument from stack garbage (0xFE000264) and Release faults reading 0xFE000268. Proven live: the dsfix build's list walk logged '[AUDIO-DEFER] voice object 00BFBCA4 . finished again while still queued (position 0)'. 00BFBCA4 is the edx value in the d5_62b crash block.",
+   "how_to_use": "Fixed in branch dsound-defer-fix (commits 0163bba + b984562; Test exe 'MechAssault 2 v13-1.0.2-dsfix2.exe' 1829d633). ma2_audio_defer_insert_ok (apu\\ma2_audio_guest.inc, hooked at loc_003AD345 before the retain) walks the deferred list and skips the insert when the voice's entry is already a member: the queued entry already runs the voice's state poll. Safety net ma2_audio_defer_drain_ok (loc_003AAD51) resets a head that points at a self-linked entry, and never calls into an object whose vtable is the destroyed base 0x453448. grep stderr for [AUDIO-DEFER]. RECOMP_AUDIO_DEFER_GUARD=0 turns both off. A crash with this stack in a build that has the guard means some other path corrupts the list. Proof 11-09: 18 hidden runs on the guard builds (cu1 LMS x8, cu1 Not It x6, Going Commando cell 6/2 x4), 0 crashes; the insert guard fired 7 times in 6 runs (each one the crash setup); the drain safety net never fired. 6 runs instead hit the separate ACTIVE-list freeze (APU thread looping KeInsertQueueDpc, esp 0x7FFFC4), fixed by ActiveGuard 5a2b21c on branch hang-watch, which is built on top of this guard.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "dsound",
+    "crash",
+    "race",
+    "stability"
+   ],
+   "date": "2026-11-09"
+  }
+ ]
+}

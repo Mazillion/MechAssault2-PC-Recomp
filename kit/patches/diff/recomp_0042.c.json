@@ -1,0 +1,1 @@
+[[7,0,["void ma2_scn_action_cue(uint32_t cue);  /* scenario/ma2_scenario.c */\r\n"]],[17575,0,["    ma2_scn_action_cue(MEM32(ecx + 0x78)); /* custom scenarios: imported audio clip */\r\n"]]]

@@ -1,0 +1,1 @@
+[[8,0,["void ma2_probe_campaign(uint32_t manager,uint32_t campaign);\r\n"]],[14094,0,["    ma2_probe_campaign(eax,edi);\r\n"]]]

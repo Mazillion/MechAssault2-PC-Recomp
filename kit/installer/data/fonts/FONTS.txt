@@ -1,0 +1,13 @@
+Fonts for the installer window
+=============================
+
+If this folder holds .ttf files, the installer loads them for its own window only (they are never installed on the PC):
+
+  Rajdhani SemiBold / Bold     headings, kickers, buttons
+  Share Tech Mono Regular      progress readouts, paths, log
+
+Both are under the SIL Open Font License 1.1 and are shipped unmodified; their licence texts are in the install's
+Licenses folder (Rajdhani-OFL.txt, ShareTechMono-OFL.txt). Without the files the installer uses Bahnschrift and Consolas,
+which Windows already has.
+
+The files are added by installer-exe/fetch_fonts.py (maintainer step).

@@ -1,0 +1,155 @@
+{
+ "pack": "t20_balance_sweep_1107",
+ "title": "Side-balance sweep of the objective modes (2026-11-07)",
+ "facts": [
+  {
+   "id": "bal-snatch-iw-basin",
+   "title": "Snatch It Ill Wind: team 2 route drops into a basin no Mech/tank leaves (912,-2,1595)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Team 2's route to the core pile (718,1295) stepped off the ledge at 950,14,1637 into a basin at y -2; the grid shows the ways out open but no 'Mech or tank climbs them. bs81b b6 churned 28.7-240 s (10 shuttle stalls, 130 slow bot-s), bs81a 75 bot-s; team 2 lost 0-5 and 0-4. The ctrl stall count keys on 10 m and the stalls were 8-12 m apart, so the 'unseen obstacle' learning never ran. DropTrap (137fb2d) forbids a drop after two stalls within 60 m of its landing inside 60 s.",
+   "how_to_use": "audit/pocket.py SRC REC 860 980 1550 1650; droptrap_check.py on the stderr.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "balance",
+    "snatch",
+    "pathing",
+    "ill-wind"
+   ]
+  },
+  {
+   "id": "bal-snatch-iw-southloop",
+   "title": "Snatch It Ill Wind: without the basin, team 2 walks a south loop to the cores and arrives after team 1",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "With the basin drop avoided, team 2's walk from (1220,1480) to the pile goes 1223,1344 -> 1118,1149 -> 850,1142; team 1's (266,1025) is direct. Team 2's first grab 66-176 s vs team 1 38-54 s; scores 1-4, 2-2 (bal5). Map layout, not a bot fault.",
+   "how_to_use": "atkpath.py SRC REC 2 12.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "balance",
+    "snatch",
+    "map-design",
+    "ill-wind"
+   ]
+  },
+  {
+   "id": "bal-nml-oneway",
+   "title": "No Man's Land favours team 1: the lane drops one way toward team 2",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The single lane 265,1007 -> 1779,1051 has one-way drops at points 5.9 going east; team 2 climbs back by the longer way and three of five chokes (1271-1612) are on its half. Team 2's Snatch attackers reach the pile in ~50 s vs ~30 s. Snatch 3-1, 4-1 and Base War 18350-3466, 1846-480 for team 1.",
+   "how_to_use": "[BOT-LANES] lines; atkpath.py.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "balance",
+    "map-design",
+    "no-mans-land"
+   ]
+  },
+  {
+   "id": "bal-checkit-deliverance-layout",
+   "title": "Check It Deliverance: terminal layout favours team 1",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Terminals start neutral (nation 0). Team 1's spawn (1445,266) has terminals at 596 and 661 m and a third at 900; team 2's (696,1709) one at 502 m and the next at 966 (nearest three 2157 vs 2474 m). Held seconds 523-290 and 494-226 for team 1.",
+   "how_to_use": "botrec at REC t | grep objective.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "balance",
+    "checkit",
+    "map-design"
+   ]
+  },
+  {
+   "id": "bal-routesane",
+   "title": "RouteSane: hunt / lane points are checked against the graph route",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "pick_roam_raw chose hunt and lane-push points by straight line (d5_25 b3 340 m straight / 900 m route). A point whose ma2_nav_path route is over 2x straight and 250 m longer is rejected: another lane point, heading, or target. Logged [BOT-ROUTESANE] (pk81a: 358,1035 -> 674,1320 straight 425 m route 933 m). Switch RECOMP_BOT_ROUTE_SANE / [Bots] RouteSane.",
+   "how_to_use": "grep BOT-ROUTESANE; [C7] routesane checks/rejects.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "balance",
+    "pathing",
+    "hunt"
+   ]
+  },
+  {
+   "id": "bal-kf-pocket-now",
+   "title": "Killing Fields team-1 spawn-exit pocket (519,36,1676) now costs 10-19 bot-s a match",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "rc2: bs82a 19.4, bs82b 11.0, pg82a 12.4, ph82a 9.7 slow bot-s in x 495-545 z 1650-1700 (d5_25 29.3, d5_82 43.3 before). A face march (learn the met face along its line until a gap) fired but learned 0 points with no measurable change, so it was not shipped.",
+   "how_to_use": "pocket.py SRC REC 495 545 1650 1700.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "balance",
+    "pathing",
+    "killing-fields"
+   ]
+  },
+  {
+   "id": "bal-disk-shots",
+   "title": "MCP game runs write ~6 MB screenshots about once a second",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "reached 360 GB over 666 runs and filled C: (11-07). Sweep scripts must delete their run's shots when it ends (audit/balance/cell.sh does).",
+   "how_to_use": "Delete |png after each run.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "balance",
+    "disk",
+    "tooling"
+   ]
+  }
+ ]
+}

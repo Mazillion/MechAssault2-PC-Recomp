@@ -1,0 +1,77 @@
+# ---------------------------------------------------------------------------
+# GAME DATA NEVER GOES IN THIS REPOSITORY.
+# Disc images, extracted disc files, generated C code from the game's program,
+# texture packs, shader caches and recordings are made on YOUR PC from YOUR disc.
+# ---------------------------------------------------------------------------
+*.iso
+*.xiso
+*.xbe
+*.xbx
+*.mgf
+*.xwb
+*.xsb
+*.xgs
+*.bik
+*.xmv
+*.wma
+*.ggf
+*.wdf
+*.mgFont
+*.mgfont
+*.tif
+*.dds
+*.pack
+*.botrec
+game_files/
+pc_assets/
+ShaderCache/
+kit/source/game/src/recomp/gen/
+*.ma2map
+*.sav
+
+# Third-party binaries: placed by tools/fetch_deps.py (verified against tools/deps.lock.json)
+kit/source/game/vendor/ffmpeg-*/
+kit/toolkit/vendor/capstone/
+
+# Build outputs
+dist/
+kit/editor/
+installer-exe/stub.exe
+installer-exe/version.h
+installer-exe/*.obj
+installer-exe/*.res
+editor/obj/
+editor/out/
+_work/
+build/
+*.pdb
+*.ilk
+*.obj
+*.exe
+*.dll
+*.lib
+*.exp
+*.log
+# Licence texts are never build outputs: on Windows (case-insensitive) *.lib also matches the LGPL's COPYING.LIB
+!COPYING*
+!LICENSE*
+!NOTICE*
+
+# Python / tools
+__pycache__/
+*.pyc
+tests/tmp/
+tests/shots/
+.venv/
+
+# Logs and crash dumps (attach them to issues instead: never commit them)
+*.dmp
+MA2-diagnostics-*.zip
+
+# OS / editors
+Thumbs.db
+desktop.ini
+.DS_Store
+.vs/
+.vscode/
+*.swp

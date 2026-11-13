@@ -1,0 +1,143 @@
+{
+ "pack": "t23_objreach2_1108",
+ "title": "Objective-reach pass 2 (11-08): exits, faces, jet-ups, tank embeds",
+ "facts": [
+  {
+   "id": "dd890-set-position",
+   "title": "sub_DD890 sets a body position (eax = actor, ecx = Vec3*): moves pilots, not tanks",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The teleport action's per-player call. If actor+0x90 (PhysicsInfo block) is non-zero it only copies the position there; otherwise it calls the body component (actor+0x8C)+0x40 vtable slot 1, thiscall(pos*). Test (RECOMP_BOT_TEST_TELEPORT): a pilot rose 4.9 m in 0.07 s and fell normally; a tank (actor+0x90 = 0, component path) did not move at all, and embedded tanks were not freed. A tank's physics position is set elsewhere (open).",
+   "how_to_use": "RECOMP_BOT_TEST_TELEPORT=\"bot,t,dy\" (bot -1 = first bot in a tank) logs the position then, +0.5 s and +2 s.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "physics",
+    "teleport",
+    "tank"
+   ]
+  },
+  {
+   "id": "tank-embed-signature",
+   "title": "Embedded tank signature: x/z velocity exactly 0, position fixed, vel.y swinging",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "After a hard landing (flying off a crest at cruise 18-20 m/s, or hit hard) a tank can stay embedded for the match: x/z velocity exactly 0, position equal to the cm, vertical velocity swinging -4.+75 m/s (0 in about half the samples), pivot and eject refused. Seen at On the Rocks 1023,58,1357 and 1499-1537,1463-1553 (about once per run, CTF and Snatch It) and CTF Bogged Down 874,972. No collider there (FPROBE). The bots detect it (1.5 s, vel.y swinging in a third of frames) and mark the spot (EmbedMark); they cannot free the tank.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "physics",
+    "tank",
+    "on-the-rocks"
+   ]
+  },
+  {
+   "id": "tank-speed-vel-spikes",
+   "title": "Tank speed: 18-20 m/s cruise; me->vel spikes are single frames",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Measured from positions at 1 s cadence no bot tank exceeded 20 m/s in the rc14 matrix; the instantaneous velocity (Ma2PlayerView.vel) shows 30-53 m/s spikes on rough ground. sub_2AD5C0 forward speed is a percent of the body's own top speed, above cruise for tanks.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "tank",
+    "speed"
+   ]
+  },
+  {
+   "id": "pilot-exit-hold",
+   "title": "A pilot leaving a 'Mech is held ~2.4 s by the game, then can be wedged inside the hull",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Pilots appear 2-2.7 m from the 'Mech centre inside its 6-6.5 m hull; no input moves them for ~2.4 s (exit animation). EjectStep (travel leg, first 0.5 s) fired 0-2 times a match; a push 120 deg off the way out walked one in under the 'Mech (0.9 m from centre) where nothing moves it. ExitUnwedge: from 2.2 s to 7 s, within 4.5 m of that hull, walk 7 m out at 0/+-45/+-90 deg, 1 s each. Result: 43 of 44 exits walked off, median 2.6 s.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "pilot",
+    "eject"
+   ]
+  },
+  {
+   "id": "nml-mesa-terminal-ba-only",
+   "title": "Check It No Man's Land terminal 634,74,1227: only a BattleArmor gets up (east face)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Every recorded claim (5 runs) came from a BattleArmor climbing the east face 562,39,1182 -> 597,72,1198 and getting out on top. The east face is slope 82-117 (39-50 deg, a wall on the grid); the west face stops pilots at its foot (505-512,1236-1248) although the grid reads 30 deg. FootPrecheck plans the walk as a pilot (radius 0.6, drop 10, learned pilot faces) and stays in when it ends > 8 m short; PilotFace learns a failed face (stall or 8 s shuttle under a waypoint 2 m+ up) as impassable for pilots 30 m round.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "check-it",
+    "no-mans-land",
+    "pathing"
+   ]
+  },
+  {
+   "id": "jetup-landed-droprun",
+   "title": "Jet-up and drop give-ups: judge by landing, not by a 1 m rise; replans restarted them",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A jet-up counted as climbed after any 1 m rise (a hop) and a 2.4 m drift restarted its clock: a BA retried a 9 m up-link for minutes (rc10_93b b2, Base War Rush Hour hill 1040-1150,1600-1690). JetUpLanded: landed = within 2 m of the landing height and 8 m of it; tries keyed on 6 m. Drops: each replan along an edge moved the try 8-10 m and restarted the 5 s give-up (rc10_83b b9, four tries); DropEdgeRun fails an earlier try that lasted 2.5 s+ when a new one starts within 15 m / 15 s.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "pathing",
+    "jets",
+    "drops"
+   ]
+  },
+  {
+   "id": "c7-table-full",
+   "title": "C7 diagnostics table filled at 256 pieces",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Pieces first used late in a match (StuckHull) got no slot: they ran but were neither logged nor counted ('[C7] table full: pieces 256'). Raised to 384 (34d026e).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "diagnostics"
+   ]
+  }
+ ]
+}

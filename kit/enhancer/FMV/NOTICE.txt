@@ -1,0 +1,30 @@
+This folder contains a local inference-only adaptation of RealBasicVSR.
+
+Official RealBasicVSR repository:
+https://github.com/ckkelvinchan/RealBasicVSR
+Pinned commit: b908e08323c84e96b08f0d58621026ab27f56bcb
+Copyright 2021 Kelvin Chan. Apache License, Version 2.0.
+License: vendor/reference/realbasicvsr_LICENSE.txt
+
+Architecture adapted from OpenMMLab MMEditing v0.16.0:
+https://github.com/open-mmlab/mmagic/tree/8b819f1d28d6eed6244721278a099f5dc0848a20
+Copyright (c) OpenMMLab. All rights reserved. Apache License, Version 2.0.
+License: vendor/reference/mmediting_LICENSE.txt
+Unmodified source references are retained in vendor/reference/.
+
+Modifications: inference-only plain PyTorch modules replace MMCV registries,
+ConvModule wrappers and training dependencies. Per-pair optical flow is batched
+to reduce GPU memory use. Single-frame sequences are supported. The pipeline
+adds bounded temporal context, scene boundaries, resumable atomic PNG batches,
+configurable 2x/3x/4x final resolution, adjustable blending, duration presets,
+and FFmpeg audio/video export.
+EMA generator weights load strictly with all 320 checkpoint tensors matched.
+The discriminator, optimizer and training losses are not instantiated.
+
+Checkpoint is the author's linked RealBasicVSR.pth:
+https://dl.dropboxusercontent.com/s/eufigxmmkv5woop/RealBasicVSR.pth
+SHA256: f2d73c0fe3e33869c812f608be77cbdbfc356443b718b78c9a6cb97027ce5de7
+
+FFmpeg is the build the installer downloads for the game (gyan.dev 9.0.2
+full shared, GPL-3.0); its licence and README are installed in Licenses\.
+PyTorch, NumPy and Pillow are reused from Enhancer/.venv.

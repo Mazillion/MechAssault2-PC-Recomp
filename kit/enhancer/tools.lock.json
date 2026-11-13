@@ -1,0 +1,39 @@
+{
+  "downloads": {
+    "models/RealESRGAN_x2plus.pth": {
+      "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth",
+      "sha256": "49fafd45f8fd7aa8d31ab2a22d14d91b536c34494a5cfe31eb5d89c2fa266abb",
+      "bytes": 67061725
+    },
+    "models/RealESRGAN_x4plus.pth": {
+      "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
+      "sha256": "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1",
+      "bytes": 67040989
+    },
+    "tools/texconv.exe": {
+      "url": "https://github.com/microsoft/DirectXTex/releases/download/may2026/texconv.exe",
+      "sha256": "dcfdec10244e02cf5037fba089c55fb7e1326b1c8181742d77d15fa5cb5eef06",
+      "bytes": 966480
+    },
+    "tools/texassemble.exe": {
+      "url": "https://github.com/microsoft/DirectXTex/releases/download/may2026/texassemble.exe",
+      "sha256": "324721a80cf954eccfd888a6c587f6602146f043a01d0181af25884c549e8f46",
+      "bytes": 327504
+    },
+    "LICENSES/BasicSR.txt": {
+      "url": "https://raw.githubusercontent.com/XPixelGroup/BasicSR/master/LICENSE.txt",
+      "sha256": "5447872f21ddc29dc0dc060d5c885513c01c904e9da9931bba69898a6fb4d415",
+      "bytes": 11350
+    },
+    "LICENSES/Real-ESRGAN.txt": {
+      "url": "https://raw.githubusercontent.com/xinntao/Real-ESRGAN/master/LICENSE",
+      "sha256": "4a699ec4863d96a91fc265948a0c90033f7e8735d515524dcf3444736406e0c2",
+      "bytes": 1519
+    },
+    "LICENSES/DirectXTex.txt": {
+      "url": "https://raw.githubusercontent.com/microsoft/DirectXTex/main/LICENSE",
+      "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+      "bytes": 1141
+    }
+  }
+}

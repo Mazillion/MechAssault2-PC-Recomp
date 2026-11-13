@@ -1,0 +1,530 @@
+{
+ "pack": "t15_editor_render_gaps",
+ "title": "Editor rendering gaps: what the scenario editor shows differently from the game (2026-10-21)",
+ "facts": [
+  {
+   "id": "gap-terrain-detail-textures",
+   "title": "Gap 1: the editor draws terrain with the colour map only; the game adds two tiled detail textures and two micro-detail textures",
+   "subject": {
+    "kind": "editor-gap",
+    "id": "MATerrain"
+   },
+   "addresses": [
+    "000F63D2",
+    "000F691E"
+   ],
+   "related": [
+    "MATerrain",
+    "TerrainDetailMap",
+    "TerrainDetailMap 1",
+    "TerrainDetailBlend",
+    "TerrainDetailModulate",
+    "TerrainMicroDetailMap0",
+    "TerrainMicroDetailMap1",
+    "render.cpp"
+   ],
+   "fact": "Every mission and multiplayer world (47 of the 60 worlds; only 3DLobby and the space/interior cinemas leave them blank) names detail textures on MATerrain: TerrainDetailMap (89F575C2) and 'TerrainDetailMap 1' (1DF99D12), repeated TerrainDetailMult (DFD3B53D) / TerrainDetailMult1 (09699F9E) times across the map, mixed by TerrainDetailBlend (02D57475) and multiplied with the colour map when TerrainDetailModulate (215EEDCA) = 1 (50 of 60 worlds); plus close-up TerrainMicroDetailMap0/1 (FE6BA2CC / 896C925A) tiled TerrainMicroDetailTiling0/1 (9DC8435C / EACF73CA) times. The .tif files are MGIc pictures in the level archive's Terrain/ folder (Mission_02: Dante_Detail_06.tif + Dante_Detail_03.tif, repeats 64 and 96, micro Dante_Detail_03 x240, blend 0.3). The colour map's alpha channel picks between detail 1 and 2. The editor's terrain pixel shader (render.cpp tps) samples only the colour map and the lightmap, so ground that is one flat colour in the colour map (the crash site and canal banks of Mission_02, the swamp in Bogged Down) shows as flat olive/green, while the game shows cracked, scorched earth.",
+   "how_to_use": "Load the four .tif paths from MATerrain with the editor's existing MGIc decoder (core/mgic.cpp), bind them beside the colour map and in tps: d = lerp(detail1(uv*Mult), detail2(uv*Mult1), colormap.a); col = Modulate ? colormap.rgb * lerp(1, d*2, Blend): colormap.rgb + (d-0.5)*Blend; then the micro layer near the camera. The exact NV2A combiner formula is not traced; check against the game with a side-by-side shot.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "editor/src/app/render.cpp",
+     "line": 68
+    },
+    {
+     "file": "editor/src/app/app_tools.cpp",
+     "line": 84
+    }
+   ],
+   "tags": [
+    "editor",
+    "rendering",
+    "editor-gap",
+    "terrain"
+   ],
+   "date": "2026-10-21",
+   "confidence_note": "verified (data, editor shader code, side-by-side shots); blend formula inferred"
+  },
+  {
+   "id": "gap-water-material",
+   "title": "Gap 2: water is a flat tinted quad in the editor; the game draws an animated, reflective material_water",
+   "subject": {
+    "kind": "editor-gap",
+    "id": "MAWater"
+   },
+   "addresses": [
+    "0004EC40",
+    "0004EB90"
+   ],
+   "related": [
+    "MAWater",
+    "material_water",
+    "Env_Water1000x1000_CityNight",
+    "wavetexture",
+    "reflectiontexture"
+   ],
+   "fact": "MAWater objects (57 in 23 worlds) point Corporal3DObj at a water MGMODEL whose material is <material_water>: wavetexture (e.g. Texture_Dump\\Environment\\Water\\Water_006_NewWater.tif), reflectiontexture (an EnvMaps\\EnvMap_Sky_*.tif matching the sky), wave_factor 0.85, distort_factor 0.85, fresnel_min 0.77 / fresnel_max 1.0, deep_color 100,122,101, shallow_color 137,137,97, spec_color, shin_strength (Env_Water1000x1000_CityNight in Mission_02). The game scrolls/distorts the wave texture and blends the sky reflection by fresnel, so the Mission_02 canal is dark, rippled water reflecting the night sky. The editor (app.cpp ~1103) draws a 0.5 m box the size of the model's bbox in one hard-coded colour chosen by model name, alpha 0xA0, with no texture and no animation: a light-green slab with the grid showing through. The material_water parser is sub_0004EC40 (recomp_0008.c, reads shallow_color.wavetexture); sub_0004EB90 matches the 'material_water' tag.",
+   "how_to_use": "Parse <material_water> from the model (the ma2m loader already lists wavetexture and reflectiontexture slots, models/src/model.cpp kTextureSlots) and draw water with its own shader: two scrolling samples of the wave texture (time * small speed, scaled by wave_factor) perturb the UV of the reflection map (distort_factor); colour = lerp(shallow, deep, fresnel) + reflection * lerp(fresnel_min, fresnel_max, 1 - N.V). Keep the bbox-sized plane (dictionary MAWater rule).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "editor/src/app/app.cpp",
+     "line": 1103
+    },
+    {
+     "file": "editor/models/src/model.cpp",
+     "line": 44
+    }
+   ],
+   "tags": [
+    "editor",
+    "rendering",
+    "editor-gap",
+    "water"
+   ],
+   "date": "2026-10-21",
+   "confidence_note": "verified; game shader math inferred"
+  },
+  {
+   "id": "gap-environment-lighting",
+   "title": "Gap 3: the editor ignores the level's light colours and night setting; everything is lit by a white sun",
+   "subject": {
+    "kind": "editor-gap",
+    "id": "MAEnvironment"
+   },
+   "addresses": [
+    "00124CC1",
+    "0012FB98",
+    "00130290"
+   ],
+   "related": [
+    "MAEnvironment",
+    "LightAmbientColor",
+    "DirectionalLightColor",
+    "IsNightTime",
+    "MAEnvState"
+   ],
+   "fact": "SUPERSEDED (v249, t16 survey): the editor now draws game lighting (View > Game lighting); see t16-map-terrain-env-surprise-8. MAEnvironment carries LightAmbientColor, DirectionalLightColor, DirectionalLightOn, IsNightTime (1 in 34 of 60 worlds), EnableMechDarken, ShadowColor, EnableShadows and EnvironmentMapName. Mission_02: ambient FF1B213B (dark blue), directional FF4E3F34 (dim brown), night 1. In game the city is dark blue with lit windows; Bogged Down is a dim, hazy dusk. The editor's terrain shader uses nl = 0.45 + 0.55*N.L (or the baked lightmap) and the model shader 0.5 + 0.5*N.L with white light, so both maps look like noon. The Night/Sun controls on the Map tab change the saved data only. Readers: MAEnvironment field list at 0x124CC1 (dictionary); MAEnvState (+sub) readers 0x0012FB98 / 0x00130290 (recomp_0030.c) hold the live fog/directional state. CORRECTION 2026-10-24: sub_0012FB98/sub_00130290 are MAEnvState's load/save serializers, not live state.",
+   "how_to_use": "Feed ambient and directional colour (and the sun direction already shown) into both shaders' constant buffer: col = tex * (ambient + directional * N.L * lightmap); darken by IsNightTime only through those colours, as the game does. Add self-illum (gap 5) so windows and road lights still glow at night.",
+   "status": "superseded",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "editor/src/app/render.cpp",
+     "line": 71
+    }
+   ],
+   "tags": [
+    "editor",
+    "rendering",
+    "editor-gap",
+    "lighting"
+   ],
+   "date": "2026-10-21",
+   "confidence_note": "verified (data, shader code, side-by-side shots)"
+  },
+  {
+   "id": "gap-fog",
+   "title": "Gap 4: no distance or height fog in the editor view",
+   "subject": {
+    "kind": "editor-gap",
+    "id": "MAEnvironment"
+   },
+   "addresses": [
+    "0012FB98",
+    "00130290"
+   ],
+   "related": [
+    "MAEnvironment",
+    "FogMode",
+    "FogStart",
+    "FogEnd",
+    "FogColor",
+    "FogTop",
+    "FogBottom"
+   ],
+   "fact": "Every world sets FogMode (1 = linear in most, 2 in 7 worlds), FogStart/FogEnd (Mission_02 149-223 m, Bogged Down 175-450 m), FogColor and a height band FogBottom/FogTop. The game fades distant terrain and models into FogColor (Bogged Down horizon is hazy grey-green); the editor's Map tab edits these values but neither viewport shader applies fog, so far hills are sharp and bright.",
+   "how_to_use": "Add linear fog by view distance (FogStart.FogEnd) plus the height band to the terrain, model and water shaders; give the view a 'game fog' toggle so editing at long range stays possible. FogMode 2's exact curve (exponential?) is not traced.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "editor/src/app/render.cpp",
+     "line": 68
+    }
+   ],
+   "tags": [
+    "editor",
+    "rendering",
+    "editor-gap",
+    "fog"
+   ],
+   "date": "2026-10-21",
+   "confidence_note": "verified (data, shader code, shots); FogMode 2 meaning inferred"
+  },
+  {
+   "id": "gap-model-materials",
+   "title": "Gap 5: model materials are drawn with the diffuse texture only (no reflection, detail, animation or self-illum)",
+   "subject": {
+    "kind": "editor-gap",
+    "id": "MGMODEL materials"
+   },
+   "addresses": [],
+   "related": [
+    "MGMODEL",
+    "material_animated",
+    "reflectiontexture",
+    "selfillum",
+    "model_cache.cpp"
+   ],
+   "fact": "The ma2m loader reads basetexture, detailtexture, multitexture, cubetexture, wavetexture, distortiontexture, normal_map and reflectiontexture slots and the frames of animated textures ('X 01.tif', 'X 02.tif'.), but the editor's model cache (model_cache.cpp ~157) uploads only diffuse_texture plus a colour of diffuse*tint + selfillum, and skips distortion meshes. Effects seen: Mission_02's video billboards are frozen on frame 0 (they animate in game); window and road light strips are not emissive at night; parts of 'Mechs and pads in Bogged Down (glass/chrome panels whose material has no base texture) draw as flat white blocks.",
+   "how_to_use": "Bind the reflection texture as a sphere/env map (or the level's EnvironmentMapName) for reflective materials, cycle animated frames by time, add selfillum as emissive after lighting, and multiply detailtexture where present. The white-panel cause is inferred from the code path (material without diffuse texture -> white colour); confirm by dumping the material of one white mesh.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/model_cache.cpp",
+     "line": 157
+    },
+    {
+     "file": "editor/models/src/model.cpp",
+     "line": 82
+    }
+   ],
+   "tags": [
+    "editor",
+    "rendering",
+    "editor-gap",
+    "models"
+   ],
+   "date": "2026-10-21",
+   "confidence_note": "verified (code); white-panel cause inferred"
+  },
+  {
+   "id": "gap-effects-oil-fires",
+   "title": "Gap 6: MAEffect fires and smoke are orange 2 m boxes in the editor",
+   "subject": {
+    "kind": "editor-gap",
+    "id": "MAEffect"
+   },
+   "addresses": [],
+   "related": [
+    "MAEffect",
+    "Env_HES_OilFire_01"
+   ],
+   "fact": "MAEffect objects play a particle model: Mission_02 has 11 'BD HES OilFire 01' (SpecialEffects\\Environment\\Env_HES_OilFire_01) along the crash scar; NoMansLand 7, Mission_15 5, Cinema_1_3 21, Cinema_4_6 11. In game they are burning flames with smoke. The editor (app.cpp ~1095) draws a fixed 2x2x2 orange box. Particle systems live .mgparticle files beside the model.",
+   "how_to_use": "Short term: draw a billboard flame icon sized like the effect's bounds; better: a simple sprite emitter using the model's particle texture. Do not try to run the game's particle code.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "editor/src/app/app.cpp",
+     "line": 1095
+    }
+   ],
+   "tags": [
+    "editor",
+    "rendering",
+    "editor-gap",
+    "effects"
+   ],
+   "date": "2026-10-21",
+   "confidence_note": "verified"
+  },
+  {
+   "id": "gap-culture-scatter",
+   "title": "Gap 7: culture scatter (grass, bushes, small rocks) is not drawn",
+   "subject": {
+    "kind": "editor-gap",
+    "id": "MACultureGenerator"
+   },
+   "addresses": [],
+   "related": [
+    "MATerrainInfo",
+    "MACultureSystem",
+    "MACultureType",
+    "MACultureGenerator",
+    "89FB5118"
+   ],
+   "fact": "SUPERSEDED (v249, t16 survey): the editor now draws ground scatter (View > Ground scatter); see t16-map-terrain-env-surprise-8. 22 worlds (BoggedDown, NoMansLand, ProvingGround, UnderCover, WitchCauldron, TroubledWaters, Missions 03/05/06a/07/08/09A/09b/12/13a/13b/14/15, SPDemoMission and 3 cinemas) scatter small objects at run time: MATerrainInfo's culture map (key 89FB5118) says where, MACultureSystem > MACultureType > MACultureGenerator says what (GenerationTemplate, e.g. Bogged Down 'Env_Grass' template 36018, Density 800, GridScale 10x10, RandomScaleRange 0.25, AlignWithSlope 1, StartFade 0 / StopFade 75 m). The editor keeps the map but draws nothing. Because the scatter fades out by ~75 m it matters only for close views.",
+   "how_to_use": "Generate the same scatter on load (seeded, per culture-map cell, Density per GridScale cell) and draw it instanced with the template's model, fading at StopFade. The Density unit and the culture-map value -> type mapping are not confirmed in code.",
+   "status": "superseded",
+   "confidence": "inferred",
+   "source": [
+    {
+     "file": "editor/src/core/scenario.cpp",
+     "line": 147
+    }
+   ],
+   "tags": [
+    "editor",
+    "rendering",
+    "editor-gap",
+    "terrain"
+   ],
+   "date": "2026-10-21",
+   "confidence_note": "inferred (data; not checked close-up in game)"
+  },
+  {
+   "id": "gap-weather-lights",
+   "title": "Gap 8: rain and point lights are not previewed",
+   "subject": {
+    "kind": "editor-gap",
+    "id": "MAEnvironment"
+   },
+   "addresses": [],
+   "related": [
+    "MAEnvironment",
+    "EnableRain",
+    "PrecipEffectID",
+    "MAPointLight"
+   ],
+   "fact": "SUPERSEDED (v249, t16 survey): the editor previews rain/snow/dust; see t16-map-terrain-env-surprise-9. Rain: EnableRain 1 with PrecipEffectID 31780 in Mission_10, Mission_11a, Mission_11b, Cinema_3_1a and Cinema_3_5 (EnableLightning is 0 in every retail world). MAPointLight: 27 worlds (NoMansLand 28, Mission_13b 26, Mission_03 21) light nearby objects with LightColor/LightRadius; the editor shows them only as helper markers. Both are low priority next to gaps 1-4.",
+   "how_to_use": "Rain: a screen-space streak overlay when EnableRain is ticked. Lights: add up to N point lights per draw in the model/terrain shaders, using the dictionary MAPointLight rules for parent transforms.",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "editor",
+    "rendering",
+    "editor-gap",
+    "weather"
+   ],
+   "date": "2026-10-21",
+   "confidence_note": "verified (data)"
+  },
+  {
+   "id": "not-a-gap-runtime-decals",
+   "title": "Not a gap: craters and weapon scorch marks are made at run time, not stored in the level",
+   "subject": {
+    "kind": "editor-gap",
+    "id": "MAModSubObjectDecalStamp"
+   },
+   "addresses": [
+    "00143DD9",
+    "001A64AA"
+   ],
+   "related": [
+    "MAModSubObjectDecalStamp",
+    "MAModSubObjectDecalObject",
+    "env_crater.mat"
+   ],
+   "fact": "Level archives carry decal materials (SpecialEffects/Effects_Decals/env_crater.mat, Expl_decal_shock.mat, BD_HoleDecal.mat, Texture_Dump/Scorch/*.tif) but no world object places them; they are stamped when weapons hit (MAModSubObjectDecalStamp vtable ~0x143DD9, MAModSubObjectDecalObject ~0x1A64AA). The editor should not try to show them. The Mission_02 crash scar is detail texture + rubble models + oil fires (gaps 1 and 6).",
+   "how_to_use": "Ignore runtime decals when matching the game's look; check gaps 1 and 6 instead.",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "editor",
+    "rendering",
+    "editor-gap",
+    "decals"
+   ],
+   "date": "2026-10-21",
+   "confidence_note": "inferred (archive listing, no placing class in the 60 worlds)"
+  },
+  {
+   "id": "checked-ok-sky-models-rubble",
+   "title": "Checked OK: sky dome, building/ship models and rubble render in the editor (roads do NOT: see road-mirror-addressing)",
+   "subject": {
+    "kind": "editor-gap",
+    "id": "MASky2"
+   },
+   "addresses": [],
+   "related": [
+    "MASky2",
+    "MABuilding"
+   ],
+   "fact": "In Mission_02 and Bogged Down the editor draws the sky model (draw_sky), the crashed Talon dropship (MABuilding Vmil_Dropship_Talon_Ale_WS), the 37 rubble chunks with positions matching the game. CORRECTION 2026-10-21 round 2: road tiles are placed right but textured wrong (MIRROR addressing, gap road-mirror-addressing). Remaining differences on these are lighting/material ones (gaps 3 and 5).",
+   "how_to_use": "No action beyond gaps 3 and 5.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "editor",
+    "rendering",
+    "editor-gap",
+    "models"
+   ],
+   "date": "2026-10-21",
+   "confidence_note": "verified (side-by-side shots)"
+  },
+  {
+   "id": "terrain-alpha-selects-detail-verified",
+   "title": "Colour-map alpha 255 shows TerrainDetailMap, alpha 0 shows TerrainDetailMap 1 (verified)",
+   "subject": {
+    "kind": "property",
+    "id": "MATerrain.TerrainBaseMap"
+   },
+   "addresses": [
+    "004A4760",
+    "004A4940"
+   ],
+   "related": [
+    "MATerrain",
+    "TerrainBaseMap",
+    "TerrainDetailMap",
+    "gap-terrain-detail-textures",
+    "terrain-detail-combine"
+   ],
+   "fact": "In game on PC Release 5508c574, a Bogged Down copy had TerrainDetailMap = Space_Null_Terrain (black) and 'TerrainDetailMap 1' = NORthwind_Detail_04 (bright). Whole-map colour-map alpha 255 rendered black everywhere, alpha 0 rendered bright, and a painted alpha-255 cross showed black at the spawn. This matches the decoded combiner mix = lerp(T2, T1, T0.a). Detail textures from other levels also work once copied into the scenario archive under the same path.",
+   "how_to_use": "Paint the colour-map alpha to choose detail 1 (255) or detail 2 (0) per texel.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "render",
+    "terrain",
+    "editor"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "road-mirror-addressing",
+   "title": "Road textures need MIRROR addressing; the editor wraps them, which jumbles the lanes",
+   "subject": {
+    "kind": "editor-gap",
+    "id": "MARoad"
+   },
+   "addresses": [],
+   "related": [
+    "MARoad",
+    "road.mat",
+    "base_tiling",
+    "U_MIRROR"
+   ],
+   "fact": "Road .mat files (roads/*/Models/*/Materials) set base_tiling = U_MIRROR | V_WRAP for straights and U_MIRROR | V_MIRROR for intersections and ends. The meshes depend on it: Straight60 UV U -1.1 V -11.1, Intersection_90 U 0.2 V 2.3.58, Intersection_4way U -1.15.1.15. The texture holds half a road (kerb to centre line) and is mirrored for the other half. The game trace shows the road draw with tex0 (-0.999,-11). The editor (a0414027) has only CLAMP/WRAP samplers, so each lane shows the kerb strip in its middle and the joins mismatch.",
+   "how_to_use": "Bind a D3D11 MIRROR sampler per mesh from Material.mirror_u/mirror_v (already parsed in models/src/model.cpp).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "editor",
+    "rendering",
+    "editor-gap",
+    "roads"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "road-complex-material",
+   "title": "Road COMPLEX material: a mask texture adds emissive blue/yellow lane lights and specular",
+   "subject": {
+    "kind": "editor-gap",
+    "id": "MARoad"
+   },
+   "addresses": [],
+   "related": [
+    "COMPLEX",
+    "colorshift0_color",
+    "colorshift1_color",
+    "multi"
+   ],
+   "fact": "Road materials are type COMPLEX with base = Road_014.tif (256x128) and multi = Road_014_cmplx.tif (128x64), colorshift0 47,47,255 and colorshift1 255,246,80. The game combiner (trace line 2545) computes lit = lerp(envCube, base.rgb, base.a); glow = mask.g*colorshift0 + mask.b*colorshift1 (not lit); spec = mask.r*lightbuffer.a*0.698; out = 2*(V0+lightbuffer)*lit + glow + spec, then fog. The glow is the blue dashed centre line and the yellow kerb dots seen at night.",
+   "how_to_use": "Load the multi texture and add the glow after lighting in the editor's model shader.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "editor",
+    "rendering",
+    "editor-gap",
+    "roads"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "water-render-pipeline",
+   "title": "How the game draws water: 5 screen-space passes with a volume normal map, a cube reflection and a GPU ripple simulation",
+   "subject": {
+    "kind": "engine",
+    "id": "material_water"
+   },
+   "addresses": [
+    "0004EC40"
+   ],
+   "related": [
+    "MAWater",
+    "material_water",
+    "wavetexture",
+    "reflectiontexture",
+    "fresnel_min",
+    "fresnel_max",
+    "deep_color",
+    "shallow_color"
+   ],
+   "fact": "Traced in Mission_02 (PC Release, RECOMP_FRAME_TRACE). The wavetexture (Water_006_NewWater.tif) is a 32x32x32 volume normal map (MGIc flags 0x80000011 = R5G6B5 swizzled, 6 mips, user chunk /animFps:24 /filter:NormalMap:4), bound in tex mode 3D with W = frac(t*24/32) and UV = mesh UV (~0.03/m, repeats every 33 m). The reflectiontexture (EnvMap_Sky_CityNight_sm.tif) is a 6-face 16x16 cube map read with DOT_RFLCT_SPEC. Per plane, the game draws:\n1. a thickness pass writing alpha only: the depth buffer is read as a texture through two LUTs, a = sat(8*(sceneDepth-waterDepth)+V0.a^2);\n2. a half-res scene copy;\n3. a normal pass: the wave volume is lerped with a 256x256 G8B8 ripple height field. The ripple field is simulated on the GPU by ping-pong render targets with a 4-neighbour Laplacian, and its weight is 0.847*(1-r^2);\n4. a refraction pass that offsets the scene copy by N (DOT_ST);\n5. a reflection and fresnel pass: R = cube(reflect), F = lerp(fresnel_max, fresnel_min, N.V);\n6. a composite: lerp(sceneBehind*lerp(shallow,deep,a), 2*R*(V0*L.a+L.rgb), F*sat(4a)), then fog, with L = the 512x512 terrain light map. Night levels therefore get near-black, high-contrast animated water.",
+   "how_to_use": "Editor: sample the wave volume as the normal, the cube with reflect(-V,N), and use the composite above. Ripples can be omitted (flat when undisturbed).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "confidence_note": "pass structure and combiner math verified from the trace; LUT scale of the thickness and the cube face order inferred",
+   "source": [],
+   "tags": [
+    "editor",
+    "rendering",
+    "water",
+    "engine"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "road-markings-from-mask",
+   "title": "Road centre lines and yellow caution dots come from the road material's mask, not from objects",
+   "subject": {
+    "kind": "engine",
+    "id": "MARoad"
+   },
+   "addresses": [],
+   "related": [
+    "MARoad",
+    "COMPLEX",
+    "multi",
+    "colorshift0_color",
+    "colorshift1_color"
+   ],
+   "fact": "No world object or decal places road markings. Each .road file names RWmodel (*.NODE, not shipped) and model (*_rw.node, the only road model on the disc, with no LODs). The markings are the COMPLEX material's multi mask (e.g. Road_014_cmplx.tif): mask.g*colorshift0 (47,47,255) = blue dashed centre line, mask.b*colorshift1 (255,246,80) = yellow kerb dots, added unlit after lighting (trace line 2545). Correction: the markings sit inside the final x2, out = 2*(lit + mask.g*C0 + mask.b*C1), so they are doubled (complex-glow-doubled).",
+   "how_to_use": "The editor must sample the multi mask and add the colorshift glow (spec R2-2), together with mirror addressing (R2-1).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "editor",
+    "rendering",
+    "roads"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "scene-lights-ground-lightmap",
+   "title": "Lamps light the ground through a per-frame 512x512 light map built from model light nodes",
+   "subject": {
+    "kind": "engine",
+    "id": "node_light"
+   },
+   "addresses": [],
+   "related": [
+    "node_light",
+    "lightmap",
+    "MAPointLight",
+    "MaxAreaLightsPerObject",
+    "LightAmbientColor",
+    "Env_Highway_Light"
+   ],
+   "fact": "Light sources are <node_light> elements inside models (light_type point/spot, light_color, light_inner/outer_radius, light_inner/outer_angle, light_priority), plus MAPointLight objects. Each has a <lightmap min_height max_height min_radius max_radius min_color max_color/> child. In Mission_02 (no MAPointLight objects), 28 Env_Highway_Light lamps (spot, 255,255,235, radius 44, splat 12-20 m over 0-15 m height) and 3 Ullers give 31 lights. Every frame the engine rebuilds a 512x512 light map (render target 00AC1000): the static lightmap times LightAmbientColor, then one additive quad per light (blend SRC_ALPHA,ONE; 64x64 L8 falloff texture; colour 0x557F7A69, roughly light_color/2 at alpha 1/3; 13.2 px wide in this frame). Terrain, water and roads sample this map. Models get per-object lighting from at most MaxAreaLightsPerObject lights.",
+   "how_to_use": "Editor 'Scene lights' preview (spec R2-4): splat the same discs into a ground light map and light models with the nearest 3 lights. The map's world scale and the falloff curve are still to be measured (RECOMP_TEX_DUMP on the falloff texture).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "confidence_note": "light count, blend and colour verified from the trace; world scale and falloff curve inferred",
+   "source": [],
+   "tags": [
+    "editor",
+    "rendering",
+    "lighting",
+    "engine"
+   ],
+   "date": "2026-10-21"
+  }
+ ]
+}

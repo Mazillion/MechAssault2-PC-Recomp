@@ -1,0 +1,78 @@
+MechAssault 2 PC recompilation - bots guide (version {{VERSION}})
+================================================================
+
+The original game has no computer opponents in multiplayer. This PC version
+adds offline bots that play every multiplayer mode on every map, including
+your own maps made with the Scenario Editor.
+
+
+WHERE THE SETTINGS ARE
+----------------------
+Main menu > Multiplayer > Bot Match > New Game. Besides the game type, map
+and rules there are three rows:
+- Red Bots and Blue Bots (team modes) or Bots (free-for-all modes): how many.
+- Bot Skill: how good they are.
+Each row explains itself while it is selected. A new profile starts with
+3 Red, 4 Blue, 5 in free-for-all and skill Mixed.
+
+
+TEAM SIZES
+----------
+A team holds 6 players, you included. The counts are exact, and you join the
+side they leave short:
+- 6 Red and 5 Blue: you join Blue, 6 against 6.
+- 1 Red and 4 Blue: you join Red, 2 against 4.
+Free-for-all: up to 11 bot opponents; Off plays the map alone.
+Grinder is two-player co-op: one bot partner at most.
+
+
+SKILL
+-----
+  Green      new pilots: slow to react, miss a lot
+  Regular    steady
+  Veteran    quick and sensible
+  Elite      very good: fast reactions, accurate, uses the map well
+  Dragoon    past Elite: reacts at once and never lets up
+  Mixed      a lobby spread: on each side one Dragoon ace, Elites,
+             Veterans, Regulars and Greens; the team you face is a notch
+             stronger
+
+Skill changes only reactions, aim and decisions. Every bot has the same
+armour, health and weapons you would have in the same 'Mech; nobody gets
+extra damage.
+
+
+WHAT BOTS DO
+------------
+- Play the objective of each mode: carry and defend flags, attack and guard
+  power plants, collect cores, take checkpoints, hunt the leader.
+- Use every vehicle: walk 'Mechs, drive tanks, fly VTOLs (and carry
+  BattleArmor riders), board vehicles on foot and leave them when they are
+  about to blow.
+- BattleArmor walk and use their jets for longer moves and to climb.
+- Pick up power-ups on the way, retreat when overheated, escape the blast of
+  a dying 'Mech, and come back after a respawn.
+- Stand down while the game is paused.
+
+
+WHAT THEY DO NOT DO WELL YET
+----------------------------
+See Docs\Known issues.txt (Bots). In short: VTOLs flying home under fire are
+often lost; a tank that lands hard on a slope can stay stuck and fights from
+there; on a few maps a bot can be caught for a moment near a base exit.
+
+
+REPORTING A BOT PROBLEM
+-----------------------
+Run the installer again and press Collect diagnostics: it puts one zip on
+your Desktop with the logs (your Windows user name removed). Attach that zip
+to your report at {{MA2_SUPPORT_URL}} and note the time in the match when
+the problem happened.
+
+If a maintainer asks for a bot recording: set BotRecorder=1 under [Bots] in
+%LOCALAPPDATA%\MechAssault2\pc_settings.ini, play until the problem
+happens again, then run Collect diagnostics and tick "Include the newest
+bot match recording". A recording (.botrec, in
+the Logs folder) can be up to 150 MB, and the newest 4 are kept, so turn it
+off again afterwards. Issue attachments are limited to about 25 MB: if the
+zip is larger, the maintainer will tell you where to upload it.

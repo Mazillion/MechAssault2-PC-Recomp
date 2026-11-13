@@ -1,0 +1,148 @@
+MA2 Scenario Editor - user guide (version {{VERSION}})
+=====================================================
+
+Help > User guide in the editor opens this file. F1 opens the editor's own
+help window, which explains the tab you are on.
+
+
+1. WHAT IT IS
+-------------
+"MA2 Scenario Editor.exe", next to the game, makes multiplayer maps (played
+with bots in Bot Match) and single-player missions (under Custom Scenarios).
+It uses the models, textures and sounds of your own installed game, so a
+scenario file is small: it refers to the disc's content instead of copying it.
+
+Where files go:
+- Scenarios: Documents\MechAssault 2\Scenarios (change it under File >
+  Settings > General). Each save keeps the previous version as .bak.
+- Recovery copies, editor settings (ScenarioEditor.ini) and logs:
+  %LOCALAPPDATA%\MechAssault2. After a crash the editor offers to recover
+  your work at the next start.
+
+
+2. YOUR FIRST MAP IN 5 MINUTES
+------------------------------
+1. File > New map... (Ctrl+N). Choose a base level and the game types, then
+   Create. The new map already has spawn points for its game types.
+2. Press Test (F5). The editor saves the map and starts the game on it with
+   bots.
+3. Change something (Units and Props tab: place a building), Test again.
+
+
+3. YOUR FIRST MISSION IN 10 MINUTES
+-----------------------------------
+1. File > New mission..., choose a base level, Create.
+2. Units and Props tab, Player start: press "Move player start" and click the
+   map.
+3. Place a few enemy 'Mechs or vehicles (choose an enemy side).
+4. Objectives & Triggers tab: add an objective ("Destroy the enemy 'Mechs"),
+   and a trigger that waits for those units to be destroyed and then wins the
+   mission.
+5. Check scenario, then Test.
+
+
+4. MOVING AROUND AND SELECTING
+------------------------------
+W A S D or the arrow keys pan; the mouse wheel zooms; T switches the top-down
+view; Home resets the view; F zooms to the selection; H shows or hides
+helpers. Click to select, drag the handles to move or turn. Q / E turn,
+G puts the selection on the ground. Ctrl+Z / Ctrl+Y undo and redo; Ctrl+C,
+Ctrl+X, Ctrl+V copy, cut and paste under the mouse; Ctrl+D duplicates;
+Ctrl+A selects all; Delete deletes; Esc stops the tool or clears the
+selection. Space places the last thing again; I places more of the selected
+type. While dragging: Shift moves freely, Alt passes through other objects,
+Ctrl moves in small steps. Every key can be changed under File > Settings.
+
+
+5. TERRAIN
+----------
+The Terrain tab raises, lowers, smooths and flattens the ground and paints
+textures, water and roads. [ and ] change the brush size. Ground must be
+marked Playable for players to go there ("Make the whole map playable").
+
+
+6. UNITS AND PROPS
+------------------
+Choose a side, then pick from the palette: 'Mechs, vehicles, BattleArmor,
+buildings, trees, props, power-ups, spawn points and pads. The "Not in the
+game" tab lists objects found on the disc that the original game never used;
+they may not work as expected.
+
+
+7. MULTIPLAYER GAME TYPES
+-------------------------
+Tick the game types on the Map tab. What each needs (Check scenario tells you
+what is missing, and the Starts section has an "Add <game type>" button):
+- Team game types: at least 6 spawn points for Red and 6 for Blue.
+- Free-for-all game types: enough free-for-all spawn points.
+- Capture the Flag: a flag for each team.
+- Base War: a power plant for each team.
+- Snatch It: the bases and cores.
+- Check It: checkpoints and terminals.
+- When players start on foot: vehicle pads.
+
+
+8. OBJECTIVES, TRIGGERS, MESSAGES AND CUTSCENES
+-----------------------------------------------
+Objectives & Triggers: objectives are shown to the player; triggers wait for
+something (units destroyed, an area reached, time, other triggers) and then
+act: show a message, play a sound (the game's or your own WAV), give the AI
+orders, win or lose. Cameras & Cutscenes: camera moves for intros and
+cutscenes.
+
+
+9. ENVIRONMENT
+--------------
+Sky, fog, light and weather of the map.
+
+
+10. CHECK AND TEST
+------------------
+Check scenario lists problems. Red (Must fix) items stop the game from using
+the scenario: Test refuses to start, and the game does not list a saved
+scenario that still has them. Yellow items are advice. Limits: 3,000 objects,
+64 MB of graphics memory, 63 sound clips.
+
+Test (F5) saves and starts the game with the scenario: a multiplayer map
+starts with bots, a mission starts selected in Custom Scenarios. Leaving the
+match closes the game again.
+
+
+11. SHARING
+-----------
+Send the .ma2map file. The other player puts it in their scenario folder; the
+game builds the level from their own disc. Give each scenario its own Name on
+the Map tab (up to 60 characters): two scenarios with the same name are
+listed with their file names.
+
+Files saved with an editor older than 1.0.2 can show pink markers in the game.
+The editor offers to update them at start-up, or use File > Update old
+scenarios... (each old file is kept as .bak).
+
+
+12. TROUBLESHOOTING
+-------------------
+- The scenario is not in the game's list: open it in the editor, fix any red
+  items in Check scenario and save. The game shows the reason for a skipped
+  file in a short note on the menu.
+- A copy made in Explorer is not listed: open the copy in the editor and save
+  it; it gets its own identity.
+- "Damaged file" when opening: the file was changed or cut short. Use the
+  .bak beside it.
+- Test does nothing: the game may already be running, or Check scenario has
+  red items.
+- Help > About shows the editor version, the game folder, the scenario folder
+  and the logs folder (with Open logs folder). Quote the version in reports
+  at {{MA2_SUPPORT_URL}}.
+
+
+13. KEYS (defaults)
+-------------------
+  Ctrl+N new          Ctrl+O open         Ctrl+S save       Ctrl+Shift+S save as
+  F5 test             F1 help             Ctrl+, settings
+  W A S D / arrows    pan                 T top-down view   Home reset view
+  F zoom to selection H helpers
+  Ctrl+Z undo         Ctrl+Y redo         Ctrl+C copy       Ctrl+X cut
+  Ctrl+V paste        Ctrl+D duplicate    Ctrl+A select all Delete delete
+  Q / E turn          G put on ground     Space place again I place more
+  [ / ] brush size    Esc stop tool / clear selection

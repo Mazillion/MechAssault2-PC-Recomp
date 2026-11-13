@@ -1,0 +1,4634 @@
+{
+ "pack": "t08_toolchain",
+ "title": "The static recompiler: how ma2.xbe became C",
+ "facts": [
+  {
+   "id": "tc-pipeline-stages",
+   "title": "Recompiler pipeline: XBE to C to native exe, in fixed stages",
+   "subject": {
+    "kind": "tool",
+    "id": "tools.xbe_parser -> tools.disasm -> tools.func_id -> tools.abi_analysis -> tools.recomp"
+   },
+   "addresses": [],
+   "related": [
+    "tc-xbe-magic-base",
+    "tc-disasm-sweep",
+    "tc-func-id-classes",
+    "tc-recomp-invocation"
+   ],
+   "fact": "The toolkit runs in stages: parse the XBE headers, disassemble .text into functions.json, classify functions, recover calling conventions, then lift each x86 instruction to C under gen/. The runtime libraries (kernel, D3D8 to D3D11, DSound, APU, NV2A, input) are linked into a separate game project that owns the .exe. Skipping func_id or abi_analysis still works, but signatures fall back to guesses.",
+   "how_to_use": "py -3 -m tools.xbe_parser default.xbe --json, then tools.disasm --text-only, tools.func_id, tools.abi_analysis, tools.recomp --all --split N",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "tools"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-xbe-magic-base",
+   "title": "XBE header: magic XBEH and fixed base 0x00010000",
+   "subject": {
+    "kind": "file",
+    "id": "XBE header"
+   },
+   "addresses": [
+    "00010000"
+   ],
+   "related": [
+    "tc-xbe-section-header"
+   ],
+   "fact": "Every XBE starts with the bytes XBEH (0x48454258). The image base is 0x00010000 for retail and debug executables, and all VA fields in the header are relative to it. Because the code and data addresses in the binary are absolute, the base decides where every MEM32 global lives in the recompiled C.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "xbe",
+    "format"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-xbe-entry-xor",
+   "title": "XBE entry point is XOR-encoded (retail and debug keys)",
+   "subject": {
+    "kind": "address",
+    "id": "XBE header offset 0x128 (EntryPoint)"
+   },
+   "addresses": [],
+   "related": [
+    "tc-xbe-entry-example-wrong"
+   ],
+   "fact": "The entry point at header offset 0x128 is stored XOR-encoded. Retail XBEs use key 0xA8FC57AB and debug XBEs use 0x94859D4B. A decoder should try the retail key first and accept it only if the result lands inside .text, otherwise fall back to the debug key.",
+   "how_to_use": "entry = dword(0x128) ^ 0xA8FC57AB; check it falls in the .text range",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "xbe",
+    "format"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-xbe-entry-example-wrong",
+   "title": "Doc example for the entry-point decode does not add up",
+   "subject": {
+    "kind": "file",
+    "id": "docs/ example"
+   },
+   "addresses": [
+    "001D2807"
+   ],
+   "related": [
+    "tc-xbe-entry-xor"
+   ],
+   "fact": "The example says raw 0xA52E7FAC XOR 0xA8FC57AB gives 0x001D2807. The arithmetic is wrong: it gives 0x0DD22807. The value 0x001D2807 encodes to 0xA8E17FAC under the retail key. Do not copy the example raw value; decode the real header field.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "xbe",
+    "docs-error"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "A52E7FAC"
+   ]
+  },
+  {
+   "id": "tc-xbe-thunk-conflict",
+   "title": "Kernel thunk table offset and XOR key disagree between docs",
+   "subject": {
+    "kind": "address",
+    "id": "XBE header kernel thunk field"
+   },
+   "addresses": [],
+   "related": [
+    "tc-xbe-thunk-format"
+   ],
+   "fact": "01-xbe-parsing says the kernel thunk address is at header offset 0x130 with retail key 0x5B6D40C6, and gives 0x154 as the library count. xbe.md says offset 0x0154 with key 0x5B6D40B6, and lists 0x0158 as the non-kernel import directory. The two cannot both be right. Read the field from the real header before trusting either.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "xbe",
+    "docs-conflict"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-xbe-section-header",
+   "title": "XBE section header is 56 bytes with VA, raw offset and sizes",
+   "subject": {
+    "kind": "file",
+    "id": "XBE section table"
+   },
+   "addresses": [],
+   "related": [
+    "tc-xbe-magic-base",
+    "tc-memory-xbox-map"
+   ],
+   "fact": "Each section header is 56 bytes: flags, VirtualAddress, VirtualSize, RawAddress, RawSize, name VA, reference count, two shared-page pointers and a 20-byte SHA-1 digest. Flag bit 2 marks executable code, bit 0 writable. The disassembler uses these ranges to decide which bytes are code.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "xbe",
+    "format"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-xbe-bss",
+   "title": "Zero-filled BSS is the gap between raw and virtual size of .data",
+   "subject": {
+    "kind": "concept",
+    "id": "BSS .data"
+   },
+   "addresses": [],
+   "related": [
+    "tc-xbe-section-header",
+    "tc-memory-rdata-no-vprotect"
+   ],
+   "fact": "A section can have a VirtualSize larger than its RawSize. The extra bytes are BSS and must be zero-filled at load, not read from the file. The XBE parser reads only file-backed bytes; reading past RawSize walks off the buffer.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "xbe",
+    "memory"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-xbe-thunk-format",
+   "title": "Kernel thunk slots hold 0x80000000 | ordinal until load",
+   "subject": {
+    "kind": "concept",
+    "id": "kernel thunk table"
+   },
+   "addresses": [],
+   "related": [
+    "tc-kernel-synthetic",
+    "tc-xbe-thunk-conflict"
+   ],
+   "fact": "The kernel import table is an array of dwords, zero-terminated. Each used slot holds 0x80000000 OR the export ordinal; the Xbox kernel overwrites it with a real pointer at load. The recompiler does the same replacement itself, writing synthetic VAs at 0xFE000000 plus 4 per slot.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "xbe",
+    "kernel"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-xbe-library-versions",
+   "title": "Library version stamps reveal the XDK build",
+   "subject": {
+    "kind": "concept",
+    "id": "XBE library version table"
+   },
+   "addresses": [],
+   "related": [
+    "tc-func-id-crt-sigs"
+   ],
+   "fact": "The header lists statically linked libraries (XAPILIB, D3D8LTCG, DSOUND, XMV and others) with a 16-byte record each. The build field usually matches the XDK build the game used; Burnout 3 shows 5849. Use it to choose a CRT signature set, because the same CRT function differs across XDK builds.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "xbe",
+    "xdk"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-xbe-xdk-sections",
+   "title": "XDK libraries are baked into .text and named sections",
+   "subject": {
+    "kind": "concept",
+    "id": "statically linked XDK sections"
+   },
+   "addresses": [],
+   "related": [
+    "tc-disasm-library-sections-no-funcs"
+   ],
+   "fact": "Sections named D3D, DSOUND, XMV, XONLINE, XNET, XGRPH, XPP, WMADEC and DOLBY hold XDK library code linked into the image, not separate DLLs. --text-only skips them. A title with code in those sections needs them named explicitly with --extra-sections, or they produce no functions and their calls fail.",
+   "how_to_use": "tools.disasm . --extra-sections XIPS,DOLBY (drop --text-only to take every code section)",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "xbe",
+    "xdk",
+    "disasm"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-xbe-tls",
+   "title": "TLS directory: per-thread storage is reached through fs:",
+   "subject": {
+    "kind": "address",
+    "id": "XBE TLS directory"
+   },
+   "addresses": [],
+   "related": [
+    "tc-fs-base-current",
+    "tc-memory-fake-tib"
+   ],
+   "fact": "The TLS directory gives the template for thread-local data. The Xbox kernel exposes it through the fs segment, so code reads fs:[0x28] for the per-thread area. The recompiler has to supply that segment base itself.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "xbe",
+    "tls"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-xbe-cert",
+   "title": "XBE certificate: title ID, title name, allowed media",
+   "subject": {
+    "kind": "file",
+    "id": "XBE certificate"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The certificate holds the title ID at +0x08, the Unicode title name at +0x0C (80 bytes), the allowed media mask at +0x9C and the region mask at +0xA0. The title name is a quick check that you have the right XBE before running anything.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "xbe",
+    "format"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-disc-xdvdfs",
+   "title": "Disc images are XDVDFS; default.xbe sits at the root",
+   "subject": {
+    "kind": "file",
+    "id": "XISO / XDVDFS volume"
+   },
+   "addresses": [
+    "00010000"
+   ],
+   "related": [
+    "tc-xbe-magic-base"
+   ],
+   "fact": "The XDVDFS volume descriptor is at sector 32 (byte 0x10000) and begins with the magic MICROSOFT*XBOX*MEDIA. default.xbe is always in the root directory. tools.xiso is the in-tree extractor the docs recommend; xdvdfs and extract-xiso are alternatives.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "disc",
+    "format"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-disasm-sweep",
+   "title": "Disassembler combines recursive descent with a linear sweep",
+   "subject": {
+    "kind": "tool",
+    "id": "tools.disasm"
+   },
+   "addresses": [],
+   "related": [
+    "tc-msvc-function-alignment",
+    "tc-disasm-missed-pointer"
+   ],
+   "fact": "Disassembly uses Capstone in x86-32 mode. It starts with recursive descent from the entry point and known thunk targets, then runs a linear sweep to find functions descent missed, and cross-checks prologues. Data embedded in code, such as jump tables, desynchronises a linear sweep, which is why descent is the primary path.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "disasm"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-msvc-function-alignment",
+   "title": "MSVC functions start on 16-byte boundaries after int3 padding",
+   "subject": {
+    "kind": "concept",
+    "id": "MSVC function alignment"
+   },
+   "addresses": [],
+   "related": [
+    "tc-disasm-sweep",
+    "tc-icall-alignment-filter"
+   ],
+   "fact": "The MSVC linker pads between functions with int3 (0xCC) bytes and aligns real function starts to 16. A detected entry that is not 16-aligned is usually not a function start; it is often garbage that happens to land .text. Use the alignment as a sanity filter, and a boundary marker when splitting.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "disasm",
+    "alignment"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-disasm-jumptable-labels",
+   "title": "Jump-table targets are labels inside a function, not function starts",
+   "subject": {
+    "kind": "concept",
+    "id": "switch jump tables"
+   },
+   "addresses": [],
+   "related": [
+    "tc-lifter-switch-tables"
+   ],
+   "fact": "Switch statements compile to cmp/ja plus an indirect jmp through a table .rdata. The detector records the table address, entry count and targets, and marks each target as an intra-function label in labels.json. Those targets must not be treated as function entries.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "disasm",
+    "switch"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-disasm-missed-pointer",
+   "title": "Functions reached only through a pointer are missed by call scanning",
+   "subject": {
+    "kind": "concept",
+    "id": "pointer-only functions"
+   },
+   "addresses": [],
+   "related": [
+    "tc-disasm-seed-file",
+    "tc-rtti-function-starts"
+   ],
+   "fact": "Callbacks pushed as arguments, vtable slots, thread start routines and tables inside library sections are never the target of a call instruction. The detector finds some through imm_ref_target and vtable passes but does not scan library sections. Scan every immediate and aligned dword in every section and keep pointers into code that land in a gap after a ret.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "disasm",
+    "icall"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-disasm-merged-functions",
+   "title": "Back-to-back functions with no padding merge into one",
+   "subject": {
+    "kind": "concept",
+    "id": "merged functions"
+   },
+   "addresses": [],
+   "related": [
+    "tc-disasm-missed-pointer"
+   ],
+   "fact": "Some library code has no int3 between functions, so a function that is reached only by pointer is absorbed by the one before it. A ret followed by a push of ebx, esi, edi or ebp, when that address is referenced, should be treated as a boundary.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "disasm",
+    "boundary"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-disasm-noreturn",
+   "title": "Calls to no-return functions must end the caller",
+   "subject": {
+    "kind": "concept",
+    "id": "no-return calls"
+   },
+   "addresses": [],
+   "related": [
+    "tc-disasm-missed-pointer"
+   ],
+   "fact": "The CRT thread-exit helper ends with a call to PsTerminateSystemThread followed by int3. The detector walks on into the next function, which is _threadstartex, so every CRT thread then fails. Calls to known no-return targets (PsTerminateSystemThread, HalReturnToFirmware, KeBugCheck, CRT exit helpers) should terminate the function. The build warning C4717 is the visible symptom.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "disasm",
+    "threads"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-disasm-library-sections-no-funcs",
+   "title": "A code section with zero detected functions means missed entries",
+   "subject": {
+    "kind": "concept",
+    "id": "library code sections with no functions"
+   },
+   "addresses": [],
+   "related": [
+    "tc-xbe-xdk-sections"
+   ],
+   "fact": "Some middleware code sections (for example CRI Sofdec picture decoders) are entered only through a table .data, so no call targets them. Count functions per executable section in functions.json. A section that has code but zero functions is this case, and the first movie or subsystem to use it fails at runtime, not at boot.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "disasm",
+    "middleware"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-disasm-seed-file",
+   "title": "Seed functions with a JSON array of start addresses",
+   "subject": {
+    "kind": "tool",
+    "id": "tools.disasm --seed-functions"
+   },
+   "addresses": [],
+   "related": [
+    "tc-icall-feedback",
+    "tc-rtti-function-starts"
+   ],
+   "fact": "seed-functions takes a JSON array of {start: 0x.} objects and forces those addresses to be function entries before a re-run. The fix for a failed-ICALL target that sits in no known function is usually a seed, not a manual stub. Seeding a data word splits real functions, so confirm each target in Ghidra first.",
+   "how_to_use": "tools.disasm game.xbe --seed-functions seeds.json",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "disasm",
+    "seeds"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-disasm-trust-reached-seeds",
+   "title": "Disasm trusts only seeds that a run actually reached",
+   "subject": {
+    "kind": "tool",
+    "id": "tools.disasm seed handling"
+   },
+   "addresses": [],
+   "related": [
+    "tc-disasm-seed-file"
+   ],
+   "fact": "The v0.13.0 toolkit fix (#164) makes disasm honour only seeds that a run reached, and #163 stopped string-reference labels from naming code. This keeps the seed list from growing with addresses that a run never executed.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "disasm",
+    "changelog"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-disasm-gap-prologue",
+   "title": "gap_prologue functions are guesses that can start in padding",
+   "subject": {
+    "kind": "concept",
+    "id": "gap_prologue detection"
+   },
+   "addresses": [],
+   "related": [
+    "tc-disasm-missed-pointer"
+   ],
+   "fact": "The gap_prologue heuristic sometimes invents a function that starts a few bytes before a real one, inside padding, and runs through it. The real function then looks like part of a known function and nothing flags it. Treat gap_prologue entries as guesses; a pointer that lands on a prologue inside one is still a missing function.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "disasm",
+    "heuristic"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-disasm-outputs",
+   "title": "Disassembler output files: functions, labels, xrefs, strings",
+   "subject": {
+    "kind": "file",
+    "id": "tools/disasm/output"
+   },
+   "addresses": [],
+   "related": [
+    "tc-disasm-jumptable-labels"
+   ],
+   "fact": "functions.json has one record per function (address, size, end, type, prologue, calls, callers, has_jump_table, num_basic_blocks). labels.json maps intra-function targets to their owner. xrefs.json holds call, jump and data cross-references (163,787 for Burnout 3). strings.json lists .rdata strings with their xrefs. The recompiler reads functions.json and emits each entry as func_info name or sub_ADDR.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "disasm",
+    "output"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-func-id-confidence",
+   "title": "func_id confidence scale and tentative cut-off",
+   "subject": {
+    "kind": "tool",
+    "id": "tools.func_id"
+   },
+   "addresses": [],
+   "related": [
+    "tc-func-id-classes"
+   ],
+   "fact": "Byte-signature matches score 0.95, string references to a function name 0.90, vtable entries of a known class 0.80, several consistent call-graph signals 0.70, single propagation 0.50 and address-zone heuristics alone 0.30. Anything under 0.50 is tentative and must be checked by hand when it becomes relevant.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "func_id"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-func-id-classes",
+   "title": "func_id categories: CRT, RenderWare, XDK, game",
+   "subject": {
+    "kind": "tool",
+    "id": "tools.func_id categories"
+   },
+   "addresses": [],
+   "related": [
+    "tc-func-id-confidence",
+    "tc-func-id-crt-sigs"
+   ],
+   "fact": "Functions are categorised as crt, renderware, xdk or game using byte signatures, string references, vtable membership and call-graph propagation. The docs set the target as 20 to 30 percent identified, not 100 percent. Identify the rest just in time, when a function crashes, rather than up front.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "func_id"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-func-id-crt-sigs",
+   "title": "CRT signatures are per XDK build and matched by prefix",
+   "subject": {
+    "kind": "concept",
+    "id": "CRT byte-signature database"
+   },
+   "addresses": [],
+   "related": [
+    "tc-xbe-library-versions"
+   ],
+   "fact": "CRT functions are matched by a prefix of their first 16 to 32 bytes, not an exact match, because inlining changes the body. Register allocation differs across XDK builds (4627, 5233, 5455, 5558, 5849, 5933), so one database per XDK build is needed. Typical coverage is 150 to 250 functions, but those are heavily called (memcpy has more than 2000 sites).",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "func_id",
+    "crt"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-func-id-rw-strings",
+   "title": "RenderWare functions named through Rw, Rp, Rt, Rs string references",
+   "subject": {
+    "kind": "concept",
+    "id": "RenderWare string-reference naming"
+   },
+   "addresses": [],
+   "related": [
+    "tc-func-id-classes"
+   ],
+   "fact": "A function that references a debug string starting with Rw, Rp, Rt or Rs is almost always the named RenderWare function or a close relative. The string prefixes map to engine (Rw), plugins (Rp), toolkits (Rt) and schemes (Rs).",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "func_id",
+    "renderware"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-func-id-vtable-scan",
+   "title": "Vtables are runs of code pointers .rdata",
+   "subject": {
+    "kind": "concept",
+    "id": "vtable detection"
+   },
+   "addresses": [],
+   "related": [
+    "tc-rtti-vtable-discovery",
+    "tc-ma2-recomp-vtable-slots"
+   ],
+   "fact": "A vtable is found by scanning .rdata for arrays of dwords that all point into .text; two or more consecutive code pointers is the usual threshold. A constructor that stores the vtable address into [ecx] links the vtable to a class. Any detector that scans for these must keep the table start aligned to a dword.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "vtable",
+    "func_id"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-ma2-recomp-vtable-slots",
+   "title": "vtable slot layout: +0x00 is slot 0, slot n is +4n",
+   "subject": {
+    "kind": "concept",
+    "id": "vtable slot offsets"
+   },
+   "addresses": [],
+   "related": [
+    "tc-icall-3tier"
+   ],
+   "fact": "A vtable slot n is read at vtable + 4n, so a call through [ecx+0x10] is slot 4. The MA2 lookup tool prints the slot number in decimal inside brackets and the byte offset in hex (for example [4] +0x010). Use this convention when matching an ICALL target to a method name.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "vtable",
+    "index"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-ghidra-flat-image",
+   "title": "Ghidra and IDA load a flat image at 0x10000 so addresses match",
+   "subject": {
+    "kind": "tool",
+    "id": "tools/ghidra_naming extract_for_ghidra.py"
+   },
+   "addresses": [
+    "00010000"
+   ],
+   "related": [
+    "tc-ida-same-base",
+    "tc-ghidra-merge-filter"
+   ],
+   "fact": "Ghidra has no XBE loader here, so extract_for_ghidra.py builds one flat image from 0x10000 to the end of the last section, with each section at (VA minus base) and gaps zero-filled (about 7.6 MB). Imported as x86:LE:32 raw binary with image base 0x10000, Ghidra addresses equal functions.json start values exactly.",
+   "how_to_use": "tools/ghidra_naming/run_ghidra.sh (XBE env var) or extract_for_ghidra.py then analyzeHeadless",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "ghidra",
+    "tool"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-ghidra-fidb-yield",
+   "title": "Ghidra FidDb names only CRT and XDK helpers in a stripped XBE",
+   "subject": {
+    "kind": "tool",
+    "id": "Ghidra FidDb (Function ID)"
+   },
+   "addresses": [],
+   "related": [
+    "tc-func-id-crt-sigs"
+   ],
+   "fact": "On Burnout 3, Ghidra found about 8,360 functions and named 134 of them from its bundled FidDb (CRT and XDK helpers such as malloc, qsort, _alldiv), 131 of which match recompiler starts. The proprietary RenderWare and game code has no FidDb signatures and keeps sub_ names. Library Identification and the PE RTTI analyzers are skipped for the raw loader.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "ghidra",
+    "names"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-ghidra-seed-tradeoff",
+   "title": "Seeding Ghidra with all entries lowers name matches",
+   "subject": {
+    "kind": "tool",
+    "id": "tools/ghidra_naming SeedFunctions.py"
+   },
+   "addresses": [],
+   "related": [
+    "tc-ghidra-fidb-yield"
+   ],
+   "fact": "SeedFunctions.py pre-creates Ghidra functions at all known entries. It raises function and address overlap but cuts FidDb name matches from about 131 to about 93, because the seeded boundaries change the body hash FidDb uses. It is off by default because the names are the goal.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "ghidra"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-ghidra-classify",
+   "title": "ClassifyTargets and DumpEntries triage addresses without the GUI",
+   "subject": {
+    "kind": "tool",
+    "id": "ClassifyTargets.java / DumpEntries.java"
+   },
+   "addresses": [],
+   "related": [
+    "tc-disasm-noreturn"
+   ],
+   "fact": "ClassifyTargets.java reports, for each address, its block, containing function and whether it is an instruction start, mid-instruction or data. DumpEntries.java lists every Ghidra entry; an entry inside one of our functions and straight after a ret is a merged function. Run with -readOnly -noanalysis so the project is not changed.",
+   "how_to_use": "analyzeHeadless <work>/ghidra_project <project> -process xbe_flat.bin -readOnly -noanalysis -scriptPath tools/ghidra_naming/ghidra_scripts -postScript ClassifyTargets.java 0x22E280",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "ghidra",
+    "triage"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-ghidra-merge-filter",
+   "title": "merge_names.py drops Ghidra placeholder names before applying",
+   "subject": {
+    "kind": "tool",
+    "id": "tools/ghidra_naming/merge_names.py"
+   },
+   "addresses": [],
+   "related": [
+    "tc-ida-ghidra-union"
+   ],
+   "fact": "merge_names.py filters out placeholders (FUN_*, LAB_*, DAT_*, SUB_*, thunk_FUN_*, switchD_*, caseD_*), sanitises names to C identifiers and appends _ADDR on collisions. Run without --apply to preview. --apply writes functions.json and keeps a .bak.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "ghidra",
+    "names"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-ida-same-base",
+   "title": "IDA export refuses the wrong base; loading offset must be 0x10000",
+   "subject": {
+    "kind": "tool",
+    "id": "tools/ida_naming export_xbe_names.py"
+   },
+   "addresses": [
+    "00010000"
+   ],
+   "related": [
+    "tc-ghidra-flat-image"
+   ],
+   "fact": "In IDA, load xbe_flat.bin as a Binary file, processor metapc, 32-bit, loading offset 0x10000. The exporter checks this base and refuses to write otherwise, because names at the wrong base merge onto nothing and the failure is silent (a healthy export count followed by 0 matching addresses).",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "ida",
+    "names"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-ida-ghidra-union",
+   "title": "Running IDA and Ghidra together: the second --apply wins on conflicts",
+   "subject": {
+    "kind": "tool",
+    "id": "IDA + Ghidra name union"
+   },
+   "addresses": [],
+   "related": [
+    "tc-ghidra-merge-filter",
+    "tc-ida-same-base"
+   ],
+   "fact": "IDA and Ghidra find different library names, so applying both gives a larger union. Each --apply only sets names on entries still called sub_, so the later run fills gaps. Where the two disagree, whichever ran last wins.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "ida",
+    "ghidra",
+    "names"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-debug-symbols-tool",
+   "title": "debug_symbols recovers source file names from __FILE__ asserts",
+   "subject": {
+    "kind": "tool",
+    "id": "tools.debug_symbols"
+   },
+   "addresses": [],
+   "related": [
+    "tc-debug-symbols-section-guard"
+   ],
+   "fact": "A debug build keeps assert strings containing __FILE__, and each is referenced from the function that holds the assert. tools.debug_symbols maps function to source file by majority vote (.c beats .h on ties), then fills unattributed runs between two agreeing neighbours. --apply renames only functions still called sub_ to module__sub_ADDR and keeps a .bak. Retail builds usually strip asserts, so it is worth hunting for a beta or debug XBE first.",
+   "how_to_use": "py -3 -m tools.debug_symbols --functions functions.json --strings strings.json --apply -v",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "debug-symbols",
+    "names"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-debug-symbols-section-guard",
+   "title": "debug_symbols never interpolates across section boundaries",
+   "subject": {
+    "kind": "tool",
+    "id": "tools.debug_symbols interpolation"
+   },
+   "addresses": [],
+   "related": [
+    "tc-debug-symbols-tool"
+   ],
+   "fact": "The interpolation fill stops at section boundaries because different sections are different link units, so adjacency means nothing there. On Halo the library sections D3D, DSOUND, XNET, XPP and BINK got 0 attributed functions, and that 0 is the correctness check.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "debug-symbols"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-rtti-vtable-discovery",
+   "title": "MSVC RTTI: complete object locator sits at vtable[-1]",
+   "subject": {
+    "kind": "tool",
+    "id": "tools.rtti"
+   },
+   "addresses": [],
+   "related": [
+    "tc-func-id-vtable-scan",
+    "tc-ma2-no-rtti"
+   ],
+   "fact": "MSVC stores a pointer to a CompleteObjectLocator in the dword just before a polymorphic class's first method. Vtable discovery is therefore mechanical: find every COL, find each word that points at one, and the vtable begins 4 bytes later. Walk forward while entries are code addresses. All fields are plain 32-bit VAs, not image-relative offsets as on x64.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "rtti",
+    "vtable"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-rtti-function-starts",
+   "title": "RTTI vtable slots prove function starts that sweeping misses",
+   "subject": {
+    "kind": "tool",
+    "id": "tools.rtti --seeds"
+   },
+   "addresses": [],
+   "related": [
+    "tc-disasm-missed-pointer",
+    "tc-disasm-seed-file"
+   ],
+   "fact": "A method that is only called virtually is invisible to linear sweep and call scanning. On Half-Life 2, 7,992 RTTI methods landed in unclaimed bytes; seeding them raised the function count from 33,140 to 41,215 (+24%). Feed the seed list to tools.disasm --seed-functions after running tools.rtti.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "rtti",
+    "disasm"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-rtti-owner-rule",
+   "title": "RTTI assigns shared vtable methods to their common ancestor",
+   "subject": {
+    "kind": "tool",
+    "id": "tools.rtti methods_by_class"
+   },
+   "addresses": [],
+   "related": [
+    "tc-rtti-vtable-discovery"
+   ],
+   "fact": "A method that appears in several vtables is owned by the class that is an ancestor of every other class holding it. On Half-Life 2 this resolved 11,520 of 12,288 methods (94%) with no ambiguous answers; the 768 with no common ancestor (multiple inheritance, shared thunks) stay sub_ names.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "rtti",
+    "names"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-rtti-preorder-trap",
+   "title": "BaseClassDescriptor array is preorder: the last entry is not the root",
+   "subject": {
+    "kind": "tool",
+    "id": "tools.rtti hierarchy"
+   },
+   "addresses": [],
+   "related": [
+    "tc-rtti-owner-rule"
+   ],
+   "fact": "The base-class array is a depth-first preorder, so trailing entries belong to secondary inheritance branches. Reading the last entry as the least-derived base gives the wrong answer (on CNPC_Alyx it names CAI_ExpresserSink instead of IHandleEntity). Which ancestor declared a slot needs real MSVC layout modelling.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "rtti"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-ma2-no-rtti",
+   "title": "MechAssault 2 is built without RTTI; class names come from the runtime registry",
+   "subject": {
+    "kind": "concept",
+    "id": "MA2 class names"
+   },
+   "addresses": [],
+   "related": [
+    "tc-re-index-classes-tsv",
+    "tc-rtti-vtable-discovery"
+   ],
+   "fact": "The MA2 re_index notes that the game is built without RTTI. The only RTTI records are 8 std:exception type descriptors. The 215 named classes come from the runtime class registry instead, so MSVC RTTI recovery gives nothing for ma2.xbe.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "rtti",
+    "ma2"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-rtti-corpus",
+   "title": "RTTI is rare: only a few titles had usable vtables",
+   "subject": {
+    "kind": "concept",
+    "id": "RTTI coverage across titles"
+   },
+   "addresses": [],
+   "related": [
+    "tc-ma2-no-rtti"
+   ],
+   "fact": "Half-Life 2 (Xbox) had 2,336 type descriptors and 2,932 usable vtables. Crimson Skies and the Xbox dashboard have CRT type_info only. Blood Wake, Burnout 3, Wreckless and Ghost Recon have none. Absence is a normal result: the tool exits 0 with empty results.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "rtti",
+    "coverage"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-coalesce-option",
+   "title": "coalesce-functions merges false entries back into one owner",
+   "subject": {
+    "kind": "tool",
+    "id": "tools.recomp --coalesce-functions"
+   },
+   "addresses": [],
+   "related": [
+    "tc-coalesce-rules"
+   ],
+   "fact": "When the detector splits one function at an interior branch target, the pieces can lose a compare before a branch or turn a loop into recursive host calls. A JSON array of {start, end (exclusive), coalesce_starts} tells the recompiler to join them. coalesce_starts must list every detected entry strictly inside the owner, sorted and without duplicates.",
+   "how_to_use": "python -m tools.recomp game.xbe --all --coalesce-functions bounds.json",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "recomp",
+    "function-boundaries"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-coalesce-rules",
+   "title": "Coalescence rejects independent entries; a trap ends the walk",
+   "subject": {
+    "kind": "tool",
+    "id": "coalesce validation"
+   },
+   "addresses": [],
+   "related": [
+    "tc-coalesce-option"
+   ],
+   "fact": "The coalescer refuses to join an entry that has its own evidence (prologue, callers, external_entry, detector entries, seeds or code pointers), a manual or referenced project entry, or a call from the owner into an interior entry. Traps (int3, ud2, hlt) end validation. The Xbox debug-service sequence int 0x2D then int3 is the exception, because the kernel skips that int3. Invalid input aborts the whole batch before any output is written.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "recomp",
+    "function-boundaries"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-recomp-invocation",
+   "title": "Lift command: --all --split, output into the game project with --gen-dir",
+   "subject": {
+    "kind": "tool",
+    "id": "tools.recomp"
+   },
+   "addresses": [],
+   "related": [
+    "tc-split-oom",
+    "tc-gen-outputs"
+   ],
+   "fact": "The lifter is run as py -3 -m tools.recomp default.xbe --all --split N. --all translates every detected function, not only those reachable from entry. --gen-dir writes the code into the game project's generated recomp code (made at install time, not in the repository), where the template CMake globs it; without it the output lands inside the toolkit clone and nothing compiles it. --output-dir and --verbose also exist.",
+   "how_to_use": "py -3 -m tools.recomp game_files/default.xbe --all --split 250 --gen-dir ./my_game/src/recomp/gen",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "recomp",
+    "tools"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-split-oom",
+   "title": "Use --split 250, not 1000: large chunks run out of memory",
+   "subject": {
+    "kind": "tool",
+    "id": "tools.recomp --split"
+   },
+   "addresses": [],
+   "related": [
+    "tc-recomp-invocation"
+   ],
+   "fact": "One chunk of 1,000 functions can reach about 257 MB of C in one translation unit. That run was OOM-killed twice on a 15 GB machine; --split 250 stays near 100 MB and compiles. If a build dies with a signal and no error, check dmesg for the OOM killer before blaming the generated code.",
+   "how_to_use": "split 250",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "recomp",
+    "build"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-gen-outputs",
+   "title": "Generated files: recomp_NNNN.c, dispatch, funcs header, stubs, types header",
+   "subject": {
+    "kind": "file",
+    "id": "generated recomp code (made at install time, not in the repository)"
+   },
+   "addresses": [],
+   "related": [
+    "tc-recomp-invocation",
+    "tc-icall-3tier"
+   ],
+   "fact": "The lifter writes recomp_0000.c and onward, recomp_dispatch.c (the sorted VA table), recomp_funcs.h (forward declarations), recomp_stubs.c (stubs for unresolvable targets) and recomp_types.h (the register model and macros). recomp_types.h is written once and never overwritten; delete it to get the current copy back.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "recomp",
+    "output"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-lifter-unhandled-comment",
+   "title": "Unhandled instructions lift to a bare comment and do nothing",
+   "subject": {
+    "kind": "concept",
+    "id": "lifter coverage gaps"
+   },
+   "addresses": [],
+   "related": [
+    "tc-conf-idea"
+   ],
+   "fact": "An instruction the lifter does not handle is emitted as a bare comment such as /* mnemonic */, and the generated code silently skips it. grep the generated output for those comments to find lifter gaps. Segment prefixes and rarer x87 and SSE forms are where they cluster. A comment-only lift can leave eax unchanged, so tests that compare results can pass while the code does nothing.",
+   "how_to_use": "grep -n '/\\* [a-z]' generated *.c (made at install time, not in the repository) and look for unhandled mnemonics",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "lifter",
+    "gaps"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-lifter-priv-regs",
+   "title": "Control and debug registers in generated code mean data was decoded as code",
+   "subject": {
+    "kind": "concept",
+    "id": "dr0-dr7 / cr0-cr4 in lifted output"
+   },
+   "addresses": [],
+   "related": [
+    "tc-disasm-gap-prologue"
+   ],
+   "fact": "Game code never touches dr0 to dr7 or cr0 to cr4. A function that does is almost always data decoded as code, usually a gap_prologue guess with no callers. The lifter prints the name as-is, so the C fails with an undeclared identifier such as dr2. Stub that address with a logging function in recomp_manual.c.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "lifter",
+    "decode"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-lifter-switch-tables",
+   "title": "Jump tables with bounds check become C switch statements",
+   "subject": {
+    "kind": "concept",
+    "id": "switch lifting"
+   },
+   "addresses": [],
+   "related": [
+    "tc-disasm-jumptable-labels",
+    "tc-lifter-neg-table-memcpy"
+   ],
+   "fact": "The lifter pattern-matches cmp, ja and jmp [reg*4+table] into a C switch with one case per table entry, plus a default that goes to the bounds-check fallthrough. The pattern expects a non-negative index. Tables whose displacement is not slot 0 were mishandled until v0.13.0 (#140).",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "lifter",
+    "switch"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-lifter-neg-table-memcpy",
+   "title": "CRT memcpy tail dispatch uses a negative index and was lifted wrongly",
+   "subject": {
+    "kind": "concept",
+    "id": "neg ecx; jmp [ecx*4+table] in CRT memcpy and memmove"
+   },
+   "addresses": [],
+   "related": [
+    "tc-lifter-switch-tables",
+    "tc-mechassault-memcpy-resync"
+   ],
+   "fact": "The CRT memcpy and memmove finish their last 0 to 3 bytes through a table indexed by a negative number, which the bounds-check pattern does not match. It is lifted as RECOMP_ITAIL to some other function, so the copy silently never happens and a crash comes much later on data that was never written. Every MSVC title that links the CRT memcpy has at least two. The v0.13.0 changelog reports a fix (#140) for the same symptom, a CRT memcpy unaligned-byte dispatch that silently skipped the copy; whether it covers the negative-index form is not stated. A manual memmove override is the documented workaround.",
+   "how_to_use": "grep -n 'RECOMP_ITAIL(MEM32(.* \\* 4 + 0x' generated *.c (made at install time, not in the repository)",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "lifter",
+    "crt",
+    "memcpy"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-mechassault-memcpy-resync",
+   "title": "MechAssault CRT memcpy copies came back with ESP one byte off",
+   "subject": {
+    "kind": "function",
+    "id": "MechAssault CRT memcpy (switch arm)"
+   },
+   "addresses": [],
+   "related": [
+    "tc-lifter-neg-table-memcpy"
+   ],
+   "fact": "A switch arm's resync left misaligned decodes inside it: an inc esp was lifted from the middle of a real mov. Every 28 to 31 byte copy returned with ESP a byte off. Fixed in toolkit PR #135, shipped in v0.13.0.",
+   "status": "historical",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "lifter",
+    "ma2",
+    "memcpy",
+    "fixed"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-lifter-jt-named-last-slot",
+   "title": "Jump tables named by their last slot lost every arm after the table",
+   "subject": {
+    "kind": "concept",
+    "id": "jump table sizing"
+   },
+   "addresses": [],
+   "related": [
+    "tc-lifter-neg-table-memcpy"
+   ],
+   "fact": "Jump tables were measured as one entry when named by their last slot, so memmove's backward tail lost every arm after the table, epilogue included. Fixed in PR #134, shipped in v0.13.0.",
+   "status": "historical",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "lifter",
+    "switch",
+    "fixed"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-lifter-pushad",
+   "title": "pushad and popad were TODO comments before v0.13.0",
+   "subject": {
+    "kind": "concept",
+    "id": "pushad / popad lifting"
+   },
+   "addresses": [],
+   "related": [
+    "tc-lifter-stc-clc-cmc"
+   ],
+   "fact": "pushad and popad emitted only TODOs, so a routine that saved every register returned with its caller's registers clobbered. Fixed in #167 (v0.13.0).",
+   "status": "historical",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "lifter",
+    "fixed"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-lifter-icall-double-pop",
+   "title": "Failed ICALL to a caller-cleans function popped its arguments twice",
+   "subject": {
+    "kind": "concept",
+    "id": "failed ICALL argument cleanup"
+   },
+   "addresses": [],
+   "related": [
+    "tc-icall-stack-leak"
+   ],
+   "fact": "On a failed indirect call to a function whose caller removes the arguments, the failure path rewound over the arguments and then the caller's add esp, N removed them again. Fixed in #169 (v0.13.0). Keep the failure path to popping only the dummy return address.",
+   "status": "historical",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "lifter",
+    "icall",
+    "stack",
+    "fixed"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-lifter-lahf-unordered",
+   "title": "lahf is lifted; unordered x87 and SSE compares set ZF PF CF",
+   "subject": {
+    "kind": "concept",
+    "id": "unordered compare flags"
+   },
+   "addresses": [],
+   "related": [
+    "tc-x87-fcmp-encoding",
+    "tc-x87-status-cc"
+   ],
+   "fact": "lahf was lifted before v0.13.0. Unordered x87 and SSE compares were setting the greater-than result rather than ZF, PF and CF. Fixed in #150.",
+   "status": "historical",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "lifter",
+    "flags",
+    "fixed"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-lifter-sse-predicates",
+   "title": "All eight SSE compare predicates and 4-lane reciprocal ops lifted",
+   "subject": {
+    "kind": "concept",
+    "id": "SSE compare predicates"
+   },
+   "addresses": [],
+   "related": [
+    "tc-sse-xmm"
+   ],
+   "fact": "The v0.13.0 lifter handles all eight CMPPS and CMPSS predicates, 4-lane sqrtps, rsqrtps and rcpps, and bare cmps and scas (#151).",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "lifter",
+    "sse"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-lifter-precision-pc24",
+   "title": "x87 results round to 24-bit significand under PC=24",
+   "subject": {
+    "kind": "global",
+    "id": "g_fp_control_word precision bits"
+   },
+   "addresses": [],
+   "related": [
+    "tc-x87-control-word"
+   ],
+   "fact": "The Xbox runs x87 at precision control 24 (the D3D default), so each arithmetic result rounds to float precision. Before #149 the lifter ignored this. The runtime macro RECOMP_FP_PC rounds results to 24 bits when bits 8 and 9 are not set. Burnout 3's sorted draw list froze at the start line because a value compared against its float-stored copy never settled.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 282
+    },
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 266
+    }
+   ],
+   "tags": [
+    "x87",
+    "precision"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-lifter-manual-enter-hook",
+   "title": "sub_XXXXXXXX_enter hook runs on every call in the manual file",
+   "subject": {
+    "kind": "concept",
+    "id": "manual entry hook"
+   },
+   "addresses": [],
+   "related": [
+    "tc-manual-replace-vs-wrap"
+   ],
+   "fact": "Defining sub_XXXXXXXX_enter in recomp_manual.c runs it at the top of the generated function on every call, direct calls included. Added in PR #168 for tracing without replacing the body.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "manual",
+    "hooks"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-lifter-postgen-patches",
+   "title": "Regeneration erases hand patches; keep a checklist",
+   "subject": {
+    "kind": "concept",
+    "id": "post-generation patches"
+   },
+   "addresses": [],
+   "related": [
+    "tc-manual-replace-vs-wrap"
+   ],
+   "fact": "Every regeneration overwrites hand edits to gen files. Patches fall into four kinds: #if 0 around crashing functions, vtable guard insertions, jump-table replacements where pattern matching failed, and extern declarations for shared globals. Keep a list and re-apply it after each run; Burnout 3 had more than 10 patch sites across 8 files.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "lifter",
+    "workflow"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-lifter-stc-clc-cmc",
+   "title": "stc, clc and cmc were lifted to TODO comments",
+   "subject": {
+    "kind": "concept",
+    "id": "carry-flag instructions"
+   },
+   "addresses": [],
+   "related": [
+    "tc-lifter-pushad"
+   ],
+   "fact": "The conformance harness found that stc, clc and cmc lifted to /* TODO */, so the carry a following adc or sbb read kept whatever the last arithmetic left in it. MSVC emits these around multi-word arithmetic and the return-a-bool-in-CF idiom.",
+   "status": "historical",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "lifter",
+    "flags",
+    "conformance"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-lifter-fxch-noop",
+   "title": "fxch st(i) was a silent no-op",
+   "subject": {
+    "kind": "concept",
+    "id": "fxch lifting"
+   },
+   "addresses": [],
+   "related": [
+    "tc-x87-stack-model"
+   ],
+   "fact": "Capstone reports fxch with both operands (st0 and st(i)); other x87 forms carry only the explicit register. The handler read operand 0, got st0 and emitted a swap of st0 with itself, so every fxch did nothing in every title. Found by the conformance suite.",
+   "status": "historical",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "lifter",
+    "x87",
+    "conformance"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-lifter-fnstsw-top",
+   "title": "fnstsw ax did not model TOP and wrote only AH",
+   "subject": {
+    "kind": "concept",
+    "id": "fnstsw lifting"
+   },
+   "addresses": [],
+   "related": [
+    "tc-x87-stack-model",
+    "tc-x87-status-cc"
+   ],
+   "fact": "The x87 status word carries TOP in bits 11 to 13, which land in AH bits 3 to 5. The model stores TOP in g_fp_top, but fnstsw did not include it and the ax form wrote only AH instead of all of AX. Reads taken while the x87 stack was non-empty disagreed with hardware.",
+   "status": "historical",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "lifter",
+    "x87",
+    "conformance"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-x87-status-cc",
+   "title": "fnstsw did not set C2, so NaN compares looked not-equal",
+   "subject": {
+    "kind": "concept",
+    "id": "x87 C2 / unordered bit"
+   },
+   "addresses": [],
+   "related": [
+    "tc-x87-fcmp-encoding",
+    "tc-lifter-lahf-unordered"
+   ],
+   "fact": "An x87 compare against a NaN sets C3, C2 and C0 together. The CRT tests for NaN with fucompp, fnstsw ax, test ah,0x44 and jp. Before the fix, fnstsw did not model C2, so every float classification reported not-unordered and took the wrong branch. Crimson Skies' float classification exposed it.",
+   "status": "historical",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "lifter",
+    "x87",
+    "nan",
+    "conformance"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-lifter-js-width",
+   "title": "js and jns evaluated the sign at 32 bits, not at operand width",
+   "subject": {
+    "kind": "concept",
+    "id": "js / jns sign test"
+   },
+   "addresses": [],
+   "related": [
+    "tc-flags-operand-model"
+   ],
+   "fact": "SF is the sign bit at the operand's width. test dl,dl; jns asks about bit 7, but the lifted condition tested the zero-extended byte as an int32, so values 0x80 to 0xFF always looked positive. cmp has the same width problem because it must truncate the difference before taking its sign. Found by a corpus function that /O2 unrolls into test and jns.",
+   "status": "historical",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "lifter",
+    "flags",
+    "conformance"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-lifter-flags-predecessor",
+   "title": "Flag state follows control flow, not address order",
+   "subject": {
+    "kind": "concept",
+    "id": "cmp/test flag propagation"
+   },
+   "addresses": [],
+   "related": [
+    "tc-flags-operand-model",
+    "tc-lifter-bt-family"
+   ],
+   "fact": "FunctionTranslator used to thread cmp and test state from one block to the next in address order, which is only right for fall-through. Optimised code lets a jcc consume a compare from a non-adjacent block. Flag state now propagates along predecessor edges, and only when every predecessor agrees; otherwise the block gets no inherited state and falls back.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "lifter",
+    "flags"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-lifter-bt-family",
+   "title": "bt, btr, bts and btc were unhandled; 386 instructions in real code",
+   "subject": {
+    "kind": "concept",
+    "id": "bit-test instructions"
+   },
+   "addresses": [],
+   "related": [
+    "tc-lifter-flags-predecessor"
+   ],
+   "fact": "The bt family lifted to a comment, so the bit was silently left alone. Real Xbox code contains 386 of them. Found when the corpus started lifting the CRT float-to-int helper, which uses btr to clear a rounding-control bit of the x87 control word.",
+   "status": "historical",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "lifter",
+    "conformance"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-lifter-rep-movs-aperture",
+   "title": "rep movs on the hardware aperture must not use host memcpy",
+   "subject": {
+    "kind": "concept",
+    "id": "rep movs to device memory"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Host memcpy uses vector loads that skip the element-sized accesses trapped device memory needs. rep movs touching the hardware aperture was routed through host memcpy until PR #170 (v0.13.0).",
+   "status": "historical",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "lifter",
+    "aperture",
+    "fixed"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-flags-operand-model",
+   "title": "Generated code stores compare operands in _fa/_fb and tests them with macros",
+   "subject": {
+    "kind": "concept",
+    "id": "flag emulation in gen code"
+   },
+   "addresses": [],
+   "related": [
+    "tc-lifter-flags-predecessor"
+   ],
+   "fact": "The MA2 generated code does not keep a flags register. Each instruction writes its operands to _fa and _fb (unsigned) and _fas and _fbs (signed, width-cast), then a condition macro such as TEST_Z(_fa, _fb) reads them. The comment after each line names the source instruction. The register-model doc's CMP_GE style is the older description.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_0000.c (made at install time, not in the repository)",
+     "line": 85
+    }
+   ],
+   "tags": [
+    "flags",
+    "gen"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-flags-cmp-macros",
+   "title": "cmp and test pattern-match to CMP_* and TEST_* macros",
+   "subject": {
+    "kind": "concept",
+    "id": "CMP_* / TEST_* macros"
+   },
+   "addresses": [],
+   "related": [
+    "tc-flags-operand-model"
+   ],
+   "fact": "The original lifter design matched cmp or test followed by jcc, and emitted a C comparison with signedness handled by CMP_GE, CMP_B, CMP_L and TEST_Z. Sub-register access uses LO8, HI8, LO16 and SET_LO8 style macros that preserve the other bytes.",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "flags",
+    "docs"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-register-tls",
+   "title": "Guest registers are thread-local in the current runtime, not plain globals",
+   "subject": {
+    "kind": "global",
+    "id": "g_eax g_ecx g_edx g_esp g_ebx g_esi g_edi"
+   },
+   "addresses": [],
+   "related": [
+    "tc-register-ebp-published",
+    "tc-register-model-doc"
+   ],
+   "fact": "The MA2 recomp_types.h declares eax, ecx, edx, esp, ebx, esi and edi as RECOMP_TLS (__declspec(thread) under MSVC). The reason given: guest threads now run on real host threads, so each needs its own register set. Thread-local access costs an indirection per use. Manual code must include recomp_types.h, or it writes a different variable.",
+   "how_to_use": "Debugger: take the TLS address first with r? @$t1 = &mygame!g_esp; dwo and poi differ for 32-bit guest values",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 160
+    },
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 167
+    }
+   ],
+   "tags": [
+    "registers",
+    "tls"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-register-model-doc",
+   "title": "Register model doc: plain globals, ebp local, shown by example",
+   "subject": {
+    "kind": "file",
+    "id": "docs/technical/register-model.md"
+   },
+   "addresses": [],
+   "related": [
+    "tc-register-tls"
+   ],
+   "fact": "The register-model doc describes eax, ecx, edx and esp as plain globals, ebx, esi and edi as callee-saved globals, ebp as a per-function local for FPO, and g_seh_ebp as the one bridge. The rules are still right, but the TLS change and the g_ebp publishing in the current tree (see tc-register-ebp-published) make the doc incomplete.",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "registers",
+    "docs"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-register-ebp-published",
+   "title": "MA2 generated code publishes ebp to g_ebp for frameless callees",
+   "subject": {
+    "kind": "global",
+    "id": "g_ebp"
+   },
+   "addresses": [],
+   "related": [
+    "tc-register-tls",
+    "tc-seh-bridge"
+   ],
+   "fact": "Each function in the MA2 gen code writes its local ebp to a thread-local g_ebp (about 32,500 g_ebp = ebp lines) and reads it back where a frameless callee needs the caller's frame (about 11,100 ebp = g_ebp lines, commented 'frameless: caller's frame'). This is a deviation from the docs' rule that ebp is purely local. Changing how ebp is handled affects every FPO function.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_0000.c (made at install time, not in the repository)",
+     "line": 900
+    },
+    {
+     "file": "generated recomp_0000.c (made at install time, not in the repository)",
+     "line": 322
+    },
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 236
+    }
+   ],
+   "tags": [
+    "registers",
+    "ebp",
+    "fpo"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-seh-bridge",
+   "title": "g_seh_ebp bridges ebp between __SEH_prolog and its caller",
+   "subject": {
+    "kind": "global",
+    "id": "g_seh_ebp"
+   },
+   "addresses": [],
+   "related": [
+    "tc-register-ebp-published",
+    "tc-seh-frame-chain"
+   ],
+   "fact": "__SEH_prolog computes the caller's ebp and writes it to g_seh_ebp, and the caller reads it back after the call. __SEH_epilog reads g_seh_ebp on entry and writes it before returning. In the MA2 tree the lifted code writes g_seh_ebp = ebp about 38,600 times, so the bridge is in common use.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 194
+    }
+   ],
+   "tags": [
+    "seh",
+    "ebp"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-seh-prolog-burnout-va",
+   "title": "__SEH_prolog VA 0x00244784 is a Burnout 3 address, not MA2",
+   "subject": {
+    "kind": "function",
+    "id": "__SEH_prolog (Burnout 3 VA)"
+   },
+   "addresses": [],
+   "related": [
+    "tc-ma2-b3-addresses-absent"
+   ],
+   "fact": "The SEH docs give __SEH_prolog at 0x00244784 and __SEH_epilog at 0x00244797. Those are Burnout 3 VAs. The MA2 functions index has no entry at either address, so do not reuse them. Find the MA2 CRT helper by its code pattern (frame setup that pushes a handler and reads fs:[0]).",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "seh",
+    "burnout-only"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-seh-frame-chain",
+   "title": "Exception frames are built on the guest stack and linked from fs:[0]",
+   "subject": {
+    "kind": "concept",
+    "id": "guest SEH frame"
+   },
+   "addresses": [],
+   "related": [
+    "tc-seh-bridge",
+    "tc-fs-base-current"
+   ],
+   "fact": "The MA2 generated code builds a registration frame for SEH functions: it pushes try level 0xFFFFFFFF, a handler, and a scope table, then links it by reading the old head from fs:[0] and storing esp into fs:[0]. The docs say these frames are never walked for dispatch, so the chain is kept for stack layout and not for exception delivery. Whether a title's __try handler is ever run from this chain is still open.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_0000.c (made at install time, not in the repository)",
+     "line": 902
+    }
+   ],
+   "tags": [
+    "seh",
+    "frames"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-seh-no-emulation",
+   "title": "SEH emulation for vtable calls was never implemented",
+   "subject": {
+    "kind": "concept",
+    "id": "SEH wrapping of ICALL"
+   },
+   "addresses": [],
+   "related": [
+    "tc-icall-garbage-guard"
+   ],
+   "fact": "The docs list full SEH emulation, wrapping ICALL in __try and __except, as not implemented. Corrupted vtables are instead handled by the centralized VA range check and per-function guards. A corrupted vtable on real hardware is caught by SEH and execution continues at __except; the port skips the call.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "seh",
+    "icall"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-veh-nv2a-pages",
+   "title": "VEH allocates zero pages for NV2A MMIO at 0xFD000000 and up",
+   "subject": {
+    "kind": "concept",
+    "id": "NV2A MMIO vectored exception handler"
+   },
+   "addresses": [],
+   "related": [
+    "tc-nv2a-spinwait-stub"
+   ],
+   "fact": "Game code reads NV2A registers at 0xFD000000 and up. Windows does not map those, so the access faults. A vectored handler (AddVectoredExceptionHandler with priority 1) commits a 4 KB page there with VirtualAlloc and resumes the instruction, so reads return 0. Allocating the page only prevents the crash; a spin-wait on the zero value still loops forever.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "veh",
+    "nv2a"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "FD000000"
+   ]
+  },
+  {
+   "id": "tc-veh-no-div0",
+   "title": "Never handle divide-by-zero in the VEH: it breaks the game's own SEH",
+   "subject": {
+    "kind": "concept",
+    "id": "DIV0 in the vectored handler"
+   },
+   "addresses": [],
+   "related": [
+    "tc-veh-nv2a-pages"
+   ],
+   "fact": "Several game functions divide by values that can be zero on purpose and rely on their __except block. A VEH that skipped the faulting instruction and returned a bogus result pre-empted that handler. The rule: a VEH may only handle faults the game cannot legitimately produce, such as NV2A register faults at addresses the port itself invented.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "veh",
+    "seh",
+    "gotcha"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-icall-3tier",
+   "title": "RECOMP_ICALL: manual override, then generated table, then kernel bridge",
+   "subject": {
+    "kind": "function",
+    "id": "RECOMP_ICALL macro"
+   },
+   "addresses": [],
+   "related": [
+    "tc-icall-range-check-sections",
+    "tc-icall-trace"
+   ],
+   "fact": "Every indirect call pushes the return address and then goes through three lookups in order: recomp_lookup_manual (hand-written overrides first), recomp_lookup (the sorted generated dispatch table, binary search), and recomp_lookup_kernel (synthetic 0xFE000000+ thunk VAs). If none match, the failure path pops the dummy return address, sets eax to 0 and logs the miss. The table is still a binary search, not a flat array; a flat-array change is in progress in the Microsoft-comparison work.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 1060
+    }
+   ],
+   "tags": [
+    "icall",
+    "dispatch"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-icall-range-check-sections",
+   "title": "ICALL code range comes from mapped sections, not a fixed 0x00400000",
+   "subject": {
+    "kind": "global",
+    "id": "g_xbox_code_lo / g_xbox_code_hi"
+   },
+   "addresses": [],
+   "related": [
+    "tc-icall-3tier"
+   ],
+   "fact": "The docs give the garbage-VA check as the fixed range [0x00400000, 0xFE000000), which was right for one title only. The MA2 runtime tests RECOMP_ICALL_IS_CODE against g_xbox_code_lo and g_xbox_code_hi, filled from the executable sections the memory layout actually mapped. Targets at 0xFE000000 and up (kernel thunks) are always allowed. Zero hi means not loaded yet, so the check allows everything.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 126
+    }
+   ],
+   "tags": [
+    "icall",
+    "range"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-icall-return-address",
+   "title": "Calls push the real guest return address; docs show a dummy value",
+   "subject": {
+    "kind": "concept",
+    "id": "return address pushed before a call"
+   },
+   "addresses": [
+    "000120A1",
+    "0001CF40"
+   ],
+   "related": [
+    "tc-gen-call-form"
+   ],
+   "fact": "Current generated code pushes the real guest return address (the VA of the instruction after the call) and then calls. The docs show a dummy 0xDEAD0000 return address. The MA2 header says the value is never used to transfer control, but guest code reads it, so it must be right. The adoption plan marks this item done (commit 7fbcc79).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 38
+    },
+    {
+     "file": "generated recomp_0000.c (made at install time, not in the repository)",
+     "line": 93
+    }
+   ],
+   "tags": [
+    "icall",
+    "calls"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-gen-call-form",
+   "title": "Direct call form in generated code: push return VA, then RECOMP_ABI_CALL",
+   "subject": {
+    "kind": "concept",
+    "id": "direct call emission"
+   },
+   "addresses": [
+    "0001CF40",
+    "0001B910"
+   ],
+   "related": [
+    "tc-icall-return-address",
+    "tc-abi-check"
+   ],
+   "fact": "A direct call is emitted as PUSH32(esp, <return VA>u); RECOMP_ABI_CALL(<target>u, sub_<target>); with a comment naming the call. For example, recomp_0000.c calls sub_0001CF40 with return VA 0x000120A1. RECOMP_ABI_CALL appears on about 93,600 lines of the gen tree, so direct calls pass through the same check hook that the indirect-call arms use.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_0000.c (made at install time, not in the repository)",
+     "line": 93
+    }
+   ],
+   "tags": [
+    "calls",
+    "gen"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-icall-safe-at",
+   "title": "RECOMP_ICALL_SAFE_AT names the call site for failure logs",
+   "subject": {
+    "kind": "function",
+    "id": "RECOMP_ICALL_SAFE_AT"
+   },
+   "addresses": [],
+   "related": [
+    "tc-icall-3tier",
+    "tc-icall-stack-leak"
+   ],
+   "fact": "Indirect calls in the MA2 gen code use RECOMP_ICALL_SAFE_AT(target, saved_esp, site), which restores the guest stack to saved_esp on a failed lookup and records the calling site. About 21,600 uses across the gen tree, plus 289 _CC variants. Failed lookups are reported with the site, which is what makes a bad vtable traceable to its caller.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 1133
+    }
+   ],
+   "tags": [
+    "icall",
+    "diagnostics"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-icall-itail",
+   "title": "RECOMP_ITAIL: indirect jumps reuse the frame and push nothing",
+   "subject": {
+    "kind": "function",
+    "id": "RECOMP_ITAIL macro"
+   },
+   "addresses": [],
+   "related": [
+    "tc-lifter-neg-table-memcpy"
+   ],
+   "fact": "An indirect jmp is emitted as RECOMP_ITAIL, which looks up the target and calls it without pushing a return address, so there is nothing to clean up on failure. About 526 uses in the MA2 gen tree. A jump through a table to a label inside the same function will fail the lookup and be silently dropped.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 1180
+    }
+   ],
+   "tags": [
+    "icall",
+    "tail-call"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-icall-stack-leak",
+   "title": "A failed ICALL must pop its dummy return address or the stack leaks",
+   "subject": {
+    "kind": "concept",
+    "id": "ICALL stack leak"
+   },
+   "addresses": [],
+   "related": [
+    "tc-icall-safe-at",
+    "tc-lifter-icall-double-pop"
+   ],
+   "fact": "When a lookup fails the caller has already pushed arguments and a return address. Without cleanup each failed call leaks 4 or more bytes of simulated stack, and the stack underflows after hours. Plain RECOMP_ICALL pops only the return address; stdcall callers need the SAFE form to restore the saved esp, because the arguments belong to the callee.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "icall",
+    "stack"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-icall-trace",
+   "title": "ICALL trace ring holds the last 16 targets for crash reading",
+   "subject": {
+    "kind": "global",
+    "id": "g_icall_trace / g_icall_trace_idx"
+   },
+   "addresses": [],
+   "related": [
+    "tc-icall-3tier"
+   ],
+   "fact": "Each RECOMP_ICALL writes its target into a 16-entry ring (g_icall_trace, index g_icall_trace_idx) and bumps g_icall_count. After a crash, the last entry is the call that failed and the entries before it show the context. The ring is volatile, so it is safe to read from a debugger.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 419
+    }
+   ],
+   "tags": [
+    "icall",
+    "diagnostics"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-icall-fail-logs",
+   "title": "Unresolved and not-code ICALLs log through two hooks",
+   "subject": {
+    "kind": "function",
+    "id": "recomp_icall_fail_log / recomp_icall_not_code_log"
+   },
+   "addresses": [],
+   "related": [
+    "tc-icall-trace"
+   ],
+   "fact": "A target that fails the code-range test calls recomp_icall_not_code_log; one that is code but unresolved calls recomp_icall_fail_log. The fail log records the caller with _ReturnAddress, which is a native address that you map to a function with the MSVC .map file (build with /MAP).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 439
+    }
+   ],
+   "tags": [
+    "icall",
+    "diagnostics"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-icall-feedback",
+   "title": "RECOMP_ICALL_FEEDBACK records real targets to seed the disassembler",
+   "subject": {
+    "kind": "tool",
+    "id": "RECOMP_ICALL_FEEDBACK / tools.recomp.icall_feedback"
+   },
+   "addresses": [],
+   "related": [
+    "tc-disasm-seed-file",
+    "tc-icall-alignment-filter"
+   ],
+   "fact": "Built with RECOMP_ICALL_FEEDBACK, every indirect branch writes its target into a byte array indexed by guest VA, and dumps it at exit or from a crash handler. The database is cumulative. Seed the disassembler from icall_seeds.json (the filtered file), not icall_targets.json (the raw record). On Halo, two rounds took unresolved cumulative gaps from 24 to 4.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "icall",
+    "feedback"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-icall-alignment-filter",
+   "title": "Feedback targets that are not 16-aligned are garbage, so filter them",
+   "subject": {
+    "kind": "concept",
+    "id": "16-byte alignment filter for seeds"
+   },
+   "addresses": [],
+   "related": [
+    "tc-msvc-function-alignment",
+    "tc-icall-feedback"
+   ],
+   "fact": "Seeding raw measured targets made a Halo build crash earlier. The culprits were 4 targets that were not 16-aligned; they were most likely uninitialised vtable reads that land inside .text. The RECOMP_ICALL range check cannot catch them because they are in range. Filter to 16-aligned targets when generating seeds, but keep the raw database.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "icall",
+    "alignment"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-icall-guard-arms",
+   "title": "Call sites with few targets get guarded direct arms",
+   "subject": {
+    "kind": "concept",
+    "id": "guarded indirect-call arms"
+   },
+   "addresses": [],
+   "related": [
+    "tc-icall-feedback",
+    "tc-icall-safe-at"
+   ],
+   "fact": "When a recorded run saw a call site reach only a few translated functions, the lifter compares the target against each and calls the match directly through RECOMP_ABI_CALL. Any other target falls back to RECOMP_ICALL_SAFE_AT, so an unseen target is slow, not wrong. Under RECOMP_ICALL_FEEDBACK the hits and misses are counted.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 1027
+    }
+   ],
+   "tags": [
+    "icall",
+    "feedback"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-icall-vtable-guards",
+   "title": "Per-function vtable guards skip objects with corrupted vtables",
+   "subject": {
+    "kind": "concept",
+    "id": "vtable guard insertions"
+   },
+   "addresses": [],
+   "related": [
+    "tc-icall-range-check-sections"
+   ],
+   "fact": "Some functions iterate over linked lists of objects and call a vtable slot on each. If one object has a corrupt vtable pointer the function crashes. The guard range-checks the vtable pointer, or the method pointer read from it, and branches past the call. Burnout 3 needed guards in four functions, including the linked-list loops in sub_001B4170 and sub_001B41F0.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "icall",
+    "vtable",
+    "guard"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-icall-garbage-va",
+   "title": "Garbage vtable targets look like 0x1C45BA68 or 0x76657240",
+   "subject": {
+    "kind": "concept",
+    "id": "garbage indirect-call targets"
+   },
+   "addresses": [],
+   "related": [
+    "tc-icall-vtable-guards"
+   ],
+   "fact": "Uninitialised or freed objects produce vtable pointers that are not code, such as 0x1C45BA68 (the most common in Burnout 3) and 0x76657240. A centralized range check removed the most frequent one and cut ICALL failures by 33 percent. The three causes are an unconstructed object, a use-after-free and a pointer cast to the wrong type.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "icall",
+    "vtable"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-abi-check",
+   "title": "RECOMP_ABI_CHECK reports callee register and stack violations",
+   "subject": {
+    "kind": "tool",
+    "id": "RECOMP_ABI_CHECK"
+   },
+   "addresses": [],
+   "related": [
+    "tc-abi-check-expected",
+    "tc-abi-check-both-halves"
+   ],
+   "fact": "Built with -DRECOMP_ABI_CHECK, every call checks that ebx, esi and edi are unchanged after the callee returns and that esp came back at least 4 higher, the minimum a callee must reach by popping its return address. A violation is logged with the target. The check wraps direct calls too, which is where CRT and static-initialiser clobbers mostly occur.",
+   "how_to_use": "Set RECOMP_ABI_CHECK at both the library and the generated-code compile (see abi-check-both-halves).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 975
+    }
+   ],
+   "tags": [
+    "abi",
+    "diagnostics"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-abi-check-expected",
+   "title": "Six CRT helpers always trip RECOMP_ABI_CHECK; they break the rules on purpose",
+   "subject": {
+    "kind": "concept",
+    "id": "expected ABI reports"
+   },
+   "addresses": [],
+   "related": [
+    "tc-abi-check"
+   ],
+   "fact": "On every title the check reports __SEH_prolog and __SEH_epilog (they build and tear down the caller's frame), _chkstk and _alloca_probe (they move esp for the caller), _aulldvrm and _alldvrm (the remainder comes back in ebx:ecx), and the _trandisp family (which shares the caller's frame). Anything else in game code is a missing epilogue or wrong ret N.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "abi",
+    "crt"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-abi-check-both-halves",
+   "title": "RECOMP_ABI_CHECK must be defined for the library and the generated code",
+   "subject": {
+    "kind": "tool",
+    "id": "CMake RECOMP_ABI_CHECK"
+   },
+   "addresses": [],
+   "related": [
+    "tc-abi-check"
+   ],
+   "fact": "The check is split: the call macro is compiled into generated code through recomp_types.h, and the logger recomp_abi_violation_log lives in the kernel library. Defining the flag with target_compile_definitions on the game reaches only the first, and the link then fails once per generated file with LNK2001. Use add_compile_definitions before add_subdirectory.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "abi",
+    "build"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-manual-include-types",
+   "title": "recomp_manual.c must include recomp_types.h to share TLS registers",
+   "subject": {
+    "kind": "file",
+    "id": "recomp_manual.c"
+   },
+   "addresses": [],
+   "related": [
+    "tc-register-tls"
+   ],
+   "fact": "The template recomp_manual.c declares extern uint32_t g_eax and does not include the header. That links, but the override writes a plain global the caller never reads, so return values do not stick and arguments read as garbage. Include recomp_types.h and drop the hand-written externs.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "manual",
+    "gotcha"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-manual-replace-vs-wrap",
+   "title": "A manual sub_X definition replaces; sub_X_gen is the wrapped body",
+   "subject": {
+    "kind": "concept",
+    "id": "exclude-manual replacement vs wrapper"
+   },
+   "addresses": [],
+   "related": [
+    "tc-lifter-manual-enter-hook"
+   ],
+   "fact": "If recomp_manual.c defines sub_X, the generator skips the generated body and every caller, both direct calls and the dispatch table, reaches the manual version. If it calls sub_X_gen, the generated body is emitted under that name, and only code that names sub_X by hand reaches the wrapper. Generated calls never reach the wrapper, so logging placed there silently does not run.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "manual",
+    "gotcha"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-manual-stack-cleanup",
+   "title": "A manual replacement must pop the return address and the arguments",
+   "subject": {
+    "kind": "concept",
+    "id": "manual stub stack balance"
+   },
+   "addresses": [],
+   "related": [
+    "tc-manual-replace-vs-wrap",
+    "tc-icall-stack-leak"
+   ],
+   "fact": "A replacement must leave the guest stack as the original did: g_esp += 4 plus the argument bytes for a ret N, and g_eax set to the return value. Stubs that only set eax and pop 4 bytes leak arguments when the caller is stdcall. The docs' example (eax = 1; esp += 4; return) is right only for a no-argument function.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "manual",
+    "stack"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-x87-stack-model",
+   "title": "x87 stack is an 8-deep double array with a TLS top index",
+   "subject": {
+    "kind": "global",
+    "id": "g_fp_stack / g_fp_top"
+   },
+   "addresses": [],
+   "related": [
+    "tc-x87-fcmp-encoding",
+    "tc-fs-base-current"
+   ],
+   "fact": "The x87 stack is g_fp_stack[8] (doubles) with g_fp_top as the index, both thread-local, so a value passed in st(0) across a call survives. The double backing matches PC=53; the runtime rounds to float under PC=24. The conformance suite checks the stack depth as well as the values, since most early x87 bugs were pop-count bugs.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 171
+    }
+   ],
+   "tags": [
+    "x87"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-x87-fcmp-encoding",
+   "title": "g_fp_cmp holds the compare result: -1 less, 0 equal, 1 greater, 2 unordered",
+   "subject": {
+    "kind": "global",
+    "id": "g_fp_cmp"
+   },
+   "addresses": [],
+   "related": [
+    "tc-x87-status-cc",
+    "tc-flags-operand-model"
+   ],
+   "fact": "fcom and fcompi store RECOMP_FCMP(a, b) in g_fp_cmp: 2 if either side is NaN, -1 if a is below b, 1 if above, 0 if equal. A later jcc reads that value: in recomp_0037.c, after fcompi, jbe tests g_fp_cmp != 1, so an unordered result takes the branch, matching CF=1. RECOMP_FCMP_CC maps the same result to the C0, C2 and C3 status bits.",
+   "how_to_use": "grep g_fp_cmp generated recomp_0037.c (made at install time, not in the repository)",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 376
+    },
+    {
+     "file": "generated recomp_0037.c (made at install time, not in the repository)",
+     "line": 5605
+    }
+   ],
+   "tags": [
+    "x87",
+    "flags"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-x87-control-word",
+   "title": "g_fp_control_word is thread-local and defaults to 0x027F",
+   "subject": {
+    "kind": "global",
+    "id": "g_fp_control_word"
+   },
+   "addresses": [],
+   "related": [
+    "tc-lifter-precision-pc24"
+   ],
+   "fact": "The x87 control word is kept in g_fp_control_word so that a value set in one lifted function survives into another. The model holds 0x027F, while a hardware finit leaves a different default, so _control87 reports a different value under real hardware. The conformance harness forces the model's value on both sides before comparing.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 257
+    }
+   ],
+   "tags": [
+    "x87"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-x87-transcendental-tolerance",
+   "title": "x87 transcendentals are checked with a per-case tolerance",
+   "subject": {
+    "kind": "concept",
+    "id": "x87 sin cos tan atan2 tolerance"
+   },
+   "addresses": [],
+   "related": [
+    "tc-conf-idea"
+   ],
+   "fact": "x87 sin, cos, tan and atan2 come from a polynomial that differs from libm, so they are not bit exact. The conformance suite gives each of those cases an explicit tol rather than a blanket tolerance. The other five arithmetic operations at PC=53 must match exactly.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "x87",
+    "conformance"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-sse-xmm",
+   "title": "XMM registers are 16-byte values in thread-local g_xmm0 to g_xmm7",
+   "subject": {
+    "kind": "global",
+    "id": "g_xmm0.g_xmm7"
+   },
+   "addresses": [],
+   "related": [
+    "tc-lifter-sse-predicates"
+   ],
+   "fact": "The MA2 runtime holds SSE registers as RecompXmm values in thread-local g_xmm0 to g_xmm7. The conformance suite compares all eight XMM registers byte by byte, because modelling XMM as a scalar float made movaps move 4 of 16 bytes unnoticed. Xbox code is Pentium III, so the test builds with /arch:IA32, which means SSE1 and no SSE2.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 538
+    }
+   ],
+   "tags": [
+    "sse"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-df-direction-flag",
+   "title": "Direction flag is modelled: cld and std change string-op stride",
+   "subject": {
+    "kind": "global",
+    "id": "g_df"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The lifter used to ignore cld and std, so every string instruction stepped forward. MSVC strrchr uses std then repne scasb to scan backwards, so it returned a pointer into the wrong place. The Xbox dashboard's mount-path split depended on that, and the archive could not be found by name. RECOMP_DF_STEP applies the direction flag to string steps.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 250
+    }
+   ],
+   "tags": [
+    "string",
+    "flags"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-atomic-lock-ops",
+   "title": "lock xadd and lock cmpxchg are real atomics on host threads",
+   "subject": {
+    "kind": "concept",
+    "id": "lock-prefixed instructions"
+   },
+   "addresses": [],
+   "related": [
+    "tc-register-tls"
+   ],
+   "fact": "lock xadd and lock cmpxchg used to lift to TODO comments, which meant a refcount never moved and a compare-and-swap never swapped. They are now RECOMP_ATOMIC_ADD32 and RECOMP_ATOMIC_CAS32, built on _InterlockedExchangeAdd and _InterlockedCompareExchange on MSVC and __sync builtins elsewhere, because guest threads now run on real host threads.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 226
+    }
+   ],
+   "tags": [
+    "threads",
+    "atomic"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-setjmp-longjmp",
+   "title": "Guest setjmp and longjmp are paired with native jmp_bufs",
+   "subject": {
+    "kind": "function",
+    "id": "recomp_setjmp_slot / recomp_guest_longjmp"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A guest jmp_buf address is paired with a native jmp_buf, allocated at the setjmp call site. A guest longjmp then becomes a native longjmp, so the abandoned native frames unwind. Restoring the guest esp alone would leave those frames on the native stack.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 218
+    }
+   ],
+   "tags": [
+    "setjmp",
+    "longjmp"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-int2d-debug-service",
+   "title": "INT 2D is the guest debug output service; service 1 prints a string",
+   "subject": {
+    "kind": "function",
+    "id": "recomp_debug_service"
+   },
+   "addresses": [],
+   "related": [
+    "tc-int3-debugbreak"
+   ],
+   "fact": "int 0x2D is the Xbox kernel debug trap. eax selects the service and ecx carries its argument. Service 1 prints the ANSI_STRING at ecx, which is what OutputDebugStringA compiles to. The int3 after int 0x2D is the slide byte the kernel steps over, so the lifter emits nothing for it.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 79
+    }
+   ],
+   "tags": [
+    "debug",
+    "kernel"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-int3-debugbreak",
+   "title": "INT 3 lifts to __debugbreak, which non-MSVC builds map to a trap",
+   "subject": {
+    "kind": "concept",
+    "id": "int3 in generated code"
+   },
+   "addresses": [],
+   "related": [
+    "tc-int2d-debug-service"
+   ],
+   "fact": "The generated code emits __debugbreak for x86 int3. Under non-MSVC compilers the macro is defined as __builtin_trap, with a guard so windows.h still gets the SDK intrinsic. Remember that int 0x2D is followed by an int3 that is not a breakpoint, so it must not be lifted as one.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 88
+    }
+   ],
+   "tags": [
+    "debug",
+    "int3"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-fs-base-current",
+   "title": "fs-relative accesses now go through XBOX_FS_BASE, not dropped",
+   "subject": {
+    "kind": "global",
+    "id": "g_fs_base / XBOX_FS_BASE"
+   },
+   "addresses": [],
+   "related": [
+    "tc-fs-dropped-doc",
+    "tc-memory-fake-tib"
+   ],
+   "fact": "In the MA2 gen code fs-relative accesses are emitted as MEM32(XBOX_FS_BASE + offset), with XBOX_FS_BASE defined as the thread-local g_fs_base. Page zero stays unmapped, so a null dereference faults. The MA2 gen tree has about 390 such uses, including the SEH chain head at fs:[0].",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 186
+    },
+    {
+     "file": "generated recomp_0000.c (made at install time, not in the repository)",
+     "line": 905
+    }
+   ],
+   "tags": [
+    "fs",
+    "tib"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-fs-dropped-doc",
+   "title": "Docs say fs: overrides are dropped; the current lifter keeps them",
+   "subject": {
+    "kind": "concept",
+    "id": "fs segment handling"
+   },
+   "addresses": [],
+   "related": [
+    "tc-fs-base-current"
+   ],
+   "fact": "The lifting doc and the memory-layout doc say fs: segment overrides are dropped, so mov eax,fs:[0x28] reads MEM32(0x28), affecting about 35 Burnout 3 instructions. The MA2 tree translates fs: relative to g_fs_base, so the limitation is superseded.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "fs",
+    "docs"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-ma2-b3-addresses-absent",
+   "title": "Burnout 3 example addresses are absent from MA2 functions.json",
+   "subject": {
+    "kind": "file",
+    "id": "(MA2)"
+   },
+   "addresses": [],
+   "related": [
+    "tc-seh-prolog-burnout-va"
+   ],
+   "fact": "The toolchain docs cite many Burnout 3 addresses (the entry point 0x001D2807, __SEH_prolog 0x00244784, the RECOMP dispatch example 0x000110E0, the frame pump and the physics force). None of the sampled addresses has an entry in the MA2 functions index. Treat every address in the xboxrecomp docs as a Burnout 3 example until it is checked against ma2.xbe.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "burnout-only",
+    "addresses"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "00244784",
+    "00244797",
+    "0036C100",
+    "000110E0",
+    "00011240",
+    "000636D0",
+    "001D2807",
+    "00011000"
+   ]
+  },
+  {
+   "id": "tc-memory-createfilemapping",
+   "title": "Xbox memory is mapped with CreateFileMapping and MapViewOfFileEx, not VirtualAlloc",
+   "subject": {
+    "kind": "concept",
+    "id": "memory aliasing for Xbox RAM"
+   },
+   "addresses": [],
+   "related": [
+    "tc-memory-mirrors",
+    "tc-memory-26bit-wrap"
+   ],
+   "fact": "Xbox RAM is 64 MB, and some code reaches it through mirrors. Views made with MapViewOfFileEx on one file mapping share pages, so a write through one view shows through the others. VirtualAlloc gives separate pages, and a copy only snapshots the data. Writes through a mirror went unseen by the base view until the layout was switched to file mapping.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "memory"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-memory-mirrors",
+   "title": "28 mirror views alias the 64 MB base; some fail to map on Windows 11",
+   "subject": {
+    "kind": "concept",
+    "id": "RAM mirror views"
+   },
+   "addresses": [],
+   "related": [
+    "tc-memory-createfilemapping"
+   ],
+   "fact": "The runtime pre-maps 28 mirror views at 64 MB intervals above the base, so addresses that wrap modulo 64 MB resolve to the same pages. For Burnout 3, 4 of 33 attempted mirrors failed because Windows reserves addresses near 0x76000000. The game reaches those BSS addresses through the base view, so the failures are tolerated.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "memory",
+    "mirrors"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "04000000"
+   ]
+  },
+  {
+   "id": "tc-memory-26bit-wrap",
+   "title": "The Xbox memory controller wraps addresses modulo 64 MB",
+   "subject": {
+    "kind": "concept",
+    "id": "26-bit address bus"
+   },
+   "addresses": [],
+   "related": [
+    "tc-memory-mirrors"
+   ],
+   "fact": "The Xbox memory controller uses a 26-bit address bus, so 0x04070000 and 0x00070000 access the same byte. RenderWare's memory walker exploits this to read mirrored data over a range of more than 256 MB. Initialisation code also writes past 64 MB that wrap into RAM on real hardware.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "memory"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "04070000"
+   ]
+  },
+  {
+   "id": "tc-memory-xbox-mem-offset",
+   "title": "g_xbox_mem_offset is set once from the first base that maps",
+   "subject": {
+    "kind": "global",
+    "id": "g_xbox_mem_offset"
+   },
+   "addresses": [
+    "00010000"
+   ],
+   "related": [
+    "tc-memory-createfilemapping"
+   ],
+   "fact": "Xbox VA to host address is XBOX_PTR(a) = (uint32)a + g_xbox_mem_offset. The layout tries bases 0x00010000, 0x00800000, 0x01000000, 0x02000000, 0x10000000 and then lets the OS choose. Offset is zero when the original base maps, which makes MEM macros identity casts; it is read-only after init.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 101
+    }
+   ],
+   "tags": [
+    "memory",
+    "xbox-va"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-memory-uint32-cast",
+   "title": "XBOX_PTR casts to uint32 first so overflow wraps like the Xbox",
+   "subject": {
+    "kind": "macro",
+    "id": "XBOX_PTR / MEM32"
+   },
+   "addresses": [],
+   "related": [
+    "tc-memory-xbox-mem-offset"
+   ],
+   "fact": "Xbox addresses are 32 bits, and arithmetic can overflow. XBOX_PTR truncates to uint32 before adding the offset. Without the cast, a 64-bit uintptr_t would land 4 GB past the mapping and fault. The macro form is ((uintptr_t)(uint32_t)(addr) + offset).",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "memory"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-memory-rdata-no-vprotect",
+   "title": "Do not VirtualProtect .rdata: it shares a page with .data",
+   "subject": {
+    "kind": "concept",
+    "id": "rdata read-only protection"
+   },
+   "addresses": [
+    "003B2000"
+   ],
+   "related": [
+    "tc-memory-rdata-corruption"
+   ],
+   "fact": "The .rdata end and the .data start share the 4 KB page at 0x003B2000 on Burnout 3. A read-only protect on .rdata also makes the first 0xCA0 bytes of .data read-only, and initialisation code that writes those globals then faults. The game also writes into .rdata at runtime, so the protection cannot be used.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "memory",
+    "gotcha"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-memory-rdata-corruption",
+   "title": "Game writes into .rdata: read names from a pristine copy of the XBE",
+   "subject": {
+    "kind": "concept",
+    "id": "rdata string corruption"
+   },
+   "addresses": [],
+   "related": [
+    "tc-memory-rdata-no-vprotect"
+   ],
+   "fact": "Xbox code writes into .rdata at runtime, so string pointers and file names read from mapped memory later come out garbled, which breaks file loads and resource lookup. Read strings from a copy of the XBE file: the file offset is VA minus the section VA plus the section raw offset. This is needed for resource loading paths; most code tolerates the mapped copy.",
+   "how_to_use": "file_offset = (va - section_va) + section_raw_offset; read from the original XBE bytes",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "memory",
+    "rdata"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-memory-fake-tib",
+   "title": "Fake TIB at address 0 holds exception chain and stack bounds",
+   "subject": {
+    "kind": "address",
+    "id": "fake TIB (VA 0x0)"
+   },
+   "addresses": [],
+   "related": [
+    "tc-fs-base-current",
+    "tc-fs-dropped-doc"
+   ],
+   "fact": "The docs place a fake thread information block at guest address 0: [0] is the SEH chain head, [4] stack top, [8] stack limit, [0x28] TLS pointer read by RenderWare. The MA2 tree replaces the fixed address with a per-thread g_fs_base, so the TIB location is now a thread-local value rather than a constant at 0.",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 186
+    }
+   ],
+   "tags": [
+    "tib",
+    "memory"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "00000000"
+   ]
+  },
+  {
+   "id": "tc-memory-kernel-pe-header",
+   "title": "Fake kernel PE header at 0x80010000 makes RenderWare cache init skip",
+   "subject": {
+    "kind": "address",
+    "id": "0x80010000 fake kernel PE header"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RenderWare reads MEM32(0x8001003C) to parse the kernel PE header and find the INIT section for cache line sizing. A zeroed page with e_lfanew 0x80 and zero sections at 0x80010000 makes that search find nothing, so the function skips gracefully.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "memory",
+    "renderware"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "80010000"
+   ]
+  },
+  {
+   "id": "tc-memory-heap-bump",
+   "title": "Heap is a bump allocator; frees are no-ops unless reclaim is enabled",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_HeapAlloc"
+   },
+   "addresses": [],
+   "related": [
+    "tc-kernel-heap-opt-in"
+   ],
+   "fact": "The docs' heap allocates by bumping a cursor, with a minimum size of 4096 bytes so zero-size requests from GPU capability queries do not overlap, and zero-fills each block. xbox_HeapFree does nothing. That was true until v0.13.0 added RECOMP_HEAP_RECLAIM as an opt-in that really frees.",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "heap",
+    "memory"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-heap-base-conflict",
+   "title": "Heap base is given as 0x00880000 in one doc and 0x00F80000 in another",
+   "subject": {
+    "kind": "address",
+    "id": "XBOX_HEAP_BASE"
+   },
+   "addresses": [],
+   "related": [
+    "tc-memory-xbox-map"
+   ],
+   "fact": "05-runtime gives XBOX_HEAP_BASE as 0x00880000 and calls it above the stack. memory-layout puts the stack at 0x00780000 to 0x00F7FFFF (8 MB) and the heap at 0x00F80000 to 0x03FFFFFF. 0x00880000 lies inside the stack range in the second layout. Check the constant in the MA2 memory layout source before relying on either.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "heap",
+    "memory",
+    "docs-conflict"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "00880000",
+    "00F80000",
+    "00780000",
+    "00F7FFF0"
+   ]
+  },
+  {
+   "id": "tc-memory-xbox-map",
+   "title": "Xbox VA map: code, rdata, data, stack, heap, NV2A and kernel thunk ranges",
+   "subject": {
+    "kind": "address",
+    "id": "Xbox memory map (Burnout 3 layout)"
+   },
+   "addresses": [
+    "00011000",
+    "0036B7C0",
+    "003B2360"
+   ],
+   "related": [
+    "tc-xbe-section-header",
+    "tc-heap-base-conflict"
+   ],
+   "fact": "The Burnout 3 layout is .text from 0x00011000 (2.73 MB), XDK library sections up to 0x0036B7C0,rdata from 0x0036B7C0,data and BSS from 0x003B2360 to about 0x0076EFFF, the stack from 0x00780000, the heap above it, a fake kernel PE header at 0x80010000, NV2A registers from 0xFD000000 and kernel thunks at 0xFE000000. Use each title's own section table for the numbers.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "memory"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "00780000",
+    "00F7FFFF",
+    "FD000000",
+    "FE000000"
+   ]
+  },
+  {
+   "id": "tc-memory-text-copy-conflict",
+   "title": "Docs disagree on whether .text is copied into mapped memory",
+   "subject": {
+    "kind": "concept",
+    "id": "text copy into Xbox memory"
+   },
+   "addresses": [],
+   "related": [
+    "tc-memory-xbox-map"
+   ],
+   "fact": "05-runtime says .text is NOT copied because the recompiled code is native. memory-layout copies .text as well, because RenderWare's memory walker reads code bytes. Whether the MA2 runtime needs .text bytes in memory for a walker or a checksum is not settled by the docs.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "memory",
+    "docs-conflict"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-stack-layout",
+   "title": "Guest stack: 8 MB from 0x00780000, g_esp starts at 0x00F7FFF0",
+   "subject": {
+    "kind": "address",
+    "id": "XBOX_STACK_TOP"
+   },
+   "addresses": [],
+   "related": [
+    "tc-memory-xbox-map"
+   ],
+   "fact": "The simulated stack is an 8 MB region from 0x00780000 to 0x00F7FFFF. g_esp starts at base + size - 16 = 0x00F7FFF0 and grows downward. A healthy run oscillates around a narrow band, so a steadily falling g_esp across frames is the signature of a stack leak.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "stack"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "00780000",
+    "00F7FFF0"
+   ]
+  },
+  {
+   "id": "tc-kernel-synthetic",
+   "title": "Kernel imports get synthetic VAs at 0xFE000000 plus 4 per slot",
+   "subject": {
+    "kind": "concept",
+    "id": "synthetic kernel thunk VAs"
+   },
+   "addresses": [],
+   "related": [
+    "tc-xbe-thunk-format",
+    "tc-kernel-bridge-args"
+   ],
+   "fact": "At init the runtime rewrites each kernel thunk slot: function exports get 0xFE000000 + 4*slot, so a call through the thunk becomes an ICALL to a synthetic VA that the kernel bridge resolves. Data exports (such as KeTickCount or XboxHardwareInfo) get the VA of readable memory instead, because the game dereferences those.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "kernel",
+    "icall"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "FE000000"
+   ]
+  },
+  {
+   "id": "tc-kernel-data-area",
+   "title": "Kernel data exports live in a 4 KB area at 0x00740000",
+   "subject": {
+    "kind": "address",
+    "id": "XBOX_KERNEL_DATA_BASE"
+   },
+   "addresses": [],
+   "related": [
+    "tc-kernel-synthetic"
+   ],
+   "fact": "Data exports are placed in a 4 KB block at 0x00740000 holding XboxHardwareInfo, XboxKrnlVersion (the example build is 5849) and the KeTickCount counter, which a background thread refreshes from GetTickCount. The data area is what the thunk entry points to.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "kernel",
+    "data"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "00740000"
+   ]
+  },
+  {
+   "id": "tc-kernel-bridge-args",
+   "title": "Kernel bridges read arguments from g_esp and return in g_eax",
+   "subject": {
+    "kind": "concept",
+    "id": "kernel bridge calling convention"
+   },
+   "addresses": [],
+   "related": [
+    "tc-kernel-set-eax",
+    "tc-icall-stack-leak"
+   ],
+   "fact": "After the ICALL pops the dummy return address, arguments are at g_esp + 4n (STACK_ARG). A bridge translates Xbox pointers with XBOX_TO_NATIVE, calls the Win32 equivalent, writes the result to g_eax and returns. Xbox kernel exports are stdcall, so the callee-side bridge must not pop its arguments again.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "kernel"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-kernel-set-eax",
+   "title": "Every kernel bridge must set g_eax before returning",
+   "subject": {
+    "kind": "concept",
+    "id": "kernel return value"
+   },
+   "addresses": [],
+   "related": [
+    "tc-kernel-bridge-args"
+   ],
+   "fact": "The caller reads eax after a kernel call. A bridge that forgets to set g_eax leaves a stale value from an earlier call. NTSTATUS functions return 0 for success, and allocation functions return a pointer.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "kernel"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-kernel-pseudo-handle",
+   "title": "NT pseudo-handles like NtCurrentThread are -2, which must be sign-extended",
+   "subject": {
+    "kind": "concept",
+    "id": "pseudo handles 0xFFFFFFF0 and up"
+   },
+   "addresses": [],
+   "related": [
+    "tc-kernel-bridge-args"
+   ],
+   "fact": "NtCurrentThread is (HANDLE)-2, or 0xFFFFFFFE as a 32-bit value. Widened as unsigned on a 64-bit host it no longer matches Windows' -2, so DuplicateHandle failed and the CRT retried forever. Handle tokens from 0xFFFFFFF0 up are sign-extended in bridge_resolve_handle. The fix shipped in v0.13.0.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "kernel",
+    "handles",
+    "fixed"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "FFFFFFFE"
+   ]
+  },
+  {
+   "id": "tc-kernel-heap-487",
+   "title": "STATUS_CONFLICTING_ADDRESSES must map to 487 so the CRT heap grows elsewhere",
+   "subject": {
+    "kind": "concept",
+    "id": "NtAllocateVirtualMemory conflicting address"
+   },
+   "addresses": [],
+   "related": [
+    "tc-memory-heap-bump"
+   ],
+   "fact": "When NtAllocateVirtualMemory refuses a base, it answers 0xC0000018. Windows maps that to ERROR_INVALID_ADDRESS (487), and 487 is the only error on which the MSVC CRT heap tries another address. Mapping it to the generic 317 stops the heap from growing. Both status tables carry the 487 mapping since v0.13.0.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "kernel",
+    "heap"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-kernel-counter-64",
+   "title": "Kernel call counters must be 64-bit, or logging runs on every call",
+   "subject": {
+    "kind": "global",
+    "id": "kernel call counter"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A title that polls the clock through the kernel passes 2^31 calls within minutes. An int counter wrapped negative, so the log budget test count <= budget logged every call and frame rate fell to about 1 FPS. The counter is long long now.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "kernel",
+    "logging"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-kernel-opt-in-env",
+   "title": "Opt-in kernel switches for memory reclaim and guest synchronisation",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_HEAP_RECLAIM, RECOMP_EXT_VMA, RECOMP_TITLE_KEVENTS, RECOMP_GUEST_LOCK"
+   },
+   "addresses": [],
+   "related": [
+    "tc-memory-heap-bump",
+    "tc-kernel-threads-superseded"
+   ],
+   "fact": "RECOMP_HEAP_RECLAIM makes NtFreeVirtualMemory and MmFreeContiguousMemory really free and zeroes decommitted pages. RECOMP_EXT_VMA honours reservations at a fixed address above the RAM mirrors. RECOMP_TITLE_KEVENTS turns a KEVENT the title built into a host event, and RECOMP_GUEST_LOCK runs one guest thread at a time. All are off by default.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "kernel",
+    "env"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-kernel-count-conflict",
+   "title": "Kernel export counts differ between docs",
+   "subject": {
+    "kind": "concept",
+    "id": "kernel ordinal count"
+   },
+   "addresses": [],
+   "related": [
+    "tc-kernel-synthetic"
+   ],
+   "fact": "The root README says 170 of the kernel's 371 ordinals are routed and 169 have bridge functions. kit/source/game/src/README says 147 imports and the XBE parser doc says 366 possible exports. The 147 figure is the Burnout 3 import count. Use the MA2 import table for the number that matters.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "kernel",
+    "docs-conflict"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-kernel-audio-probe",
+   "title": "Titles that probe the AC97 codec can skip their whole engine init",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_AC97_READY"
+   },
+   "addresses": [],
+   "related": [
+    "tc-debug-no-frame"
+   ],
+   "fact": "A title that links the XDK DirectSound checks the AC'97 codec. When DirectSoundCreate fails, the title skips its whole engine init, not just sound, and then never draws. Wreckless did exactly this. RECOMP_AC97_READY=1 reports the codec ready and routes the APU aperture to the emulated APU; if behaviour changes with it, the probe was the gate.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "audio",
+    "env",
+    "debugging"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-kernel-hal-stubs",
+   "title": "HAL and kernel bridges are mostly simple stand-ins",
+   "subject": {
+    "kind": "concept",
+    "id": "kernel bridge categories"
+   },
+   "addresses": [],
+   "related": [
+    "tc-kernel-bridge-args"
+   ],
+   "fact": "Burnout 3 bridged about 68 of 147 kernel imports with real behaviour, stubbed about 79 to return success (threading, audio, network, crypto) and left about 20 unused in play. The table of categories says memory uses a bump allocator, file I/O maps to CreateFileA and related Win32 calls, and NV2A push-buffer functions are stubbed.",
+   "status": "historical",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "kernel"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-nv2a-spinwait-stub",
+   "title": "NV2A spin-wait functions must be stubbed whole, not just the register read",
+   "subject": {
+    "kind": "concept",
+    "id": "NV2A push-buffer wait loops"
+   },
+   "addresses": [],
+   "related": [
+    "tc-veh-nv2a-pages"
+   ],
+   "fact": "A push-buffer function such as one that loops while MEM32(0xFD003210) & 0x100 is set never ends if the register reads zero. Mapping the page only prevents the crash. Find the function in recomp_0xxx.c, wrap it in #if 0, and add a no-op in recomp_manual.c. The same applies to D3D8LTCG push-buffer flushes.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "nv2a",
+    "hang"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "FD003210"
+   ]
+  },
+  {
+   "id": "tc-nv2a-translation-scope",
+   "title": "NV2A translation covers register combiners, vertex microcode, textures and PGRAPH",
+   "subject": {
+    "kind": "tool",
+    "id": "xbox_nv2a / xbox_d3d8 NV2A translator"
+   },
+   "addresses": [],
+   "related": [
+    "tc-nv2a-p8",
+    "tc-d3d-com-vtable"
+   ],
+   "fact": "xbox_nv2a holds the NV2A register handlers (regs from xemu) and the PGRAPH to D3D11 translation. The v0.13.0 release added vertex programs, register combiners, four texture stages, visibility reports, near-plane clipping, bilinear filtering and a threaded rasteriser. The gap analysis lists the 8-stage combiner and vertex microcode translation as done.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "nv2a",
+    "gpu"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-nv2a-p8",
+   "title": "P8 palette textures are expanded to BGRA using the stage palette",
+   "subject": {
+    "kind": "concept",
+    "id": "P8 textures"
+   },
+   "addresses": [],
+   "related": [
+    "tc-nv2a-translation-scope"
+   ],
+   "fact": "P8 textures are expanded to BGRA at upload through the texture stage's palette, and dev_SetPalette re-bakes any P8 texture bound to that stage, so animated palettes work. Since v0.13.0 they sample through the stage palette.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "nv2a",
+    "textures"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-debug-no-frame",
+   "title": "A title that runs but never draws: find the probe that failed",
+   "subject": {
+    "kind": "concept",
+    "id": "runs but never draws"
+   },
+   "addresses": [],
+   "related": [
+    "tc-kernel-audio-probe",
+    "tc-nv2a-spinwait-stub"
+   ],
+   "fact": "Symptom: vblank and DPCs fire and threads run, but no frame reaches the screen and a later wait never returns. The usual cause is a device the title probed at boot and found missing, so it skipped everything that depended on it. Use RECOMP_AC97_READY, RECOMP_NV2A_TRACE, RECOMP_PB_EXEC and RECOMP_WATCHDOG_SECS to find which probe failed. A shim that makes a wait return without making the event happen usually just moves the stall.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "debugging",
+    "gotcha"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-debug-nv2a-env",
+   "title": "NV2A trace and pushbuffer executor switches",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_NV2A_TRACE / RECOMP_PB_EXEC"
+   },
+   "addresses": [],
+   "related": [
+    "tc-debug-no-frame"
+   ],
+   "fact": "RECOMP_NV2A_TRACE=1 shows whether the DMA_PUT register moves at all. RECOMP_PB_EXEC=1 actually consumes the pushbuffer, which the NV2A does not do by default. Without RECOMP_PB_EXEC, a D3D callback driven by a GPU interrupt (swap, fence, notifier) never fires, because nothing raises that interrupt.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "env",
+    "nv2a"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-debug-watch-va",
+   "title": "RECOMP_WATCH and RECOMP_UNIMPL_TRAP locate writers and untranslated code",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_WATCH=<va> / RECOMP_UNIMPL_TRAP=1"
+   },
+   "addresses": [],
+   "related": [
+    "tc-debug-watchdog"
+   ],
+   "fact": "RECOMP_WATCH=<va> names the guest code that writes a value, for example a callback table slot or a ready flag. RECOMP_UNIMPL_TRAP=1 stops at the first untranslated instruction that is actually reached, rather than letting it fall through.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "env",
+    "debugging"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-debug-watchdog",
+   "title": "RECOMP_WATCHDOG_SECS dumps registers and the guest stack when progress stops",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_WATCHDOG_SECS"
+   },
+   "addresses": [],
+   "related": [
+    "tc-debug-no-frame"
+   ],
+   "fact": "RECOMP_WATCHDOG_SECS=N dumps the guest registers, PUT and GET and the guest stack when the title stops making progress for N seconds. The dump names the wait the title is stuck .",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "env",
+    "debugging",
+    "hang"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-debug-cdb-guest",
+   "title": "Reading guest state in cdb: take the TLS address first",
+   "subject": {
+    "kind": "tool",
+    "id": "cdb guest register reads"
+   },
+   "addresses": [],
+   "related": [
+    "tc-register-tls"
+   ],
+   "fact": "Guest registers are thread-local, so dwo(&module!g_esp) fails. Switch to the thread first, then use r? @$t1 = &mygame!g_esp and r @$t0 = poi(mygame!g_xbox_mem_offset), then .printf with dwo(@$t1). Guest memory is at poi(g_xbox_mem_offset) plus the guest address. Host registers such as @ecx are not guest registers.",
+   "how_to_use": "~Ns (switch thread), r? @$t1 = &mygame!g_esp, r @$t0 = poi(mygame!g_xbox_mem_offset),printf 'guest esp=%08x' dwo(@$t1)",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "debugging",
+    "cdb"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-debug-crash-address-table",
+   "title": "Crash address ranges point to the likely cause",
+   "subject": {
+    "kind": "concept",
+    "id": "crash address triage"
+   },
+   "addresses": [
+    "00010000"
+   ],
+   "related": [
+    "tc-memory-xbox-map"
+   ],
+   "fact": "0x00000000 to 0x0000FFFF is a null dereference. 0x00010000 to 0x00780000 is valid Xbox image range, usually an uninitialised global. 0x00780000 to 0x00F80000 is stack. 0x00F80000 to 0x04000000 is heap. 0x80000000 and up is kernel memory. 0xFD000000 and up is NV2A (needs the VEH). 0xCDCDCDCD and 0xDDDDDDDD are MSVC debug fills.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "debugging",
+    "crash"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "00000000",
+    "00780000",
+    "00F80000",
+    "FD000000",
+    "FE000000"
+   ]
+  },
+  {
+   "id": "tc-debug-stack-leak-long-run",
+   "title": "Crashes after hours of play are a stack leak; watch g_esp over time",
+   "subject": {
+    "kind": "concept",
+    "id": "stack leak detection"
+   },
+   "addresses": [],
+   "related": [
+    "tc-icall-stack-leak"
+   ],
+   "fact": "A game that runs for half an hour and then crashes is almost always leaking simulated stack from failed ICALLs. A healthy run oscillates within a narrow range around each call. Log g_esp every N frames; a steady downward trend is the leak.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "debugging",
+    "stack"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-debug-stack-overflow-recursion",
+   "title": "Native stack overflow comes from recursive ICALL dispatch",
+   "subject": {
+    "kind": "concept",
+    "id": "native recursion through ICALL"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "An access violation far below the stack base usually means function A calls B through an indirect call and B calls A, and each dispatch uses native stack, not the simulated one. Raise the native stack size in the linker or stub one function in the cycle.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "debugging",
+    "stack"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-debug-workflow",
+   "title": "Debug loop: read the ICALL trace, find the caller, read the generated C, fix minimally",
+   "subject": {
+    "kind": "concept",
+    "id": "iterative debugging workflow"
+   },
+   "addresses": [],
+   "related": [
+    "tc-icall-trace",
+    "tc-debug-crash-address-table"
+   ],
+   "fact": "The loop is: run and let it crash; check the ICALL trace for a garbage target; find the calling function with the .map file; read its generated C; check which globals it needs and whether they were set; apply the smallest fix (stub, guard, initialise a global or override); rebuild. Keep a log of each crash, its root cause and the fix, because a few root causes account for most crashes.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "debugging",
+    "workflow"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-lessons-cwd",
+   "title": "Launch from a drive-letter path: Git Bash paths break asset loading",
+   "subject": {
+    "kind": "concept",
+    "id": "working directory for the exe"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "From Git Bash, cd /e/burnout3 sets a Unix-style path, and the Windows game then fails to find its asset files. Launch with a Windows drive path (cd) so the working directory is right.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "gotcha",
+    "run"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-lessons-map-file",
+   "title": "Build with /MAP and map native return addresses back to sub_ names",
+   "subject": {
+    "kind": "tool",
+    "id": "MSVC linker .map file"
+   },
+   "addresses": [],
+   "related": [
+    "tc-icall-fail-logs"
+   ],
+   "fact": "The MSVC linker .map file maps native addresses in the built exe to recomp function names. Subtract the image base from a crash or _ReturnAddress value, then look it up in the map. This is how a failed ICALL is traced back to its caller.",
+   "how_to_use": "cmake --build build --config Release -- /p:MapFile=true",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "debugging",
+    "map"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-lessons-log-rate",
+   "title": "Rate-limit diagnostics: first N, then every Kth",
+   "subject": {
+    "kind": "concept",
+    "id": "diagnostic log rate limiting"
+   },
+   "addresses": [],
+   "related": [
+    "tc-kernel-counter-64"
+   ],
+   "fact": "Logging every ICALL, kernel call or memory access produces gigabytes. The pattern is: log when count <= 5 or count is a multiple of 1000. Counters that feed the test must not overflow to negative, or every call is logged.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "logging"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-conf-idea",
+   "title": "Conformance: the host CPU is the oracle for lifted instructions",
+   "subject": {
+    "kind": "tool",
+    "id": "tools.conformance"
+   },
+   "addresses": [],
+   "related": [
+    "tc-conf-snippets",
+    "tc-lifter-unhandled-comment"
+   ],
+   "fact": "The conformance harness runs the original x86 bytes on the real CPU and the lifted C on the same inputs, then compares results. Because Xbox code is 32-bit x86 and a 32-bit MSVC process is available on Windows, there is no model to disagree with. A lifted instruction can still agree while doing nothing, so comment-only lifts are reported separately.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "conformance",
+    "testing"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-conf-snippets",
+   "title": "Conformance snippets: MSVC __asm blocks, lifted with lift_basic_block",
+   "subject": {
+    "kind": "tool",
+    "id": "tools/conformance snippets"
+   },
+   "addresses": [],
+   "related": [
+    "tc-conf-idea"
+   ],
+   "fact": "Each snippet is assembly text emitted as an MSVC __asm block between nop markers, compiled with /FAc. The bytes are read back from the .cod listing and lifted with lift_basic_block, not lift_instruction, because the cmp+jcc peephole lives at block level. Inputs cluster on 0x7F, 0x80, 0xFF, 0x7FFF, 0x8000 and 0x80000000 to expose width bugs.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "conformance",
+    "testing"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-conf-corpus",
+   "title": "Conformance corpus: linked MSVC functions lifted through FunctionTranslator",
+   "subject": {
+    "kind": "tool",
+    "id": "tools/conformance corpus.py"
+   },
+   "addresses": [],
+   "related": [
+    "tc-flags-operand-model"
+   ],
+   "fact": "Corpus functions are compiled with /O2 /GS- /arch:IA32, linked into a DLL at a fixed base with relocations stripped, then lifted out of the linked image through the real FunctionTranslator and run against the compiled originals. Callees are lifted too, and any undefined reference fails the run. This is how the flag-propagation and js width bugs were found.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "conformance",
+    "testing"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-conf-xbe-phase",
+   "title": "Conformance phase three runs a real title's functions under quarantine",
+   "subject": {
+    "kind": "tool",
+    "id": "tools.conformance --xbe"
+   },
+   "addresses": [],
+   "related": [
+    "tc-conf-results"
+   ],
+   "fact": "Given an XBE you own, phase three maps it where it was linked, calls its functions with supplied arguments, and compares the lifted C with the real run. Only functions ending in a plain ret (not ret N), with no indirect branch, fs access, string op or privileged instruction, are comparable. A harness crash quarantines the function and reruns. On Burnout 3 the comparable set rose from 17 to 37 once callees were followed.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "conformance",
+    "testing"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-conf-results",
+   "title": "Conformance results: Burnout 3 and Blood Wake clean; Crimson Skies has two open",
+   "subject": {
+    "kind": "tool",
+    "id": "conformance results table"
+   },
+   "addresses": [],
+   "related": [
+    "tc-conf-xbe-phase"
+   ],
+   "fact": "Burnout 3: 37 comparable functions, 161 vectors, 0 mismatches. Blood Wake: 39 comparable, 44 vectors, 0 mismatches. Crimson Skies: 35 comparable, 227 vectors, 2 functions still diverging and not yet explained (one writes a scratch byte, one returns a different value).",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "conformance",
+    "results"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-conf-run-commands",
+   "title": "Conformance commands: snippets, corpus, XBE and filters",
+   "subject": {
+    "kind": "tool",
+    "id": "py -3 -m tools.conformance"
+   },
+   "addresses": [],
+   "related": [
+    "tc-conf-msvc-wine"
+   ],
+   "fact": "py -3 -m tools.conformance runs everything. --only snippets runs the GCC snippet phase. -k NAME filters to one family. --keep keeps the generated C for reading. --xbe PATH runs phase three on a title. tools/conformance/mkxbe.py builds a small synthetic XBE to exercise phase three without a game.",
+   "how_to_use": "py -3 -m tools.conformance --only snippets; py -3 -m tools.conformance --xbe tools/conformance/test.xbe",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "conformance",
+    "tools"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-conf-msvc-wine",
+   "title": "Two Docker images because 32-bit MSVC link hangs and Rosetta cannot run 32-bit",
+   "subject": {
+    "kind": "tool",
+    "id": "tools/conformance/msvc-wine images"
+   },
+   "addresses": [],
+   "related": [
+    "tc-conf-run-commands"
+   ],
+   "fact": "The amd64 image compiles and links the corpus in seconds, but link.exe never finishes under 32-bit emulation. The i386 image runs the 32-bit harnesses, but Rosetta cannot execute 32-bit x86, so the harness cannot run on the amd64 image. A 32-bit PE built on one image runs on the other unchanged. Corpus and XBE phases need the real MSVC, not GCC, because GCC would test codegen no title contains.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "conformance",
+    "build",
+    "docker"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-conf-msvc-license",
+   "title": "vsdownload needs --accept-license; the MSVC toolchain is not redistributable",
+   "subject": {
+    "kind": "tool",
+    "id": "tools/conformance/msvc-wine vsdownload.py"
+   },
+   "addresses": [],
+   "related": [
+    "tc-conf-msvc-wine"
+   ],
+   "fact": "The ISC licence covers the msvc-wine scripts, not the Visual Studio toolchain they download. vsdownload.py fetches it from Microsoft only under the licence you accept with --accept-license. Neither Docker image should be pushed to a shared registry.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "conformance",
+    "licence"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-conf-both-sides-state",
+   "title": "Conformance starts both sides from identical register, x87 and stack state",
+   "subject": {
+    "kind": "concept",
+    "id": "harness initial state"
+   },
+   "addresses": [],
+   "related": [
+    "tc-x87-control-word"
+   ],
+   "fact": "Four things had to be equalised: every GPR is zeroed before the call (an indirect call lets eax be cleared), st(0) is given the same value on both sides, the x87 control word is the model's value, and both stacks are filled with 0xCD so an uninitialised local faults on poison instead of disagreeing. Without these, the harness reported convincing false failures.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "conformance",
+    "testing"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-tests-count",
+   "title": "Full test run: 630 passed and 0 skipped with a C compiler on PATH",
+   "subject": {
+    "kind": "tool",
+    "id": "py -3 -m pytest tools/"
+   },
+   "addresses": [],
+   "related": [
+    "tc-conf-run-commands"
+   ],
+   "fact": "The unit suite is py -3 -m pytest tools/. Tests that compile the lifter's output skip rather than fail when no C compiler is on PATH, so check the skip count. The clean v0.13.0 run is 630 passed and 0 skipped, plus 5,843 conformance vectors with no mismatches. For clang installed but not on PATH, export it under Git Bash.",
+   "how_to_use": "py -3 -m pytest tools/ (on Git Bash: export PATH=/c/Program Files/LLVM/bin:$PATH)",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "testing"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-decomp-split",
+   "title": "tools.split writes per-function .s files with the bytes as data",
+   "subject": {
+    "kind": "tool",
+    "id": "tools.split (decompilation output)"
+   },
+   "addresses": [],
+   "related": [
+    "tc-recomp-invocation"
+   ],
+   "fact": "For decompiling by hand, tools.split writes one .s file per function with the original bytes as db and the disassembly as comments, because x86 mnemonics do not uniquely determine an encoding. The file assembles to the shipped bytes by construction. On the Xbox Dashboard's text, 2,254 of 2,254 functions matched byte for byte. A function is deleted once its C matches.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "decomp"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-ghidra-run-command",
+   "title": "run_ghidra.sh is the one-command naming pass; decompile is optional and slow",
+   "subject": {
+    "kind": "tool",
+    "id": "tools/ghidra_naming/run_ghidra.sh"
+   },
+   "addresses": [],
+   "related": [
+    "tc-ghidra-flat-image"
+   ],
+   "fact": "XBE=/path/default.xbe tools/ghidra_naming/run_ghidra.sh runs extract, analyse and export without decompilation. Then py -3 tools/ghidra_naming/merge_names.py previews the names. run_ghidra.sh decompile N decompiles up to N functions per run and resumes; decompile all takes hours.",
+   "how_to_use": "XBE=game/default.xbe tools/ghidra_naming/run_ghidra.sh; py -3 tools/ghidra_naming/merge_names.py",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "ghidra",
+    "tools"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-build-cmake-game-project",
+   "title": "Build the .exe from the game project, not from the toolkit",
+   "subject": {
+    "kind": "tool",
+    "id": "CMake game project"
+   },
+   "addresses": [],
+   "related": [
+    "tc-recomp-invocation"
+   ],
+   "fact": "The toolkit's CMake builds only libraries. The game project's CMakeLists adds the toolkit with add_subdirectory, globs generated *.c (made at install time, not in the repository) and links the xboxrecomp umbrella target, and it sets /bigobj and /LARGEADDRESSAWARE. Building the toolkit's CMakeLists gives libraries and no exe.",
+   "how_to_use": "cmake -S. -B build && cmake --build build --config Release (from the game project)",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "build"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-build-runtime-libs",
+   "title": "Six runtime static libraries; the umbrella target links them all",
+   "subject": {
+    "kind": "tool",
+    "id": "kit/source/game/src/ runtime libraries"
+   },
+   "addresses": [],
+   "related": [
+    "tc-pipeline-stages"
+   ],
+   "fact": "kit/source/game/src/ builds six static libraries: xbox_kernel (kernel), xbox_d3d8 (D3D8 to D3D11), xbox_dsound (DirectSound mixer), xbox_apu (MCPX APU from xemu), xbox_nv2a (NV2A from xemu plus custom) and xbox_input (XInput). The runtime builds with GCC on Linux since #172.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "build",
+    "runtime"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-ms-fusion-flat-arena",
+   "title": "Microsoft's x86 path emits one flat code arena; ours emits real C functions",
+   "subject": {
+    "kind": "concept",
+    "id": "Microsoft Ficl/Fission codegen comparison"
+   },
+   "addresses": [],
+   "related": [
+    "tc-icall-return-address"
+   ],
+   "fact": "Microsoft's PowerPC path maps guest functions to host functions with real call and ret. Its x86 path emits one flat arena of code, with guest control flow as jmp and entry only by guest-derived addresses, and about 99 percent of .text lies in a handful of huge host functions. xboxrecomp emits real C functions with call and ret, so function boundaries matter and must be found, which is why the detection work above exists.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "ms-fusion",
+    "design"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-ms-fusion-dispatch-open",
+   "title": "Flat directly indexed dispatch is in progress; ours is still a binary search",
+   "subject": {
+    "kind": "concept",
+    "id": "indirect branch dispatch table"
+   },
+   "addresses": [],
+   "related": [
+    "tc-icall-3tier"
+   ],
+   "fact": "Microsoft resolves indirect branches with one indexed load from a flat table. Our dispatch runs up to three lookups, one of which is a binary search over about 8,900 entries in translator.py. Replacing it with a bounds check and a flat array indexed by va minus code base (about 8 bytes per byte of code span) is marked in progress.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "dispatch",
+    "performance"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-ms-fusion-adopted",
+   "title": "Adopted from the Microsoft study: real return address and indirect-target feedback",
+   "subject": {
+    "kind": "concept",
+    "id": "adoption plan items 1 and 2"
+   },
+   "addresses": [],
+   "related": [
+    "tc-icall-return-address",
+    "tc-icall-feedback"
+   ],
+   "fact": "Two items from the Ficl/Fission study landed: pushing the real guest return address (commit 7fbcc79), and indirect-branch target feedback (commits e4e95a7, 10277e9, 19a2ec8, d06af63). Also landed: decoding direct call targets the sweep stepped over (fd71a0e). Rejected: block-granular entry points, full block threading, materialised flag booleans and register-to-host mapping.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "ms-fusion",
+    "design"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-svod-container",
+   "title": "The guest XBE can be read out of a BC package's SVOD container",
+   "subject": {
+    "kind": "tool",
+    "id": "tools/fusion/svod.py"
+   },
+   "addresses": [],
+   "related": [
+    "tc-ms-fusion-flat-arena"
+   ],
+   "fact": "Microsoft's BC packages hold the guest XBE inside an SVOD container. The container is readable, which lets the coverage oracle compare our function detection against the donor title's own byte-dense address map. The reader is tested on synthetic data only, and no extracted XBE is committed.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "svod",
+    "tools"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-reunification-ordinals",
+   "title": "Kernel ordinal mapping is XDK-specific, so the runtime cannot be shared as-is",
+   "subject": {
+    "kind": "concept",
+    "id": "kernel export ordinal table per XDK"
+   },
+   "addresses": [],
+   "related": [
+    "tc-kernel-count-conflict"
+   ],
+   "fact": "Burnout 3 (XDK 5849) expects a different kernel export ordinal mapping than Halo (3911) and Crimson Skies (5659). The toolkit's tools/ were reconciled, but the kernel routing cannot be shared as a swap; the per-title ordinal data is a separate gate.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "kernel",
+    "xdk"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-re-index-lookup-class",
+   "title": "lookup.py class: registered class to vtables and slots",
+   "subject": {
+    "kind": "tool",
+    "id": "re_index lookup.py class"
+   },
+   "addresses": [],
+   "related": [
+    "tc-re-index-vt",
+    "tc-re-index-classes-tsv"
+   ],
+   "fact": "python lookup.py class NAME [-n MAXSLOTS] takes a registered class name (exact first, then substring) and prints its parent, descriptor, class-id global, create and constructor functions, then each vtable with its slots. Each slot line shows the slot number, offset, target VA, a header hint (category, calling convention, parameters, returns) and up to 3 strings. Verified: lookup.py class MAMech resolves to vtable 00469CD0 with 162 slots.",
+   "how_to_use": "cd ''; python lookup.py class MAMech -n 8",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "re-index",
+    "class",
+    "vtable"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-re-index-vt",
+   "title": "lookup.py vt: vtable address (or an address inside it) to its class",
+   "subject": {
+    "kind": "tool",
+    "id": "re_index lookup.py vt"
+   },
+   "addresses": [],
+   "related": [
+    "tc-re-index-lookup-class"
+   ],
+   "fact": "python lookup.py vt ADDR takes a vtable start, or any address inside one, and prints the owning class, how it was determined (getter, anon, embedded), and the slots. Use it on a vtable address read from a constructor or from memory at runtime to learn which class it is.",
+   "how_to_use": "python lookup.py vt 0x469CD0",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "re-index",
+    "vtable"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "00469CD0"
+   ]
+  },
+  {
+   "id": "tc-re-index-fn",
+   "title": "lookup.py fn: a function's vtable slots, hint, strings, callers and pointer refs",
+   "subject": {
+    "kind": "tool",
+    "id": "re_index lookup.py fn"
+   },
+   "addresses": [],
+   "related": [
+    "tc-re-index-str"
+   ],
+   "fact": "python lookup.py fn ADDR shows every vtable slot holding that function (vtable, class, slot number and offset), the header hint, the strings it references, its callers, and the places that refer to it by pointer, capped at 20. A function that no vtable holds and no caller reaches is a seed candidate.",
+   "how_to_use": "python lookup.py fn 0x1087C8",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "re-index",
+    "function"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-re-index-str",
+   "title": "lookup.py str: regex over strings, returning the functions that use them",
+   "subject": {
+    "kind": "tool",
+    "id": "re_index lookup.py str"
+   },
+   "addresses": [
+    "0012F52F"
+   ],
+   "related": [
+    "tc-re-index-fn"
+   ],
+   "fact": "python lookup.py str REGEX is case-insensitive and lists each function whose referenced strings match, with the strings, the header hint and up to two owning vtable slots. Verified: lookup.py str ^Waypoint returns 4 functions, including 0012F52F (the Waypoint vtable method, slot 4 of 0046FEC8, class MAWaypoint).",
+   "how_to_use": "python lookup.py str Waypoint",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "re-index",
+    "string"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-re-index-classes-tsv",
+   "title": "classes.tsv kinds: registry, rtti, named vtable, anonymous vtable",
+   "subject": {
+    "kind": "file",
+    "id": "tc-re-index-classes-tsv"
+   },
+   "addresses": [],
+   "related": [
+    "tc-ma2-no-rtti"
+   ],
+   "fact": "classes.tsv has one row per class with a kind: registry (215 classes from the runtime class registry), rtti (8 std:exception descriptors only), named_vtable (a vtable whose slot returns a display name such as Default POV Behavior) and anon_vtable (no name; the note gives constructor functions and the host class). Use the kind to decide how much to trust a class name.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "re-index",
+    "classes"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-re-index-class-registry",
+   "title": "How the MA2 class registry is read from descriptors",
+   "subject": {
+    "kind": "concept",
+    "id": "class registry descriptor layout"
+   },
+   "addresses": [],
+   "related": [
+    "tc-re-index-classes-tsv"
+   ],
+   "fact": "A class descriptor D holds a runtime class id at +0, the value -1 at +4, the create function at +0xC, the name at +0x24 and the parent name at +0x28, found in the registration function sub_B4C60. The name lives in the next 0x30-byte block after the create function, so earlier scans that paired name and create in one block were off by one class. Each entity class's get-descriptor slot (slot 21 for entities, slot 6 for behaviours) links its vtable to the class, and the class-id global receives the id at startup.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "re-index",
+    "class-registry"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-re-index-limits",
+   "title": "re_index limits: vtables need a code reference and 3 or more pointers",
+   "subject": {
+    "kind": "tool",
+    "id": "re_index vtable discovery limits"
+   },
+   "addresses": [],
+   "related": [
+    "tc-re-index-classes-tsv"
+   ],
+   "fact": "A vtable is only found if some code references its address and at least three function pointers follow. About 900 anonymous tables are secondary or this-adjusted tables, or helper classes. Parent classes beyond the registry (MoeEntity, MAEntity) have no record, so lookups for them return nothing.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "re-index",
+    "limits"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-re-index-q-py",
+   "title": "q.py prints string addresses with their xrefs from ma2.xbe",
+   "subject": {
+    "kind": "tool",
+    "id": "re_index q.py"
+   },
+   "addresses": [],
+   "related": [
+    "tc-re-index-str"
+   ],
+   "fact": "q.py loads ma2.xbe with inspect_xbe.Xbe, builds a table of printable strings over the data sections and an xref map from idx.pkl. Each argument is a regex; it prints each matching string's VA with the functions that reference it. Both the Xbe path and the bringup path are hard-coded to a typical machine, so edit them before running elsewhere.",
+   "how_to_use": "python q.py 'Waypoint'",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "re-index",
+    "string"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-re-index-two-pickles",
+   "title": "lookup.py reads index.pkl while q.py reads idx.pkl",
+   "subject": {
+    "kind": "file",
+    "id": "re_index pickles"
+   },
+   "addresses": [],
+   "related": [
+    "tc-re-index-q-py"
+   ],
+   "fact": "The re_index folder holds index.pkl (read by lookup.py) and idx.pkl (read by q.py). Rebuild both with build_index.py, which needs capstone. If only one pickle is rebuilt, the two tools may disagree (inferred from the file layout).",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "re-index",
+    "maintenance"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-xemu-gdb-stub",
+   "title": "xemu GDB stub: launch with -s and talk RSP on port 1234",
+   "subject": {
+    "kind": "tool",
+    "id": "xemu -s GDB remote stub"
+   },
+   "addresses": [],
+   "related": [
+    "tc-xemu-halt-rules"
+   ],
+   "fact": "xemu.exe -s opens a GDB remote-protocol stub on localhost:1234, and -S pauses at start for attaching before boot. Commands used by the docs: g reads registers, m and M read and write memory, Z0 and z0 set and remove software breakpoints, c continues, s single-steps, and a raw 0x03 halts the guest.",
+   "how_to_use": "xemu.exe -s (then connect to localhost:1234 with the RSP packet format)",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "xemu",
+    "debugging"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-xemu-halt-rules",
+   "title": "xemu: halt before setting breakpoints, always remove them, keep halts short",
+   "subject": {
+    "kind": "tool",
+    "id": "xemu GDB safety rules"
+   },
+   "addresses": [],
+   "related": [
+    "tc-xemu-gdb-stub"
+   ],
+   "fact": "The GDB stub times out if breakpoints are set while the guest runs, so halt first. A leftover int3 crashes the game, so remove breakpoints in a finally block. The whole emulated system freezes during a halt, so keep halts under about 2 seconds.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "xemu",
+    "debugging"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-xemu-page-diff",
+   "title": "Hash each 4 KB page of 0x10000 to 0x560000 in xemu, let the player drive for a few seconds, hash again and dif",
+   "subject": {
+    "kind": "concept",
+    "id": "xemu page diff technique"
+   },
+   "addresses": [
+    "004DB000",
+    "004D9000",
+    "00549000",
+    "0040F000"
+   ],
+   "related": [
+    "tc-xemu-float-matrix"
+   ],
+   "fact": "Hash each 4 KB page of 0x10000 to 0x560000 in xemu, let the player drive for a few seconds, hash again and diff. On Burnout 3, 47 of 1520 pages changed in three seconds of driving, mostly 0x4DB000 to 0x4E0000 (physics), with 0x4D9000 (camera), 0x549000 (part transforms) and 0x40F000 (vehicle state) also active. These are Burnout 3 values; they show the method, not MA2 addresses.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "xemu",
+    "method"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-xemu-float-matrix",
+   "title": "Find floats and 4x4 transforms by value and shape in a memory dump",
+   "subject": {
+    "kind": "concept",
+    "id": "float search and matrix detection"
+   },
+   "addresses": [],
+   "related": [
+    "tc-xemu-page-diff"
+   ],
+   "fact": "Search changed pages for floats near a value you can see (a car speed from position deltas). A world transform has row 3 column 3 equal to 1.0, column 3 rows 0 to 2 equal to 0.0, rotation rows of length about 1.0, and translation in row 3. These checks narrow a changed page to the object transform.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "xemu",
+    "method"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-d3d8-no-modern-d3d8",
+   "title": "D3D8 is gone from modern Windows, and Xbox D3D8 is not PC D3D8",
+   "subject": {
+    "kind": "concept",
+    "id": "Xbox D3D8 vs PC D3D8"
+   },
+   "addresses": [],
+   "related": [
+    "tc-d3d-com-vtable"
+   ],
+   "fact": "Xbox games call Direct3D 8, which the modern Windows SDK does not ship. Xbox D3D8 also adds push buffers, tiled memory and NV2A-specific features that PC D3D8 lacks, so the translator must emulate both the API and the GPU semantics. The v0.13.0 translator maps the real XDK format constants from kit/source/game/src/d3d/d3d8_xbox.h",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "d3d8"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-d3d-com-vtable",
+   "title": "D3D8 objects are fake COM vtables that route to D3D11",
+   "subject": {
+    "kind": "concept",
+    "id": "D3D8 COM interface emulation"
+   },
+   "addresses": [],
+   "related": [
+    "tc-d3d8-no-modern-d3d8"
+   ],
+   "fact": "Each Xbox D3D8 object (device, vertex buffer, texture, surface) is a struct whose first member is the interface pointer, pointing at a static vtable of function pointers. Game code calls methods by vtable offset, so call [eax+0x88] is SetRenderState (slot 34). The single device is a static instance in the translator.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "d3d8",
+    "com"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-d3d-ffp-hlsl",
+   "title": "Fixed-function D3D8 state is emulated with a few HLSL shaders",
+   "subject": {
+    "kind": "concept",
+    "id": "fixed-function to shader translation"
+   },
+   "addresses": [],
+   "related": [
+    "tc-d3d-com-vtable"
+   ],
+   "fact": "The D3D8 texture stage state (COLOROP, COLORARG and ALPHAOP) is turned into a pixel shader flag set, so D3DTOP_MODULATE means texture times vertex colour. MODULATE is the common case in Burnout 3, where it carries baked ambient occlusion. Only the combinations a game uses are implemented; COLOROP alone has 25 values.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "d3d8",
+    "shaders"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-d3d-format-map",
+   "title": "Xbox texture formats map to DXGI; swizzled and odd formats convert at upload",
+   "subject": {
+    "kind": "concept",
+    "id": "D3DFMT to DXGI mapping"
+   },
+   "addresses": [],
+   "related": [
+    "tc-d3d-lock-staging"
+   ],
+   "fact": "DXT1, DXT3 and DXT5 map to BC1, BC2 and BC3. A8R8G8B8 maps to B8G8R8A8, D24X8 to D24_UNORM_S8_UINT and D32 to D32_FLOAT. Swizzled Xbox textures are unswizzled at upload, and formats with no DXGI equivalent (YUY2, P8, bump formats with odd channel order) are converted in software first. The XDK packed binary values are in d3d8_xbox.h.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "d3d8",
+    "textures"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-d3d-lock-staging",
+   "title": "Vertex buffer Lock returns a system-memory shadow; Unlock uploads it",
+   "subject": {
+    "kind": "concept",
+    "id": "D3D8 Lock/Unlock staging"
+   },
+   "addresses": [],
+   "related": [
+    "tc-d3d-format-map"
+   ],
+   "fact": "Lock hands out a pointer into a system-memory shadow copy and Unlock updates the GPU buffer from it, through UpdateSubresource or a staging Map. Writes made by the game while locked appear in the shadow, so the upload has to happen at Unlock, not at each write.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "d3d8",
+    "buffers"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-d3d-drawprimitiveup-ring",
+   "title": "DrawPrimitiveUP copies into a 4 MB dynamic ring buffer",
+   "subject": {
+    "kind": "concept",
+    "id": "DrawPrimitiveUP"
+   },
+   "addresses": [],
+   "related": [
+    "tc-d3d-format-map"
+   ],
+   "fact": "D3D8 DrawPrimitiveUP draws from a client pointer with no vertex buffer, and D3D11 has no equivalent. The translator copies the data into a dynamic buffer with MAP_WRITE_DISCARD and draws from it. The v0.13.0 release describes this as a 4 MB ring buffer.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "d3d8",
+    "draw"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-d3d-fvf-texcoord",
+   "title": "FVF texture-coordinate count and size come from bit fields",
+   "subject": {
+    "kind": "concept",
+    "id": "FVF texcoord bits"
+   },
+   "addresses": [],
+   "related": [
+    "tc-d3d-format-map"
+   ],
+   "fact": "The texcoord set count is bits 8 to 11 of the FVF. Each set's component count is the 2-bit D3DFVF_TEXCOORDSIZE field at bits 16 plus 2 times the set index, where 0 means 2 components. Sets map to R32_FLOAT, R32G32_FLOAT, R32G32B32_FLOAT or R32G32B32A32_FLOAT, and the vertex shader declares every texcoord as float4.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "d3d8",
+    "fvf"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-d3d-ltcg-context",
+   "title": "D3D8LTCG device context is a static object reached through a global pointer",
+   "subject": {
+    "kind": "global",
+    "id": "MEM32(0x35FB48) (Burnout 3 D3D8LTCG device pointer)"
+   },
+   "addresses": [
+    "0035FB48",
+    "0035D6A0"
+   ],
+   "related": [
+    "tc-d3d-ltcg-flush"
+   ],
+   "fact": "In Burnout 3's D3D8LTCG section, the device context is a static object inside the D3D section, not heap-allocated, and a global pointer (0x35FB48) points at it. Key offsets include the push buffer cursor at +0, render target at +0x784, viewport at +0xEE0, and the 64-byte render-state block at +0xCA0. Capture 16 KB from xemu and load it at boot, with pointers fixed up. These are Burnout 3 values.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "d3d8",
+    "ltcg",
+    "burnout-only"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-d3d-ltcg-flush",
+   "title": "D3D8LTCG render-state flush has several entry points; stub the mid-entries",
+   "subject": {
+    "kind": "concept",
+    "id": "D3D8LTCG multi-entry flush"
+   },
+   "addresses": [
+    "0034D410",
+    "0034D530",
+    "0034F5B0",
+    "003558A0",
+    "00360A54"
+   ],
+   "related": [
+    "tc-d3d-ltcg-context"
+   ],
+   "fact": "One ~80 KB Burnout 3 function flushes render state to the push buffer and has four entry points (0x34D410 full, 0x34D530 standard, 0x34F5B0 partial, 0x3558A0 minimal) that share one end address. The docs suggest stubbing the mid-entries to return the current write pointer, and overriding the standard entry to capture output. These are Burnout 3 addresses.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "d3d8",
+    "ltcg",
+    "burnout-only"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-d3d-present",
+   "title": "Present pumps window messages then calls IDXGISwapChain Present with vsync",
+   "subject": {
+    "kind": "function",
+    "id": "d3d8 present"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The present path drains the Windows message queue with PeekMessage (exiting on WM_QUIT) and then calls IDXGISwapChain:Present(1, 0). It replaces the game's own Present call from the rendering loop.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "d3d8",
+    "present"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-d3d-state-cache",
+   "title": "State objects are cached by descriptor",
+   "subject": {
+    "kind": "concept",
+    "id": "D3D11 state object cache"
+   },
+   "addresses": [],
+   "related": [
+    "tc-d3d-ffp-hlsl"
+   ],
+   "fact": "D3D11 blend, rasterizer and depth-stencil objects are costly to create, so the translator caches them keyed by their descriptor and reuses a match. The docs' simplified cache is a 64-entry array with memcmp on the descriptor.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "d3d8",
+    "performance"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-d3d-pushbuffer-stubs",
+   "title": "Push buffer creation returns success; spin-waits stay stubbed",
+   "subject": {
+    "kind": "concept",
+    "id": "NV2A push buffer in the D3D layer"
+   },
+   "addresses": [],
+   "related": [
+    "tc-nv2a-spinwait-stub"
+   ],
+   "fact": "Push-buffer creation functions are stubbed to return success, and tiled render targets are stubbed because D3D11 handles render targets. Any function that spin-waits on NV2A registers must be stubbed whole, because a VEH page only stops the access fault.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "d3d8",
+    "nv2a"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-rtti-method-owner-note",
+   "title": "Shared vtable methods carry the owning class in their generated name",
+   "subject": {
+    "kind": "concept",
+    "id": "RTTI generated names"
+   },
+   "addresses": [],
+   "related": [
+    "tc-rtti-owner-rule"
+   ],
+   "fact": "With --names, rtti writes a name map that merge_names --apply consumes, so generated functions read CBaseEntity__000162C2 instead of sub_000162C2. Method names are not recovered, only the address and owning class.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "rtti",
+    "names"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-disc-tools-xiso",
+   "title": "tools.xiso is the recommended extractor for disc images",
+   "subject": {
+    "kind": "tool",
+    "id": "tools.xiso"
+   },
+   "addresses": [],
+   "related": [
+    "tc-disc-xdvdfs"
+   ],
+   "fact": "The disc-image doc recommends tools.xiso, shipped in-tree, and lists xdvdfs and extract-xiso as alternatives. Extract the whole tree so default.xbe and every data file are present; the XBE parser needs only the header.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "disc",
+    "tools"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-candidate-games-criteria",
+   "title": "Easy recomp targets: RenderWare, single-threaded, standard D3D8, offline",
+   "subject": {
+    "kind": "concept",
+    "id": "target selection"
+   },
+   "addresses": [],
+   "related": [
+    "tc-rtti-corpus"
+   ],
+   "fact": "The root README rates an easier target as RenderWare or another known engine, single-threaded, using standard D3D8 calls, with a small .text section, offline only and no PC port. Harder ones are custom engines, multi-threaded code, push-buffer microcode, LTCG-heavy binaries, Xbox Live dependence, or a good PC port already existing.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "targets"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-gap-analysis-next",
+   "title": "Gap analysis status: PGRAPH and push-buffer replay were added from Burnout 3",
+   "subject": {
+    "kind": "file",
+    "id": "docs/technical/gap-analysis.md"
+   },
+   "addresses": [],
+   "related": [
+    "tc-nv2a-translation-scope"
+   ],
+   "fact": "The gap analysis against xemu lists NV2A register access and VEH-based MMIO as done, push-buffer parsing as a stub, and PGRAPH to D3D11 and push-buffer replay as added from the Burnout 3 code. It rates texture-format coverage and cube and volume textures as partial.",
+   "status": "historical",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "gap-analysis",
+    "nv2a"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tc-contributing-testing",
+   "title": "Contributors add a conformance case when a lift is fixed",
+   "subject": {
+    "kind": "concept",
+    "id": "contribution rule"
+   },
+   "addresses": [],
+   "related": [
+    "tc-conf-run-commands"
+   ],
+   "fact": "The README asks every lifter fix to come with a conformance case, so a regression is caught by execution rather than by a text comparison. Unit tests that match the emitted text only show that the output changed, not that it is correct.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "testing",
+    "contributing"
+   ],
+   "date": "2026-10-21"
+  }
+ ]
+}

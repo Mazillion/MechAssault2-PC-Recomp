@@ -1,0 +1,1109 @@
+[
+  {
+    "start": "0x00203A87",
+    "end": "0x00203A8F",
+    "observed": true,
+    "note": "Destructor callback passed to the array destructor at 0x00203ABF; adjusts this by 12 and tail-calls 0x00019D40."
+  },
+  {
+    "start": "0x00393C90",
+    "end": "0x00393E40",
+    "observed": true,
+    "note": "Bink sound callback installed at 0x00394533; ends with its own epilogue before the next aligned function."
+  },
+  {
+    "start": "0x00396480",
+    "end": "0x00396725",
+    "observed": true,
+    "note": "Bink decode callback seen in the original runtime log; ret at 0x00396724."
+  },
+  {
+    "start": "0x0041D74C",
+    "end": "0x0041D7B8",
+    "observed": true,
+    "note": "XPP initialization callback seen in the original runtime log; ret 4 at 0x0041D7B5."
+  },
+  {
+    "start": "0x0042163F",
+    "end": "0x00421793",
+    "observed": true,
+    "note": "USB gamepad enumeration callback reached after OHCI integration; original ret 4 at 0x00421790."
+  },
+  {
+    "start": "0x00151A4F",
+    "end": "0x00151BF6",
+    "observed": true,
+    "note": "Object configuration vtable callback reached during startup loading; ret 4 at 0x00151BF3."
+  },
+  {
+    "start": "0x001A1A92",
+    "end": "0x001A1B7A",
+    "observed": true,
+    "note": "Object configuration vtable callback reached during startup loading; ret 4 at 0x001A1B77."
+  },
+  {
+    "start": "0x000F7939",
+    "end": "0x000F79EE",
+    "observed": true,
+    "note": "Object initialization callback reached during startup loading; ret at 0x000F79ED."
+  },
+  {
+    "start": "0x00145D77",
+    "end": "0x00146054",
+    "observed": true,
+    "note": "Object initialization callback reached during startup loading; ret at 0x00146053."
+  },
+  {
+    "start": "0x002C7A70",
+    "end": "0x002C7C1C",
+    "observed": true,
+    "note": "Animation/resource initializer reached during startup loading; ret at 0x002C7C1B. Earlier base alias starts at 0x002C7A20."
+  },
+  {
+    "start": "0x00420BDA",
+    "end": "0x00420C2C",
+    "observed": true,
+    "note": "XInput USB report completion callback reached repeatedly; ret at 0x00420C2B, activity path tail-calls 0x002BE796."
+  },
+  {
+    "start": "0x002C6870",
+    "end": "0x002C691E",
+    "observed": true,
+    "note": "Animation interpolation callback observed in the main menu; verified original epilogue and padding before the next function."
+  },
+  {
+    "start": "0x002C6920",
+    "end": "0x002C6A32",
+    "observed": true,
+    "note": "Animation interpolation callback observed in the main menu; verified original epilogue and padding before the next function."
+  },
+  {
+    "start": "0x002C6BF0",
+    "end": "0x002C6CA5",
+    "observed": true,
+    "note": "Animation interpolation callback observed in the main menu; verified original epilogue and padding before the next function."
+  },
+  {
+    "start": "0x002C6CB0",
+    "end": "0x002C6DD8",
+    "observed": true,
+    "note": "Animation interpolation callback observed in the main menu; verified original epilogue and padding before the next function."
+  },
+  {
+    "start": "0x001FF90F",
+    "end": "0x001FF91A",
+    "observed": true,
+    "note": "Main menu conditional predicate tail block; test ecx, compare [ecx+0x48] with edx, sete al; original ret at 001FF919."
+  },
+  {
+    "start": "0x0024390F",
+    "end": "0x0024395E",
+    "observed": true,
+    "note": "Main menu constructor tail block from 002438F2; initializes object and vtables instead of the unresolved stub; original ret at 0024395D."
+  },
+  {
+    "start": "0x00361FC6",
+    "end": "0x00362278",
+    "observed": true,
+    "note": "Observed XNET state-machine callback; verified switch through 003622278 table and ret 4 at 003622275; table itself follows function."
+  },
+  {
+    "start": "0x00222986",
+    "end": "0x00222AA7",
+    "observed": true,
+    "note": "Profile menu initializer reached after confirming main menu; original epilogue ends with tail-jump at 00222AA2 before next function at 00222AA7."
+  },
+  {
+    "start": "0x000F8EB4",
+    "end": "0x000F8F8F",
+    "observed": true,
+    "note": "Scene teardown callback reached entering campaign; verified pops and tail jump to 000E704E at 000F8F8A."
+  },
+  {
+    "start": "0x000F865D",
+    "end": "0x000F8665",
+    "observed": true,
+    "note": "Scene member destructor thunk: add ecx,4 then tail jump to 00081540."
+  },
+  {
+    "start": "0x000F3BE9",
+    "end": "0x000F3BEE",
+    "observed": true,
+    "note": "Array destructor thunk: tail jump to 00019D40."
+  },
+  {
+    "start": "0x0012E298",
+    "end": "0x0012E29A",
+    "observed": true,
+    "note": "Measured shared epilogue: pop edi then ret; placeholder had omitted the pop, corrupting the stack during campaign loading."
+  },
+  {
+    "start": "0x000178C9",
+    "end": "0x00017942",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x00019E50",
+    "end": "0x00019E8C",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x00029C25",
+    "end": "0x00029C40",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x0003060F",
+    "end": "0x00030615",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x0003555E",
+    "end": "0x00035564",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x0004298E",
+    "end": "0x00042994",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x000503F2",
+    "end": "0x0005043D",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x0005180D",
+    "end": "0x00051837",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x00055B73",
+    "end": "0x00055B7F",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x0005791D",
+    "end": "0x00057927",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x0005F85C",
+    "end": "0x0005F876",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x0007120A",
+    "end": "0x00071215",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x00089681",
+    "end": "0x000896AC",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x000A9D67",
+    "end": "0x000A9D72",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x000AB6C3",
+    "end": "0x000ABF35",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x000ABF44",
+    "end": "0x000ABF7D",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x000BA2D8",
+    "end": "0x000BA2D9",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x000C9113",
+    "end": "0x000C911B",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x000CA736",
+    "end": "0x000CA79A",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x000E9D78",
+    "end": "0x000E9D88",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x000F065C",
+    "end": "0x000F067D",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x000FF308",
+    "end": "0x000FF31B",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x00181E77",
+    "end": "0x00181E7A",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x001AA5DC",
+    "end": "0x001AA6E3",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x001AC088",
+    "end": "0x001AC0BA",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x001FF919",
+    "end": "0x001FF91A",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x002193D3",
+    "end": "0x002193E4",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x00224C13",
+    "end": "0x00224C16",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x0022EB40",
+    "end": "0x0022EB4E",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x0023CF28",
+    "end": "0x0023CF3C",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x00240958",
+    "end": "0x00240968",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x0024AC01",
+    "end": "0x0024AC18",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x0024D4B5",
+    "end": "0x0024D4D3",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x0024E731",
+    "end": "0x0024E74F",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x002C9CAF",
+    "end": "0x002C9CCA",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x002F53B6",
+    "end": "0x002F5401",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x002F7966",
+    "end": "0x002F79C6",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x00309E97",
+    "end": "0x00309EBF",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x0030B7A1",
+    "end": "0x0030B7AD",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x0030E292",
+    "end": "0x0030E35F",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x00310956",
+    "end": "0x0031095B",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x00310A10",
+    "end": "0x00310A13",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x00310A13",
+    "end": "0x00310A1A",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x00310B6D",
+    "end": "0x00310BFC",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x003114CA",
+    "end": "0x00311515",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x00312DF8",
+    "end": "0x00312E05",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x00312E1D",
+    "end": "0x00312E24",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x003141FC",
+    "end": "0x0031420F",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x00314244",
+    "end": "0x0031424A",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x0031620D",
+    "end": "0x00316215",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x00316276",
+    "end": "0x0031627E",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x00344104",
+    "end": "0x0034411D",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x0035AFCE",
+    "end": "0x0035AFD2",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x00388D8E",
+    "end": "0x00388D97",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x003F3BCB",
+    "end": "0x003F3BDD",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x003F3C47",
+    "end": "0x003F3C4E",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x003F3DE1",
+    "end": "0x003F3DE8",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x00404918",
+    "end": "0x0040491D",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x0040532A",
+    "end": "0x0040533A",
+    "observed": false,
+    "note": "Unresolved direct-call tail recovered from bounded original CFG; see stub_tail_proof.json."
+  },
+  {
+    "start": "0x001C708B",
+    "end": "0x001C72D1",
+    "note": "Observed missing indirect call; recovered from bounded original CFG."
+  },
+  {
+    "start": "0x00017A21",
+    "end": "0x00017B00",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x00017A23",
+    "end": "0x00017B00",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x00017A28",
+    "end": "0x00017B00",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x00019E8E",
+    "end": "0x00019F2A",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x00019EE3",
+    "end": "0x00019F2A",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x00050455",
+    "end": "0x0005061D",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x0005051B",
+    "end": "0x0005061D",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x00051AD1",
+    "end": "0x00051C30",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x00051ADB",
+    "end": "0x00051C30",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x00051AE6",
+    "end": "0x00051C30",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x000897A5",
+    "end": "0x000897B1",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x000ABF7D",
+    "end": "0x000AC027",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x000AC065",
+    "end": "0x000AC19E",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x000AC0B6",
+    "end": "0x000AC19E",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x000AC15C",
+    "end": "0x000AC19E",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x000C928F",
+    "end": "0x000C9412",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x000FF3EE",
+    "end": "0x000FF3FB",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x0021948A",
+    "end": "0x002194A2",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x002F56A1",
+    "end": "0x002F5774",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x002F56B7",
+    "end": "0x002F5774",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x002F5746",
+    "end": "0x002F574E",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x002F7A70",
+    "end": "0x002F7AB0",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x002F7AA9",
+    "end": "0x002F7AB0",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x0030A0A8",
+    "end": "0x0030A0B3",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x0030E57B",
+    "end": "0x0030E586",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x0030E57E",
+    "end": "0x0030E586",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x0030E586",
+    "end": "0x0030E58C",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x0030E58C",
+    "end": "0x0030E933",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x0030E59F",
+    "end": "0x0030E933",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x0031152E",
+    "end": "0x00311533",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x00311533",
+    "end": "0x0031154F",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x00312F89",
+    "end": "0x00312F90",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x00312F8C",
+    "end": "0x00312F90",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x00314470",
+    "end": "0x003145F2",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x00314503",
+    "end": "0x003145F2",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x000AC035",
+    "end": "0x000AC065",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x002F56ED",
+    "end": "0x002F56F7",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x002F7A48",
+    "end": "0x002F7A5B",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x002F7A60",
+    "end": "0x002F7A70",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x000AC06E",
+    "end": "0x000AC0B6",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x002F5766",
+    "end": "0x002F5774",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x002F7A20",
+    "end": "0x002F7A32",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x002F7A38",
+    "end": "0x002F7A44",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x002F79F8",
+    "end": "0x002F7A0A",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x002F7A10",
+    "end": "0x002F7A1F",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x002F79E0",
+    "end": "0x002F79F7",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x00362072",
+    "end": "0x00362278",
+    "note": "Observed missing indirect call; recovered from bounded original CFG."
+  },
+  {
+    "start": "0x000D3889",
+    "end": "0x000D3CD9",
+    "note": "Observed missing indirect call; recovered from bounded original CFG."
+  },
+  {
+    "start": "0x000620A0",
+    "end": "0x000621D1",
+    "note": "Original data vtable 0x0045FD60 slot 24; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0006B4E0",
+    "end": "0x0006B4E4",
+    "note": "Original data vtable 0x00460C1C slot 8; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x00327267",
+    "end": "0x00327270",
+    "note": "Original data vtable 0x0046242C slot 2; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x000C4DDA",
+    "end": "0x000C5918",
+    "note": "Original data vtable 0x00465010 slot 2; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x000EF220",
+    "end": "0x000EF4BB",
+    "note": "Original data vtable 0x004680A0 slot 22; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x000F2E3B",
+    "end": "0x000F2F6C",
+    "note": "Original data vtable 0x00468798 slot 16; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x000F3C8C",
+    "end": "0x000F4D9F",
+    "note": "Original data vtable 0x00468AE4 slot 2; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x000F63D2",
+    "end": "0x000F691E",
+    "note": "Original data vtable 0x00469630 slot 2; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0010C49F",
+    "end": "0x0010C864",
+    "note": "Original data vtable 0x0046B118 slot 4; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0010D8EA",
+    "end": "0x0010DB87",
+    "note": "Original data vtable 0x0046B430 slot 4; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0010F339",
+    "end": "0x0010F59C",
+    "note": "Original data vtable 0x0046B748 slot 4; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x00113BEA",
+    "end": "0x00113D80",
+    "note": "Original data vtable 0x0046BC38 slot 16; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x001189EC",
+    "end": "0x00118C2B",
+    "note": "Original data vtable 0x0046C100 slot 22; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x001277C1",
+    "end": "0x00127944",
+    "note": "Original data vtable 0x0046E150 slot 4; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0012C1DD",
+    "end": "0x0012C2CC",
+    "note": "Original data vtable 0x0046EE60 slot 4; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0012F2F2",
+    "end": "0x0012F422",
+    "note": "Original data vtable 0x0046FEB8 slot 2; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x00136C15",
+    "end": "0x00136F0E",
+    "note": "Original data vtable 0x00470D90 slot 4; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x00137EDE",
+    "end": "0x00138469",
+    "note": "Original data vtable 0x00471024 slot 8; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0013AEFD",
+    "end": "0x0013B021",
+    "note": "Original data vtable 0x004713B8 slot 4; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0014022E",
+    "end": "0x001403D5",
+    "note": "Original data vtable 0x00471F3C slot 4; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x00143786",
+    "end": "0x00143AD5",
+    "note": "Original data vtable 0x004726F0 slot 4; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x00148DB6",
+    "end": "0x00148FA4",
+    "note": "Original data vtable 0x0047333C slot 2; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0014A867",
+    "end": "0x0014A9B9",
+    "note": "Original data vtable 0x00473670 slot 2; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0014B03B",
+    "end": "0x0014B1C8",
+    "note": "Original data vtable 0x0047374C slot 2; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0014BA96",
+    "end": "0x0014BBAA",
+    "note": "Original data vtable 0x00473974 slot 4; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0014E2F2",
+    "end": "0x0014E3B8",
+    "note": "Original data vtable 0x00473E08 slot 2; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0014E493",
+    "end": "0x0014E553",
+    "note": "Original data vtable 0x00473E08 slot 26; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0014EC92",
+    "end": "0x0014EDF9",
+    "note": "Original data vtable 0x004740BC slot 2; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0015002C",
+    "end": "0x0015025F",
+    "note": "Original data vtable 0x00474740 slot 4; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x00150E89",
+    "end": "0x00150FF6",
+    "note": "Original data vtable 0x00474740 slot 125; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x00154378",
+    "end": "0x00154581",
+    "note": "Original data vtable 0x00474E60 slot 20; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x00300025",
+    "end": "0x0030040D",
+    "note": "Original data vtable 0x00476B78 slot 2; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0017EFB9",
+    "end": "0x0017F445",
+    "note": "Original data vtable 0x00478334 slot 2; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x001815E6",
+    "end": "0x001816FC",
+    "note": "Original data vtable 0x0047879C slot 4; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x00197E9D",
+    "end": "0x00198011",
+    "note": "Original data vtable 0x00479C98 slot 80; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x001996AA",
+    "end": "0x00199805",
+    "note": "Original data vtable 0x00479FAC slot 2; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0019B4AE",
+    "end": "0x0019B576",
+    "note": "Original data vtable 0x0047A344 slot 4; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0019D1B7",
+    "end": "0x0019D2B4",
+    "note": "Original data vtable 0x0047A4F0 slot 17; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0019E50E",
+    "end": "0x0019E691",
+    "note": "Original data vtable 0x0047A7C0 slot 4; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0019F548",
+    "end": "0x0019F60C",
+    "note": "Original data vtable 0x0047AC88 slot 2; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0019F7C3",
+    "end": "0x0019F91C",
+    "note": "Original data vtable 0x0047AD48 slot 2; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x001A02CD",
+    "end": "0x001A0393",
+    "note": "Original data vtable 0x0047B128 slot 2; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x001A0A7C",
+    "end": "0x001A0B5D",
+    "note": "Original data vtable 0x0047B2AC slot 3; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x001A0EAC",
+    "end": "0x001A0F9B",
+    "note": "Original data vtable 0x0047B340 slot 3; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x001A11E0",
+    "end": "0x001A12A4",
+    "note": "Original data vtable 0x0047B3F8 slot 2; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x001A1545",
+    "end": "0x001A1609",
+    "note": "Original data vtable 0x0047B550 slot 2; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x001A2D33",
+    "end": "0x001A2E8C",
+    "note": "Original data vtable 0x0047B8FC slot 3; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x001A3295",
+    "end": "0x001A336D",
+    "note": "Original data vtable 0x0047B9C8 slot 2; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x001A5FCB",
+    "end": "0x001A6239",
+    "note": "Original data vtable 0x0047C888 slot 4; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x001BE2F9",
+    "end": "0x001BE450",
+    "note": "Original data vtable 0x0047E504 slot 19; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x001BD2AD",
+    "end": "0x001BD41A",
+    "note": "Original data vtable 0x0047E504 slot 29; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x001C4BBA",
+    "end": "0x001C4CDE",
+    "note": "Original data vtable 0x0047E930 slot 2; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0020002C",
+    "end": "0x0020002D",
+    "note": "Original data vtable 0x004827B0 slot 31; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0020EF6C",
+    "end": "0x0020F04E",
+    "note": "Original data vtable 0x00487310 slot 2; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x00250076",
+    "end": "0x002501EF",
+    "note": "Original data vtable 0x0048AD00 slot 31; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0021FB0B",
+    "end": "0x0021FC1B",
+    "note": "Original data vtable 0x0048B080 slot 14; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0021FF94",
+    "end": "0x00220021",
+    "note": "Original data vtable 0x0048B298 slot 14; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x00221B64",
+    "end": "0x00221D42",
+    "note": "Original data vtable 0x0048B8DC slot 17; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x002227A1",
+    "end": "0x002228CA",
+    "note": "Original data vtable 0x0048B9D8 slot 15; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x00222D7E",
+    "end": "0x00222EA4",
+    "note": "Original data vtable 0x0048BBB8 slot 14; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0022426C",
+    "end": "0x00224362",
+    "note": "Original data vtable 0x0048C228 slot 14; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x002251F7",
+    "end": "0x002252E3",
+    "note": "Original data vtable 0x0048C578 slot 14; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0022743A",
+    "end": "0x00227594",
+    "note": "Original data vtable 0x0048C838 slot 14; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x00228999",
+    "end": "0x00228DBF",
+    "note": "Original data vtable 0x0048CB44 slot 17; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x00233118",
+    "end": "0x00233259",
+    "note": "Original data vtable 0x0048E208 slot 14; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x00249EA0",
+    "end": "0x0024A071",
+    "note": "Original data vtable 0x0048F7D0 slot 14; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x002E0025",
+    "end": "0x002E002C",
+    "note": "Original data vtable 0x0048FE00 slot 31; complete bounded CFG, not the heuristic 32-byte extent."
+  },
+  {
+    "start": "0x0036209B",
+    "end": "0x00362278",
+    "note": "Observed missing indirect call; recovered from bounded original CFG."
+  },
+  {
+    "start": "0x00220046",
+    "end": "0x0022007E",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x00220049",
+    "end": "0x0022007E",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x002E001F",
+    "end": "0x002E0025",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x00300000",
+    "end": "0x00300024",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x00300010",
+    "end": "0x00300024",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  },
+  {
+    "start": "0x0030044B",
+    "end": "0x00300450",
+    "note": "Direct branch dependency of a recovered callback; bounded original CFG."
+  }
+]

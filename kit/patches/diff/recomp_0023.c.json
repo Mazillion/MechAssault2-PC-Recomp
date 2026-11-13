@@ -1,0 +1,1 @@
+[[8,0,["uint32_t ma2_bot_vehicle_ai(uint32_t vehicle, uint32_t flags);\r\n"]],[24754,1,["    MEM32(ebp + 0x1E8) = ma2_bot_vehicle_ai(ebp, MEM32(ebp + 0x1E8));   /* was: & ~1 (players never AI) */\r\n"]]]

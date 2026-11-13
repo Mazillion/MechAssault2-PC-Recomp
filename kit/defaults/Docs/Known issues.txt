@@ -1,0 +1,59 @@
+MechAssault 2 PC recompilation - known issues (version {{VERSION}})
+==================================================================
+
+Things we know about and have not fixed yet. If you meet something not on
+this list, please report it at {{MA2_SUPPORT_URL}} (see Docs\Troubleshooting.txt
+for what to send).
+
+
+GAME
+----
+- Intel integrated graphics: a tinted picture at a low frame rate was seen on
+  one laptop and is not yet explained. Reports from Intel and AMD graphics
+  are very welcome.
+- During a bot match there is no known keyboard key that shows the score
+  table; it appears at the end of the match.
+- A short pause can occur when the game saves a checkpoint.
+- Mission 2: one unexplained close to the desktop was seen once and has not
+  been reproduced. If it happens to you, send the log.
+- Only the US (NTSC) retail disc is supported, and only English menus have
+  the new PC texts (for example "BOT MATCH").
+- Choosing a key that another binding already uses leaves both actions on
+  that key; change the other row too.
+- Not tested yet on: AMD graphics, Windows 10 without Visual Studio, non-English
+  Windows, two monitors, HDR.
+
+
+BOTS
+----
+- A tank that lands hard on a slope can stay stuck; its crew fights from
+  there.
+- VTOLs flying home under fire are often shot down.
+- On a few maps bots can get caught for a moment in a corner near a base
+  exit (Snatch It: Killing Fields, No Man's Land east entrance, Team Last Man
+  Standing: New River City blue start).
+- A VTOL carrying a BattleArmor rider sometimes circles its base for up to a
+  minute before setting off.
+- Bots follow the game's own movement code, which makes short stop-and-go
+  jerks.
+- A rare audio crash has been seen on the map Going Commando.
+
+
+SCENARIO EDITOR
+---------------
+- Scenarios saved with an editor older than 1.0.2 can show pink markers in
+  the game until they are saved once with the current editor (the editor
+  offers to update them).
+- Very large maps and the in-game editor mode have had little testing.
+
+
+INSTALLER
+---------
+- The installer is not code-signed, so Windows SmartScreen warns (see
+  Docs\Install guide.txt).
+- The one-click Microsoft Build Tools install has not yet been tried on a PC
+  that never had Visual Studio.
+- Enhanced textures on NVIDIA RTX 50-series cards have not been tested.
+- The cutscene player uses a full GPL build of FFmpeg, which the installer
+  downloads during the install (about 245 MB unpacked; the game uses five of
+  its DLLs). A small decoder-only build is planned.

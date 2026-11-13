@@ -1,0 +1,1 @@
+[[8,0,["uint32_t ma2_bot_local_flags(uint32_t player);\r\n"]],[1784,1,["    eax = ma2_bot_local_flags(eax);\r\n"]]]

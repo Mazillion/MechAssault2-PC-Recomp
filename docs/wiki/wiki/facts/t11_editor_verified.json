@@ -1,0 +1,63 @@
+{
+ "pack": "t11_editor_verified",
+ "title": "Scenario editor: verified findings",
+ "facts": [
+  {
+   "id": "unit-model-selection",
+   "title": "Units draw their template's model, picked by the instance's detail flags",
+   "subject": {
+    "kind": "function",
+    "id": "000D7584"
+   },
+   "addresses": [
+    "000D7584",
+    "000D7508",
+    "00027480"
+   ],
+   "related": [
+    "MAMech",
+    "ForceUseLowDetail",
+    "ForceUseHighDetail",
+    "Corporal3DObj",
+    "pink-placeholder-is-failed-object-build"
+   ],
+   "fact": "A placed unit is drawn with its TEMPLATE's Corporal3DObj from retail GlobalEntities, plus the INSTANCE's detail flags (code 0xD7584). ForceUseHighDetail uses the exact path. ForceUseLowDetail tries \"<name>_low.<ext>\" first (built at 0xD7508, exists-check sub_27480), then the exact path. With neither flag, missions use the exact path. The scenario's own templates.wdf is skipped (ma2_scenario.c:856). Templates name full models (ymir.NODE, loki.NODE, powerarmor.node) that most levels ship only as _low, so they draw as a magenta pillar placeholder: the 'pink cube' and 'pink Battle Armor'. UPDATE 2026-11-09 (t27): the pink pole-and-cube is the game's marker for ANY object whose build failed (sub_D8221/sub_D8391), not only a missing model. Other causes: a template named inside the object's .mtb (debris, rubble, dust, explosion effects) whose files the scenario did not ship, and the 4 hard-coded MABuilding effect files on a Base without buildings. Editor d34766e + dcdcad4 (PC Release editor d062003f) ship all of these. See pink-placeholder-is-failed-object-build, pink-placeholder-mtb-template-refs, mabuilding-hardcoded-effect-files.",
+   "how_to_use": "Set ForceUseLowDetail=1 and ForceUseHighDetail=0 on units whose template model the level mounts only as _low.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "render",
+    "scenario",
+    "units"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "boarding-rule",
+   "title": "What makes a placed unit boardable",
+   "subject": {
+    "kind": "behaviour",
+    "id": "MAMech.StartAbandoned"
+   },
+   "addresses": [],
+   "related": [
+    "MAMech",
+    "MAOwnerController",
+    "StartAbandoned",
+    "AttackPilot",
+    "OverrideEnable"
+   ],
+   "fact": "A neutral unit can be entered when it has StartAbandoned=1, AttackPilot=0, OverrideEnable=0 and an MAOwnerController child whose MoverTemplateUID is the unit's template. Child order does not matter: retail puts the OC at index 0, 1 or 2. InitiallyCollidable=1 is fine. Entering takes a Q TAP (climb animation, then the 'Mech HUD); a Q HOLD does not enter. The [PLAYER-CONTEXT] log line does not change when boarding a 'Mech (only for a tank or the pilot), so it is not a boarding signal.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "gameplay",
+    "scenario",
+    "boarding"
+   ],
+   "date": "2026-10-21"
+  }
+ ]
+}

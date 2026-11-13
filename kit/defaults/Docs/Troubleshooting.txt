@@ -1,0 +1,110 @@
+MechAssault 2 PC recompilation - troubleshooting (version {{VERSION}})
+=====================================================================
+
+Logs, crash reports and hang reports are in %LOCALAPPDATA%\MechAssault2\Logs.
+For a report, run the installer and press Collect diagnostics: it puts one
+zip on your Desktop. Report problems at {{MA2_SUPPORT_URL}}.
+
+
+INSTALLER
+---------
+"Windows protected your PC" / the antivirus complains
+  The installer is not code-signed. See "Windows warnings" in
+  Docs\Install guide.txt. If an antivirus quarantines a file during the
+  install, restore it or allow the folder, then run the installer again; it
+  resumes.
+
+The installer closes after "Unpacking" without a window
+  Look for %LOCALAPPDATA%\MechAssault2\Logs\installer-ui-*.log and send it with
+  your report. A message box normally names that file.
+
+A Systems row says "Could not check (see the log)"
+  That check failed to run; the install can still go on. Send the
+  installer-ui log if something later fails.
+
+Microsoft's Build Tools will not install
+  They need about 8 GB free on C:, administrator approval and an internet
+  connection. Their log is buildtools-*.log in the Logs folder. You can also
+  install "Build Tools for Visual Studio" yourself from Microsoft with the
+  "Desktop development with C++" workload, then press Re-check.
+
+"The disc image was not recognised"
+  Only the US (NTSC) retail disc is supported. Choose the .iso/.xiso file
+  itself, or a folder copied from the disc (Choose a folder...). Other
+  regions, demo discs and re-packed images are refused.
+
+"These files from your disc image are damaged"
+  The dump has read errors. Clean the disc, dump it again with a tool that
+  reports read errors, and choose the new image (Choose disc image on the
+  failure screen).
+
+Compiling fails or the PC runs out of memory
+  Close other programs and press Resume. The installer uses fewer parallel
+  jobs on PCs with less memory. If it fails again, send the log (Copy log).
+
+A download failed
+  Check the connection and press Resume. Downloads are needed only for the
+  Build Tools and the enhanced content.
+
+A folder named MA2RecompBuild-xxxx is left on a drive
+  It is the installer's work folder. The next installer run removes it if the
+  install it belonged to is gone; you can also delete it yourself.
+
+
+THE GAME
+--------
+Black screen, or "needs a DirectX 11 graphics card"
+  Update the graphics driver. The game needs DirectX 11 (feature level 11.0).
+
+"Could not reserve the memory the game needs"
+  Close other programs and start the game again. Restarting Windows helps if
+  it keeps happening. Send the newest log if it does not.
+
+"Game files are missing"
+  Run the installer, choose the install folder and press Repair.
+
+Tinted picture or very low frame rate on Intel integrated graphics
+  This was seen on one laptop and is not yet understood. Update the graphics
+  driver, set Textures to Original and a lower resolution in Video Settings,
+  and please send a diagnostics zip.
+
+Slow PC
+  In Video Settings: Textures Original, a lower resolution, Draw distance 50
+  or lower, Frame limit 60. Keep "Pre-load shaders on loading screens" on.
+
+Controller not detected
+  Xbox-style (XInput) controllers work directly. PlayStation and older
+  DirectInput pads need Steam Input or DS4Windows.
+
+The game froze
+  After 30 seconds without a new frame the game writes hang-<number>.dmp and
+  a [HANG] section in its log; after 2 minutes it offers to close. Run the
+  installer again, press Collect diagnostics and attach the zip; add the hang
+  dump only if a maintainer asks for it.
+
+The game crashed
+  The message says how to report it: run the installer again, press Collect
+  diagnostics and attach the zip. The crash-<number>.dmp in the Logs folder
+  can contain folder names and your Windows user name; add it (a tick box in
+  Collect diagnostics) only if a maintainer asks for it.
+
+The game keeps running or is silent in the background
+  By default it pauses and goes silent when another window has focus. See
+  "Menus and mouse" in Controls.txt to change that.
+
+
+CUSTOM SCENARIOS
+----------------
+My scenario is not in the list
+  The game skips a file it cannot use and shows the reason in a note for a
+  few seconds on the menu. Unfinished scenarios (red items in the editor's
+  Check scenario) are not listed: fix them and save again. A file copied in
+  Explorer gets its own entry after you open it in the editor and save it.
+
+Pink markers instead of buildings
+  The scenario was saved with an older editor. Open it in the Scenario Editor
+  and save it once (or File > Update old scenarios...).
+
+Two scenarios look the same in the list
+  They have the same name; the game adds the file name. Rename one on the
+  editor's Map tab.

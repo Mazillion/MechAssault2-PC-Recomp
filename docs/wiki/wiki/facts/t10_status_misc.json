@@ -1,0 +1,4746 @@
+{
+ "pack": "t10_status_misc",
+ "title": "Bring-up status and miscellaneous engine findings",
+ "facts": [
+  {
+   "id": "bs-current-build-state",
+   "title": "PC port state at 2026-10-09: boots, plays, reaches campaign",
+   "subject": {
+    "kind": "concept",
+    "id": "MechAssault 2 PC native port"
+   },
+   "addresses": [],
+   "related": [
+    "MechAssault 2.exe",
+    "PC Release"
+   ],
+   "fact": "As of 2026-10-09 the native PC executable boots, plays the intro, accepts keyboard, mouse and controller input, loads the menu and reaches campaign gameplay. It runs on Direct3D 11 (NVIDIA RTX 3090 selected) and the real GP/EP audio DSP programs execute. The status file still calls it a development build; full campaign, save/load and display testing were open.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "status",
+    "release"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-launch-entry",
+   "title": "Folder launcher opens the PC Release executable",
+   "subject": {
+    "kind": "file",
+    "id": "MechAssault 2.exe (package folder)"
+   },
+   "addresses": [],
+   "related": [
+    "PC Release/MechAssault 2.exe",
+    "bringup/package_pc.py"
+   ],
+   "fact": "Double-clicking MechAssault 2.exe in the package folder opens the self-contained PC Release/MechAssault 2.exe; the build executable is only a development fallback. Normal startup enables Direct3D 11, the title's required event compatibility, virtual controller input and audio, so no probe script or environment variable is needed.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "launch",
+    "release"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-data-paths",
+   "title": "Preferences are stored in %LOCALAPPDATA%\\MechAssault2\\pc_settings.ini; the project INI supplies only first-lau",
+   "subject": {
+    "kind": "setting",
+    "id": "pc_settings.ini and Saved Games"
+   },
+   "addresses": [],
+   "related": [
+    "PC_CONTROLS.md"
+   ],
+   "fact": "Preferences are stored in %LOCALAPPDATA%\\MechAssault2\\pc_settings.ini; the project INI supplies only first-launch defaults. Saves and cache live in %LOCALAPPDATA%\\MechAssault2\\Saved Games, and older local saves are migrated without overwriting. Key bindings are documented in PC_CONTROLS.md.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "settings",
+    "saves"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-default-controls",
+   "title": "Default PC keyboard, mouse and controller bindings",
+   "subject": {
+    "kind": "setting",
+    "id": "PC controls"
+   },
+   "addresses": [],
+   "related": [
+    "Player Options"
+   ],
+   "fact": "Enter or a click starts and selects, Escape returns, and mouse or arrows navigate menus. WASD moves, and the mouse controls native camera aiming after the controller response curve. F8 captures or releases the mouse, F11 or Alt+Enter toggles fullscreen, and XInput controllers work alongside keyboard and mouse. Player Options is reachable with the default 1 key or controller RB.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "input"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-texture-quality-setting",
+   "title": "Display/TextureQuality: Original, 2x and 4x enhanced textures",
+   "subject": {
+    "kind": "setting",
+    "id": "Display/TextureQuality"
+   },
+   "addresses": [],
+   "related": [
+    "game_files/texture_packs/2x",
+    "game_files/texture_packs/4x"
+   ],
+   "fact": "The Video Settings page offers Textures Original, 2x Enhanced and 4x Enhanced. A change applies during the current mission, and Back saves Display/TextureQuality as 0, 1 or 2 for the next launch. Original is the default, and texture detail is independent of display resolution.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "texture",
+    "settings"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-texture-pack-loader",
+   "title": "D3D11 texture cache loads 2x/4x DDS packs with checksum matching",
+   "subject": {
+    "kind": "concept",
+    "id": "D3D11 texture pack replacement"
+   },
+   "addresses": [],
+   "related": [
+    "game_files/texture_packs/{2x,4x}/index.json",
+    "DirectXTex",
+    "jsmn"
+   ],
+   "fact": "The D3D11 texture cache loads index.json and individual DDS files for each pack. A replacement is used only when the SHA-256 of the original top-level RGBA pixels, dimensions and resource type match. Cube faces, animation frames, volume slices, logical UV sizes and sampling modes are preserved. Replacement GPU objects sit in a bounded 512 MiB cache released at a frame boundary when quality changes. Missing, malformed or checksum-mismatched DDS files fall back to the original texture.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "texture",
+    "assets"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-bc7-blocks-repair",
+   "title": "61 enhanced 4x DDS files had unwritten BC7 blocks; runtime now rejects bad blocks",
+   "subject": {
+    "kind": "asset",
+    "id": "texture packs: BC7 block validity"
+   },
+   "addresses": [],
+   "related": [
+    "Enhancer/logs"
+   ],
+   "fact": "An exporter error left 61 full-size 4x DDS files with unwritten BC7 blocks, and one helicopter-rotor BGRA texture was blank. These were reconverted from their enhanced PNGs, and the earlier files were kept under Enhancer/logs. Packaging now checks every face, frame and slice against its PNG and every BC7 mip block for a valid mode. The runtime rejects invalid BC7 blocks instead of drawing black surfaces and retries invalid GPU compression with DirectXTex's CPU codec.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "texture",
+    "bug",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-animation-padding-repair",
+   "title": "Animated picture frames are padded to 128 bytes at 0x2667F7",
+   "subject": {
+    "kind": "address",
+    "id": "retail picture allocation 0x2667F7"
+   },
+   "addresses": [
+    "002667F7"
+   ],
+   "related": [
+    "Enhancer/logs/animation-padding-before-repair.zip"
+   ],
+   "fact": "The retail picture allocation at 0x2667F7 pads animated frames to 128 bytes, not only cube faces. The exporter missed this, so 60 frames across 12 animated resources were corrected and only those PNGs were reprocessed at both scales. The previous assets are preserved in the Enhancer logs.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "texture",
+    "bug",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-texture-pack-audit",
+   "title": "Independent DDS audit passes all packaged texture pack images",
+   "subject": {
+    "kind": "asset",
+    "id": "texture pack audit"
+   },
+   "addresses": [],
+   "related": [
+    "Enhancer"
+   ],
+   "fact": "An independent DDS pixel audit passed all 2,417 top-level images per scale (4,834 total), covering every cube face, animated frame and volume slice. Both packaged indices match all 2,118 DDS checksums per scale. The executable, native menu archive and cache version match the development build.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "texture",
+    "verification"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-probe-texture-quality",
+   "title": "probe_texture_quality.py: live texture-quality test script",
+   "subject": {
+    "kind": "tool",
+    "id": "probe_texture_quality.py"
+   },
+   "addresses": [],
+   "related": [
+    "bringup/run_probe.py"
+   ],
+   "fact": "Exercises the real native menu and a loaded Mission 1b using private diagnostic saves and preferences.",
+   "how_to_use": "Run through bringup/run_probe.py; the packaged root-launch variant is texture-quality-root.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "test",
+    "texture"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-foliage-mip-policy",
+   "title": "Foliage mip levels keep authored alpha coverage",
+   "subject": {
+    "kind": "asset",
+    "id": "32 foliage resources per enhanced pack"
+   },
+   "addresses": [],
+   "related": [
+    "Enhancer/logs/foliage-mip-audit.json"
+   ],
+   "fact": "Each enhanced pack keeps the original RGB/alpha mipmaps of 32 foliage resources at original dimensions and below, with extra enhanced levels only for close detail. For Tree_054_leaves the authored opaque coverage is 36% at 128 px, 52% at 64 and 71% at 32, which generic mip generation had flattened to about 35%. A tiny mip that BC7 cannot reproduce faithfully is stored as lossless BGRA.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "texture",
+    "foliage"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-compressed-volume-layout",
+   "title": "NV2A compressed volume textures group Z slices per 4x4 tile",
+   "subject": {
+    "kind": "concept",
+    "id": "NV2A compressed volume texel layout"
+   },
+   "addresses": [],
+   "related": [
+    "xemu hw/xbox/nv2a/pgraph/s3tc.c"
+   ],
+   "fact": "NV2A compressed volume textures group up to four Z slices within each 4x4 XY tile. Treating them as flat compressed slices scrambled the first-mission fire into orange squares. The fix in shared texel decoding and in the cached upload and software sampler produces a coherent expanding fireball from a captured 128x128x8 DXT1 texture. DXT1, DXT3 and DXT5 fixtures cover both depth groups, partial tiles and mip chains.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "texture",
+    "volume",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-resolution-selects-scene-pixels",
+   "title": "Resolution sets physical scene pixels; RenderScale ignored",
+   "subject": {
+    "kind": "setting",
+    "id": "WindowWidth/WindowHeight (Video Settings)"
+   },
+   "addresses": [],
+   "related": [
+    "Automatic aspect"
+   ],
+   "fact": "Resolution now determines the physical scene pixel count. Saved RenderScale values from older builds are ignored. The Video Settings page has eleven aligned rows and no separate render multiplier. Window resizing follows client dimensions, and borderless rendering follows the selected resolution.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "settings",
+    "render"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-internal-scale-history",
+   "title": "Historical 1-4x internal render scale (default 2x)",
+   "subject": {
+    "kind": "setting",
+    "id": "RenderScale (historical)"
+   },
+   "addresses": [],
+   "related": [
+    "bs-resolution-selects-scene-pixels"
+   ],
+   "fact": "An earlier build exposed 1-4x internal render-target and depth scaling, with 2x (1280x960) as the default. Samples were about 155-170 FPS at 2x and 116-121 FPS at 3x on the RTX 3090. This control was replaced by resolution-driven scene pixels.",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "render",
+    "history"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-automatic-aspect",
+   "title": "Automatic aspect widens render targets and projection",
+   "subject": {
+    "kind": "concept",
+    "id": "Automatic aspect ratio"
+   },
+   "addresses": [],
+   "related": [
+    "bs-camera-aspect-query"
+   ],
+   "fact": "Automatic aspect expands both hardware render targets and the camera projection horizontally while preserving the authored vertical field of view. The GoGui layout and glyph drawing share the virtual width. Prerecorded movies keep their 4:3 aspect.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "render",
+    "ui"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-draw-distance-setting",
+   "title": "Display/DrawDistance slider and its 0.5x-2x mapping",
+   "subject": {
+    "kind": "setting",
+    "id": "Display/DrawDistance"
+   },
+   "addresses": [],
+   "related": [
+    "Video Settings"
+   ],
+   "fact": "A Draw distance slider was added to the original Video Settings form, with native click and drag, keyboard or controller steps of five, and a saved Display/DrawDistance preference. The 0-100 range maps smoothly to 0.5x-2x of the authored distance, and 50 is the original. Restore display defaults resets it to 50, and existing INI files default to 50.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "settings",
+    "draw-distance"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-draw-distance-scaling",
+   "title": "Which camera and fog values draw distance scales",
+   "subject": {
+    "kind": "concept",
+    "id": "draw-distance scaling at the engine boundary"
+   },
+   "addresses": [],
+   "related": [
+    "bs-draw-distance-setting",
+    "patch_draw_distance.py"
+   ],
+   "fact": "The scale is applied to the authored fog start and end after environment interpolation, and to the perspective far plane while the original camera builder makes the projection, inverse and CPU culling planes. The authored camera value is restored afterwards, so scaling does not accumulate. Near clip, fog colour and height, and orthographic shadow cameras are not scaled. Measured far planes at 0/100/50 are 140/560/280 with fog ends 111.5/446/223 in the Mission 1b city, and 252.5/1010/505 with fog ends 225/900/450 in the Mission 9a forest.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "draw-distance",
+    "render"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-nodeswitch-lod-selector",
+   "title": "sub_000848E0: NodeSwitchLod selector uses the draw-distance scale",
+   "subject": {
+    "kind": "function",
+    "id": "sub_000848E0 (generated NodeSwitchLod selector)"
+   },
+   "addresses": [
+    "000848E0"
+   ],
+   "related": [
+    "recomp_0014.c",
+    "patch_draw_distance.py",
+    "NodeSwitchLod"
+   ],
+   "fact": "sub_000848E0 is the generated NodeSwitchLod selector. The draw-distance scale is applied to its squared-distance input, so mesh selection, hysteresis and fading move together and small props no longer fade at the original distance. At scale 50 the input is bit-exact, and authored thresholds, world transforms and collision bounds are unchanged. The function is 599 bytes in recomp_0014.c with eight outgoing calls, and its owner is recorded as anon_00462364#1.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "draw-distance",
+    "lod"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-patch-draw-distance",
+   "title": "patch_draw_distance.py reapplies the NodeSwitchLod hook",
+   "subject": {
+    "kind": "patch",
+    "id": "bringup/patch_draw_distance.py"
+   },
+   "addresses": [
+    "000848E0"
+   ],
+   "related": [
+    "sub_000848E0"
+   ],
+   "fact": "Reapplies the generated draw-distance hook in sub_000848E0 and is idempotent. Run it after regenerating the lifted functions so the hook is restored.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "patch",
+    "draw-distance"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-billboard-fade-ranges",
+   "title": "Env_BillBoard_01 fade ranges and draw distance 100",
+   "subject": {
+    "kind": "asset",
+    "id": "Env_BillBoard_01.MGMODEL"
+   },
+   "addresses": [],
+   "related": [
+    "sub_000848E0"
+   ],
+   "fact": "The model's selector ranges are 200/200/220 with 0.1 hysteresis. At draw distance 100 its fade ends at about 484 world units instead of 242. The authored ranges are not edited; the scaling is applied inside the selector.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "lod",
+    "asset"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-lod-city-probe",
+   "title": "Mission 1b LOD probe: rooftop billboard appears at distance 100",
+   "subject": {
+    "kind": "file",
+    "id": "lighting-lod-city probe"
+   },
+   "addresses": [],
+   "related": [
+    "bs-nodeswitch-lod-selector"
+   ],
+   "fact": "The real Mission 1b probe recorded 171 LOD nodes at distances 0/100/50, and 13 changed selection between 50 and 100. A rooftop node at (277.5337, 56, 461.8086) was culled at 50 and selected at 100 from the same 253.49-unit camera distance. All authored ranges and positions stayed unchanged.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "lod",
+    "verification"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-terrain-lightmap-coverage",
+   "title": "Terrain lightmap coverage uses the actual projection at extended distance",
+   "subject": {
+    "kind": "concept",
+    "id": "terrain lightmap placement and coverage"
+   },
+   "addresses": [],
+   "related": [
+    "coordinated_draw_distance"
+   ],
+   "fact": "Terrain-lightmap coverage still queried the authored far plane and FOV after the frustum was expanded. At distance 100 an observed terrain vertex had lightmap U of 1.9822, outside the texture. The fix queries lighting with the actual projection and far plane and bounds coverage by the frustum diameter, so the vertex maps to (0.233881, 0.960634). Level limits, texel snapping and orthographic cameras are unchanged.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "lightmap",
+    "draw-distance",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-camera-aspect-query",
+   "title": "Camera boom grew 75% at ultrawide: aspect query kept at authored value",
+   "subject": {
+    "kind": "address",
+    "id": "guest return address 0x0012117F (CameraDistance initializer caller)"
+   },
+   "addresses": [
+    "0012117F",
+    "00121108"
+   ],
+   "related": [
+    "MACameraThird",
+    "recomp_0028.c",
+    "patch_pc_frontend.py"
+   ],
+   "fact": "The PC aspect hook also reached the original CameraDistance initializer, which multiplies camera boom and focus distance by aspect times 0.75. At 1680x720 this pushed the camera 75% farther behind the player, into foliage. The fix keeps the authored display aspect only for the query made from return address 0x0012117F. That address lies inside function 00121108 (recomp_0028.c, owner MACameraThird vtable slot 52). Other callers keep the PC aspect, and projection, HUD and menu widening stay active. The ultrawide camera position now matches the 4:3 position within 0.0003 world units.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "camera",
+    "ultrawide",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-patch-pc-frontend",
+   "title": "patch_pc_frontend.py applies the ultrawide camera aspect fix",
+   "subject": {
+    "kind": "patch",
+    "id": "bringup/patch_pc_frontend.py"
+   },
+   "addresses": [],
+   "related": [
+    "bs-camera-aspect-query"
+   ],
+   "fact": "A reproducible, idempotent script that applies the CameraDistance aspect fix to the generated code. Its effect is covered by the camera fact.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "patch",
+    "camera"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-foliage-large-triangles",
+   "title": "Mission 9a large triangles were faded foliage, not terrain",
+   "subject": {
+    "kind": "concept",
+    "id": "Mission 9a large foliage triangles"
+   },
+   "addresses": [],
+   "related": [
+    "bs-camera-aspect-query"
+   ],
+   "fact": "The large Mission 9a polygons were nearby translucent foliage drawn with alpha blending, depth writes enabled and stencil disabled. The original camera-occlusion behaviour made them translucent. Vertex pulling did not remove them, and the GPU vertex output agreed with the CPU interpreter.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "foliage",
+    "render"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-bloom-shared-surfaces",
+   "title": "Bloom effect surfaces were resized and read back every frame",
+   "subject": {
+    "kind": "concept",
+    "id": "bloom effect surfaces 320x240 and 160x120"
+   },
+   "addresses": [],
+   "related": [
+    "bs-feedback-copy-bounds"
+   ],
+   "fact": "Bloom's shared 320x240 and 160x120 allocation was repeatedly read back, resized and uploaded at 4x size. Profiling at 4608x1920 with 4x textures gave 45-46 FPS. Native rendering now keeps these effect surfaces at their authored size, and scratch pitch changes reinterpret bytes on the GPU, keeping untouched bytes in a larger backing until a real CPU read or reallocation. The same scene then sampled 166-175 FPS.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "performance",
+    "effects"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-feedback-copy-bounds",
+   "title": "Feedback copies limited to the region a draw can sample",
+   "subject": {
+    "kind": "concept",
+    "id": "render-target feedback copy bounds"
+   },
+   "addresses": [],
+   "related": [
+    "bs-bloom-shared-surfaces",
+    "feedback CPU evaluation (analysis)"
+   ],
+   "fact": "Draws that sample the render target they write copied the whole 3840x2160 framebuffer, about 240 times in Mission 16. Conservative source bounds now copy only the sampled region with filter margins. Unsupported shaders, ambiguous projection, edge wrapping and large vertex batches keep full copies. Measured GPU time was 20.62 ms per frame for full copies against 1.38 ms for bounded copies, and FPS at 4K rose from about 43 to about 86.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "performance",
+    "feedback"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-fog-factor-clamp",
+   "title": "Fog interpolates before its final 0-1 clamp",
+   "subject": {
+    "kind": "concept",
+    "id": "NV2A fog interpolation and depth state"
+   },
+   "addresses": [],
+   "related": [
+    "bs-perspective-interpolation"
+   ],
+   "fact": "Fog factors are interpolated before the final 0-1 clamp, so fades survive across triangles whose vertices extend beyond the visible fog range. Depth comparisons and clears keep the same depth-buffer units. Disabling depth testing also disables depth writes, matching NV2A state.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "render",
+    "fog"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-perspective-interpolation",
+   "title": "Smooth colours and fog interpolate with perspective",
+   "subject": {
+    "kind": "concept",
+    "id": "smooth shading interpolation"
+   },
+   "addresses": [],
+   "related": [
+    "bs-fog-factor-clamp"
+   ],
+   "fact": "Smooth diffuse and specular colours and fog now interpolate with perspective, matching xemu's NV2A varying declarations. The GPU and software rasterizer agree on a sloping-plane regression. This alone did not remove the diagonal ground patch, which the texcoord clamp fixed.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "render",
+    "shading"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-texcoord-clamp",
+   "title": "PASS_THROUGH texcoord clamps to 0-1 before the combiner",
+   "subject": {
+    "kind": "concept",
+    "id": "PASS_THROUGH / texcoord register combiner input"
+   },
+   "addresses": [],
+   "related": [
+    "bs-perspective-interpolation"
+   ],
+   "fact": "The register combiners consumed an interpolated distance-squared texture coordinate of about 17.58 without clamping. PASS_THROUGH texcoord must saturate each component to 0-1 first, as NVIDIA's texture-shader specification requires. Without the clamp, distant terrain detail patches brightened instead of fading; at the captured pixel RGB 19/1D/25 became 2B/31/3F and now stays 19/1D/25.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "render",
+    "terrain",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-vertex-colour-packed-attributes",
+   "title": "Packed inline vertex attributes use Xbox component sizes",
+   "subject": {
+    "kind": "concept",
+    "id": "packed inline vertex attributes"
+   },
+   "addresses": [],
+   "related": [
+    "bs-texcoord-clamp"
+   ],
+   "fact": "Packed inline vertex attributes use the Xbox component sizes and alignment. S32K2 occupies four bytes; reading it as eight corrupted particle corners. Vertex colours clamp before interpolation, including the hardware NaN rule.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "render",
+    "vertex",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-indexed-draw-limit",
+   "title": "Indexed draws dropped indices after entry 4,096 (fixed)",
+   "subject": {
+    "kind": "concept",
+    "id": "NV2A indexed draw FIFO"
+   },
+   "addresses": [],
+   "related": [
+    "bs-nv097-array-element32"
+   ],
+   "fact": "Indexed draws silently discarded every index after entry 4,096. This left incomplete meshes such as the battle-armor joints and torso, and open stencil shadow volumes that streaked from pedestrians, tanks and the player. The FIFO now streams arbitrarily long indexed primitives in bounded batches, keeping strip winding, fan anchors, incomplete list primitives and the line-loop closing edge. Retail draws include 8,624-index strips and 28,104-index lists, and a 540-case regression covers ten topologies.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "render",
+    "index",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-nv097-array-element32",
+   "title": "NV097 ARRAY_ELEMENT32 (0x1808) was unhandled (fixed)",
+   "subject": {
+    "kind": "concept",
+    "id": "NV097 method 0x1808 ARRAY_ELEMENT32"
+   },
+   "addresses": [],
+   "related": [
+    "bs-indexed-draw-limit"
+   ],
+   "fact": "The method was unhandled. The road mesh's last unpaired 32-bit index arrives through it, so a seven-index road strip lost its final triangle in both material passes, leaving sidewalk patches visible through the road. Single 32-bit indices now flow through buffering, vertex fetch, CPU fallback and GPU submission. Command semantics agree with xemu's NV2A method decoder.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "render",
+    "index",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-pending-shader-fallback",
+   "title": "Background shader compilers and pending-shader fallback",
+   "subject": {
+    "kind": "concept",
+    "id": "first-use shader compilation"
+   },
+   "addresses": [],
+   "related": [
+    "bs-shader-cache-validation"
+   ],
+   "fact": "A pending vertex shader uses the reference vertex interpreter with GPU rasterisation, and a pending pixel shader uses the generic combiner, so rendering no longer waits on each specialised shader. A cold scene samples about 84 FPS while shaders compile, then about 139-150 FPS, and later views about 191-214 FPS.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "render",
+    "shaders",
+    "performance"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-shader-cache-validation",
+   "title": "Source-only v1 shader caches are no longer reused",
+   "subject": {
+    "kind": "concept",
+    "id": "persistent shader cache"
+   },
+   "addresses": [],
+   "related": [
+    "bs-pending-shader-fallback"
+   ],
+   "fact": "Source-only v1 shader caches are no longer reused because they cannot distinguish the generic and clamped pixel entry points. Cached bytecode is checked through shader reflection for valid contents and the requested stage and version before reuse. Damaged files, including a bad DXBC checksum, are recompiled. Lookups use portable xxHash v0.8.3.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "render",
+    "shaders",
+    "cache"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-gpu-adapter-policy",
+   "title": "GPU adapter choice follows Windows high-performance order",
+   "subject": {
+    "kind": "concept",
+    "id": "D3D11 adapter selection"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_GPU"
+   ],
+   "fact": "Adapter selection follows Windows' high-performance order regardless of vendor and skips software or unsupported adapters. Older DXGI versions use eligible hardware ranked by dedicated memory. The renderer requests feature level 11.0 or newer. WARP and older enumeration are diagnostic paths covered by the regression suite. This does not substitute for physical AMD or Intel testing.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "render",
+    "gpu"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-fence-spin-function",
+   "title": "sub_0040F510: SDK resource-fence spin loop replaced with a bounded wait",
+   "subject": {
+    "kind": "function",
+    "id": "sub_0040F510 (D3D SDK resource fence loop)"
+   },
+   "addresses": [
+    "0040F510"
+   ],
+   "related": [
+    "recomp_0101.c",
+    "nv2a_gpu_wait_word",
+    "patch_gpu_fence_wait.py"
+   ],
+   "fact": "sub_0040F510 is the D3D SDK's hot resource-fence loop. The conditional jump at 0040F640 spun on guest memory. The fix replaces the spin with a bounded native address wait (nv2a_gpu_wait_word) that rechecks the unchanged completion predicate. Completion is published only after an executed semaphore command. The function is 358 bytes in recomp_0101.c with 12 callers in functions.json. In a capped Mission 16 orbit, main-thread CPU fell from 4.45 s to 2.58 s.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "render",
+    "cpu",
+    "performance",
+    "fixed"
+   ],
+   "date": "2026-10-09",
+   "addresses_unverified": [
+    "0040F640"
+   ]
+  },
+  {
+   "id": "bs-fence-spin-profile",
+   "title": "CPU profile: sub_0040F510 was 23.3% of the render-side spin before the fix",
+   "subject": {
+    "kind": "file",
+    "id": "night-m16-capped-spin-orbit-v13 cpu-summary"
+   },
+   "addresses": [
+    "0040F510"
+   ],
+   "related": [
+    "bs-fence-spin-function"
+   ],
+   "fact": "The spin-orbit profile, with the fence wait disabled, shows thread 42660 at 4453.1 CPU ms with sub_0040F510 at 23.3%, initialize_api at 14.1% and nv2a_gpu_wait_word at 10.9%. The matched fence-orbit profile, with the wait enabled, shows 2578.1 CPU ms on the corresponding thread with nv2a_gpu_wait_word at 31.9%.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "profile",
+    "cpu"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-patch-gpu-fence-wait",
+   "title": "patch_gpu_fence_wait.py rewrites the SDK fence jb in recomp_0101.c",
+   "subject": {
+    "kind": "patch",
+    "id": "bringup/patch_gpu_fence_wait.py"
+   },
+   "addresses": [
+    "0040F640"
+   ],
+   "related": [
+    "bs-fence-spin-function"
+   ],
+   "fact": "Rewrites the single jb at loc_0040F640 in recomp_0101.c so that the loop calls nv2a_gpu_wait_word on the fence address before jumping back, and adds the header include. It is idempotent and asserts that the SDK loop still has the expected predicate, failing if the code changed.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/bringup/patch_gpu_fence_wait.py",
+     "line": 4
+    },
+    {
+     "file": "kit/source/game/bringup/patch_gpu_fence_wait.py",
+     "line": 10
+    }
+   ],
+   "tags": [
+    "patch",
+    "gpu"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-sub-0040fa70-pulse-point-size",
+   "title": "sub_0040FA70: pulse weapon emits point size 0x1FF; point draws unsupported",
+   "subject": {
+    "kind": "function",
+    "id": "sub_0040FA70 (recomp_0101.c:217112)"
+   },
+   "addresses": [
+    "0040FA70"
+   ],
+   "related": [
+    "NV097 method 0x043C",
+    "nv2a_gpu_d3d11.c:1454"
+   ],
+   "fact": "sub_0040FA70 is 351 bytes long. At guest 0040FBBC it emits method 0x0004043C followed by a point-size value capped at 0x1FF. Method 043C is NV097_SET_POINT_SIZE in xemu. The native PB executor does not handle 043C, the GPU state has no point size, the vertex shader output ignores PSIZ, and nv2a_gpu_d3d11.c:1454 submits POINTLIST without size or sprite expansion. This shows missing point support, not that the pulse weapon uses point draws.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "render",
+    "pulse",
+    "weapon"
+   ],
+   "date": "2026-10-10",
+   "addresses_unverified": [
+    "0040FBBC"
+   ]
+  },
+  {
+   "id": "bs-high-res-pacing",
+   "title": "RECOMP_HIGH_RES_PACING: waitable-timer frame limiter",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_HIGH_RES_PACING"
+   },
+   "addresses": [],
+   "related": [
+    "bs-timer-init"
+   ],
+   "fact": "The v15 frame limiter uses a reusable high-resolution waitable timer with the existing performance-counter deadlines. Unsupported timer creation keeps the old Sleep or yield path. In matched 20-second Mission 16 runs at 3840x2160 with a 120 FPS cap, maximum p99 frame time fell from 22.36 ms to 9.68 ms and intervals above 16.7 ms fell from 170 to none. Setting it to 0 selects the legacy path.",
+   "how_to_use": "RECOMP_HIGH_RES_PACING=0 selects the legacy Sleep path for comparison.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "timing",
+    "pacing"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-usb-frame-clock",
+   "title": "USB frame clock measured 255.9 ms per real second; fixed to 999.8",
+   "subject": {
+    "kind": "concept",
+    "id": "OHCI/USB frame clock"
+   },
+   "addresses": [],
+   "related": [
+    "bs-ohci-frame-overflow"
+   ],
+   "fact": "A morning audit measured the USB bus clock at 255.9 ms per real second, because Sleep(4) wakes slowly and the old path credited each wake with four milliseconds. The candidate keeps fractional elapsed performance-counter time, uses a reusable high-resolution polling timer with a Sleep fallback, and exposes the same frame number through MMIO and HCCA. V18 measured 999.8 USB ms per real second and passed six minutes of Mission 09b interaction.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "usb",
+    "timing",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-ohci-frame-overflow",
+   "title": "OHCI frame-number overflow notification at bit 15",
+   "subject": {
+    "kind": "concept",
+    "id": "OHCI frame overflow"
+   },
+   "addresses": [],
+   "related": [
+    "bs-usb-frame-clock"
+   ],
+   "fact": "V19 emits the OHCI frame-overflow notification at both transitions of frame-number bit 15, as the controller specification requires. All 57 native regressions for elapsed time, fractional samples, controllers, masked delivery and overflow boundaries pass.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "usb"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-ohci-interrupt-ack",
+   "title": "OHCI acknowledges status atomically and delivers only pending sources",
+   "subject": {
+    "kind": "concept",
+    "id": "OHCI interrupt status handling"
+   },
+   "addresses": [],
+   "related": [
+    "bs-usb-open-long-run"
+   ],
+   "fact": "OHCI now acknowledges status bits atomically and delivers only currently pending, enabled sources. It keeps bus and DMA work running while master interrupt delivery is masked, and does not write idle endpoint heads over concurrent guest queue edits. This fixed a stopped main loop that waited for controller feedback during a long v13 run.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "usb",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-usb-dispatch-serialization",
+   "title": "USB transfer-descriptor free list race: dispatch serialization",
+   "subject": {
+    "kind": "concept",
+    "id": "USB driver dispatch serialization"
+   },
+   "addresses": [],
+   "related": [
+    "bs-usb-open-long-run"
+   ],
+   "fact": "An extended camera probe reproduced an access violation in the embedded USB driver's transfer-descriptor free list. The main guest context and the USB completion DPC could modify it concurrently on the single CPU. Dispatch serialization now covers the registered USB driver range. Higher-priority ISRs keep per-device locks, and audio and GPU deferred work keep their own lock order. A broad-lock experiment froze rendering and was discarded.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "usb",
+    "race",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-usb-open-long-run",
+   "title": "The v14 ten-minute Mission 09b run failed its fresh presentation check, so the stop-feedback stall was not ful",
+   "subject": {
+    "kind": "concept",
+    "id": "bs-usb-open-long-run"
+   },
+   "addresses": [],
+   "related": [
+    "bs-ohci-interrupt-ack",
+    "bs-usb-dispatch-serialization"
+   ],
+   "fact": "The v14 ten-minute Mission 09b run failed its fresh presentation check, so the stop-feedback stall was not fully fixed at that point. Two v15 ten-minute repeats later passed. A rare USB completion crash in a long Mission 09b probe occurred before the one-time timer initialisation fix; a later 120-second probe passed, but extended stability is not proven.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "usb",
+    "stability"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-timer-init",
+   "title": "Timer worker and shadow-object table use one-time initialisation",
+   "subject": {
+    "kind": "concept",
+    "id": "timer worker creation"
+   },
+   "addresses": [],
+   "related": [
+    "bs-high-res-pacing"
+   ],
+   "fact": "Timer-worker creation and the shadow-object table use Windows one-time initialisation, so concurrent first-use startup cannot create several DPC dispatchers. Guest millisecond and CPU clocks run independently of graphics processing.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "timing",
+    "threads",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-frame-cap-deadline",
+   "title": "Continuous frame-cap deadline fixes half-rate VSync plus cap",
+   "subject": {
+    "kind": "concept",
+    "id": "frame cap deadline"
+   },
+   "addresses": [],
+   "related": [
+    "bs-high-res-pacing"
+   ],
+   "fact": "A continuous frame-cap deadline fixes the case where VSync together with the frame cap fell to roughly half the requested rate.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "timing",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-controller-vibration-report",
+   "title": "Six-byte vibration output report reaches XInput",
+   "subject": {
+    "kind": "concept",
+    "id": "XID six-byte vibration output report"
+   },
+   "addresses": [],
+   "related": [
+    "bs-controller-profile-persist",
+    "bs-rumble-output-chain"
+   ],
+   "fact": "The controller's six-byte vibration output report is handled through the actual USB OUT transfer and the native XInput backend. Both the interrupt endpoint and the class SET_REPORT data stage keep normal guest completion. Focus loss and window closure stop motors, and output received without focus stays stopped. Keyboard and mouse use suppresses the primary controller's motors, while other controller ports stay independent. Focus regain does not replay an old effect. Physical vibration was not verified; tests substitute the motor API.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "input",
+    "rumble",
+    "usb"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-mouse-wakeup",
+   "title": "Window thread waits on messages instead of Sleep(4)",
+   "subject": {
+    "kind": "concept",
+    "id": "window thread input wait"
+   },
+   "addresses": [],
+   "related": [
+    "bs-mouse-input-normalised"
+   ],
+   "fact": "The window thread's unconditional Sleep(4) became a message-aware wait. Raw input can wake the thread immediately, and the four-millisecond timeout remains only for housekeeping. Physical mouse-to-display latency was not measured.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "input",
+    "latency",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-mouse-input-normalised",
+   "title": "Mouse aiming uses raw input after the controller curve",
+   "subject": {
+    "kind": "concept",
+    "id": "mouse aiming input path"
+   },
+   "addresses": [],
+   "related": [
+    "bs-mouse-wakeup"
+   ],
+   "fact": "Normal mouse aiming reads Windows raw relative movement and injects the displacement after the controller response curve. Movement is consumed at the title's actual input read, so intermediate USB polls do not lose motion. Sensitivity is normalised to input time rather than frame rate, and yaw and pitch are applied after stick deadzones, curves and smoothing.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "input",
+    "mouse"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-controller-profile-persist",
+   "title": "Controller inversion and vibration persist in MASave.sav",
+   "subject": {
+    "kind": "save",
+    "id": "MASave.sav controller profile"
+   },
+   "addresses": [],
+   "related": [
+    "bs-controller-vibration-report"
+   ],
+   "fact": "The original controller profile commit path persists inversion and vibration changes in MASave.sav. A second process reads the changed values without editing them and preserves the saved payload, including under a non-English private profile path.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "save",
+    "input"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-movie-decoder",
+   "title": "Bink movies decode through FFmpeg with original I/O and clock",
+   "subject": {
+    "kind": "concept",
+    "id": "Bink movie decoding"
+   },
+   "addresses": [],
+   "related": [
+    "patch_movie_pacing.py"
+   ],
+   "fact": "Movie texture decoding uses FFmpeg's Bink decoder while the original file I/O, audio and playback clock are retained. All 28 extracted movies decode every frame and restart correctly. Every RGB565 pixel of MAIntro and SPIntro matches independently demuxed FFmpeg output, and the 2,135-frame campaign intro plays 71 seconds without decoder errors.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "movie",
+    "video"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-sub-000b06f0-movie-pacing",
+   "title": "sub_000B06F0: display-paced movie update path",
+   "subject": {
+    "kind": "function",
+    "id": "sub_000B06F0 (movie update, owner anon_00463DE8#19)"
+   },
+   "addresses": [
+    "000B06F0",
+    "000B0729"
+   ],
+   "related": [
+    "recomp_0018.c",
+    "patch_movie_pacing.py",
+    "BinkWait"
+   ],
+   "fact": "sub_000B06F0 is the movie update function (243 bytes, recomp_0018.c). The retail 29.97 FPS display-paced path skips BinkWait, which an uncapped PC renderer cannot pace. The jne at loc_000B0729 selects that path. The patch makes these movies also use the Bink timer and bounds the wait at 32 calls to ma2_movie_yield, so a paused or starved movie still returns to the UI.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/bringup/patch_movie_pacing.py",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "movie",
+    "pacing"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-patch-movie-pacing",
+   "title": "patch_movie_pacing.py: PC Bink timer for display-paced movies",
+   "subject": {
+    "kind": "patch",
+    "id": "bringup/patch_movie_pacing.py"
+   },
+   "addresses": [
+    "000B06F0"
+   ],
+   "related": [
+    "bs-sub-000b06f0-movie-pacing"
+   ],
+   "fact": "Applies the PC movie pacing change to recomp_0018.c after regeneration. It inserts the timer wait after the loc_000B0729 branch, reloads the frame count after each wait, and adds the yield bound. It is idempotent and reports whether the change is already applied.",
+   "how_to_use": "Reapply after regenerating the lifted game functions.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/bringup/patch_movie_pacing.py",
+     "line": 1
+    },
+    {
+     "file": "kit/source/game/bringup/patch_movie_pacing.py",
+     "line": 44
+    }
+   ],
+   "tags": [
+    "patch",
+    "movie"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-movie-paced-result",
+   "title": "Movie pacing measured at about 30 FPS",
+   "subject": {
+    "kind": "concept",
+    "id": "movie pacing verification"
+   },
+   "addresses": [],
+   "related": [
+    "bs-sub-000b06f0-movie-pacing"
+   ],
+   "fact": "The original 778-frame intro now runs at 2997/100 FPS, so frame 776 arrives around 26 seconds rather than five. Five consecutive movie samples after startup measure 29.92 to 30.03 FPS. This verifies movie timing only, not every gameplay timer.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "movie",
+    "verification"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-movie-input-context",
+   "title": "Full-screen movies use their own input context",
+   "subject": {
+    "kind": "concept",
+    "id": "movie skip input context"
+   },
+   "addresses": [],
+   "related": [
+    "bs-startup-skip-queue"
+   ],
+   "fact": "Full-screen movies now own a distinct input context. Enter, Escape, Space and left click consistently deliver Start, independently of gameplay rebinding or a recently active menu. Skip taps are acknowledged, and movie clicks do not capture the camera or select an underlying menu. A simulated controller Start also skips.",
+   "how_to_use": "probe_movie_skip.py verifies an early movie frame, playback ending within three seconds and no extra selection afterwards.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "movie",
+    "input"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-startup-skip-queue",
+   "title": "Startup skip queues input to the guest",
+   "subject": {
+    "kind": "concept",
+    "id": "startup movie skip"
+   },
+   "addresses": [],
+   "related": [
+    "bs-movie-input-context"
+   ],
+   "fact": "Startup skipping queues input when the guest receives it and uses the original movie seek, stop and close path. Enter, Space, Escape, a click or a controller button skips. Packaged probes with 30 ms taps finish startup in 0.27-0.30 seconds without also selecting the next screen. The campaign intro skips with a single 30 ms Space tap in 0.16 seconds.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "movie",
+    "input"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-apu-dsp-programs",
+   "title": "GP/EP DSP programs run through the pinned xemu DSP interpreter",
+   "subject": {
+    "kind": "concept",
+    "id": "MCPX APU DSP execution"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_APU_DSP"
+   ],
+   "fact": "The guest's GP/EP DSP programs provide effect routing and output. The pinned xemu DSP interpreter runs the uploaded instructions, scatter/gather DMA and circular FIFOs. Ordinary DMA copies avoid per-transfer VirtualQuery calls. Direct calls replace host exception handling for identified lifted APU register operations. Reapply bringup/optimize_apu_io.py after regenerating lifted functions.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "audio",
+    "dsp"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-apu-dsp-env",
+   "title": "RECOMP_APU_DSP=0 selects the older audio fallback",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_APU_DSP"
+   },
+   "addresses": [],
+   "related": [
+    "bs-apu-dsp-programs"
+   ],
+   "fact": "Setting RECOMP_APU_DSP=0 selects the older diagnostic audio fallback instead of the GP/EP DSP path. Normal launches use the DSP path.",
+   "how_to_use": "RECOMP_APU_DSP=0 for the fallback mixer.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "audio",
+    "env"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-audio-limiter",
+   "title": "Stereo lookahead limiter in the audio output",
+   "subject": {
+    "kind": "concept",
+    "id": "stereo-linked lookahead limiter"
+   },
+   "addresses": [],
+   "related": [
+    "bs-apu-dsp-programs"
+   ],
+   "fact": "A stereo-linked lookahead limiter stops oversized diagnostic fallback mixes from hard-clipping. Below the ceiling clean samples pass unchanged with a 32-sample (0.67 ms) delay. Loud transients ramp down before overload and recover gradually over 80 ms.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "audio",
+    "limiter"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-audio-resampler",
+   "title": "Voice pitch and rate use statically linked libsamplerate 0.2.2",
+   "subject": {
+    "kind": "concept",
+    "id": "MCPX voice sample-rate conversion"
+   },
+   "addresses": [],
+   "related": [
+    "bs-audio-xaudio-delivery"
+   ],
+   "fact": "MCPX voice decoding, envelopes and filters are implemented, with pitch and sample-rate conversion by statically linked libsamplerate 0.2.2. The former voice resampler ignored pitch and played every source at 48 kHz.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "audio",
+    "resample",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-audio-xaudio-delivery",
+   "title": "XAudio2 completion callbacks, prebuffer and backpressure",
+   "subject": {
+    "kind": "concept",
+    "id": "XAudio2 output delivery"
+   },
+   "addresses": [],
+   "related": [
+    "bs-audio-resampler"
+   ],
+   "fact": "XAudio2 uses completion callbacks to recycle buffers, starts after prebuffering, and applies producer backpressure without dropping PCM blocks or holding the guest audio lock. The waveOut fallback waits for buffer completion before overwriting storage. Looping voices consume their inclusive final sample.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "audio"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-audio-deferred-lock",
+   "title": "Deferred audio work shares the recursive API lock (fixed)",
+   "subject": {
+    "kind": "concept",
+    "id": "audio deferred work and API lock"
+   },
+   "addresses": [],
+   "related": [
+    "bs-audio-xaudio-delivery"
+   ],
+   "fact": "The Xbox SDK omits its API lock above passive interrupt priority. PC audio API calls and deferred work now share its recursive lock at every priority. Queue entries hold a strong reference until their callback completes. This fixed a race with buffer destruction on native guest threads that affected Cinema 2 transitions; a later Mission 9 use-after-free needed the object-reference fix.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "race",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-audio-output-audit",
+   "title": "Process audio loopback matches submitted PCM",
+   "subject": {
+    "kind": "tool",
+    "id": "bringup/compare_process_audio.py"
+   },
+   "addresses": [],
+   "related": [
+    "bs-audio-xaudio-delivery"
+   ],
+   "fact": "Process-specific Windows loopback captured 9,046 packets over 81 active seconds with no discontinuity or clipping. Samples matched the submitted PCM at a constant 8,704-sample offset (median correlation 0.999998). A later 90-second run matched at a 7,265-sample offset (median correlation 0.999967). These checks validate the delivery path, not every mixed source.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "verification"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-audio-stats-env",
+   "title": "RECOMP_AUDIO_STATS logs mix levels and queue health",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_AUDIO_STATS"
+   },
+   "addresses": [],
+   "related": [
+    "bs-audio-capture-env"
+   ],
+   "fact": "RECOMP_AUDIO_STATS=1 logs mix levels and queue health for the audio path.",
+   "how_to_use": "Set RECOMP_AUDIO_STATS=1 in a probe environment.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "audio",
+    "env"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-audio-capture-env",
+   "title": "RECOMP_AUDIO_CAPTURE writes mixed PCM to a WAV",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_AUDIO_CAPTURE"
+   },
+   "addresses": [],
+   "related": [
+    "bs-audio-silent-env"
+   ],
+   "fact": "RECOMP_AUDIO_CAPTURE=<absolute wav path> captures the mixed PCM to that file.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "audio",
+    "env",
+    "test"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-audio-silent-env",
+   "title": "RECOMP_AUDIO_SILENT silences only device submission",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_AUDIO_SILENT"
+   },
+   "addresses": [],
+   "related": [
+    "bs-audio-capture-env"
+   ],
+   "fact": "RECOMP_AUDIO_SILENT=1 silences only that process's device submissions. DSP and capture stay active, which is how the overnight runs muted output.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "audio",
+    "env",
+    "test"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-fb-hidden-env",
+   "title": "RECOMP_FB_HIDDEN keeps the diagnostic window hidden",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_FB_HIDDEN"
+   },
+   "addresses": [],
+   "related": [
+    "bs-window-lifecycle"
+   ],
+   "fact": "RECOMP_FB_HIDDEN=1 keeps the diagnostic framebuffer window hidden. Explicitly hidden diagnostics stay hidden after asynchronous window restores.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "window",
+    "env",
+    "test"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-window-lifecycle",
+   "title": "Focus loss clears held keys and camera capture",
+   "subject": {
+    "kind": "concept",
+    "id": "window focus and lifecycle"
+   },
+   "addresses": [],
+   "related": [
+    "bs-fb-hidden-env"
+   ],
+   "fact": "Focus loss clears held keys, pending edges and camera capture. Fullscreen preserves the selected render dimensions, and windowed scene pixels follow the measured client. Three resize, fullscreen, minimise and restore cycles pass in the live lifecycle check.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "window",
+    "input"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-file-create-disposition",
+   "title": "File creation reports FILE_CREATED versus FILE_OPENED (fixed)",
+   "subject": {
+    "kind": "concept",
+    "id": "guest file creation dispositions"
+   },
+   "addresses": [],
+   "related": [
+    "bs-storage-error-propagation"
+   ],
+   "fact": "File creation now distinguishes a new file from opening, overwriting or replacing an existing one. A title that initialises only FILE_CREATED no longer receives FILE_OPENED for an empty new save. Directory creation reports collisions. The partition-volume compatibility rule applies only to resolved Xbox partition roots, including mounted drive letters and root separators. The regression first reproduced thirteen failures.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "storage",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-storage-error-propagation",
+   "title": "Storage write, flush and delete failures propagate (fixed)",
+   "subject": {
+    "kind": "concept",
+    "id": "guest file write, flush and delete error propagation"
+   },
+   "addresses": [],
+   "related": [
+    "bs-file-create-disposition"
+   ],
+   "fact": "Failed writes, flushes, reservations, deletions and timestamp changes now propagate Windows errors and matching completion status. Negative or short file sizes preserve existing data, and valid length changes preserve the independent cursor. This fixed false success for rejected filesystem operations.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "storage",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-new-campaign-bootstrap",
+   "title": "Fresh profile creates retail save payloads and starts the campaign",
+   "subject": {
+    "kind": "save",
+    "id": "retail save payloads for a fresh private profile"
+   },
+   "addresses": [],
+   "related": [
+    "bs-controller-profile-persist"
+   ],
+   "fact": "A completely empty private profile creates the retail save payloads, starts the campaign through the actual difficulty dialog, completes the introductory movie stage and reaches first-mission gameplay. A second process restores destination 1 from the saved campaign, skips the completed movie stage and resumes movement and world-clock progression. Mission completion and later checkpoints remained unverified.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "save",
+    "campaign"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-partial-read-fix",
+   "title": "Buffered asset streams: partial end-of-file reads (fixed)",
+   "subject": {
+    "kind": "concept",
+    "id": "buffered asset stream refill"
+   },
+   "addresses": [],
+   "related": [
+    "bs-storage-error-propagation"
+   ],
+   "fact": "Mission 5's final refill requested 16 KB with only 11,776 bytes left, and the SDK treated the valid short read as a disc error and showed a busy screen. The refill now respects the original file length while keeping the buffer's capacity and normal NT read semantics.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "storage",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-alt-enter-dxgi",
+   "title": "DXGI default window handling broke Alt+Enter Present (fixed)",
+   "subject": {
+    "kind": "concept",
+    "id": "Alt+Enter borderless toggle"
+   },
+   "addresses": [],
+   "related": [
+    "bs-window-lifecycle"
+   ],
+   "fact": "DXGI's default window handling reacted to the game's borderless Alt+Enter shortcut and broke Present with 0x887A0001. The fix preserves the original 29.97 FPS movie clock and native menu performance across startup, movie toggles and resizing.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "window",
+    "dxgi",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-native-gogui-pages",
+   "title": "Native GoGui Video, Volume and Controls pages",
+   "subject": {
+    "kind": "menu",
+    "id": "PC settings GoGui pages"
+   },
+   "addresses": [],
+   "related": [
+    "bs-controller-options"
+   ],
+   "fact": "The original Video, Volume and Controls pages are extended as native GoGui pages, including their pause-menu variants. Mouse hit testing uses the original widget rectangles and dispatches the same actions as controller navigation. Back and Cancel footer text is clickable. Escape at the lobby or title opens a native exit confirmation, and the lobby's 3D area captures the camera until Escape releases it.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "ui",
+    "settings"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-prompt-substitution",
+   "title": "Controller prompts follow the active input source",
+   "subject": {
+    "kind": "concept",
+    "id": "native input prompts"
+   },
+   "addresses": [],
+   "related": [
+    "bs-native-gogui-pages"
+   ],
+   "fact": "Keyboard and mouse bindings and native text prompts follow the active input source. Xbox White and Black prompts become RB and LB for modern controllers. The gameplay HUD is excluded from menu input routing, so Escape pauses and gameplay clicks capture the mouse. Prompt substitution happens while drawing, so the original tutorial text is kept for later device changes.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "ui",
+    "input"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-controller-options",
+   "title": "Controller page exposes inversion and vibration through the profile handler",
+   "subject": {
+    "kind": "menu",
+    "id": "Controls page: right-stick inversion and vibration"
+   },
+   "addresses": [],
+   "related": [
+    "bs-controller-profile-persist"
+   ],
+   "fact": "The Controls page opens the controller page when a gamepad was last used, and exposes the original right-stick inversion and vibration. Both values commit through the retail player-profile handler. Buttons held when a page is entered are suppressed on its first controller sample, so opening Controls does not toggle inversion.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "ui",
+    "input",
+    "settings"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-footer-layout",
+   "title": "Footer keys and captions use one widescreen layout",
+   "subject": {
+    "kind": "menu",
+    "id": "menu footers"
+   },
+   "addresses": [],
+   "related": [
+    "bs-native-gogui-pages"
+   ],
+   "fact": "Footer keys and captions use one widescreen mode with matching rectangles and vertical justification, right-aligned keys and an eight-pixel gap. Select/Enter and Back/Esc no longer overlap, while the original menu hierarchy, visibility and click actions remain.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "ui",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-archive-overlay-cache",
+   "title": "Native archive overlay metadata and cache namespace (fixed)",
+   "subject": {
+    "kind": "concept",
+    "id": "native archive overlay cache"
+   },
+   "addresses": [],
+   "related": [
+    "bs-native-gogui-pages"
+   ],
+   "fact": "The native archive overlay's metadata and content-specific cache namespace were corrected. This addressed the menu's repeated black or loading-screen loop. The original extracted assets are untouched.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "ui",
+    "cache",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-campaign-stage-matrix",
+   "title": "Staged campaign matrix: 21 of 22 gameplay stages pass initial interaction",
+   "subject": {
+    "kind": "concept",
+    "id": "gameplay stage matrix"
+   },
+   "addresses": [],
+   "related": [
+    "bs-campaign-entries"
+   ],
+   "fact": "The staged matrix covers all 22 gameplay stages with 2x and 4x packs, maximum draw distance and five display sizes from 1280x960 to 3840x2160, including ultrawide. Twenty-one stages pass the initial 90-second check. Mission_17b first failed player detection during its cutscene and reload sequence, and a 180-second rerun reacquired the player, verified 47 units of movement, and passed pause/resume and shutdown.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "campaign",
+    "verification"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-campaign-sweep-v13",
+   "title": "All 22 gameplay stages pass a 90-second sweep at 3840x2160",
+   "subject": {
+    "kind": "concept",
+    "id": "gameplay stage sweep (v13)"
+   },
+   "addresses": [],
+   "related": [
+    "bs-campaign-stage-matrix"
+   ],
+   "fact": "All 22 retail gameplay stages pass a final 90-second interaction sweep with the v13 executable at 3840x2160, 4x textures and draw distance 100. There are no observed runtime or graphics-device errors. This does not establish objective completion.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "campaign",
+    "verification"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-campaign-entries",
+   "title": "Retail campaign: 41 entries (22 gameplay, 19 cinematic)",
+   "subject": {
+    "kind": "concept",
+    "id": "retail campaign entry list"
+   },
+   "addresses": [],
+   "related": [
+    "bs-campaign-stage-matrix"
+   ],
+   "fact": "The retail campaign has 41 entries: 22 gameplay levels and 19 cinematics. Every entry passed its load and short-playback probe, which checks the loaded WDF, continued presentation, process lifetime, runtime errors and audio counters.",
+   "status": "historical",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "campaign"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-package-pc",
+   "title": "package_pc.py builds the PC Release folder",
+   "subject": {
+    "kind": "tool",
+    "id": "bringup/package_pc.py"
+   },
+   "addresses": [],
+   "related": [
+    "build-manifest.json",
+    "pc_package target"
+   ],
+   "fact": "Packaging does not change original assets or saves. The result is a local release candidate, not a published download.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "package",
+    "release"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-run-probe",
+   "title": "run_probe.py owns and bounds diagnostic processes",
+   "subject": {
+    "kind": "tool",
+    "id": "bringup/run_probe.py"
+   },
+   "addresses": [],
+   "related": [
+    "bs-probe-texture-quality"
+   ],
+   "fact": "run_probe.py owns and bounds diagnostic processes. Its watchdog exit code 3 is expected and is not a failure by itself.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "test",
+    "probe"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-release-hash-history",
+   "title": "PC Release executable hashes over time (historical)",
+   "subject": {
+    "kind": "file",
+    "id": "PC Release executable identities"
+   },
+   "addresses": [],
+   "related": [
+    "bs-package-pc"
+   ],
+   "fact": "Successive PC Release identities recorded in the status file: a81c93da1b806e8ebeb38adeb34b7630a6324c83d7647c46fa9c8ddf9652692f (draw-distance build), 3386d318200b3e06ee79990d1844fcf8b8b98320415405bb36175ba3a3b89f43 (lighting-LOD build), and a 7fef11cd7ae06240 prefix (camera fix build). These are historical; later executables supersede them.",
+   "status": "historical",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "release",
+    "history"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-sky-wedge-resolved",
+   "title": "Mission 9a black sky wedge resolved",
+   "subject": {
+    "kind": "concept",
+    "id": "Mission 9a sky geometry"
+   },
+   "addresses": [],
+   "related": [
+    "bs-indexed-draw-limit"
+   ],
+   "fact": "The Mission 9a black sky wedge was resolved by the complete-index fixes. A 90-second probe shows intact sky geometry, and the confirmed in play it.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "render",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-campaign-open-release",
+   "title": "Open: remaining shipping checks",
+   "subject": {
+    "kind": "concept",
+    "id": "PC release acceptance checklist"
+   },
+   "addresses": [],
+   "related": [
+    "bs-usb-open-long-run"
+   ],
+   "fact": "Remaining checks before a shipping PC version include: extended interaction presentation and input stalls; physical AMD and Intel GPU testing; broader level, texture and shadow coverage; full objective progression, save and load; simulation speed through gameplay; hardware controller feel and vibration; and settings changes. Passing short stage loads is not sufficient.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "release",
+    "open"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-explicit-game-build",
+   "title": "Explicit mechassault2_recomp target build rule",
+   "subject": {
+    "kind": "tool",
+    "id": "cmake explicit game target"
+   },
+   "addresses": [],
+   "related": [
+    "bs-package-pc",
+    "bs-patch-gpu-fence-wait"
+   ],
+   "fact": "Build from a Visual Studio amd64 developer shell with cmake --build 'MechAssault 2/build' --parallel 4, then --target pc_package for packaging and ctest on bringup/test-build.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "build",
+    "tools"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-routing-hazards",
+   "title": "Build routing hazards for isolated candidate builds",
+   "subject": {
+    "kind": "concept",
+    "id": "build routing hazards (v26)"
+   },
+   "addresses": [],
+   "related": [
+    "bs-explicit-game-build"
+   ],
+   "fact": "Three hazards were confirmed: the existing game build cache routes mandatory pc_assets into the immutable v25 package; the launcher writes the the game source tree MechAssault 2.exe; and pc_package depends on the launcher while package_pc.py hardcodes game/build. An isolated candidate therefore uses its own binary tree and asset project directory and only the explicit game target.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "build",
+    "v26"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-build-v26-tree",
+   "title": "Isolated build-v26 tree and staging/v26-assets asset project",
+   "subject": {
+    "kind": "tool",
+    "id": "bringup/build-v26 (isolated binary tree)"
+   },
+   "addresses": [],
+   "related": [
+    "bs-routing-hazards"
+   ],
+   "fact": "The isolated tree uses staging/v26-assets as PC_ASSET_PROJECT_DIR. A physical copy of the original common.mgf (13,828,096 bytes, SHA-256 71DDA56B.) was made there and verified. The configured closure has 12 targets, 216 Ninja edges and 203 explicit outputs, all under build-v26 or the two owned pc_assets outputs.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "build",
+    "v26"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-v26-build-result",
+   "title": "Playtest v26 explicit build: 190 compiles, exit 0",
+   "subject": {
+    "kind": "file",
+    "id": "Playtest v26 mechassault2_recomp.exe"
+   },
+   "addresses": [],
+   "related": [
+    "bs-build-v26-tree"
+   ],
+   "fact": "The explicit mechassault2_recomp target built in bringup/build-v26 with MSVC 19.51.36256.0, exit 0, producing a 54,498,816-byte EXE with SHA-256 835DF838. and a 7,089,887-byte map. There were 190 selected compile commands, 544 pinned inputs and 127 owned dependency files, all pre-pinned. The build log has 90 compiler warnings. The configured Ninja graph hash stayed 41BAB521.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "build",
+    "v26"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-v26-package",
+   "title": "Playtest v26 published package and capture kit v2",
+   "subject": {
+    "kind": "file",
+    "id": "Playtest v26 package"
+   },
+   "addresses": [],
+   "related": [
+    "bs-v26-build-result",
+    "bs-capture-v2-reader"
+   ],
+   "fact": "The package MechAssault 2/Playtest v26 has MechAssault 2.exe with SHA-256 835DF838. build-manifest SHA-256 81CCE0C2. and the Playthrough Capture v2 seal 530C8D08. Physical verification covered 5,192 entries and 9,216,650,564 bytes with zero mismatches. The PE closure has nine modules and zero unresolved imports. No profiles, settings overrides or private QTE assets were shipped.",
+   "how_to_use": "Recommended launch: Playtest v26\\Start-Playthrough.cmd.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "package",
+    "v26"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-native-menu-archive-v26",
+   "title": "Native menu archive common.mgf and cache.version identities",
+   "subject": {
+    "kind": "asset",
+    "id": "pc_assets common.mgf (native menu archive)"
+   },
+   "addresses": [],
+   "related": [
+    "bs-v26-package",
+    "bs-qte-archive-append"
+   ],
+   "fact": "The native menu archive common.mgf (163,138,088 bytes, SHA-256 0BC2E4D2.) and cache.version (22 bytes, SHA-256 159F466B.) match the frozen v25 native menu assets, so v26 shipped without a private QTE draft. Later v28 uses archive efe38a0b. with 1,595 native records and 24 QTE lookups.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "assets",
+    "menu"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-capture-v2-reader",
+   "title": "Playthrough Capture v2 reads five native ranges every 500 ms",
+   "subject": {
+    "kind": "tool",
+    "id": "Playthrough Capture v2 reader"
+   },
+   "addresses": [],
+   "related": [
+    "bs-capture-v4-reader"
+   ],
+   "fact": "Capture v2 reads five bounded native ranges totalling 140 bytes every 500 ms and assembles them into the existing 144-byte canonical record. The owned child image path, hash, creation identity and ASLR base are checked, and unknown or wrong images fail visibly. There is no guest-memory inspection or injection.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "capture",
+    "tool"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-capture-v4-reader",
+   "title": "Playthrough Capture v4: state RVA 03C11210, bound to v28 EXE",
+   "subject": {
+    "kind": "tool",
+    "id": "Playthrough Capture v4 reader"
+   },
+   "addresses": [],
+   "related": [
+    "bs-capture-v2-reader",
+    "bs-v28-publication"
+   ],
+   "fact": "Capture v4 reads five independent native ranges (140 bytes assembled into 144 canonical bytes) for the v28 executable. The state RVA is 03C11210, and no v27 RVA is assumed. Ten collector checks, twenty reader checks and a sealed CLI dry run pass. Its README states that the kit cannot prove QTE rendering, progression or physical vibration on its own.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "capture",
+    "tool"
+   ],
+   "date": "2026-10-10",
+   "addresses_unverified": [
+    "03C11210"
+   ]
+  },
+  {
+   "id": "bs-capture-kit-usage",
+   "title": "Playthrough Capture command usage (Start, Bounded, Collect, Migrate)",
+   "subject": {
+    "kind": "tool",
+    "id": "Start-Playthrough.cmd and Start-Playthrough.ps1"
+   },
+   "addresses": [],
+   "related": [
+    "bs-capture-v4-reader"
+   ],
+   "fact": "Run Start-Playthrough.cmd and choose Start new or Resume. Migrate with -Action Migrate -MigrateSourcePackage PATH -MigrateRun SESSION_ID, and use -DryRun with an owned ResultsDirectory for a preflight without a game. ZIPs include logs and metadata, not private saves.",
+   "how_to_use": "Keep the console open; exit in game to finish the ZIP.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "capture",
+    "tool",
+    "migration"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-profile-migration-pattern",
+   "title": "Profile migration copies bytes to a new private profile",
+   "subject": {
+    "kind": "concept",
+    "id": "capture profile migration (Resume)"
+   },
+   "addresses": [],
+   "related": [
+    "bs-capture-kit-usage",
+    "bs-v28-resume"
+   ],
+   "fact": "Capture v1 correctly rejects a Resume across image versions. Migration copies the selected stable private profile bytes to a unique new profile, records source and new image and per-file hashes, and issues a new marker. Old run, marker, pointer, save and user profile files are never edited, and missing or invalid sources stop visibly. Matching copied bytes do not prove that Continue works in game.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "migration",
+    "capture"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-v28-resume",
+   "title": "Resume-v27-Progress.cmd copies the latest v27 progress into v28",
+   "subject": {
+    "kind": "tool",
+    "id": "Resume-v27-Progress.cmd"
+   },
+   "addresses": [],
+   "related": [
+    "bs-profile-migration-pattern"
+   ],
+   "fact": "The explicit Resume-v27-Progress.cmd validates the latest supported v27 source (run 2026-10-10-990fd798, 24 settings and save files) and copies it into a fresh private v28 profile with before and after hash checks. An existing destination is rejected, and a missing source stops rather than resetting progress. No actual user save was written during the CPU test.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "migration",
+    "v28"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-v28-publication",
+   "title": "Playtest v28 published: EXE 901a6aef, 196 compile units",
+   "subject": {
+    "kind": "file",
+    "id": "Playtest v28"
+   },
+   "addresses": [],
+   "related": [
+    "bs-capture-v4-reader",
+    "bs-v28-open-items"
+   ],
+   "fact": "Playtest v28 consolidates the v27 private tree with W2's bridge and prompts, W3's save-latency probes (gen0019, gen0035, gen0037), W1's four-file telemetry and the kernel bridge, ten candidate files in total. The explicit Release mechassault2_recomp build used 196 selected compile units and 203 outputs and finished in 176.173 s. Identities: EXE 901a6aef61921346. MAP 486d0e44. archive efe38a0b. manifest 55bc5ffc. Gameplay was not observed.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "build",
+    "v28"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-v28-open-items",
+   "title": "Open: pulse, rumble, explosion performance and QTE acceptance (v28)",
+   "subject": {
+    "kind": "concept",
+    "id": "v28 gameplay acceptance"
+   },
+   "addresses": [],
+   "related": [
+    "bs-v28-publication"
+   ],
+   "fact": "The v28 state is CPU_CHECKED_LOCAL_CANDIDATE_GAMEPLAY_UNOBSERVED. Pulse and rumble behaviour, first-explosion performance, save pauses and tank, collision and mission regressions still need normal play. Native QTE acceptance is unverified.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "open",
+    "v28"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-desktop-close",
+   "title": "The last PERF pair showed 165.27 FPS, and no frame reports followed for 75.7 seconds",
+   "subject": {
+    "kind": "concept",
+    "id": "bs-desktop-close-session2"
+   },
+   "addresses": [],
+   "related": [
+    "bs-exit-origins"
+   ],
+   "fact": "The last PERF pair showed 165.27 FPS, and no frame reports followed for 75.7 seconds. No Windows Application 1000, 1001 or 1026 events appeared in that window. The cause is unexplained.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "crash",
+    "exit",
+    "open"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-exit-origins",
+   "title": "exit code 0 has several origins in the host",
+   "subject": {
+    "kind": "concept",
+    "id": "host exit origins (WM_CLOSE, WM_QUIT)"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Exit code 0 can come from fb_present.c WM_CLOSE when RECOMP_EXIT_ON_CLOSE=1, from d3d8_device.c WM_QUIT at lines 143, 460 and 1393, or from pc_native_settings.cpp posting WM_CLOSE after an accepted quit or terminal renderer dialog. The capture child sets exit-on-close, so exit 0 cannot distinguish these origins.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "exit",
+    "host"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-exit-marker-proposal",
+   "title": "Proposed EXIT origin markers (not implemented)",
+   "subject": {
+    "kind": "concept",
+    "id": "EXIT origin markers"
+   },
+   "addresses": [],
+   "related": [
+    "bs-exit-origins"
+   ],
+   "fact": "Proposal: add a low-frequency EXIT origin marker before each existing host termination, plus reason markers at the two native WM_CLOSE posting paths, recording PID, TID, QPC, message and reason and flushing stderr before ExitProcess. Unexpected closes without a marker should then use an explicitly scoped fault or hang capture. This is a proposal only.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "exit",
+    "proposal"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-perf-gpu-draws-meaning",
+   "title": "PERF 'GPU draws ms' is CPU wall time, not GPU time",
+   "subject": {
+    "kind": "concept",
+    "id": "PERF log field 'GPU draws ms'"
+   },
+   "addresses": [],
+   "related": [
+    "bs-perf-counter-meanings"
+   ],
+   "fact": "The PERF field labelled GPU draws ms is CPU wall time around raster_batch (nv2a_pb_exec.c:2673-2680), divided by flips. It is not GPU timestamp time. Batch and frame counters reset after each report of about five seconds.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "perf",
+    "logging"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-perf-counter-meanings",
+   "title": "PERF log lines: what each counter measures",
+   "subject": {
+    "kind": "concept",
+    "id": "PERF and PERF-PACING log lines"
+   },
+   "addresses": [],
+   "related": [
+    "bs-perf-gpu-draws-meaning"
+   ],
+   "fact": "PERF fps counts guest FLIP_STALL boundaries over a window of at least five seconds, recorded before Present (nv2a_pb_exec.c:90), so it is not scanout timing. PERF-PACING reports wall-clock intervals between guest flip boundaries with median, p95, p99, max and counts above 16.7 and 33.3 ms. Five-second percentiles cannot be averaged into whole-run percentiles. Startup, movies and menus can share the same log.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "perf",
+    "logging"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-nv2a-consumer-thread",
+   "title": "Single NV2A consumer thread executes and parses pushbuffer",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_memory_layout.c:877 NV2A consumer thread"
+   },
+   "addresses": [],
+   "related": [
+    "bs-guest-clocks-uncapped"
+   ],
+   "fact": "xbox_memory_layout.c:877 runs the single NV2A acknowledgement and command-consumption thread. It calls nv2a_pb_consume and publishes the consumed GET after executing commands. Parsing (nv2a_pb_scan.c:259), draw translation and D3D11 submission therefore share this serial consumer. The acknowledgement loop yields with Sleep(0). A producer may wait for buffer reuse.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "render",
+    "threads",
+    "analysis"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-guest-clocks-uncapped",
+   "title": "Guest clocks are not a frame cap",
+   "subject": {
+    "kind": "concept",
+    "id": "guest clock sources"
+   },
+   "addresses": [],
+   "related": [
+    "kernel_hal.c:445",
+    "kernel_bridge.c:2294"
+   ],
+   "fact": "kernel_hal.c:445 supplies monotonic wall-clock-derived guest ticks and a scaled Xbox TSC. kernel_bridge.c:2294 has an independent 60 Hz vblank clock. Neither is an explicit 30 or 60 FPS render cap. Speeding up guest clocks or acknowledging unread pushbuffers to raise FPS would change timing or overwrite commands, so both are prohibited.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "timing",
+    "analysis"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-present-and-limiter",
+   "title": "Present and explicit frame limiter in nv2a_gpu_d3d11.c",
+   "subject": {
+    "kind": "function",
+    "id": "nv2a_gpu_d3d11.c Present and limiter (2365-2378)"
+   },
+   "addresses": [],
+   "related": [
+    "bs-d3d11-context-owner"
+   ],
+   "fact": "nv2a_gpu_d3d11.c:2365 calls Present(VSync ? 1: 0, tearing-when-supported). The explicit limiter at line 2378 waits on an ideal QPC cadence when PC_FRAME_LIMIT is positive and adds no wait when it is zero. Hidden and minimised paths have their own waits. The NEW 720p and 1080p kit profiles request VSync 0 and FrameLimit 0.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "render",
+    "present",
+    "analysis"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-d3d11-context-owner",
+   "title": "The D3D11 immediate context has one submitting owner",
+   "subject": {
+    "kind": "concept",
+    "id": "D3D11 immediate context ownership"
+   },
+   "addresses": [],
+   "related": [
+    "bs-present-and-limiter"
+   ],
+   "fact": "The D3D11 immediate context is submitted by one owner thread, which also issues DXGI Present, following Microsoft's threading guidance. Concurrent calls to the context are unsafe, so any optimisation must preserve that ownership.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "render",
+    "threads",
+    "analysis"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-vertex-buffer-cache",
+   "title": "vertex_buffer cache key and extent churn",
+   "subject": {
+    "kind": "function",
+    "id": "vertex_buffer (1625-1676) and prepare_vertex_fetch (1678)"
+   },
+   "addresses": [],
+   "related": [
+    "bs-feedback-cpu-evaluation"
+   ],
+   "fact": "The vertex buffer cache key is guest base plus rounded byte extent. Memory-page versions skip unchanged uploads, and changed DEFAULT buffers use UpdateSubresource. Up to 512 cached buffers can be evicted, and extent variation can create several entries for one guest base. Existing logs do not count misses, uploaded bytes or Map latency.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "render",
+    "buffers",
+    "analysis"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-feedback-cpu-evaluation",
+   "title": "Feedback draws evaluate at most 64 vertices on the CPU",
+   "subject": {
+    "kind": "concept",
+    "id": "feedback copy CPU vertex evaluation (1853-1902)"
+   },
+   "addresses": [],
+   "related": [
+    "bs-vertex-buffer-cache"
+   ],
+   "fact": "Render-target feedback copies stay on the GPU. For eligible feedback only, CPU vertex evaluation considers at most 64 unique vertices or 192 indices; otherwise a full GPU copy is used. This runs inside draw wall time, so the vertex counter can read zero while CPU work happens.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "render",
+    "feedback",
+    "analysis"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-readback-path",
+   "title": "CPU readback is only on consumer and fallback paths",
+   "subject": {
+    "kind": "concept",
+    "id": "readback path (2455-2518)"
+   },
+   "addresses": [],
+   "related": [
+    "bs-present-and-limiter"
+   ],
+   "fact": "Normal native flip presentation has no staging readback. CPU consumers, failed or unsupported raster paths and target preservation can use CopyResource, a blocking Map(READ) and CPU conversion. Existing instrumentation does not time or count each readback.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "render",
+    "readback",
+    "analysis"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-v21-backend-failure-risk",
+   "title": "v21 backend failure could disable hardware (fixed in current source)",
+   "subject": {
+    "kind": "concept",
+    "id": "required-backend failure path (v21)"
+   },
+   "addresses": [],
+   "related": [
+    "bs-readback-path"
+   ],
+   "fact": "The pre-correction renderer let a required-backend failure disable hardware and allow full CPU fallback. Current source stops such failures, but the frozen v21 executable still carries the older behaviour. This is a known v21 risk, not evidence that it happened on Intel hardware.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "render",
+    "fallback",
+    "analysis"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-usb-gamepad-input-path",
+   "title": "xbox_InputGetState: one synchronous call per guest input report",
+   "subject": {
+    "kind": "function",
+    "id": "usb_gamepad_report:627 -> xbox_InputGetState:332"
+   },
+   "addresses": [],
+   "related": [
+    "bs-fps-hud-gamepad-poll"
+   ],
+   "fact": "usb_gamepad_report at line 627 calls xbox_InputGetState (line 332), which calls the host XInputGetState once for each guest interrupt input report on the OHCI worker. The OHCI tick is 4 ms. Diagnostics add one duplicate slot0 sample about once per second. A host API delay stalls report retirement, and a disconnected slot0 is queried before the keyboard fallback with no reconnect backoff.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "usb",
+    "input",
+    "analysis"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-fps-hud-gamepad-poll",
+   "title": "FPS HUD polls connected slot0 every frame through ImGui",
+   "subject": {
+    "kind": "function",
+    "id": "ImGui_ImplWin32_NewFrame -> UpdateGamepads (vendored ImGui 1.92.5, lines 340-357)"
+   },
+   "addresses": [],
+   "related": [
+    "bs-imgui-gamepad-define",
+    "bs-usb-gamepad-input-path"
+   ],
+   "fact": "The vendored Win32 backend's UpdateGamepads samples connected slot0 every rendered frame, with no NavEnableGamepad guard. The FPS HUD invokes it on the render and presentation thread. Disconnected slots use a cached capabilities result. The backend caches controller availability at initialisation and refreshes it only when WantUpdateHasGamepad is set by WM_DEVICECHANGE, so a controller connected later may not start polling. The API cost has not been measured.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "perf",
+    "input",
+    "hud"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-imgui-gamepad-define",
+   "title": "IMGUI_IMPL_WIN32_DISABLE_GAMEPAD on the ImGui Win32 backend only",
+   "subject": {
+    "kind": "patch",
+    "id": "IMGUI_IMPL_WIN32_DISABLE_GAMEPAD"
+   },
+   "addresses": [],
+   "related": [
+    "bs-fps-hud-gamepad-poll"
+   ],
+   "fact": "It appears on exactly that backend object in the configured graph. Native controller menus and guest input use independent calls and are unaffected. The CPU fixture went from 25 fake state calls and 3 capability calls to zero, and 10/10 checks pass in both modes. Integrated measurement is pending.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "perf",
+    "input",
+    "build"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-xinput-setstate-path",
+   "title": "Rumble output path to XInputSetState runs on the OHCI worker",
+   "subject": {
+    "kind": "function",
+    "id": "usb_gamepad_output:30 -> xbox_InputSetState:421"
+   },
+   "addresses": [],
+   "related": [
+    "bs-xinput-zeroing-policy"
+   ],
+   "fact": "Both endpoint 2 and control SET_REPORT rumble requests execute synchronously on the OHCI worker. The feedback helper calls XInputSetState under an exclusive SRW lock for every valid packet, including repeats and zero values, and the focus-loss handler shares that lock. The report handler ignores the host return status, so a slow SetState could stall USB completion.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "usb",
+    "rumble",
+    "analysis"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-xinput-zeroing-policy",
+   "title": "Output is zeroed when the device is not GAMEPAD or the window is unfocused",
+   "subject": {
+    "kind": "concept",
+    "id": "xbox_InputSetState zeroing rules"
+   },
+   "addresses": [],
+   "related": [
+    "bs-xinput-setstate-path"
+   ],
+   "fact": "xbox_InputSetState zeroes port 0 values when the current input device is not GAMEPAD, and the focus helper zeroes while unfocused. A successful USB transfer does not prove the host applied rumble. The logs cannot yet distinguish suppressed output, host failure and a missing physical effect.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "rumble",
+    "analysis"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-pref-wiring-fix",
+   "title": "pc_gui_bridge.c swapped inversion and vibration preferences (fixed)",
+   "subject": {
+    "kind": "bug",
+    "id": "pc_gui_bridge.c option mapping (+0x76 and +0x75)"
+   },
+   "addresses": [],
+   "related": [
+    "bs-controller-options"
+   ],
+   "fact": "The native menu mapped options backwards. +0x76 is the original pitch inversion (profile mask 1) and +0x75 is feedback or vibration (mask 2), so the apparent vibration toggle changed inversion. The accepted pc_gui_bridge.c has SHA-256 6DB421E8. 256 native and original option cases agree, and 69,721 native CPU checks pass. Physical rumble success is not established.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "input",
+    "settings",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-intel-observation",
+   "title": "Intel laptop slowdown observation (open)",
+   "subject": {
+    "kind": "concept",
+    "id": "Intel i7-1260P / Iris Xe 720p performance report"
+   },
+   "addresses": [],
+   "related": [
+    "bs-intel-open-hypotheses"
+   ],
+   "fact": "The observation establishes a problem to investigate but not its cause. The frozen executable is Laptop Test v21, SHA-256 261D0F90. built with /O2 /Ob2 /DNDEBUG.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "perf",
+    "intel",
+    "analysis"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-intel-run-20261009",
+   "title": "Intel run 2026-10-09: confounds and controller timing",
+   "subject": {
+    "kind": "file",
+    "id": "Laptop Test v21 run 2026-10-09-1868b2c9"
+   },
+   "addresses": [],
+   "related": [
+    "bs-intel-observation"
+   ],
+   "fact": "The returned run exited 0 on Iris Xe and i7-1260P with 16 GiB. It shows no required graphics failures, shader fallback warnings or recovery events. The raw log has D3D11.1 constant ranges, VSync 0 with tearing, Original textures, a 960x720 movie then 1280x720 scene, and a fullscreen client change to 2560x1600 while the scene stayed 720p. Mixed windows are not steady gameplay.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "perf",
+    "intel",
+    "analysis"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-intel-kit-env",
+   "title": "PC Test Kit clears inherited RECOMP_* in the child",
+   "subject": {
+    "kind": "tool",
+    "id": "Laptop Test v21 PC Test Kit child environment"
+   },
+   "addresses": [],
+   "related": [
+    "bs-intel-run-20261009"
+   ],
+   "fact": "The kit clears inherited RECOMP_* variables in the child only, then enables D3D11, render scale 0, PERF, display and render diagnostics, input diagnostics and five-second USB statistics. It does not enable GPU debug, vertex verification, per-pixel traces, CPU lock tracing or timestamp queries.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "tools",
+    "intel"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-intel-open-hypotheses",
+   "title": "Open: Intel limiter ranking and the planned controlled comparisons",
+   "subject": {
+    "kind": "concept",
+    "id": "Intel performance limiter"
+   },
+   "addresses": [],
+   "related": [
+    "bs-intel-observation"
+   ],
+   "fact": "Ranked hypotheses, none measured: a confound gate (scene, settings or error paths); guest CPU and submission cost; resource updates, driver synchronisation or readback; pixel and feedback bandwidth; cold compile or power state. Planned comparisons: a fixed 720p view at 1280x720 and 1920x1080 after 30 seconds warmup, then ShowFPS on and off with the controller connected and disconnected. No per-thread CPU or GPU elapsed time was captured in the frozen kit.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "perf",
+    "intel",
+    "analysis"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-gpu-timing-env",
+   "title": "RECOMP_GPU_TIMING_FLAG: one-frame GPU timestamp capture",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_GPU_TIMING_FLAG"
+   },
+   "addresses": [],
+   "related": [
+    "bs-intel-open-hypotheses"
+   ],
+   "fact": "A one-frame GPU timestamp capture exists behind an explicit RECOMP_GPU_TIMING_FLAG and a CSV path in the child. It creates up to 8,192 timestamp queries and polls with a shared five-second deadline, which perturbs the capture window. It covers bounded draws and instrumented feedback copies only, so its sums must not be presented as whole-frame GPU latency.",
+   "how_to_use": "Requires RECOMP_GPU_TIMING_FLAG and a CSV path in the child environment. Never present its results as normal pacing.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "perf",
+    "gpu",
+    "env"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-fps-hud-cpu-fixture",
+   "title": "FPS HUD gamepad patch: CPU fixture result",
+   "subject": {
+    "kind": "tool",
+    "id": "fixture"
+   },
+   "addresses": [],
+   "related": [
+    "bs-imgui-gamepad-define"
+   ],
+   "fact": "The actual backend CPU fixture passes 10/10 checks in both modes. Unmocked backend objects compile in both modes. No host XInput, window or GPU launch was used.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "perf",
+    "test"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-paused-feedback-fix",
+   "title": "Pause and menu rumble policy: motors stop on pause (fixed)",
+   "subject": {
+    "kind": "bug",
+    "id": "xinput_feedback policy callback"
+   },
+   "addresses": [],
+   "related": [
+    "bs-pause-feedback-test"
+   ],
+   "fact": "Before the fix, motors stopped only on focus loss, and primary keyboard suppression happened only when another guest packet arrived, so an effect could stay latched after entering pause or the menu. The fix adds PcInputOutputPolicyCallback, registered with pc_input_register_output_policy_callback on the first non-silent xbox_InputSetState. XinputFeedback reads an allowed-port provider on every send and stop. GAMEPLAY with no frontend capture is required for all ports, and the primary port also needs GAMEPAD input. Changed files: xinput_feedback.h, xinput_device.c, pc_frontend.c and pc_frontend.h.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "rumble",
+    "input",
+    "fixed"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-pause-feedback-test",
+   "title": "native_feedback_test: 33-check pause and output fixture",
+   "subject": {
+    "kind": "tool",
+    "id": "bringup/regression/native_feedback_test.c"
+   },
+   "addresses": [],
+   "related": [
+    "bs-paused-feedback-fix"
+   ],
+   "fact": "The fixture starts output without InputInit, holds one SetState call in flight while another thread pauses, and sends 10,000 packets against 1,000 pause, capture, source and focus changes. Before the fix 16 checks failed in each process, and after it 33 of 33 pass. It verifies immediate stops, late packets staying zero, no replay on resume and independence of other ports.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "rumble",
+    "test"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-paused-rumble-open",
+   "title": "Open: vibration duration after boost landing",
+   "subject": {
+    "kind": "open-question",
+    "id": "post-landing vibration (about one second)"
+   },
+   "addresses": [],
+   "related": [
+    "bs-paused-feedback-fix"
+   ],
+   "fact": "The reported roughly one-second vibration after a boost landing is a separate duration or late-stop hypothesis. The pause fix does not establish its cause, and the immutable v25 executable does not contain the fix. A future controller check must cover active effect, pause, hold, resume, source switching and focus.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "rumble",
+    "open"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-rumble-output-chain",
+   "title": "Full rumble chain from guest SET_REPORT to XInputSetState",
+   "subject": {
+    "kind": "concept",
+    "id": "rumble output chain (no envelope)"
+   },
+   "addresses": [],
+   "related": [
+    "bs-controller-vibration-report",
+    "bs-rumble-trace-design"
+   ],
+   "fact": "The chain runs from an OHCI endpoint 2 or 0 class SET_REPORT to usb_gamepad_output, which validates the six-byte report and decodes 16-bit little-endian motor values, then to xbox_InputSetState, xinput_feedback_send and XInputSetState. The Windows path has no amplitude or duration envelope; XInput output stays latched until another request or a policy stop. Physical vibration was not measured.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "rumble",
+    "usb"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-capture-writer-retry",
+   "title": "Capture state writer retries Windows 32/33/1175 replace errors",
+   "subject": {
+    "kind": "concept",
+    "id": "capture state JSON writer (File.Replace)"
+   },
+   "addresses": [],
+   "related": [
+    "bs-capture-v4-reader"
+   ],
+   "fact": "The old recorder latched any state-JSON replacement error, and File.Replace can fail while a reader holds the file (Win32 error 32, or 1175 with both names kept). The writer now retries 32, 33 and 1175 four times with about 30 ms of planned sleep, keeps the previous complete JSON when retries are exhausted, and opens readers with READ, WRITE and DELETE sharing. Hard failures stay latched and no delete-and-rewrite fallback is used. The concurrency test has 31 checks and no failures.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "capture",
+    "fixed"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-v27-qte-run",
+   "title": "Playtest v27 QTE run 2026-10-10: deliberate quit",
+   "subject": {
+    "kind": "file",
+    "id": "Playtest v27 QTE run 2026-10-10"
+   },
+   "addresses": [],
+   "related": [
+    "bs-v28-publication"
+   ],
+   "fact": "The run lasted 493 seconds, exited 0 with timed_out false after a confirmed_quit then WM_CLOSE, so it was a deliberate quit rather than a crash. The timeline has 1,238 events, 98 CPU windows and 304 retained signatures. No gameplay objectives were completed and no new save progression was recorded.",
+   "status": "historical",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "run",
+    "v27"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-line-strip-primitives",
+   "title": "Live NV097 primitive 4 is LINE_STRIP; no point draws",
+   "subject": {
+    "kind": "concept",
+    "id": "NV097 primitive 4 (line strip) batches"
+   },
+   "addresses": [],
+   "related": [
+    "bs-sub-0040fa70-pulse-point-size",
+    "bs-pulse-trace-open"
+   ],
+   "fact": "In the v27 telemetry run, 98 windows contained 34,267 line-strip batches totalling 205,602 vertices. Point, line2 and line3 draws were zero. Retained signatures showed six-vertex line strips with program F653BB5A9003AE32, sticky raw 043C=8, alpha 1/204/0, blend 1/302/303/8006 and depth 1/203/0. This proves a live line path, not that these draws are the pulse weapon, because the first-8 sampler misses triangles and quads.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "render",
+    "pulse",
+    "analysis"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-pulse-trace-open",
+   "title": "Open: pulse draw identity needs a bounded targeted trace",
+   "subject": {
+    "kind": "open-question",
+    "id": "pulse weapon draw identity"
+   },
+   "addresses": [],
+   "related": [
+    "bs-line-strip-primitives"
+   ],
+   "fact": "The pulse draw has not been identified. The proposal is one human-marked firing interval with bounded candidate-draw capture including triangles and quads, capped at 64 entries, before any point sizing, line expansion or particle suppression is attempted.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "render",
+    "pulse",
+    "open"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-laser-visible-check",
+   "title": "Pulse shots visible in Street Sweeper (installed build, 2026-10-11)",
+   "subject": {
+    "kind": "concept",
+    "id": "pulse shot visibility check"
+   },
+   "addresses": [],
+   "related": [
+    "bs-sub-0040fa70-pulse-point-size"
+   ],
+   "fact": "On the installed build of 2026-10-11 the fresh campaign, reached through Street Sweeper, showed pulse muzzle flashes, a green shot glow moving away from the player, and hit effects in captured frames 20 to 38, with original textures and a 60 FPS setting. This establishes visible pulse effects in that scene only, not every laser weapon or an unbroken beam. The reported missing laser remained unlocalised.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "render",
+    "pulse",
+    "verification"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bs-capture-v4-next-scope",
+   "title": "Capture v4 next scope: four private trace changes",
+   "subject": {
+    "kind": "concept",
+    "id": "private Capture v4 telemetry scope"
+   },
+   "addresses": [],
+   "related": [
+    "bs-trace-env-flags"
+   ],
+   "fact": "The proposed scope adopts two private capture-helper diffs into a new sealed Capture v4, adds a bounded pulse candidate-draw capture, adds a motor trace at the actual XInput feedback sites, and adds a slow-upload record at the Map sites in nv2a_gpu_d3d11.c. None of these was implemented or run on the game at the time of the note.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "capture",
+    "proposal"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-explosion-hitch-open",
+   "title": "Open: first-use hitch and texture pack first-use path",
+   "subject": {
+    "kind": "concept",
+    "id": "first-use hitch candidates"
+   },
+   "addresses": [],
+   "related": [
+    "bs-explosion-frame-windows"
+   ],
+   "fact": "nv2a_texture_pack.cpp:154-184 runs first-use read_file, SHA and DDS parsing and GPU load synchronously from view lookup (line 239). Fingerprinting at lines 189-203 decodes every original texel for a new key. The 512 MiB replacement cache budget has unmeasured evictions. nv2a_shader_cache.c:172 also has a blocking initialisation-failure fallback. These are candidates, not measured causes.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "texture",
+    "performance",
+    "open"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-phase-telemetry-design",
+   "title": "Per-phase and GPU timing telemetry proposal",
+   "subject": {
+    "kind": "concept",
+    "id": "render-thread phase telemetry proposal"
+   },
+   "addresses": [],
+   "related": [
+    "bs-explosion-hitch-open"
+   ],
+   "fact": "Proposal: extend the PERF aggregation with render-thread phase totals and maxima for decode, read, hash, upload, resource create and evict, pending-shader fallback, draw submission and Present, plus a deferred per-frame timestamp ring that polls with DONOTFLUSH and skips pending samples. Nothing in this is implemented.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "telemetry",
+    "proposal"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-capture-rumble-trace-env",
+   "title": "Capture v3 strips RECOMP_* except its allowlist",
+   "subject": {
+    "kind": "tool",
+    "id": "capture child environment allowlist"
+   },
+   "addresses": [],
+   "related": [
+    "bs-trace-env-flags"
+   ],
+   "fact": "The capture child strips every inherited RECOMP_* variable and reintroduces only a fixed allowlist, so a trace flag set only in the parent environment never reaches the game. Capture v4 adds the RUMBLE, UPLOAD, EFFECT and QTE traces and the SAVE_LATENCY, PERF, display and close flags to the child explicitly.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "capture",
+    "env"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-trace-env-flags",
+   "title": "RECOMP_RUMBLE_TRACE, RECOMP_UPLOAD_TRACE and RECOMP_EFFECT_TRACE",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_RUMBLE_TRACE / RECOMP_UPLOAD_TRACE / RECOMP_EFFECT_TRACE"
+   },
+   "addresses": [],
+   "related": [
+    "bs-capture-rumble-trace-env"
+   ],
+   "fact": "Three opt-in trace flags, each defaulting to disabled. RECOMP_RUMBLE_TRACE records motor requests against gated host values with port, Win32 result, focus and source, capped at 256 per process. RECOMP_UPLOAD_TRACE records slow vertex, index and constant Map calls above 10 ms, capped at 32. RECOMP_EFFECT_TRACE records draws in fire, alt-fire and boost intervals, capped at 64. Disabled runs add no clocks or logs.",
+   "how_to_use": "Set all three in the child; the capture kit only forwards them when explicitly allowlisted.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "capture",
+    "trace",
+    "env"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-rumble-trace-design",
+   "title": "Rumble trace records motor requests and gated values",
+   "subject": {
+    "kind": "tool",
+    "id": "xinput feedback trace (private candidate)"
+   },
+   "addresses": [],
+   "related": [
+    "bs-trace-env-flags",
+    "bs-rumble-output-chain"
+   ],
+   "fact": "The trace records each serialised feedback send and each focus or policy stop, with the raw request, the gated host value, the previous value, the Win32 result, port, permission and source. Repeated identical requests are aggregated, and the input epoch and RT, LT or stick context are captured. It does not measure physical vibration.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "rumble",
+    "trace"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-effect-trace-design",
+   "title": "Effect trace arms on fire, alt-fire and boost",
+   "subject": {
+    "kind": "tool",
+    "id": "effect trace (private candidate)"
+   },
+   "addresses": [],
+   "related": [
+    "bs-trace-env-flags"
+   ],
+   "fact": "The effect trace arms on normal gameplay fire, alt-fire and boost requests. It uses 32-frame intervals with three distinct opaque and three blended patterns per topology, and a process cap of 64. It records guest NV097 primitive values, not D3D enums, and makes no GPU timing or resource queries.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "render",
+    "trace"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-slow-map-trace",
+   "title": "Slow Map records for upload stalls",
+   "subject": {
+    "kind": "tool",
+    "id": "slow upload Map trace (private candidate)"
+   },
+   "addresses": [],
+   "related": [
+    "bs-trace-env-flags"
+   ],
+   "fact": "Slow Map records label vertex, index, pixel-constant, fetch-constant or vertex-constant maps, with the map flag, byte count, HRESULT, CPU wall duration, draw serial and input context. The threshold is 10 ms and the cap 32. Map-only evidence can confirm or rule out a Map stall but cannot attribute a slow memcpy or unmap.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "render",
+    "upload",
+    "trace"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-save-latency-probe",
+   "title": "RECOMP_SAVE_LATENCY: opt-in save-stall probes",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_SAVE_LATENCY"
+   },
+   "addresses": [],
+   "related": [
+    "bs-save-latency-regions"
+   ],
+   "fact": "RECOMP_SAVE_LATENCY=1 enables save-latency probes, read once per process. Root and child spans are kept in a fixed arena of eight records and emitted as [SAVE-LATENCY] lines after the root ends. Parent and child spans overlap by design and must not be summed. Disabled paths make no probe clock or log calls. Save timing is enabled only in the owned captured child.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "save",
+    "env",
+    "latency"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-save-latency-regions",
+   "title": "Save-latency instrumented regions (generated functions)",
+   "subject": {
+    "kind": "concept",
+    "id": "save write path functions (gen0019, gen0035, gen0037)"
+   },
+   "addresses": [
+    "000B9400",
+    "0015EFF2",
+    "00167B25",
+    "00167DB6",
+    "00167ED9"
+   ],
+   "related": [
+    "bs-save-latency-probe",
+    "bs-save-cache-transfer"
+   ],
+   "fact": "The probes wrap sub_000B9400 (save writer, recomp_0019.c, 529 bytes), sub_0015EFF2 (checkpoint preparation, recomp_0035.c, 467 bytes), sub_00167B25 (profile save, recomp_0037.c, 657 bytes), sub_00167DB6 (save-and-quit index path, 291 bytes) and sub_00167ED9 (transfer helper, 351 bytes). Each kind is labelled as checkpoint, writer, profile or savequit. The actual v27 3.69 s frame interval remains unattributed.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "save",
+    "latency",
+    "functions"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-save-cache-transfer",
+   "title": "sub_002BD76E: cache transfer runs before the profile call",
+   "subject": {
+    "kind": "function",
+    "id": "sub_002BD76E (cache transfer helper)"
+   },
+   "addresses": [
+    "002BD76E"
+   ],
+   "related": [
+    "bs-save-latency-regions"
+   ],
+   "fact": "sub_002BD76E is the 738-byte cache transfer helper in recomp_0071.c that sub_00167DB6 runs before the child profile call sub_00167B25. Its work is counted in the pre-graph part of the savequit span.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "save",
+    "function"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-save-callback-wrapper",
+   "title": "15CED6 callback wrapper and callback union accounting",
+   "subject": {
+    "kind": "function",
+    "id": "sub_0015CED6 (callback wrapper, 16 bytes)"
+   },
+   "addresses": [
+    "0015CED6",
+    "0016890C"
+   ],
+   "related": [
+    "bs-save-latency-regions"
+   ],
+   "fact": "sub_0015CED6 is a 16-byte wrapper that calls the original callback exactly once. The transfer callback at 0016890C (recomp_0037.c, 20 bytes) is included in envelope wall time but not split into separate IO or callback metrics. Nested callbacks count as one union, and IO inside a callback is recorded for each active interval.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "save",
+    "callback",
+    "function"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-save-latency-validation",
+   "title": "Save-latency probe validated by fixture, not by game",
+   "subject": {
+    "kind": "concept",
+    "id": "save-latency CPU fixture"
+   },
+   "addresses": [],
+   "related": [
+    "bs-save-latency-regions"
+   ],
+   "fact": "The 21 branch cases compare original, staged-disabled and staged-enabled bodies on controlled in-memory fakes, with 309 checks and no failures. Fake logging advances a fake clock, so the sample lines are not measured game performance. No real save durability, checkpoint bytes or fresh-process Continue was tested.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "save",
+    "test"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-zero-flag-repair-script",
+   "title": "patch_zero_flag_joins.py: verified zero-flag branch repairs",
+   "subject": {
+    "kind": "patch",
+    "id": "bringup/patch_zero_flag_joins.py"
+   },
+   "addresses": [],
+   "related": [
+    "bs-road-collision-zero-flag"
+   ],
+   "fact": "Applies only verified zero-flag snapshot repairs to existing generated code. It regenerates each candidate function with the corrected shared lifter and rewrites a conditional '(x == 0)' or '(x != 0)' to use the saved _fa value only when the fresh translation contains that exact change. Title-specific hooks survive, and the changes are logged to",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/bringup/patch_zero_flag_joins.py",
+     "line": 1
+    },
+    {
+     "file": "kit/source/game/bringup/patch_zero_flag_joins.py",
+     "line": 8
+    },
+    {
+     "file": "kit/source/game/bringup/patch_zero_flag_joins.py",
+     "line": 33
+    }
+   ],
+   "tags": [
+    "patch",
+    "recompiler"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-road-collision-zero-flag",
+   "title": "Zero-flag merge bug in the box-ray normal selector (road collision)",
+   "subject": {
+    "kind": "bug",
+    "id": "box-ray normal selector (unnamed in notes)"
+   },
+   "addresses": [],
+   "related": [
+    "bs-zero-flag-repair-script"
+   ],
+   "fact": "A merged zero-flag condition in the box-ray normal selector uses AND/INC, then CDQ, then JNE. CDQ changes EDX without changing flags, so reading the overwritten register inverted positive surface normals and rejected valid road contacts. The original found the road at Y=46.977371 while the native query selected the lower terrain at Y=41.763664. Branches now use the saved arithmetic result, and the captured query matches the original height and flags.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "collision",
+    "recompiler",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-x87-memory-operands",
+   "title": "x87 ten-byte memory operands were read as four bytes (fixed)",
+   "subject": {
+    "kind": "bug",
+    "id": "x87 extended-precision memory operands"
+   },
+   "addresses": [],
+   "related": [
+    "bs-patch-x87"
+   ],
+   "fact": "The recompiler read x87 extended memory operands as four-byte floats and skipped extended stores. The CRT pi/2 constant became about 7.89e-19, corrupting inverse-trig results used for orientation. The lifter and generated code now load and store ten-byte values, and generated asin and acos pass 8,056 endpoint and interior cases under both precision modes. The runtime still uses a double-backed x87 stack.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "recompiler",
+    "x87",
+    "fixed"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-patch-x87",
+   "title": "bringup/patch_x87_memory.py reapplies the x87 memory fix",
+   "subject": {
+    "kind": "patch",
+    "id": "bringup/patch_x87_memory.py"
+   },
+   "addresses": [],
+   "related": [
+    "bs-x87-memory-operands"
+   ],
+   "fact": "Reapplies the x87 ten-byte memory-operand correction to existing generated code after regeneration. It is idempotent.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "patch",
+    "recompiler"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-patch-display-rows",
+   "title": "patch_display_rows.py: 13th Display row (shader pre-create)",
+   "subject": {
+    "kind": "patch",
+    "id": "bs-patch-display-rows"
+   },
+   "addresses": [],
+   "related": [
+    "bs-native-gogui-pages"
+   ],
+   "fact": "Adds a 13th row, 'Pre-create level shaders when loading' (action 9112, text 0x7000000D), to interface/menus/calibration/calibration.ggf in a common.mgf overlay. Rows 9100 to 9111 are re-laid 23 units apart from y=90 and the draw-distance slider follows row 7. The payload is appended, its directory record is updated, and cache.version becomes PC2-plus-hash. It refuses to run if the page already has 13 rows.",
+   "how_to_use": "python patch_display_rows.py <package>/pc_assets/common.mgf",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "patch",
+    "ui",
+    "assets"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bs-cfg-dry-run-graph",
+   "title": "Configuration review: dry run without regeneration edge",
+   "subject": {
+    "kind": "tool",
+    "id": "isolated dry-run graph review"
+   },
+   "addresses": [],
+   "related": [
+    "bs-explicit-game-build"
+   ],
+   "fact": "The normal explicit-target dry run stops at the CONFIGURE_DEPENDS glob check. A private DRY_RUN_ONLY manifest copy removes only that two-line regeneration edge for inspection and must never be used for a real build. Its eight-command schedule compiles nv2a_gpu_d3d11.c, fb_present.c, pc_native_settings.cpp, pc_gui_bridge.c and imgui_impl_win32.cpp, archives two libraries and links mechassault2_recomp.exe.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "build",
+    "review"
+   ]
+  },
+  {
+   "id": "bs-cfg-milestone",
+   "title": "Milestone: one consolidated release candidate for a full playthrough",
+   "subject": {
+    "kind": "concept",
+    "id": "consolidated desktop and laptop RC milestone"
+   },
+   "addresses": [],
+   "related": [
+    "bs-campaign-open-release"
+   ],
+   "fact": "The minimum remaining work is an explicit target compile and link, verification of binary and package dependencies, a versioned RC staged with the existing private-profile launch and log collection, and bounded integration checks. Enhanced FMV integration needs a separate pinned review and is excluded.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "milestone",
+    "release"
+   ]
+  },
+  {
+   "id": "bs-next-integration-a868",
+   "title": "Accepted four-delta integration A868 (baseline for later builds)",
+   "subject": {
+    "kind": "file",
+    "id": "A868 EXE"
+   },
+   "addresses": [],
+   "related": [
+    "bs-explicit-game-build"
+   ],
+   "fact": "The accepted A868 integration EXE has SHA-256 a8683aa6ff49abf035705373339dd4f709efc6144a9db4959c7574fb3d94d2c2 and was built from 196 Release compile records and 203 owned outputs. Four accepted deltas were applied, with 11 replacements and no additions, all physically backed up and hashed.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "build",
+    "integration"
+   ]
+  },
+  {
+   "id": "bs-w3-five-replacements",
+   "title": "Five frozen source replacements over A868 (initial preparation)",
+   "subject": {
+    "kind": "concept",
+    "id": "bs-w3-five-replacements"
+   },
+   "addresses": [],
+   "related": [
+    "bs-w3-final-image"
+   ],
+   "fact": "Five frozen files replaced the A868 sources: kernel_bridge.c and kernel_hal.c from the W4 crash candidate, recomp_0001.c from the W4 expiry candidate, pc_gui_bridge.c from the W5 QTE fit and pc_prompts.cpp from W5 QTE. All other 476 accepted code files stayed byte-identical. Audio, tank and pulse candidates were excluded.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "build",
+    "integration"
+   ]
+  },
+  {
+   "id": "bs-w3-graph-proposal",
+   "title": "The fresh Release/Ninja graph has 190 selected compile records (189 C/C++ and 1 RC), 126 game and 64 runtime",
+   "subject": {
+    "kind": "tool",
+    "id": "bs-w3-graph-proposal"
+   },
+   "addresses": [],
+   "related": [
+    "bs-w3-five-replacements"
+   ],
+   "fact": "The fresh Release/Ninja graph has 190 selected compile records (189 C/C++ and 1 RC), 126 game and 64 runtime. The compile commands match A868 after path relocation, using MSVC 19.51.36256.0 with /O2 /Ob2 /DNDEBUG /MD /bigobj. The earlier 196-record count included launcher and smoke records outside the target closure.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "build",
+    "graph"
+   ]
+  },
+  {
+   "id": "bs-w3-final-image",
+   "title": "It includes the W4 crash fix, pause policy, P6 QTE dialog (FE5084), a minimal W5 guard, a behaviour-only rende",
+   "subject": {
+    "kind": "file",
+    "id": "bs-w3-final-image"
+   },
+   "addresses": [],
+   "related": [
+    "bs-v26-package"
+   ],
+   "fact": "It includes the W4 crash fix, pause policy, P6 QTE dialog (FE5084), a minimal W5 guard, a behaviour-only renderer blend, and the repaired audio VP (EOF, SRC and filter). Tank changes, a broken 12-block shortcut and an expanded renderer diagnostic helper are excluded. The published Playtest v26 EXE is 835DF838, a different image; these notes do not say which one became the v26 merge.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "build",
+    "w3",
+    "open"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-w3-audio-gate",
+   "title": "Audio repair gate: zero underruns in native Mission 01b runs",
+   "subject": {
+    "kind": "concept",
+    "id": "audio repaired versus baseline run"
+   },
+   "addresses": [],
+   "related": [
+    "bs-w3-final-image",
+    "bs-audio-xaudio-delivery"
+   ],
+   "fact": "Baseline run 94716 and repaired run 4972 both exited 0 on Mission 01b at about 50 seconds. All ten XAudio2 reports showed zero underruns, backpressure, glitches and errors. The repaired run had 30 starts and 30 finishes, 205 tail SRC reads, 67,501 VP frames and zero guards. The 128-tail plus 128-active audible CPU budget was not resolved.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "verification"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-w3-audio-cpu-followup",
+   "title": "Audio CPU follow-up: silent tails about 49% faster",
+   "subject": {
+    "kind": "concept",
+    "id": "audio silent-tail and SRC decay performance"
+   },
+   "addresses": [],
+   "related": [
+    "bs-w3-audio-gate"
+   ],
+   "fact": "The independent audio CPU follow-up reports silent tails about 49% faster and post-SRC filter decay about 32% faster, with CPU acceptance passed. The audible 128-tail plus 128-active frame-budget overrun remains unresolved, and the candidate was not accepted for game or GPU use.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "audio",
+    "performance",
+    "open"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-qte-caption-guard",
+   "title": "QTE caption guard for NULL-texture bitmap classes (open)",
+   "subject": {
+    "kind": "concept",
+    "id": "QTE caption fit (W5) guard"
+   },
+   "addresses": [],
+   "related": [
+    "bs-w3-final-image"
+   ],
+   "fact": "Two bitmap classes with NULL texture exit before painting. The guard ignores only finite, in-bounds, nonnegative, empty geometry on those classes. The native left-trigger or right-trigger offender is still unknown, so no full native QTE resolution is claimed.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "qte",
+    "ui",
+    "open"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-laser-component-import",
+   "title": "Laser component: pureblend constant helper imported",
+   "subject": {
+    "kind": "concept",
+    "id": "laser blend component"
+   },
+   "addresses": [],
+   "related": [
+    "bs-laser-visible-check"
+   ],
+   "fact": "Only the pureblend_constant helper and its OM call were imported. The mixed constant colour and alpha limitation is unchanged.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "render",
+    "blend"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-qte-archive-append",
+   "title": "QTE archive append: 24 entries over EFE38 native archive",
+   "subject": {
+    "kind": "asset",
+    "id": "native QTE archive append (efe38a0b)"
+   },
+   "addresses": [],
+   "related": [
+    "bs-native-menu-archive-v26"
+   ],
+   "fact": "The offline QTE append leaves the v26 native archive's 1,595 records and payloads unchanged, adds 24 QTE lookups, and yields 1,859 acyclic tree nodes. Its regenerated result is the archive efe38a0b. that v28 uses. The private draft archive was not used.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "qte",
+    "assets"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-probe-env-defaults",
+   "title": "Owned probe launches set RECOMP_RUMBLE=0 and enable the console only explicitly",
+   "subject": {
+    "kind": "tool",
+    "id": "probe environment defaults"
+   },
+   "addresses": [],
+   "related": [
+    "bs-audio-capture-env",
+    "bs-env-rumble-zero"
+   ],
+   "fact": "Owned probe launches set RECOMP_RUMBLE=0 to keep diagnostics quiet, while normal launches enable controller output. RECOMP_CONSOLE=1 explicitly enables the development console; normal logs go to %LOCALAPPDATA%\\MechAssault2\\Logs.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "env",
+    "logs"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-env-rumble-zero",
+   "title": "RECOMP_RUMBLE=0 keeps owned probes quiet",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_RUMBLE"
+   },
+   "addresses": [],
+   "related": [
+    "bs-rumble-output-chain"
+   ],
+   "fact": "Owned probe launches set RECOMP_RUMBLE=0 so diagnostics stay quiet. Normal launches enable controller output.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "env",
+    "rumble"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-env-console",
+   "title": "RECOMP_CONSOLE=1 enables the development console",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_CONSOLE"
+   },
+   "addresses": [],
+   "related": [
+    "bs-probe-env-defaults"
+   ],
+   "fact": "RECOMP_CONSOLE=1 explicitly enables a development console window. Both launch executables are native Windows GUI programs.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "env",
+    "logs"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-env-exit-on-close",
+   "title": "RECOMP_EXIT_ON_CLOSE=1 makes window close exit 0",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_EXIT_ON_CLOSE"
+   },
+   "addresses": [],
+   "related": [
+    "bs-exit-origins"
+   ],
+   "fact": "With RECOMP_EXIT_ON_CLOSE=1 the window close path in fb_present.c exits with code 0 (fb_present.c original line 287).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "env",
+    "exit"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-env-gpu-d3d11",
+   "title": "RECOMP_GPU=d3d11 selects the renderer",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_GPU"
+   },
+   "addresses": [],
+   "related": [
+    "bs-gpu-adapter-policy"
+   ],
+   "fact": "RECOMP_GPU=d3d11 is the supported renderer override.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "env",
+    "render"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-env-vsh-verify",
+   "title": "RECOMP_VSH_VERIFY=1 checks vertex programs",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_VSH_VERIFY"
+   },
+   "addresses": [],
+   "related": [
+    "bs-env-gpu-d3d11"
+   ],
+   "fact": "RECOMP_VSH_VERIFY=1 enables the vertex-program verification check. Stream output deliberately stalls for readback in these runs, so their timing is not representative of normal play. A captured vertex fixture can be replayed with bringup/test-build/gpu_test.exe.",
+   "how_to_use": "RECOMP_VSH_VERIFY=1, then bringup/test-build/gpu_test.exe <fixture.bin>.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "env",
+    "test",
+    "render"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-env-perf",
+   "title": "RECOMP_PERF=1 enables PERF logging",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_PERF"
+   },
+   "addresses": [],
+   "related": [
+    "bs-perf-counter-meanings"
+   ],
+   "fact": "RECOMP_PERF=1 enables the PERF and PERF-PACING log lines. It is already standard in the capture kit, and the Intel kit enables it too.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "env",
+    "perf"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-env-autostart",
+   "title": "RECOMP_SCENARIO_AUTOSTART and _STALL: scenario test autostart",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_SCENARIO_AUTOSTART / RECOMP_SCENARIO_AUTOSTART_STALL"
+   },
+   "addresses": [],
+   "related": [
+    "bs-scenario-autostart-cli"
+   ],
+   "fact": "RECOMP_SCENARIO_AUTOSTART=0 turns off the editor's Test autostart. RECOMP_SCENARIO_AUTOSTART_STALL=<vtable hex> is a test hook that stalls one menu step so the give-up path can be exercised.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "env",
+    "scenario",
+    "test"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bs-env-qte-trace",
+   "title": "RECOMP_QTE_TRACE (separate from capture flags)",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_QTE_TRACE"
+   },
+   "addresses": [],
+   "related": [
+    "bs-trace-env-flags"
+   ],
+   "fact": "It is separate from the RUMBLE, UPLOAD and EFFECT traces, and the telemetry patch does not overwrite it.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "env",
+    "qte"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bs-env-render-scale-legacy",
+   "title": "RECOMP_RENDER_SCALE: legacy render-scale variable",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_RENDER_SCALE"
+   },
+   "addresses": [],
+   "related": [
+    "bs-internal-scale-history"
+   ],
+   "fact": "RECOMP_RENDER_SCALE is a legacy render-scale variable from the earlier internal-scale build. Its saved value is ignored in favour of resolution-driven scene pixels.",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "env",
+    "legacy"
+   ]
+  },
+  {
+   "id": "bs-scenario-autostart-cli",
+   "title": "Editor Test autostart: MechAssault 2.exe --scenario command line",
+   "subject": {
+    "kind": "tool",
+    "id": "MechAssault 2.exe --scenario <f> [--mode] [--bots] [--skill]"
+   },
+   "addresses": [],
+   "related": [
+    "bs-scenario-autostart-steps",
+    "bs-env-autostart"
+   ],
+   "fact": "Starts a custom scenario directly from the command line: MechAssault 2.exe --scenario <file> [--mode <GameType>] [--bots <R>v<B> or R,B] [--skill 0-4]. Each step logs a line tagged [SCENARIO] test autostart. Normal launches without --scenario log no autostart lines and behave as before.",
+   "how_to_use": "Test scripts: autostart/matrix.sh, autostart/mkvariant.py; sweep35.sh.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "scenario",
+    "editor",
+    "test"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bs-scenario-autostart-steps",
+   "title": "Autostart UI steps: multiplayer and custom scenario menu actions",
+   "subject": {
+    "kind": "menu",
+    "id": "autostart menu driver (Hub, Multiplayer, New Game)"
+   },
+   "addresses": [
+    "001CAD40",
+    "00208BF9",
+    "00481EF8"
+   ],
+   "related": [
+    "sub_001CAD40",
+    "sub_00208BF9"
+   ],
+   "fact": "Multiplayer: hub item action 4 then Multiplayer item action 1 (Local), then New Game sets the Game Type barrel (menu+0x74, action 100) and the map barrel (menu+0x70, action 200) by value, then Enter to reach the Briefing Room and the match menu at 00481EF8. Custom Scenarios is hub action 8. Each step focuses an item via sub_001CAD40 (recomp_0048.c, 121 bytes) and clicks it, and selects barrel values with sub_00208BF9 (recomp_0054.c, 76 bytes, 44 callers). Enter is posted as WM_KEYDOWN and WM_KEYUP.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "scenario",
+    "menu",
+    "autostart"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bs-scenario-give-up",
+   "title": "Autostart gives up after 15 s without menu progress",
+   "subject": {
+    "kind": "concept",
+    "id": "autostart give-up behaviour"
+   },
+   "addresses": [],
+   "related": [
+    "bs-scenario-autostart-steps"
+   ],
+   "fact": "If a menu makes no progress for 15 seconds, the autostart logs that it gave up, the menus are returned to the player, and the player's own bot values are restored immediately. Give-up is tested with the stall hook.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "scenario",
+    "autostart"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bs-game-type-numbers",
+   "title": "Game type numbers used by autostart (sub_001661C1)",
+   "subject": {
+    "kind": "function",
+    "id": "sub_001661C1 (game type mapping)"
+   },
+   "addresses": [
+    "001661C1"
+   ],
+   "related": [
+    "recomp_0037.c"
+   ],
+   "fact": "Game type numbers used by the autostart barrels: TeamDestruction 3, Destruction 0xA, CTF 0xE, BaseWar 0x10, SnatchIt 0x11, CheckIt 0xF, TeamLastManStanding 1, LastManStanding 9, NotIt 4 and Grinder 6. The barrel values equal these numbers. The function is 376 bytes in recomp_0037.c.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "scenario",
+    "multiplayer"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bs-autostart-bot-config",
+   "title": "Bot test config held in memory, never written to the INI",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bots_test_config and g_cfg_test"
+   },
+   "addresses": [],
+   "related": [
+    "bs-scenario-give-up"
+   ],
+   "fact": "ma2_bots_test_config sets the red, blue, FFA and skill values in g_cfg with g_cfg_test=1, and config_set never writes pc_settings.ini while the flag is set. In the match, ma2_bots_test_release(0) sets g_cfg_test=2, and the next New Game reloads from the INI. Release(1) is used for a give-up.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "scenario",
+    "config"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bs-autostart-open-custom-intro",
+   "title": "Open: single custom mission plays the campaign intro",
+   "subject": {
+    "kind": "open-question",
+    "id": "custom scenario intro movie"
+   },
+   "addresses": [],
+   "related": [
+    "bs-scenario-autostart-cli"
+   ],
+   "fact": "A single custom mission plays the roughly 70-second campaign intro movie before the mission. This is pre-existing behaviour and is not yet changed.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "scenario",
+    "movie",
+    "open"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bs-scenario-assets-load",
+   "title": "ma2_scn_level_load mounts Scn<ID>_assets archive (sub_00013550)",
+   "subject": {
+    "kind": "function",
+    "id": "sub_00013550 (level mount block; hook at loc_000138A0)"
+   },
+   "addresses": [
+    "00013550"
+   ],
+   "related": [
+    "recomp_0000.c",
+    "sub_00025B70",
+    "sub_00025BF0"
+   ],
+   "fact": "The scenario [Assets] loader is hooked at loc_000138A0 at the end of the level mount block in sub_00013550 (recomp_0000.c, 2189 bytes). It reads the world path from [[0x524A60]+4], takes its basename Scn<ID>, and mounts T:\\scenarios\\Scn<ID>_assets_<hash>.mgf through mount_archive (sub_00025B70 with args 0,0). This runs whether or not the gate mounted.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "scenario",
+    "assets",
+    "loader"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bs-scenario-assets-unload",
+   "title": "ma2_scn_level_unload unmounts the scenario archive (sub_000171E0)",
+   "subject": {
+    "kind": "function",
+    "id": "sub_000171E0 (level unload; hook at loc_000178C9)"
+   },
+   "addresses": [
+    "000171E0"
+   ],
+   "related": [
+    "sub_00025C90",
+    "sub_00025D10"
+   ],
+   "fact": "The unload hook at loc_000178C9 in sub_000171E0 (recomp_0000.c, 2336 bytes) calls sub_00025C90 with the file system and name, then sub_00025D10 to reset lookup state, following the native code. It joins the level unload's three unmount branches.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "scenario",
+    "assets",
+    "unload"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bs-mount-archive-helper",
+   "title": "sub_00025B70 mount_archive: mounts an archive by name",
+   "subject": {
+    "kind": "function",
+    "id": "sub_00025B70 (mount_archive)"
+   },
+   "addresses": [
+    "00025B70"
+   ],
+   "related": [
+    "sub_0002EA10",
+    "sub_00025BF0"
+   ],
+   "fact": "sub_00025B70 (122 bytes, recomp_0002.c, 24 callers) mounts an archive. It needs the file system object at fs+0x148. The arg2 value selects drive-sector streaming mode, and the level mount uses 0,1 while boot and index mounts use 0,0. The note suggests the wrong streaming argument was a likely cause of an earlier black T: mount.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "scenario",
+    "archive",
+    "function"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bs-unmount-archive-helper",
+   "title": "sub_00025C90 unmount by name; sub_00025D10 resets lookup state",
+   "subject": {
+    "kind": "function",
+    "id": "sub_00025C90 (unmount) and sub_00025D10 (reset)"
+   },
+   "addresses": [
+    "00025C90",
+    "00025D10"
+   ],
+   "related": [
+    "sub_00025B70"
+   ],
+   "fact": "sub_00025C90 (127 bytes, 14 callers) unmounts an archive by name and is stdcall with ret 8. sub_00025D10 (69 bytes, 14 callers) resets the file system lookup state and is called after a successful unmount.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "scenario",
+    "archive",
+    "function"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bs-already-mounted-check",
+   "title": "sub_00025BF0: already-mounted check by name",
+   "subject": {
+    "kind": "function",
+    "id": "sub_00025BF0"
+   },
+   "addresses": [
+    "00025BF0"
+   ],
+   "related": [
+    "sub_00025B70"
+   ],
+   "fact": "sub_00025BF0 (89 bytes) returns 1 when an archive is already mounted by name, and the mount helper uses that result to skip a second mount.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "scenario",
+    "archive",
+    "function"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bs-archive-object-helper",
+   "title": "sub_0002EA10 creates a 0x2C archive object (mgIO\\mgStream)",
+   "subject": {
+    "kind": "function",
+    "id": "sub_0002EA10 (archive object)"
+   },
+   "addresses": [
+    "0002EA10"
+   ],
+   "related": [
+    "sub_00025B70"
+   ],
+   "fact": "sub_0002EA10 (808 bytes, recomp_0004.c) creates the new 0x2C archive object used by mount_archive. Its string table includes mgIO\\mgStream.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "scenario",
+    "archive",
+    "function"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bs-mount-list-push",
+   "title": "sub_00026890: list push_back for fs+0x18C",
+   "subject": {
+    "kind": "function",
+    "id": "sub_00026890 (list push_back)"
+   },
+   "addresses": [
+    "00026890"
+   ],
+   "related": [
+    "sub_00025B70"
+   ],
+   "fact": "sub_00026890 (51 bytes, recomp_0003.c, 19 callers) is the push_back used for the file system list at fs+0x18C.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "scenario",
+    "archive",
+    "function"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bs-level-descriptor-global",
+   "title": "Level descriptor global at [0x524A60]",
+   "subject": {
+    "kind": "global",
+    "id": "[0x524A60] level descriptor"
+   },
+   "addresses": [
+    "00524A60",
+    "004539D4"
+   ],
+   "related": [
+    "bs-scenario-assets-load"
+   ],
+   "fact": "The level descriptor at [0x524A60] has the world path char* at +4, the resource std:string at +0x10 and a no-cache flag at +0x68. The string d:\\allmissions.mgf is at 0x4539D4 and is unmounted by the level unload when level+0xB4 is set.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "scenario",
+    "global"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bs-scenario-assets-verify",
+   "title": "Scenario [Assets] fix verified: Sky_Test plays on Bogged Down",
+   "subject": {
+    "kind": "concept",
+    "id": "scenario [Assets] verification"
+   },
+   "addresses": [],
+   "related": [
+    "bs-scenario-assets-load"
+   ],
+   "fact": "Scenarios with a non-empty [Assets] list play: Sky_Test plays on Bogged Down with the aurora sky, and Small loads GoCommando night sky and conifers with BattleArmor spawns. Quit to main hub unmounts and remounts, and the sweep passes 18 of 18 with no faults. A failed write now plays without the assets instead of dropping the scenario.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "scenario",
+    "verification"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bs-scenario-dir-create",
+   "title": "T:\\scenarios directory created before the first assets write",
+   "subject": {
+    "kind": "concept",
+    "id": "scenario_dir and T:\\scenarios"
+   },
+   "addresses": [],
+   "related": [
+    "bs-scenario-assets-load"
+   ],
+   "fact": "The T:\\scenarios directory is created before the first assets write (scenario_dir). A failed write now plays the scenario without its assets rather than dropping it, which had caused a retail map to load.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "scenario",
+    "assets"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bs-models-library",
+   "title": "ma2models: decoder library for templates, models and textures",
+   "subject": {
+    "kind": "tool",
+    "id": "ma2models library (namespace ma2m)"
+   },
+   "addresses": [],
+   "related": [
+    "bs-models-resolve-order"
+   ],
+   "fact": "Its API is ma2models.h (namespace ma2m) with API.md. build.cmd builds release and debug at /W4, and tools/modeldump.cpp is the test tool. It decodes 2,892 of 2,892 MP-map templates, 950 of 950 shipped GlobalEntities model and mtb pairs, and all 21,376 .tif files on the disc. A 12,000-case fuzz run passes.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "models",
+    "tool"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bs-game-space-handedness",
+   "title": "Game space is left-handed, Y up, models face +Z",
+   "subject": {
+    "kind": "concept",
+    "id": "game coordinate space"
+   },
+   "addresses": [],
+   "related": [
+    "bs-models-library"
+   ],
+   "fact": "Game space is left-handed with Y up, and a 'Mech's front faces +Z. This was verified on a sign texture with glyphs.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "coordinates",
+    "models"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bs-models-resolve-order",
+   "title": "ma2m ResolveModelPath search order",
+   "subject": {
+    "kind": "function",
+    "id": "ma2m ResolveModelPath"
+   },
+   "addresses": [],
+   "related": [
+    "bs-models-library"
+   ],
+   "fact": "Templates name atlas.NODE, VMil_VTOL.MGMODEL and similar, but MP levels ship only *_low.* files. ResolveModelPath tries, per archive in priority order, the name as written, then _low, then the .NODE .MGMODEL swap.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "models",
+    "assets"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bs-scenario-asset-deps",
+   "title": "Scenario [Assets] dependency rule",
+   "subject": {
+    "kind": "concept",
+    "id": "scenario [Assets] dependency collection"
+   },
+   "addresses": [],
+   "related": [
+    "bs-models-resolve-order",
+    "bs-scenario-assets-load"
+   ],
+   "fact": "To build a scenario's [Assets] list, open the ArchiveSet as Base, then common.mgf, then the rest. Run CollectTemplateDependencies over every template in templates.wdf and list dependencies whose archive is neither Base nor common, skipping entries with found == false. Retail itself references missing files, such as every 'Mech's MechClawDecal = tmpDev/claw/claw.mat.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "scenario",
+    "assets"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bs-terrain-height-field",
+   "title": "MATerrain TerrainHeight Field is an L8 MGIc picture",
+   "subject": {
+    "kind": "property",
+    "id": "MATerrain.TerrainHeight Field"
+   },
+   "addresses": [],
+   "related": [
+    "MATerrain"
+   ],
+   "fact": "The MATerrain TerrainHeight Field is an MGIc picture in L8 (flags 0x4, format code 4, 64-byte row pitch). DecodeTexture reads it, and modeldump --texture-file decodes a saved blob.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "terrain",
+    "models"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bs-multiplay-missing-mgf",
+   "title": "Multiplay MountainHigh and TroubledWaters .mgf files are not on disc",
+   "subject": {
+    "kind": "asset",
+    "id": "Multiplay/MountainHigh and TroubledWaters"
+   },
+   "addresses": [],
+   "related": [
+    "bs-scenario-asset-deps"
+   ],
+   "fact": "The Multiplay folder lists MountainHigh and TroubledWaters, but their .mgf files are not on the disc.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "assets",
+    "multiplayer"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bs-culled-templates-local",
+   "title": "Only two culled MP templates resolve outside their level archive",
+   "subject": {
+    "kind": "concept",
+    "id": "MP map culled templates"
+   },
+   "addresses": [],
+   "related": [
+    "bs-scenario-asset-deps"
+   ],
+   "fact": "In the MP maps only two culled templates resolve outside their own level archive. Everything else a level's templates name is inside the level archive.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "assets",
+    "multiplayer"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bs-dictionary-rebuild",
+   "title": "Object dictionary rebuild pipeline",
+   "subject": {
+    "kind": "tool",
+    "id": "dictionary extract, merge and page build"
+   },
+   "addresses": [],
+   "related": [
+    "bs-dictionary-resolved-crc"
+   ],
+   "fact": "Rebuild the object dictionary with python extract_data.py, extract_code.py and make_slices.py (about 25 s) to regenerate reader then write <Class>.json, and python merge.py and build_page.py write, MA2_Dictionary.md, coverage.json and page/. Curated cross-group facts live in overrides.json.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "dictionary",
+    "tool"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bs-dictionary-resolved-crc",
+   "title": "resolved_hex.json names 131 CRC keys from XBE format strings",
+   "subject": {
+    "kind": "file",
+    "id": "dictionary"
+   },
+   "addresses": [],
+   "related": [
+    "bs-dictionary-rebuild"
+   ],
+   "fact": "maps 131 CRC keys to names that were built from XBE format strings.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "dictionary"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bs-boardable-definition",
+   "title": "Boardable: Nation 0, StartAbandoned 1, owner controller, AI off",
+   "subject": {
+    "kind": "property",
+    "id": "boardable (MAOwnerController child)"
+   },
+   "addresses": [],
+   "related": [
+    "MAOwnerController"
+   ],
+   "fact": "A vehicle is boardable when Nation is 0, StartAbandoned is 1, it has a child MAOwnerController whose MoverTemplateUID equals the TemplateID, and m_bAIEnabled is 0. Retail data shows this, but the runtime check was not found in code, and whether m_bAIEnabled 0 is required in play is not verified. Loki and Stiletto have identical flags, and the Stiletto's configuration is outside BoggedDown's culled set.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "boarding",
+    "vehicles"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bs-force-low-detail",
+   "title": "Battle Armor pink blocks: ForceUseLowDetail=1",
+   "subject": {
+    "kind": "property",
+    "id": "ForceUseLowDetail"
+   },
+   "addresses": [],
+   "related": [
+    "bs-multiplay-missing-mgf",
+    "pink-placeholder-is-failed-object-build"
+   ],
+   "fact": "Battle Armor shows as a pink block on multiplayer bases because those levels ship only the low-detail model. Setting ForceUseLowDetail=1 avoids this. UPDATE 2026-11-09 (t27): the pink pole-and-cube is the game's marker for ANY object whose build failed (sub_D8221/sub_D8391), not only a missing model. Other causes: a template named inside the object's .mtb (debris, rubble, dust, explosion effects) whose files the scenario did not ship, and the 4 hard-coded MABuilding effect files on a Base without buildings. Editor d34766e + dcdcad4 (PC Release editor d062003f) ship all of these. See pink-placeholder-is-failed-object-build, pink-placeholder-mtb-template-refs, mabuilding-hardcoded-effect-files.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "models",
+    "assets"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bs-marroot-start-vehicles",
+   "title": "MARoot StartVehicles<GameType> leads to the body template",
+   "subject": {
+    "kind": "property",
+    "id": "MARoot.StartVehicles<GameType>"
+   },
+   "addresses": [
+    "000F26D9"
+   ],
+   "related": [
+    "MAPlayerConfigurationContainer",
+    "MAPlayerConfiguration"
+   ],
+   "fact": "MARoot's StartVehicles<GameType> property (format string at 000F26D9) points to an MAPlayerConfigurationContainer, which leads to an MAPlayerConfiguration whose CorporealTemplateUID is the body. The Generic game type value is 1F13DE84.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "vehicles",
+    "config"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bs-mission02-vehicle-swaps",
+   "title": "Mission_02 vehicles and mid-mission swaps",
+   "subject": {
+    "kind": "concept",
+    "id": "Mission_02 player vehicle sequence"
+   },
+   "addresses": [],
+   "related": [
+    "MAActionChangePlayerVehicle",
+    "bs-marroot-start-vehicles"
+   ],
+   "fact": "Mission_02 uses template 125894, then 125897, then 125891 NearClip BA. Mid-mission vehicle swaps use MAActionChangePlayerVehicle.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "vehicles",
+    "mission"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bs-maroad-prefab",
+   "title": "MARoad is a prefab tile, not a spline",
+   "subject": {
+    "kind": "class",
+    "id": "MARoad"
+   },
+   "addresses": [],
+   "related": [
+    "MARoad"
+   ],
+   "fact": "MARoad is a prefab tile from a .road file, not a spline. All 799 of 799 joins check out.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "road",
+    "class"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bs-mawater-size",
+   "title": "MAWater size and MATerrainInfo water types",
+   "subject": {
+    "kind": "class",
+    "id": "MAWater and MATerrainInfo"
+   },
+   "addresses": [],
+   "related": [
+    "MAWater",
+    "MATerrainInfo"
+   ],
+   "fact": "MAWater's size is the bounding box of its model, centred on CorporalPos. Gameplay water is the MATerrainInfo type map: 8 is shallow, 16 is deep and 32 is waterway.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "water",
+    "class"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bs-mission02-tripwires",
+   "title": "Mission_02 orange slabs are MATriggerCuboidalVolume tripwires",
+   "subject": {
+    "kind": "class",
+    "id": "MATriggerCuboidalVolume (TB tripwires)"
+   },
+   "addresses": [],
+   "related": [
+    "MATriggerCuboidalVolume"
+   ],
+   "fact": "The orange slabs in Mission_02 are MATriggerCuboidalVolume tripwire boxes named TB. The purple cubes are 39 MAWaypoint patrol points.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "mission",
+    "class"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bs-dictionary-unknown-keys",
+   "title": "Open: 20 of 919 keys on placeable classes unknown",
+   "subject": {
+    "kind": "concept",
+    "id": "catalog unknown keys"
+   },
+   "addresses": [],
+   "related": [
+    "bs-dictionary-rebuild"
+   ],
+   "fact": "Of 919 keys on placeable classes, 20 remain unknown: 7 unnamed CRCs and 13 named fields whose values do not show a role.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "dictionary",
+    "open"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bs-test-idex-channel",
+   "title": "IDE channel export regression test",
+   "subject": {
+    "kind": "tool",
+    "id": "tests/idex_channel"
+   },
+   "addresses": [],
+   "related": [
+    "IDE_CHANNEL_OBJECT"
+   ],
+   "fact": "A test with synthetic imports for IdexChannelObject and XboxSignatureKey checks that the exported IDE channel has a circular empty DeviceQueue.DeviceListHead and independent storage. The old initialisation left null links at +0x28 and +0x2C, inside the key region. The guest DeviceQueue starts at +0x24 and its list at +0x28. It initialises an empty host-backed queue and does not implement IDE hardware.",
+   "how_to_use": "cmake -S tests/idex_channel -B build/idex-channel -A x64, then ctest.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "test",
+    "ide"
+   ]
+  },
+  {
+   "id": "bs-test-wma-fixture",
+   "title": "Synthetic WMA decoder fixture sine.wma",
+   "subject": {
+    "kind": "asset",
+    "id": "tests/wma_decoder/fixtures/sine.wma"
+   },
+   "addresses": [],
+   "related": [
+    "WMA decoder"
+   ],
+   "fact": "sine.wma is a generated 440 Hz tone: 0.25 s, 44,100 Hz, stereo, WMA v2 at 64 kbit/s, public domain. The test checks successful decoding and PCM metadata, then injects a source reader error after the first sample to check partial-output cleanup. FFmpeg is needed only to regenerate the fixture.",
+   "how_to_use": "Regenerate with the ffmpeg lavfi sine command in the README.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "test",
+    "audio",
+    "wma"
+   ]
+  },
+  {
+   "id": "bs-test-probe-policy",
+   "title": "Diagnostic probes are owned, bounded and leave user data alone",
+   "subject": {
+    "kind": "concept",
+    "id": "owned diagnostic probe policy"
+   },
+   "addresses": [],
+   "related": [
+    "bs-run-probe"
+   ],
+   "fact": "Diagnostic game processes are owned by the probe harness and bounded by a watchdog.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "test",
+    "policy"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-v16-campaign-checkpoint",
+   "title": "v16 normal campaign: first checkpoint and resume (historical)",
+   "subject": {
+    "kind": "save",
+    "id": "v16 retail campaign checkpoint"
+   },
+   "addresses": [],
+   "related": [
+    "bs-new-campaign-bootstrap"
+   ],
+   "fact": "The staged v16 normal campaign boots through the retail lobby, reaches first-mission gameplay and passes about nineteen minutes of monitored movement, aiming and combat. Three further restarts advance controller reports from 38,412 to 42,804, and the process closes with exit 0. A fresh process restores the private checkpoint through the lobby. This checks the initial checkpoint only.",
+   "status": "historical",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "campaign",
+    "save",
+    "history"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-v15-root-skip",
+   "title": "Packaged startup skip taps and root menu checks (v15)",
+   "subject": {
+    "kind": "menu",
+    "id": "root-launch menu probe"
+   },
+   "addresses": [],
+   "related": [
+    "bs-startup-skip-queue"
+   ],
+   "fact": "The packaged v15 root launcher passes 30 ms skip taps with Enter, Space, left click and controller Start. Its native menu test passes mouse navigation, Escape and click Back, input-device switching, scene camera capture and release, settings and exit confirmation. Texture switching and keyboard adjustments pass.",
+   "status": "historical",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "menu",
+    "verification",
+    "history"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-v11-first-mission-perf",
+   "title": "First-mission and Mission 16 performance samples (v11 and v15, historical)",
+   "subject": {
+    "kind": "concept",
+    "id": "Mission 16 and Mission 1 FPS samples"
+   },
+   "addresses": [],
+   "related": [
+    "bs-bloom-shared-surfaces"
+   ],
+   "fact": "Undisturbed 20-second samples at 3840x2160 with 4x textures and original draw distance measure 154-163 FPS in Mission 16 and 186-187 FPS in Mission 1, with no frame intervals above 16.7 ms in the sampled views. These are not campaign-wide minimums.",
+   "status": "historical",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "performance",
+    "history"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-overnight-soak",
+   "title": "Ten-minute packaged soak (earlier build)",
+   "subject": {
+    "kind": "concept",
+    "id": "root-launch soak"
+   },
+   "addresses": [],
+   "related": [
+    "bs-campaign-open-release"
+   ],
+   "fact": "A ten-minute packaged soak closed cleanly with zero runtime errors, underruns or engine glitches, with 181-190 FPS samples at 2x using real app-data preferences and saves. This was an earlier build.",
+   "status": "historical",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "history",
+    "soak"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "bs-mission09b-long-runs",
+   "title": "Mission 09b interaction runs (v17 and v18 diagnostics)",
+   "subject": {
+    "kind": "concept",
+    "id": "Mission 09b interaction runs"
+   },
+   "addresses": [],
+   "related": [
+    "bs-usb-open-long-run"
+   ],
+   "fact": "The v17 fifteen-minute Mission 09b run at 3840x2160 acquired seven live actors across six reloads, and shutdown returned 0. The v18 six-minute run measured the USB clock at 999.8 ms per real second. These bounded interaction runs do not prove objective completion.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "stability",
+    "verification"
+   ],
+   "date": "2026-10-09"
+  }
+ ]
+}

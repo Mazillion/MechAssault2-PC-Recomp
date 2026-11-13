@@ -1,0 +1,23 @@
+{
+ "format": "edits-2",
+ "base": {
+  "recomp_fast_0018.c": "5e601d23b6826c2b893bf5800e883e7b319d649f12300d65e2c19205531be9db",
+  "recomp_fast_0027.c": "f17d3c2d3e823ffe8ef549cef04adcfaa9d696ea3176c1eb4e76bc32c221c65e",
+  "recomp_fast_0028.c": "87fa0f39e9b14e0f20683d71d0f1b058dc9bc44aa145cdd4c55de6ce2def40f0",
+  "recomp_fast_0032.c": "2b3f86b1ec67ee391bfe0631c8cb37e940e7bfb2e9f50b6372595c793ca3b023"
+ },
+ "final": {
+  "recomp_fast_0018.c": "a6c5ca7401d7d6daf4e030a6d7032fbfcf39b70cdb02b494ec13f22dd5489301",
+  "recomp_fast_0027.c": "000fdee8348565ff1d4d72cc4be17c24a7c29c7936a38bcffb90e2d510d23365",
+  "recomp_fast_0028.c": "fd06ae3bc5f7fd16df1f650fd42ea9d6da779fb802d24d9f2702d199d772e6f3",
+  "recomp_fast_0032.c": "bfeef0ada32e6f7675a923e668a8d959093deeca04451c520dab859aa06c0c05"
+ },
+ "patched": [
+  "recomp_fast_0018.c",
+  "recomp_fast_0027.c",
+  "recomp_fast_0028.c",
+  "recomp_fast_0032.c"
+ ],
+ "added": [],
+ "removed": []
+}

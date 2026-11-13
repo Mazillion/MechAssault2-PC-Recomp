@@ -1,0 +1,674 @@
+{
+ "pack": "t19_bot_audit_1104",
+ "title": "Bot behaviour audit, pass 2: MechAI goto idle, backtrack halt band, dodge on retreat, VTOL swap loop (2026-11-04)",
+ "facts": [
+  {
+   "id": "audit-mechai-goto-idle-signature",
+   "title": "MechAI goto (mode 6, awake) idles: turn in place (anim 18) then anim 0 with forward speed comp+0x98 = 0, carrot 20-30 m ahead",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [
+    "001843C1",
+    "0018A38E"
+   ],
+   "related": [],
+   "fact": "A walker in MechAI goto mode 6 with ai+0x90 = 1 sometimes turns to its carrot in place (ai+0x360 = 18, comp+0xB0 = +-90 deg/s, comp+0xA0 = target yaw in degrees) and then stays at anim 0 with comp+0x98 (forward speed) = 0 while the carrot is 20-30 m ahead and it faces it. The game's mode-6 handler sub_1843C1 calls MoveTo , when MoveTo returns 'arrived', sets speed 0 (sub_2AD5C0). Seen: au3_20 bot 3 7 s on a mound after a hop, au3_60 bot 4 7 s on level ground (871.9,4.1,1596.5), au3_20 bots 2/5 4 s each; ~39 s over 4 Elite matches. Not the cause: MoveTo's overshoot test dot(dest-pos, dest-ai+0x188) (ai+0x188 is 0 for fresh 'Mechs and the sign does not predict moving, 87 vs 89 %). The exact gate in MoveTo (sub_18A38E -> 185D6E / 186362 / ai+0x2C 1B1075 / 179E58) is not decoded. Distinguish from a body pressing a wall: there comp+0x98 stays set (22.5) and anim is 2 (au4_20 bot 0).",
+   "how_to_use": "GotoWalk (ma2_bot_ctrl.c, RECOMP_BOT_GOTO_WALK / [Bots] GotoWalk) drives such a body with body_walk_direct for up to 2.5 s when it is still 1 s, facing (25 deg) a carrot 8 m+ off and comp+0x98 < 0.5. Read comp+0x98 and ai+0x360 before blaming the planner for a standing walker.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "audit-backtrack-halt-band",
+   "title": "Backtrack to a crumb 5-10 m off stood the whole 4 s (MoveTo halt band); AiKick is off during backtracks",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The stall watchdog's backtrack steered at the breadcrumb itself; MoveTo halts 5-10 m short, so a crumb 6.7 m off was 'arrived at' and the 'Mech stood facing it at anim 0 until back_until (au3_00 bot 0, t=191.0-194.8). AiKick and FastStall are suppressed while back_until runs. BackCarrot pushes the steer point to kind_min_carrot along the same line (arrival test still 3 m from the crumb).",
+   "how_to_use": "RECOMP_BOT_BACK_CARROT / [Bots] BackCarrot; [C7] backcarrot pushed_s. Any new steer target closer than ~10 m for a MechAI body needs the same push or a direct walk.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "audit-shuttle-samples-peek",
+   "title": "Shuttle stall fired on a fresh retreat from samples taken during a peek fight",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The 12 s / 11 m shuttle test kept its samples across goals: a peek-hide/peek-shoot fight (goals <= 25 m, where the test never fires) filled them, and 0.8 s into a retreat goal 37 m off, running at 10 m/s, it declared a stall (au3_00 bot 0, t=190.77) and backtracked. ShuttleReset clears the samples whenever the goal is within 25 m (not on every goal change: retreats re-pick their point every few seconds and that would blind the test).",
+   "how_to_use": "RECOMP_BOT_SHUTTLE_RESET / [Bots] ShuttleReset; [C7] shuttlereset n.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "audit-hop-onto-mound",
+   "title": "Travel hop along a leg landed on a 17 m mound (hop_ok only checked structures)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "hop_ok sampled the hop line every 8 m for structures (surface > terrain + 3) only. au3_20 bot 3 hopped a leg at y -12 (t=12.9, jet dir -31.5 deg = ai+0x244/+0x24C; ai+0x250 end time, +0x254 start time, +0x258 strength) and landed 20 m on at y 5.1 on raised terrain, then idled (see audit-mechai-goto-idle-signature). JumpLand also refuses a hop where the ground top on the line rises 4 m+ over the body.",
+   "how_to_use": "RECOMP_BOT_JUMP_LAND / [Bots] JumpLand; [C7] jumpland refused (216 refusals in a 240 s Bogged Down TD match).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "audit-dodge-backwards-on-retreat",
+   "title": "Missile dodge threw retreating bots back toward the enemy (side chosen = own side of the missile line)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The incoming-missile dodge jets perpendicular to the missile's course on the side the bot stands. With the attacker on the flank, that side points back along the retreat: au3_20 bot 9 dodged 5 times in 17 s (209.9-226.7), each jet NW while retreating SE, net 19 m, died. DodgeFlee: while the goal is G_RETREAT and the point is 5 m+ off, the dodge takes the perpendicular that agrees with the way it is going (homing missiles: either side leaves the course). Recording: 3 of 4 retreat dodges flip. DodgeBurn (0.7 s burn) shortens each throw as well.",
+   "how_to_use": "RECOMP_BOT_DODGE_FLEE / [Bots] DodgeFlee in ma2_bot_brain.c brain_tick_body; [C7] dodgeflee flips.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "audit-vtol-swap-loop",
+   "title": "VTOL swap loop: the 2 s after an eject order fell into swap-go, flying the craft back at the ride (116 s)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "order_swap: for a VTOL, 'now < next_eject' skipped the set-down branch and fell into 'else if (hdist > 12) swap-go' (walk-to-entry), so exit was let go and the craft flown back at the 'Mech; au3_60 bot 10 cycled swap-land/go/eject ~50 times 73.6-189.7 at 40-72 m and was shot down. Also: Y held with stick down at 68 m (48 m AGL) did not descend in 6 s, and the ctrl eject's 'stuck high' lift-off retry climbs (y 50 -> 71). SwapUnstick (4 m in 10 s) never tripped because the craft kept moving. Fixes: SwapHold (VTOL in the eject window keeps the exit held) and SwapHeadway (no 2 m gain in entry distance + height over the ride in 20 s = give up; trips at 97.4 on the recording).",
+   "how_to_use": "RECOMP_BOT_SWAP_HOLD / SwapHold, RECOMP_BOT_SWAP_HEADWAY / SwapHeadway; [C7] swaphold frames, swapheadway giveups. Open: why the exit hold does not set the VTOL down there (VTOL flight owner).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "vtol",
+    "swap"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "audit-ba-hold-high-normal",
+   "title": "A BattleArmor standing on a roof under body_stop with ai+0x240 = 1 can be the hold-high post, not a stall",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "au3_20 bot 8 stood 7.3 s on a roof at (865,21,1092) (176.4-183.8) in AI mode 7 (S drive) with the jet flag set: the brain's 'hold-high' post, firing at full hp, then moved on. Reviewer flagged it as the idle bug; it is normal.",
+   "how_to_use": "Check the brain tag (desc 'hold-high') and v.firing before treating a still roof BA as stuck.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "audit-f1-pairkeep",
+   "title": "CtfPair BA pilot swapped into a free Mech once its VTOL came within 30 m (PairKeep)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "When the pair's VTOL closed to 30 m the pair hold released and G_SWAP (1.25, a free 'Mech 40 m off) outbid the ride; the BA ran up a ramp and back for 10 s. pick_swap now returns -1 for the pair's ba_pl while the pair is active. BRT(g_pair) is in the recorder tables.",
+   "how_to_use": "RECOMP_BOT_PAIR_KEEP / [Bots] PairKeep.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "ctf"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "audit-f2-baroofland",
+   "title": "BattleArmor knocked onto a roof stood with the walker bit clear (BaRoofLand)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "BaLand gave comp+0x145 bit0 back only on terrain or a known surface; a BA put down on a 42 m NRC roof stood until AiKick. ba_land_release now also releases a BA standing still (ai+0x240 = 0, |vy| < 0.5) at one height for 0.25 s: prove_roofland.py releases at 39.81 on the recording.",
+   "how_to_use": "RECOMP_BOT_BA_ROOF_LAND / [Bots] BaRoofLand (BotCtrl bal_t/bal_y/bal_n).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "ctf"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "audit-f3-dodgeburn",
+   "title": "Missile dodge burned 2 s and threw a flag-run BA 40 m back onto a roof (DodgeBurn 0.7 s)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "au3_64 bot 4 at t=43.2-46.8 (order.dodge dx .96 dz -.27): 0.7 s into the burn it was already 8 m clear of the missile line (3 m needed) at y 2.4; the full 2 s carried it 40 m back and 20 m up onto a roof. The dodge burn is capped at 0.7 s.",
+   "how_to_use": "RECOMP_BOT_DODGE_BURN / [Bots] DodgeBurn. botrec diff --stream bot finds order.dodge changes.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "ctf"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "audit-basewar-bay-target",
+   "title": "Base War: bots attacked/guarded the 2000-hp indestructible VTOL bay instead of the 24000-hp plant (BaseWarCore)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "obj_basewar added only 150 m to small team buildings. On Deliverance the bay (1348,15,313 / 835,28,1737; saved Indestructible=1) stands ~490 m in front of the plant (1834,5,248 / 352,5,1804), so attackers took it as their order point; defenders guarded the nearest own building = own bay roof (y 28, no_path). au5_91: 786 bot-s attack orders on bays + 406 s guarding own bays. BaseWarCore: while a plant-sized building (>= 50 % of the biggest) stands, smaller ones are no target, and defenders guard their own biggest. au7_91: 0 s. Still open: attack runs rarely reach the plant (1.5-2 km trek; attackers stay 1000-2100 m off).",
+   "how_to_use": "RECOMP_BOT_BW_CORE / [Bots] BaseWarCore in ma2_bot_brain_obj.c; [C7] bwcore skipped_small.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "basewar",
+    "objective"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "audit-snatch-core-touch",
+   "title": "Snatch It carriers orbited their base at 15-18 m and never delivered (CoreTouch)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A core counts only within ~11-12 m of the base centre (MASnatchItBase radius 13; the carry order stopped at 0.4 x radius). MoveTo orbited the point at 15-18 m at speed: au5_82 b5 circled 12 s with a core and died; b9/b10 the same. CoreTouch makes OP_CARRY in Snatch It a touch + exact order (ctrl_exact_walk) inside 30 m. au7_82: carrier-seconds within 30 m of base without delivering 42.1 -> 3.9.",
+   "how_to_use": "RECOMP_BOT_CORE_TOUCH / [Bots] CoreTouch. Any 'reach this exact point' objective should use touch + exact, not MoveTo's arrival.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "snatchit",
+    "objective"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "audit-pu-refused",
+   "title": "Bots walked over a weapon upgrade the game would not give them for 13-43 s (PuRefused)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The game hands a weapon upgrade only to a body that can raise THAT weapon (and a health pack only when damaged); the view's wpn_room is coarser. au3_64 bot 7 passed over upgrade 01910290 every 1.5 s for 13 s; au5_20 b7 (BA, full hp) stood 43 s on a ferried health pack. PuRefused: still on the map 4 s after the bot first came within 3 m -> pu_bad 60 s. Fires at 156.7 on the au3_64 recording.",
+   "how_to_use": "RECOMP_BOT_PU_REFUSED / [Bots] PuRefused; [C7] purefused n; [BOT-PUREFUSED] diag.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "powerup"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "audit-note-reset",
+   "title": "Brain status notes went stale across goals and misled audits (NoteReset)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "b->note (the tag after shield= in the brain desc, used as the segment tag by audit.py) was only written by order functions that set one; goals whose orders set none (objective guard/stage) kept the previous goal's note for 26-42 s ('powerup', 'hack', 'wary-blast-wait', 'flagrun-drop'). Cleared on every goal switch now (no logic reads the note).",
+   "how_to_use": "When reading older recordings, trust goal= and the order, not the note.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "tooling"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "audit-tank-pivot-deadlock",
+   "title": "A stopped tank with its carrot ~90 deg off never turns: TankAI MoveTo keeps comp+0xD4 = 5 and gives speed 0 (TankPivot)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Tank yaw rate = speed / comp+0xD4 (turn radius, 5 during MoveTo). Stopped with the carrot 89-92 deg off, MoveTo gave forward speed 0 (comp+0x98 0), so the hull never turned: au5_91 bot 2 stood 18 s (105-123) until the trapped bail-out. TankPivot: still 1 s, carrot 8 m+ and 30+ deg off -> comp+0xD4 = 0, AI mode 7, TurnToward sub_2AE360 + speed 0 (body_turn_in_place) up to 3 s. Reruns: 18 fires, 18 faced, the tank drives on within ~1.5 s.",
+   "how_to_use": "RECOMP_BOT_TANK_PIVOT / [Bots] TankPivot; [C7] tankpivot n/faced/failed; [BOT-TANKPIVOT] diag.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "tank",
+    "locomotion"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "audit-moveto-cached-subgoal",
+   "title": "Writing ai+0x130 does NOT always retarget a running MechAI at once: MoveTo follows a cached sub-goal (sub_185D6E, ai+0x1E4) until reached/passed",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Partial decode (researcher, code-confirmed call order): MoveTo sub_18A38E replaces its destination with sub_185D6E's return, which keeps returning a cached point ai+0x1E4 while it is neither within R nor passed (dot test vs ai+0x188), then picks a new one from ai+0x1DC (possibly with a random lateral offset). Arrived = sub_179E58 flat dist <= R (10 m; follow mode 2: 1+0.015*ai+0x1C0*maxSpd*pct ~23 m) or, with run set, dot(dest-pos, dest-ai+0x188) <= 0; comp vt+0x24 can clear it. Effect seen: au5_20 bot 7's death-blast escape ran 16 m/s INTO the blast for its whole escape though ai+0x130 pointed out (EscapeDirect now switches to body_walk_direct). Corrects the older 'writing ai+0x130 re-targets at once'.",
+   "how_to_use": "For urgent direction changes of a running 'Mech (escapes, dodges) use body_walk_direct (sub_2AE360 + sub_2AD5C0), not a new MoveTo point. Open: who writes ai+0x188 / ai+0x1E4; the +-90 deg avoidance dither (au3_00 bot 0 94-113) is likely this sub-goal.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "locomotion",
+    "mechai"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "audit-checkit-target-flip",
+   "title": "Check It attackers flipped their terminal every ~2 s (k-th nearest re-sorted each evaluation); CheckSticky keeps the claimed one",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "obj_checkit picked candidates[obj_rank % n] from a list re-sorted by distance from the bot's current spot (+80 m crowd push per teammate), with no memory, so the pick changed as the bot moved: au9_70 b3/b7/b10 flipped 64-92 times and circled 200-470 m out (256 flips/match). CheckSticky keeps b->obj_ent while it is a candidate unless the new pick is 150 m+ nearer: au11_70 12 flips. Note objective_eval clears obj_op (not obj_ent) before each mode function.",
+   "how_to_use": "RECOMP_BOT_CHECK_STICKY / [Bots] CheckSticky; [C7] checksticky kept/switched. Any rank-spread objective pick needs the same memory.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "checkit",
+    "objective"
+   ],
+   "date": "2026-11-05"
+  },
+  {
+   "id": "audit-tank-pivot-fight",
+   "title": "Tank strafe/firing steps also deadlocked a stopped tank (fight_step -> MoveTo); fight_step now pivots",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Same comp+0xD4 deadlock as audit-tank-pivot-deadlock but in ctrl_fight's steps: au8_25 tanks stood 2-6 s with the step 90-160 deg off, 11 times (b1 -1073 hp, died). fight_step turns a stopped tank (no navigator speed) on the spot when the step is 45+ deg off and 6 m+ away. Stopped-off-carrot tank time 19.7 -> 5.2 s.",
+   "how_to_use": "Part of RECOMP_BOT_TANK_PIVOT; [C7] tankpivot fight_s. Committed inside 31ecd56.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "tank",
+    "locomotion"
+   ],
+   "date": "2026-11-05"
+  },
+  {
+   "id": "audit-notit-chase-direct",
+   "title": "Not It: flank vias re-picked on every 60 m It moved, often on tower roofs (ChaseDirect, ViaRoof)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "lane_point re-picks its via when the destination moves 60 m+, and the open-ground side via took the ground height at the sample, which can be a roof. Chasing a moving It: 305 via picks/match on Rush Hour, 10 % of chase orders 75 m+ up, BattleArmor climbing towers and idling (25 AiKicks). ChaseDirect: Not It objective chase returns dest (no ). ViaRoof: side vias 15 m+ above the bot refused. Rerun: 9 via picks, AiKicks 54 -> 30.",
+   "how_to_use": "RECOMP_BOT_CHASE_DIRECT / ChaseDirect, RECOMP_BOT_VIA_ROOF / ViaRoof; [C7] chasedirect s, viaroof skipped. OP_* enums live in ma2_bot_brain_obj.c (included after lane_point), so brain.c code above line ~2990 cannot test obj_op.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "notit",
+    "objective",
+    "navigation"
+   ],
+   "date": "2026-11-05"
+  },
+  {
+   "id": "audit-lane-retarget-storm",
+   "title": "A destination that moves 60 m+ per frame (re-rolled guard points) restarted the lane trip every frame (LaneKeep)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "lane_point ended the lane trip whenever the destination moved 60 m+. Guard points re-rolled round a Base War plant did that most frames: au16_90 defender b4 stood 88 s 640 m from home, 2568 re-joins (lanes left_end_retarget 2701 of 2714 trips). LaneKeep restarts only if the move is also > 30 % of the way left. au18_90: 23 trips; both plants took 2-6x the damage.",
+   "how_to_use": "RECOMP_BOT_LANE_KEEP / [Bots] LaneKeep; [C7] lanes keep_retarget. A stalled body with thousands of flank_trips is this.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "navigation",
+    "basewar"
+   ],
+   "date": "2026-11-05"
+  },
+  {
+   "id": "audit-blast-linger",
+   "title": "Death-blast window started at hp <= 0.5 % and ran 2.6 s, closing before a lingering big Mech blew (BlastLinger)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "blasts_update registers a blast when a 'Mech crosses hp <= 0.5 % and expires it 2.6 s later. A 6000-hp 'Mech can sit at 11 hp for 3.4 s (au16_61 b0), so BlastWary released and two teammates walked into the real blast. BlastLinger keeps t0 = now (and the position) while that actor is still a 'Mech with hp > 0, and drops the blast if it climbs over 2 %.",
+   "how_to_use": "RECOMP_BOT_BLAST_LINGER / [Bots] BlastLinger in ma2_bots_core.c; [C7] deathblast lingered_s / recovered.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "deathblast"
+   ],
+   "date": "2026-11-05"
+  },
+  {
+   "id": "audit-eject-grace",
+   "title": "A swap-ejected pilot starts inside the hull it left for 2.8-4.5 s; the 2.5 s boarding stall dropped its target (EjectGrace)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Read as a stalled boarding leg the brain gave up the 'Mech 12-14 m off it was swapping to (au9_33 b4 26 s lost, b6 160 s on foot). A pilot's first 5 s after an actor change uses the normal 6 s stall. Swap-eject boardings within 12 s 2/5, 4/8 -> 4/6 (small n).",
+   "how_to_use": "RECOMP_BOT_EJECT_GRACE / [Bots] EjectGrace; [C7] ejectgrace s.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "pilot",
+    "swap"
+   ],
+   "date": "2026-11-05"
+  },
+  {
+   "id": "audit-force-far-attackers",
+   "title": "Brain force (ally/enemy odds) ignored attackers beyond 150 m, maxing the attack bonus while being killed (ForceAttackers)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "assess summed enemy_str only for enemies within 150 m; with none there force = 4.0 and the attack score multiplier 0.6 + 0.4*force caps at 1.2. A bot duelled from 160 m+ kept full attack: ad1_20 b1's tank 754 -> 154 hp, force 4.0, n_attackers 1. Attackers (hit us < 3 s ago, or visibly attacking) now count at any range. Rerun: under-fire low-hp retreat share 24 -> 37 %, deaths 18 -> 14.",
+   "how_to_use": "RECOMP_BOT_FORCE_ATTACKERS / [Bots] ForceAttackers; [C7] forceatk far_s. force is the only odds input to the attack score (brain.c ~3704).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "combat",
+    "retreat"
+   ],
+   "date": "2026-11-05"
+  },
+  {
+   "id": "audit-status-nopath-one-step",
+   "title": "Ctrl status.no_path is set only on a plan step: a moving tank never held it 3 s, so ObjGiveUp never fired (ObjRouteFails)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "core memsets b->status every step before ctrl_tick; no_path is raised only in ctrl_plan_done (path_fails >= 3) or the partial-end hold (standing at the route end). ObjGiveUp needs no_path for 3 s straight, so a tank circling the cliff foot under a Snatch pile 25 m up (r4_85 b4 59 s, b8 39 s, path_fails 3-42) or shuttling below a plateau Check It terminal (r4_73 b5 180 s, route 133 m short on 186/195 samples, no_path on 4) never gave up. status.route_fails now carries path_fails every step; tanks give up at route_fails >= 3 for 3 s and skip that target 60 s. 'Mechs are excluded: they jet the last ledge and also run path_fails >= 3 from 400 m out. Rerun r5_85: tank objective-with-failing-route time 129 -> 25 s.",
+   "how_to_use": "RECOMP_BOT_OBJ_ROUTE / [Bots] ObjRouteFails; [C7] objroute giveups. Any brain test of st->no_path over time has the same one-step problem.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "pathing",
+    "objective"
+   ],
+   "date": "2026-11-06"
+  },
+  {
+   "id": "audit-vtol-roam-edge",
+   "title": "VTOL roam point near the map edge: VtolEdgeAll moves the goal 25 m , the 10 m re-pick never fires (RoamEdge)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "pick_roam is re-run within 10 m of roam_pt; ctrl_travel moves a VTOL goal up to 25 m in from the map edge (vt_keep_in), so the VTOL arrives 20 m from roam_pt and hovers until roam_until (20 s). r4_83 b2 14.4-34.4 at 386,984 beside its spawn. VTOLs re-pick within 35 m (roam_due).",
+   "how_to_use": "RECOMP_BOT_ROAM_EDGE / [Bots] RoamEdge; [C7] roamedge repicks.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "vtol"
+   ],
+   "date": "2026-11-06"
+  },
+  {
+   "id": "audit-neurohack-bot-victim-no-eject",
+   "title": "A NeuroHack that completes on a BOT never ejected it: the eject request bit lives one frame (HackEject)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [
+    "000C6A62",
+    "000C8306"
+   ],
+   "related": [],
+   "fact": "Hack completion calls sub_C6A62(1), which sets MAPlayer +0x244 bit 15 (eject request; hook ma2_bot_hack_eject logs [BOT-HACKED]). In the recording the bit is set for exactly one frame (r4_85 b1 75.20, b10 162.57) and cleared by the game without ejecting the bot: all 3 Elite BA hacks completed (f19 hacks_done=3) and every victim drove on, the hacker shot off at 9-29 m. Likely the handler reads raw flag bit 4 (local) and treats a bot as remote. Bot code now stamps the completion per bot (g_hack_ej_t, core) and the victim's view reports hack_eject for 4 s; the brain scores G_EJECT 3.5. Also covers a human hacking a bot. sp_hackcover 'lost' (nation not flipped) is NOT a hack result.",
+   "how_to_use": "RECOMP_BOT_HACK_EJECT / [Bots] HackEject; [C7] hackeject bot_victims, eject_s. The real consumer of bit 15 is still not located (around sub_C8306 / sub_C81xx, which also call sub_C6A62).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "neurohack",
+    "battlearmor"
+   ],
+   "date": "2026-11-06"
+  },
+  {
+   "id": "audit-hackcover-no-exit",
+   "title": "Hack cover had no exit after a LOST hack: the covering tank held 40 s with no target (HackCoverEnd)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "SPC_HACKCOVER skips its until-expiry and end_no_helper once the hack is decided (win_t), to finish an ejected pilot; a lost hack (won=0) then never ended: r4_85 b8 tank 75-117 s in hackcover, target 0 from 85.4, enemy 'Mechs at 40-56 m. After the result it now ends at until (5 s) unless a won hack still waits on its pilot, 15 s cap.",
+   "how_to_use": "RECOMP_BOT_HACKCOVER_END / [Bots] HackCoverEnd; [C7] sp_hackcover end_decided.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "surprise"
+   ],
+   "date": "2026-11-06"
+  },
+  {
+   "id": "audit-ejectturret-cap",
+   "title": "EjectTurret hold (stay in the hull at an enemy terminal with a turret) had no exit; capped at 8 s (EjectCap)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "obj_order kept a non-pilot in its vehicle while an enemy-owned foot terminal had a live turret (g_tur) within 50 m; nothing but F37 or an ownership flip ended it: r4_73 b0 parked 2 m from the enemy Tc 117 s (3421 -> 825 hp), b6 17 s in the cab; pilots that got out afterwards captured in 2-3 s. The hold now lasts 8 s from first coming within 40 m of that terminal.",
+   "how_to_use": "RECOMP_BOT_EJECT_CAP / [Bots] EjectCap; [C7] ejectcap lifted.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "checkit",
+    "objective"
+   ],
+   "date": "2026-11-06"
+  },
+  {
+   "id": "audit-checkit-hold-still",
+   "title": "Check It hold patrol left the 3 m capture circle: pilots now stand on the point (HoldStill)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The OP_GUARD/OP_HOLD patrol wanders 0.2-0.8 x max(obj_stop, 4 m) from the point; HoldTight only shrank obj_stop, the 4 m floor kept the wander outside a Check It capture (needs ~2 s within 3 m): r4_73 b7 at T2w 9 hold/claim flips at 5-13 m/s, no capture in 12 s, killed. Pilot/BA on a Check It hold now go to the point (stop 1 m, exact walk).",
+   "how_to_use": "RECOMP_BOT_HOLD_STILL / [Bots] HoldStill; [C7] holdstill frames.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "checkit",
+    "objective"
+   ],
+   "date": "2026-11-06"
+  },
+  {
+   "id": "audit-f37-stay-no-ride",
+   "title": "F37 'stay' is right where no free ride is near: 291-1070 m in all 11 measured stays",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "F37 (EjectSave) bails in respawn modes only with a usable ride within 150 m. In r4_83/r4_85 all 13 rolls were 'stay'; the nearest free vehicle was 291-1070 m away in each of 11 measured, and Check It F37 ejects with a ride still died within 5 s. Not a bug; the open gap is the late low-hp retreat.",
+   "how_to_use": "[BOT-F37] lines; botrec w.vehicles (occupied, hp) for nearest free ride.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "combat"
+   ],
+   "date": "2026-11-06"
+  },
+  {
+   "id": "audit-holdhigh-noshot-heat",
+   "title": "'Hold-high, no shots' with an enemy at 30-50 m was the heat gate: 'Mech at heat 119 after a jet climb",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "r4_85 b10 164.5-176.2 on the plateau terrace with a target and clear line (o.fire 1, fl_clear 1) fired nothing: F30.holds_elite every frame, heat 119 -> 78 while cooling after jetting up the plateau. Not the hold-high post; the heat cycle (ctrl heat_holds) decides.",
+   "how_to_use": "botrec ev keys F30.holds_* + v.heat.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "combat",
+    "heat"
+   ],
+   "date": "2026-11-06"
+  }
+ ]
+}

@@ -1,0 +1,1 @@
+[[8,0,["void ma2_probe_missions(uint32_t object,uint32_t selected);\r\n"]],[12796,0,["    ma2_probe_missions(esi,ecx);\r\n"]],[12871,0,["    ma2_probe_missions(ecx,esi);\r\n"]],[12954,0,["    ma2_probe_missions(esi,ecx);\r\n"]]]

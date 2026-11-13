@@ -1,0 +1,67 @@
+{
+ "pack": "t26_dsound_active_guard_1109",
+ "title": "DirectSound active-list re-insert (game freeze in BA death blasts)",
+ "facts": [
+  {
+   "id": "dsound-active-reinsert-freeze",
+   "title": "Game-thread freeze during BattleArmor death blasts = DirectSound DPC spinning forever on a self-linked active-list entry while holding the DSound lock 0x3C4598",
+   "subject": {
+    "kind": "function",
+    "id": "sub_3AE5C7"
+   },
+   "addresses": [
+    "003AE5C7",
+    "003AE754",
+    "003AACE7",
+    "003AAD1D",
+    "003AECB7",
+    "003AB320",
+    "003AB3BC",
+    "003AAEE1",
+    "003AD1A5",
+    "003AE0D2",
+    "003C4598",
+    "003DDE80",
+    "003DDEAD",
+    "003DDECB",
+    "003E869C"
+   ],
+   "related": [
+    "sub_3AE5C7",
+    "sub_3AACE7",
+    "sub_3AECB7",
+    "sub_3AB320",
+    "sub_3AD1A5",
+    "sub_3AAEE1",
+    "sub_3AE0D2",
+    "sub_3DDE80",
+    "sub_3DDEAD",
+    "ma2_audio_active_preinsert",
+    "ma2_audio_active_repair",
+    "ma2_xact_raise_lock",
+    "RECOMP_AUDIO_ACTIVE_GUARD",
+    "RECOMP_BOT_STALL",
+    "[AUDIO-ACTIVE]",
+    "[CS-WAIT]",
+    "dsound-defer-double-insert",
+    "bal-gc-audio-crash"
+   ],
+   "fact": "The game thread holds the XACT critical section 0x3E869C (taken in sub_3DDE80) and blocks at 0x3DDECB in the XACT raise lock sub_3DDEAD -> ma2_xact_raise_lock, waiting for the DirectSound API lock 0x3C4598. That lock is held by the DSound DPC thread (kernel_run_dpc -> sub_3AB3BC -> sub_3AB320, which holds 0x3C4598 for the whole run), sampled 3/3 times inside the drain sub_3AACE7 / voice poll sub_3AECB7: it is not blocked, it loops. Mechanism: the voice start sub_3AE5C7 head-inserts the voice entry (voice+0x4C) on an active list (core+0x488/+0x490/+0x498) at loc_3AE754 without checking that it is still linked. On the Xbox the APU interrupt release 0x3AAEE1 -> sub_3AD1A5 always unlinks a finished voice first; here the ISR try-locks 0x3C4598 and skips the release when the lock is held, and the stop-wait sub_3AE0D2 gives up after 0.5 s, so a restarted voice can still be on the list. Head-inserting an entry that is already the head self-links it (Flink=Blink=self) while the head still points at it. Phase 1 of sub_3AACE7 treats a self-linked current entry as 'list changed under me' and restarts from the head (loc_3AAD1D), which is that same entry again: an endless walk with 0x3C4598 held, so every other thread that needs the DSound lock (the game thread via XACT) waits forever. The APU thread keeps calling KeInsertQueueDpc (ordinal 119) at esp 0x7FFFC4 throughout. Proven by the hang watchdog: [CS-WAIT] tid=<game> waits on 0x003C4598 at guest 003DDECB; held by tid=<DPC thread>, with the DPC thread's guest stack in sub_3AACE7/sub_3AECB7 (runs h3_cu1 t=9.21, h3_cu2 t=10.21). Separate , but the same race family as, the deferred-list double insert (dsound-defer-double-insert).",
+   "how_to_use": "Fixed in branch hang-watch (commit 5a2b21c on top of DeferGuard 0163bba and diagnostics e47a885; b984562 cherry-picked as 48831dc; clue fast-forwarded to 48831dc for release candidate par24). Test exe 'MechAssault 2 v13-hang5.exe' (a test folder, md5 be6011a3). Switch RECOMP_AUDIO_ACTIVE_GUARD (default on, =0 off), code in apu\\ma2_audio_guest.inc. ma2_audio_active_preinsert (hooked at loc_3AE754 in recomp_0096.c) unlinks the voice entry first when it is still linked and its neighbours point back at it, logging '[AUDIO-ACTIVE] voice object X (hw voice N) started while still on an active list; unlinked first'. Safety net ma2_audio_active_repair (hooked at loc_3AAD1D in recomp_0095.c) runs only when the list head points at a self-linked entry and rebuilds the Flinks from the Blink chain (cap 1024, empties a looping chain). Diagnostics: RECOMP_BOT_STALL=1 makes the bot stall monitor print the game thread's guest registers and code-range return addresses, plus [CS-WAIT] lines (kernel_rtl.c xbox_cs_waiters_dump) naming every thread blocked in a guest critical section, the lock VA, the waiter's guest site and the owner's tid and taking site. A frozen run shows [BOT-STALL] freeze with menu pulse stopped; Game Over shows idle bots with 'menu pulse 0 ms ago'. Proof (2026-11-09, hang5 exe, RECOMP_BOT_STALL=1): 19/19 runs with 0 freezes. 10 LMS on the custom map b3_allmodes_rides (60 s, skill 3; pre-fix baseline about 2 freezes in 7) and 9 Not It (6 custom map + 3 retail par 5/4, 150 s; pre-fix hang3 baseline 2/2 froze at t=9-10). The guard fired in 10 of the 19 runs: [AUDIO-ACTIVE] 21 times (all 6 custom Not It runs, 1-4 each; LMS runs 1, 2 and 5; retail ni2), each one a re-insert that used to freeze the game. [AUDIO-DEFER] fired 7 times. No [CS-WAIT] lines. h5_lms8 ending at t=39 was a normal LMS Game Over, not a freeze.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "dsound",
+    "freeze",
+    "deadlock",
+    "race",
+    "stability",
+    "not-it",
+    "lms"
+   ],
+   "date": "2026-11-09"
+  }
+ ]
+}

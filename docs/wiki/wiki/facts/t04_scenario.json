@@ -1,0 +1,4968 @@
+{
+ "pack": "t04_scenario",
+ "title": "Custom scenarios: editor, file formats, game-side hooks",
+ "facts": [
+  {
+   "id": "ma2map-container",
+   "title": "ma2map is one uncompressed MGF v4 archive",
+   "subject": {
+    "kind": "file",
+    "id": "ma2map"
+   },
+   "addresses": [],
+   "related": [
+    "mgf-v4-header-and-records",
+    "scenario-ini-sections"
+   ],
+   "fact": "A scenario file is one plain MGF v4 archive. The writer (w_write) lays out a 64-byte header, file records, dir rows, a 'MGI' string table and 16-byte aligned data, with an engine path key and CRC on each record. The editor uses the same layout, and fmt_test checks its keys against retail common.mgf and boggeddown.mgf.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 440
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 306
+    }
+   ],
+   "tags": [
+    "mgf",
+    "format",
+    "ma2map"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "mgf-v4-header-and-records",
+   "title": "MGF v4 header and record words",
+   "subject": {
+    "kind": "file",
+    "id": "MGF v4 archive"
+   },
+   "addresses": [],
+   "related": [
+    "ma2map-container",
+    "path-key"
+   ],
+   "fact": "The header is 16 u32: 'mgf ', 0x5A5A0104, 0x10, file count, file bytes, file offset (0x40), dir count, dir bytes, dir offset, string bytes, string offset, then 1, 0x10000 and zeros. A file record is 8 u32: dir row, CRC of the data, path key, size, size, unix time, data offset, 0x12F700. A dir row is 6 i32: folder path key (0 for files), parent row, first child, next sibling, name offset, file index (-1 for folders).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 307
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 490
+    }
+   ],
+   "tags": [
+    "mgf",
+    "format"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "mgf-compressed-blocks",
+   "title": "Retail MGF archives are block-compressed",
+   "subject": {
+    "kind": "file",
+    "id": "compressed MGF"
+   },
+   "addresses": [],
+   "related": [
+    "mgf-v4-header-and-records"
+   ],
+   "fact": "Retail level archives other than movies.mgf and text.mgf are compressed. Header word 1 is 0xC5735A0F, word 2 the block count, word 3 the logical size and word 5 the block size (131,072 on the disc). A table of (start, length, checksum) triples sits at 0x20, and each block is an independent zlib stream. mgf_load inflates the whole archive into memory.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 327
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 329
+    }
+   ],
+   "tags": [
+    "mgf",
+    "compression"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "path-key",
+   "title": "Engine path key is CRC32 without the final complement",
+   "subject": {
+    "kind": "concept",
+    "id": "path key"
+   },
+   "addresses": [],
+   "related": [
+    "mgf-v4-header-and-records",
+    "world-file-keys"
+   ],
+   "fact": "The engine's path and property key is the CRC32 of the lower-case path (backslash form) without the final XOR with 0xFFFFFFFF. path_key computes it for dir rows and record path keys.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 97
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 98
+    }
+   ],
+   "tags": [
+    "mgf",
+    "hash",
+    "keys"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "world-file-keys",
+   "title": "World file property keys use the same CRC rule",
+   "subject": {
+    "kind": "file",
+    "id": "wdf"
+   },
+   "addresses": [],
+   "related": [
+    "path-key",
+    "world-file-structure"
+   ],
+   "fact": "A .wdf property key is crc32(name) without the final complement. About 97.7% of keys in retail worlds resolve to names from ma2.xbe strings. About 60 MATerrainInfo keys do not resolve.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "wdf",
+    "keys"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "world-file-structure",
+   "title": "World file (.wdf) layout",
+   "subject": {
+    "kind": "file",
+    "id": "wdf"
+   },
+   "addresses": [],
+   "related": [
+    "world-file-keys",
+    "catalog-object-dictionary"
+   ],
+   "fact": "A world file starts with the header 0xFF002F00 and 5 u32 words. Each object is FF012F01, a property count and a class key. Each property is FF022F02, a type, a key, a size and a payload. Types: 1 i8, 2 i16, 3 i32, 4 u8, 5 u16, 6 u32, 7 f32, 8 f64, 9 string, 10 vec2, 11 vec3, 12 colour, 13 blob, 16 u8. Objects form a tree through UID, parent, child and sibling properties under MARoot. Retail worlds round-trip byte-identically (61 of 61 in common.mgf).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "wdf",
+    "format"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "world-remap-text-cue",
+   "title": "Game remaps local text and cue ids in the copied world",
+   "subject": {
+    "kind": "function",
+    "id": "remap_world"
+   },
+   "addresses": [],
+   "related": [
+    "ma2-scn-text",
+    "ma2-scn-clip"
+   ],
+   "fact": "Before a world is served, remap_world rewrites each 4-byte integer property (type 3 or 6). A local text id 0x00F00000+n becomes 0x00F10000 + text_base + index, where index is the [Strings] entry for n. A local cue id 0x5C000000+n becomes 0x5C100000 + slot*0x1000 + n. This keeps the ids of different scenarios apart.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 649
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 661
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 667
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 670
+    }
+   ],
+   "tags": [
+    "text",
+    "audio",
+    "remap"
+   ],
+   "date": "2026-10-20",
+   "addresses_unverified": [
+    "00F00000",
+    "5C000000"
+   ]
+  },
+  {
+   "id": "remap-strict-range",
+   "title": "Remap skips the exact base values",
+   "subject": {
+    "kind": "function",
+    "id": "remap_world"
+   },
+   "addresses": [],
+   "related": [
+    "world-remap-text-cue"
+   ],
+   "fact": "The remap tests with strict greater-than against the base constants, so a property holding exactly 0x00F00000 or 0x5C000000 is left alone. A text id with no matching [Strings] entry is counted as missing and kept unchanged.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 663
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 668
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 669
+    }
+   ],
+   "tags": [
+    "text",
+    "edge-case"
+   ],
+   "date": "2026-10-20",
+   "addresses_unverified": [
+    "00F00000",
+    "5C000000"
+   ]
+  },
+  {
+   "id": "text-id-space-overlap-risk",
+   "title": "Global text id range could run into the name ids",
+   "subject": {
+    "kind": "concept",
+    "id": "global text ids"
+   },
+   "addresses": [],
+   "related": [
+    "world-remap-text-cue",
+    "map-name-ids"
+   ],
+   "fact": "Global text ids start at 0x00F10000 and grow by the number of strings per scenario. Ids from 0x00FF0000 up are read as map name ids. More than about 0xE0000 (917,504) total [Strings] entries would collide, but no test has reached that. This is inferred from the constants.",
+   "status": "open-question",
+   "confidence": "inferred",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 62
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 63
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1730
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 550
+    }
+   ],
+   "tags": [
+    "text",
+    "limit",
+    "risk"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "00F10000",
+    "00FF0000"
+   ]
+  },
+  {
+   "id": "map-name-ids",
+   "title": "Map name and description text ids",
+   "subject": {
+    "kind": "concept",
+    "id": "name ids 0x00FF0000+2*slot"
+   },
+   "addresses": [],
+   "related": [
+    "ma2-scn-text",
+    "mp-map-ini"
+   ],
+   "fact": "Each scenario's map name and description use text ids 0x00FF0000 + 2*slot and +1. The game returns the name or description from scenario.ini for these ids.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 837
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1730
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1734
+    }
+   ],
+   "tags": [
+    "text",
+    "ids"
+   ],
+   "date": "2026-10-20",
+   "addresses_unverified": [
+    "00FF0000"
+   ]
+  },
+  {
+   "id": "ma2-scn-text",
+   "title": "ma2_scn_text serves custom text for 0x00F00000.0x00FFFFFF",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_scn_text"
+   },
+   "addresses": [],
+   "related": [
+    "pc-prompts-hook",
+    "world-remap-text-cue",
+    "ui-strings"
+   ],
+   "fact": "ma2_scn_text(id, original) returns the built-in UI string for 0x00FFFF00 and up, the name or description for name ids, and the scenario's own [Strings] text for global ids. It returns the original string when the scenario layer is not ready or the id is unknown.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1726
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1728
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1739
+    }
+   ],
+   "tags": [
+    "text",
+    "localization"
+   ],
+   "date": "2026-10-20",
+   "addresses_unverified": [
+    "00F00000",
+    "00FFFFFF"
+   ]
+  },
+  {
+   "id": "pc-prompts-hook",
+   "title": "Text hook in pc_prompts.cpp",
+   "subject": {
+    "kind": "patch",
+    "id": "ma2_pc_localized"
+   },
+   "addresses": [],
+   "related": [
+    "ma2-scn-text"
+   ],
+   "fact": "patch_scenario.py adds one line to ma2_pc_localized in pc_prompts.cpp: ids 0x00F00000 to 0x00FFFFFF are sent to ma2_scn_text. The patch is idempotent and marked with ma2_scn_.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "hook",
+    "text"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "scenario-ini-sections",
+   "title": "scenario.ini requirements and limits",
+   "subject": {
+    "kind": "file",
+    "id": "scenario.ini"
+   },
+   "addresses": [],
+   "related": [
+    "ma2map-container",
+    "audio-slot-limit"
+   ],
+   "fact": "scenario.ini needs [Scenario] FormatVersion = 1, an 8-character Id, a Base and a Name, or the scenario is rejected. Name is limited to 95 characters, Description to 255, Author to 63, and up to 16 GameType lines are read. [Strings] takes n = 1.65535, [Audio] takes n = 1.63, and [Assets] takes File = archive|path lines.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 609
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 612
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 616
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 620
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 629
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 630
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 739
+    }
+   ],
+   "tags": [
+    "ini",
+    "format",
+    "limits"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "ini-free-text-keys",
+   "title": "Free-text keys keep a semicolon",
+   "subject": {
+    "kind": "file",
+    "id": "scenario.ini"
+   },
+   "addresses": [],
+   "related": [
+    "scenario-ini-sections"
+   ],
+   "fact": "parse_ini strips a trailing '; comment' from every value except free-text keys: the [Strings] section and Name, Description, Author, Briefing and BriefingTitle. A ';' inside a message or name is kept. CRLF and LF are accepted, and a UTF-8 BOM is skipped.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 580
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 606
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 607
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 608
+    }
+   ],
+   "tags": [
+    "ini",
+    "parsing"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "mp-default-gametype",
+   "title": "Multiplayer scenario with no GameType defaults to TeamDestruction",
+   "subject": {
+    "kind": "setting",
+    "id": "GameType"
+   },
+   "addresses": [],
+   "related": [
+    "ma2-test-mode-table"
+   ],
+   "fact": "A Multiplayer scenario with no GameType line gets TeamDestruction as its only mode, so the map still appears in New Game.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 743
+    }
+   ],
+   "tags": [
+    "gametype",
+    "default"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "scenario-folder-resolution",
+   "title": "Scenario folder search order",
+   "subject": {
+    "kind": "concept",
+    "id": "scenario folder"
+   },
+   "addresses": [],
+   "related": [
+    "editor-scenario-folder"
+   ],
+   "fact": "The game looks for scenarios in this order: the RECOMP_SCENARIO_DIR env var; the [Scenarios] Folder key in %LOCALAPPDATA%\\MechAssault2\\Scenarios.ini; then Documents\\MechAssault 2\\Scenarios, found with SHGetKnownFolderPath(FOLDERID_Documents) so OneDrive redirection is respected.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 683
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 686
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 689
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 696
+    }
+   ],
+   "tags": [
+    "folder",
+    "settings"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "scenario-scan-and-duplicates",
+   "title": "Scan loads *.ma2map and skips duplicate ids",
+   "subject": {
+    "kind": "function",
+    "id": "scan / add_scenario"
+   },
+   "addresses": [],
+   "related": [
+    "scenario-folder-resolution",
+    "test-file-focus",
+    "scn-slot-limit"
+   ],
+   "fact": "scan loads every *.ma2map in the folder. A file that fails to parse is logged as [SCENARIO] and skipped. A second file with the same Id is skipped (the first one loaded wins). Only the first 200 scenarios are loaded.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1046
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 926
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 928
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 60
+    }
+   ],
+   "tags": [
+    "scan",
+    "duplicate"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "test-file-focus",
+   "title": "scenario sets the focus (Test) scenario",
+   "subject": {
+    "kind": "function",
+    "id": "test_file"
+   },
+   "addresses": [],
+   "related": [
+    "ma2-test-args",
+    "ma2-test-autostart-walk"
+   ],
+   "fact": "The editor's Test passes --scenario <file.ma2map>. test_file reads RECOMP_SCENARIO_FILE first, then the command line. That scenario becomes the focus, which arms the autostart walk. If the same Id is already loaded from the folder, the folder copy is used and the test file only sets the focus.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 940
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 944
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 948
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 928
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 929
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1064
+    }
+   ],
+   "tags": [
+    "test",
+    "launch"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "base-archive-read",
+   "title": "Base archive is read from the disc, not copied",
+   "subject": {
+    "kind": "file",
+    "id": "Base archive (ResourceFile)"
+   },
+   "addresses": [],
+   "related": [
+    "resource-archive-is-base",
+    "base-missing-skip"
+   ],
+   "fact": "open_retail reads the scenario's Base archive from the retail disc through the D:\\<name> path (xbox_translate_path) and caches it. Retail bytes are never written into a .ma2map or the index, so a scenario only works where its Base archive exists.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 705
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 714
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 718
+    }
+   ],
+   "tags": [
+    "archive",
+    "base"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "base-missing-skip",
+   "title": "Scenario is not built when its Base archive is missing",
+   "subject": {
+    "kind": "function",
+    "id": "build_resource"
+   },
+   "addresses": [],
+   "related": [
+    "base-archive-read"
+   ],
+   "fact": "If the Base archive named in scenario.ini cannot be read, build_resource fails and build_index skips that scenario. It stays in the loaded list but is never built, listed or mounted. The log line is '<id>: base archive <name> not found'.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 786
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 828
+    }
+   ],
+   "tags": [
+    "archive",
+    "failure"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "resource-archive-is-base",
+   "title": "Level resource archive is always the Base archive",
+   "subject": {
+    "kind": "concept",
+    "id": "ResourceFile"
+   },
+   "addresses": [],
+   "related": [
+    "assets-archive",
+    "level-load-gate-sub00165187"
+   ],
+   "fact": "A scenario's ResourceFile in the generated map ini is always the Base archive name. The level loader therefore caches and mounts the retail archive natively, and only the [Assets] files go in a separate archive.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 767
+    }
+   ],
+   "tags": [
+    "archive",
+    "level"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "index-archive-mount",
+   "title": "Boot index archive is mounted after Common.mgf",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_scn_mount"
+   },
+   "addresses": [
+    "00012FA0"
+   ],
+   "related": [
+    "mount-function-calls",
+    "index-archive-contents"
+   ],
+   "fact": "ma2_scn_mount(fs) runs at the three boot mount sites in recomp_0000.c (loc_00012FA0, right after the Common.mgf mount). It scans the folder, builds the boot index T:\\scenarios\\index_<6 hex>.mgf and mounts it on the same file system. A guard flag makes it run once.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1183
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1185
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1187
+    }
+   ],
+   "tags": [
+    "archive",
+    "mount",
+    "boot"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "index-archive-contents",
+   "title": "What the index archive holds",
+   "subject": {
+    "kind": "file",
+    "id": "index_*.mgf"
+   },
+   "addresses": [],
+   "related": [
+    "index-archive-mount",
+    "mp-map-ini",
+    "campaign-ini-generated",
+    "index-excluded-names"
+   ],
+   "fact": "The boot index holds Multiplay/MissionSet63.ini (the custom multiplayer map list); Multiplay/Scn<ID>.ini and Scn<ID>.wdf for each multiplayer scenario; Missions/Scn<ID>.wdf for each mission; the generated Missions/scncamp0.ini campaign; and the scenario's own files at their own paths.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 826
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 841
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 849
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 862
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 883
+    }
+   ],
+   "tags": [
+    "archive",
+    "index"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "index-excluded-names",
+   "title": "Files the index does not copy from a .ma2map",
+   "subject": {
+    "kind": "file",
+    "id": "ma2map excluded names"
+   },
+   "addresses": [],
+   "related": [
+    "index-archive-contents"
+   ],
+   "fact": "build_index copies every .ma2map file except scenario.ini, world.wdf, templates.wdf, preview.tif and anything under editor/ or audio/. Terrain, pathfinding and other scenario files keep their own paths, so the editor names them with the Scn<ID>_ prefix.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 854
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 856
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 857
+    }
+   ],
+   "tags": [
+    "archive",
+    "index"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "templates-wdf-ignored",
+   "title": "templates.wdf is not used by the game",
+   "subject": {
+    "kind": "file",
+    "id": "templates.wdf"
+   },
+   "addresses": [],
+   "related": [
+    "templates-spec-mismatch",
+    "culled-templates-fallback"
+   ],
+   "fact": "The game skips templates.wdf when it copies a scenario, and it never writes a CulledTemplates/globalentities.scn<ID>.wdf file. The game therefore falls back to the full Templates/GlobalEntities.wdf. The editor still writes templates.wdf (about 1.1 MB).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 856
+    }
+   ],
+   "tags": [
+    "templates",
+    "limit"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "templates-spec-mismatch",
+   "title": "SPEC describes a templates mapping the code lacks",
+   "subject": {
+    "kind": "file",
+    "id": "'How the game uses the file'"
+   },
+   "addresses": [],
+   "related": [
+    "templates-wdf-ignored"
+   ],
+   "fact": "says the runtime maps templates.wdf to CulledTemplates/globalentities.scn<ID>.wdf. The code has no such mapping. also says the editor may omit templates.wdf, which matches what the game does. The code is the later and more specific source.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 856
+    }
+   ],
+   "tags": [
+    "templates",
+    "spec",
+    "stale"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "culled-templates-fallback",
+   "title": "Without a culled set the full template list is used",
+   "subject": {
+    "kind": "concept",
+    "id": "GlobalEntities fallback"
+   },
+   "addresses": [],
+   "related": [
+    "templates-wdf-ignored"
+   ],
+   "fact": "A scenario without a culled template file falls back to Templates/GlobalEntities.wdf (3,449 templates), as networked games do. reports this as observed.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "templates",
+    "fallback"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "mp-map-ini",
+   "title": "Generated Multiplayer map ini",
+   "subject": {
+    "kind": "file",
+    "id": "Multiplay/Scn<ID>.ini"
+   },
+   "addresses": [],
+   "related": [
+    "index-archive-contents",
+    "map-set-missionset63",
+    "mp-ini-loader-call"
+   ],
+   "fact": "For each multiplayer scenario build_index writes [MissionVersionInfo] VersionNumber=1, [Mission] PackageNumber=0, WorldFile=Scn<ID>.wdf, ResourceFile=<Base archive>, MapName and MapDescription (name ids), UseStandardMechResources=false, and one GameType line per mode.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 835
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 836
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 839
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 840
+    }
+   ],
+   "tags": [
+    "mp",
+    "ini",
+    "format"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "map-set-missionset63",
+   "title": "MissionSet63.ini lists the custom multiplayer maps",
+   "subject": {
+    "kind": "file",
+    "id": "Multiplay/MissionSet63.ini"
+   },
+   "addresses": [
+    "001630FA"
+   ],
+   "related": [
+    "mp-map-ini",
+    "mp-ini-loader-call"
+   ],
+   "fact": "The boot index holds Multiplay/MissionSet63.ini with a [Missions] section and one 'Mission = Multiplay/Scn<ID>.ini' line per multiplayer scenario. The map-set loader sub_001630FA tries MissionSet00 to MissionSet63 at boot, so these maps appear in the normal multiplayer list. Built at boot only (rev 0).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 862
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 845
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 10
+    }
+   ],
+   "tags": [
+    "mp",
+    "map-list",
+    "hook"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "campaign-ini-generated",
+   "title": "Custom missions form one generated campaign",
+   "subject": {
+    "kind": "file",
+    "id": "Missions/scncamp0.ini"
+   },
+   "addresses": [],
+   "related": [
+    "mission-picker-selection",
+    "campaign-path-pointer",
+    "rescan-delta"
+   ],
+   "fact": "All custom missions go in one generated campaign in the retail format: [fileinfo], [StartCampaign] next = SCN000, then one [SCNnnn] LEVEL entry per mission with file = missions\\Scn<ID>.wdf, next, titleid and descriptionid (the name ids), returntolobby = true, and [EndCampaign].",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 871
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 876
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 877
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 878
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 881
+    }
+   ],
+   "tags": [
+    "campaign",
+    "mission"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "rescan-delta",
+   "title": "Rescan adds new scenario files as a delta index",
+   "subject": {
+    "kind": "function",
+    "id": "rescan"
+   },
+   "addresses": [
+    "0050C958"
+   ],
+   "related": [
+    "mp-ini-loader-call",
+    "campaign-ini-generated",
+    "rescan-new-files-only"
+   ],
+   "fact": "When the hub or the Multiplayer menu opens, rescan checks the folder for .ma2map files not loaded at boot. New ones get a delta archive index_<stamp>_<rev>.mgf, mounted on the game's file system (game object at [0x0050C958], file system at +0x28). New multiplayer maps go through the map-ini loader, and new missions get a new campaign file named scnr<NN>_0.ini.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1224
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1241
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1243
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 882
+    }
+   ],
+   "tags": [
+    "rescan",
+    "mount"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "rescan-new-files-only",
+   "title": "A changed scenario needs a game restart",
+   "subject": {
+    "kind": "behaviour",
+    "id": "rescan"
+   },
+   "addresses": [],
+   "related": [
+    "rescan-delta"
+   ],
+   "fact": "A rescan only loads paths it has not seen (loaded_path compares paths), so an edited file keeps its boot version until the game restarts. The editor's Test always restarts the game, so it picks up the change.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1205
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1237
+    }
+   ],
+   "tags": [
+    "rescan",
+    "limit"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "rescan-revision-cap",
+   "title": "Rescan stops at 60 revisions",
+   "subject": {
+    "kind": "limit",
+    "id": "g_rev"
+   },
+   "addresses": [],
+   "related": [
+    "rescan-delta"
+   ],
+   "fact": "Each rescan that finds new files increments g_rev, and rescan does nothing once g_rev reaches 60.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1203
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1227
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1243
+    }
+   ],
+   "tags": [
+    "limit",
+    "rescan"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "mp-ini-loader-call",
+   "title": "Map-ini loader sub_0016321D is called per multiplayer map",
+   "subject": {
+    "kind": "function",
+    "id": "sub_0016321D"
+   },
+   "addresses": [
+    "0016321D",
+    "001631EB"
+   ],
+   "related": [
+    "rescan-delta",
+    "map-set-missionset63"
+   ],
+   "fact": "add_map_ini calls sub_0016321D(game, path) stdcall with two arguments, return address 0x001631EB. It is the same loader the boot map-set pass calls for each 'Mission =' line. functions.json lists it in recomp_0036.c (84 bytes, two callers).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1211
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1218
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1219
+    }
+   ],
+   "tags": [
+    "mp",
+    "loader"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "level-load-gate-sub00165187",
+   "title": "Level mount gate sub_00165187 returns 0 when the resource is missing",
+   "subject": {
+    "kind": "function",
+    "id": "sub_00165187"
+   },
+   "addresses": [
+    "00165187"
+   ],
+   "related": [
+    "level-load-hook",
+    "resource-path-redirect",
+    "resource-path-bug-history"
+   ],
+   "fact": "sub_00165187 is the level mount gate. It is called from the level loader sub_00013550 and returns 0 when the level's resource archive is not on D: so nothing mounts. The earlier black-screen bug happened because the map-ini loader wrote D:\\Scn<ID>_<hash>.mgf into the level descriptor, which the gate could not find. The fix keeps ResourceFile as the Base name.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "level",
+    "gate",
+    "bug"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "resource-path-redirect",
+   "title": "Scn* resource names are sent to T:\\scenarios",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_scn_resource_path"
+   },
+   "addresses": [
+    "00165244",
+    "001652D8"
+   ],
+   "related": [
+    "level-load-gate-sub00165187",
+    "resource-archive-is-base"
+   ],
+   "fact": "ma2_scn_resource_path rewrites a level archive name that starts with Scn to the scenario's real resource: its Base archive if it has one, otherwise T:\\scenarios\\<name>. It is hooked after the '%s%s.mgf' sprintf in sub_00165244 (loc_001652AA) and sub_001652D8 (loc_0016533E) in recomp_0037.c.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1258
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1264
+    }
+   ],
+   "tags": [
+    "level",
+    "hook",
+    "path"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "resource-path-bug-history",
+   "title": "Earlier attempts to load an assembled archive hung or failed",
+   "subject": {
+    "kind": "concept",
+    "id": "resource path fix history"
+   },
+   "addresses": [],
+   "related": [
+    "level-load-gate-sub00165187"
+   ],
+   "fact": "Two attempts to make the level load an assembled archive failed (v5 and v6). One flipped D:\\scenarios to T:\\ and the load hung. The other also set a no-cache flag and still failed. Both were reverted, and the shipped fix is the Base ResourceFile plus a separate assets archive.",
+   "status": "historical",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "level",
+    "history"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "level-load-hook",
+   "title": "Level load mounts the scenario's assets archive",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_scn_level_load"
+   },
+   "addresses": [
+    "000138A0",
+    "00524A60",
+    "0050BAC8"
+   ],
+   "related": [
+    "level-unload-hook",
+    "level-world-name",
+    "mount-function-calls"
+   ],
+   "fact": "ma2_scn_level_load runs at the end of the level mount block in sub_00013550 (loc_000138A0), whether or not the mount succeeded. It finds the scenario whose world the level names. If that scenario has an assets archive, it mounts it on the level's file system (fs at [0x0050BAC8]). An archive from another level is unmounted first.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1169
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1172
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1177
+    }
+   ],
+   "tags": [
+    "level",
+    "hook",
+    "assets"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "level-world-name",
+   "title": "How the level finds its scenario",
+   "subject": {
+    "kind": "function",
+    "id": "level_scenario"
+   },
+   "addresses": [
+    "00524A60"
+   ],
+   "related": [
+    "level-load-hook"
+   ],
+   "fact": "level_scenario reads the level descriptor at [0x00524A60], then the world path at +4. If the file name starts with 'scn' and characters 3 to 10 match a loaded scenario's Id (case-insensitive), that scenario is the level's scenario.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1142
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1147
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1149
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1158
+    }
+   ],
+   "tags": [
+    "level",
+    "descriptor"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "level-unload-hook",
+   "title": "Level unload drops the assets archive",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_scn_level_unload"
+   },
+   "addresses": [
+    "000171E0",
+    "000178C9"
+   ],
+   "related": [
+    "level-load-hook",
+    "mount-function-calls",
+    "quit-remount-test"
+   ],
+   "fact": "ma2_scn_level_unload runs at the join point of the level unload (loc_000178C9, four copies inside sub_000171E0), after the level's own unmount. It drops the assets archive that level_load mounted, so a retail level never sees a scenario's files.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1162
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1165
+    }
+   ],
+   "tags": [
+    "level",
+    "hook",
+    "unmount"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "assets-archive",
+   "title": "The [Assets] archive holds only extra retail files",
+   "subject": {
+    "kind": "file",
+    "id": "T:\\scenarios\\Scn<ID>_assets_<hash>.mgf"
+   },
+   "addresses": [],
+   "related": [
+    "index-archive-mount",
+    "level-load-hook",
+    "assets-section-format",
+    "scenario-dir-create"
+   ],
+   "fact": "A scenario whose [Assets] names retail files outside its Base gets a small archive in T:\\scenarios, named Scn<ID>_assets_<8 hex>.mgf. The hash is FNV-1a over the path keys of each asset and the Base. The archive holds only files not already in Base, and a missing file is logged. If the write fails the scenario still plays, without those files.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 765
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 771
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 778
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 790
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 802
+    }
+   ],
+   "tags": [
+    "archive",
+    "assets"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "assets-section-format",
+   "title": "[Assets] entries and limits",
+   "subject": {
+    "kind": "file",
+    "id": "[Assets]"
+   },
+   "addresses": [],
+   "related": [
+    "assets-archive"
+   ],
+   "fact": "Each [Assets] line is File = <archive>|<path>. The game reads the archive name up to 63 characters and the path up to 191. The editor derives the list from the closure of the models and textures the placed objects need.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 630
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 636
+    }
+   ],
+   "tags": [
+    "assets",
+    "format"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "scenario-dir-create",
+   "title": "T:\\scenarios is created before the first write",
+   "subject": {
+    "kind": "function",
+    "id": "scenario_dir"
+   },
+   "addresses": [],
+   "related": [
+    "assets-archive",
+    "t-drive-path"
+   ],
+   "fact": "scenario_dir creates the host folder for T:\\scenarios (and its parent) before any archive is written. The first assets write failed without it, which the editor team found during the 2026-10-20 fix.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 751
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 798
+    }
+   ],
+   "tags": [
+    "archive",
+    "bug"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "t-drive-path",
+   "title": "T: is the save directory's TitleData folder",
+   "subject": {
+    "kind": "concept",
+    "id": "T:\\"
+   },
+   "addresses": [],
+   "related": [
+    "scenario-dir-create",
+    "mount-function-calls"
+   ],
+   "fact": "T:\\ maps to <save dir>\\TitleData on the host (the kernel_path.c rule), so the scenario archives are plain host files. On the test machine that is save dir\\TitleData\\4d53006b.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 18
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 19
+    }
+   ],
+   "tags": [
+    "path",
+    "archive"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "mount-function-calls",
+   "title": "Archive mount and unmount call sequence",
+   "subject": {
+    "kind": "function",
+    "id": "mount_archive / unmount_archive"
+   },
+   "addresses": [
+    "0001A060",
+    "00025B70",
+    "00019D40",
+    "00025C90",
+    "00025D10"
+   ],
+   "related": [
+    "index-archive-mount",
+    "level-unload-hook"
+   ],
+   "fact": "mount_archive builds a std:string from the path (sub_0001A060), calls sub_00025B70 with eax = the string, edi = the file system and two zero arguments, then destroys the string (sub_00019D40). unmount_archive calls sub_00025C90 (fs, string), and on success sub_00025D10 with eax = fs to reset the lookup state.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1089
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1097
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1101
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1104
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1124
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1128
+    }
+   ],
+   "tags": [
+    "archive",
+    "guest-call"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "level-mount-streaming-flag",
+   "title": "sub_00025B70 argument 2 selects streaming for level mounts",
+   "subject": {
+    "kind": "function",
+    "id": "sub_00025B70"
+   },
+   "addresses": [
+    "00025B70"
+   ],
+   "related": [
+    "mount-function-calls"
+   ],
+   "fact": "The notes say the second argument to sub_00025B70 is 1 for a level mount, which uses drive-sector streaming, and 0 for boot and index mounts. The scenario code passes 0 for both arguments.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1101
+    }
+   ],
+   "tags": [
+    "archive",
+    "engine"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "fs-object-address",
+   "title": "File system object and game object addresses",
+   "subject": {
+    "kind": "global",
+    "id": "[0x0050BAC8] / [0x0050C958]"
+   },
+   "addresses": [
+    "0050BAC8",
+    "0050C958"
+   ],
+   "related": [
+    "level-load-hook",
+    "rescan-delta"
+   ],
+   "fact": "The level file system object is at [0x0050BAC8]. The game object is at [0x0050C958], and its file system is at +0x28. Boot mounts use the file system passed in as edi.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1143
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1202
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1241
+    }
+   ],
+   "tags": [
+    "global",
+    "archive"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "editor-scenario-folder",
+   "title": "Editor scenario folder setting",
+   "subject": {
+    "kind": "setting",
+    "id": "Scenarios.ini [Scenarios] Folder"
+   },
+   "addresses": [],
+   "related": [
+    "scenario-folder-resolution"
+   ],
+   "fact": "The editor's Options tab writes [Scenarios] Folder= to %LOCALAPPDATA%\\MechAssault2\\Scenarios.ini, which the game also reads. The default is Documents\\MechAssault 2\\Scenarios, and Use default clears the key.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "folder",
+    "settings"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "editor-save-folder-guard",
+   "title": "Saving outside the scenario folder asks first",
+   "subject": {
+    "kind": "function",
+    "id": "editor save dialog"
+   },
+   "addresses": [],
+   "related": [
+    "editor-scenario-folder"
+   ],
+   "fact": "The editor's Save dialog is the modern one with its own remembered state, and always starts in the scenario folder. A save anywhere else asks first, because the game only lists scenarios in the folder. The classic dialog had saved a mission into My Sounds (bug W8).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "editor",
+    "save",
+    "bug"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "hub-demo-button-patch",
+   "title": "Hub Game Demos button becomes Custom Scenarios",
+   "subject": {
+    "kind": "patch",
+    "id": "hub_main_demos.ggf button ref_id 8"
+   },
+   "addresses": [],
+   "related": [
+    "hub-action-8-hook",
+    "demo-row-policy"
+   ],
+   "fact": "patch_scenario_assets.py changes the hub's ref_id 8 button: activatecommand from the demo placeholder 0xB824796E to 0xF83FF842 (MAAutoMenuCampaignPick), and its two FontTextID 39 ('Game Demos') labels to 0x00FFFF00 (Custom Scenarios). The patch goes into pc_assets/common.mgf and is idempotent.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "hub",
+    "asset-patch"
+   ],
+   "date": "2026-10-20",
+   "addresses_unverified": [
+    "B824796E",
+    "F83FF842",
+    "00FFFF00"
+   ]
+  },
+  {
+   "id": "hub-action-8-hook",
+   "title": "Action 8 enters Custom Scenarios instead of launching the demo",
+   "subject": {
+    "kind": "function",
+    "id": "sub_001F3BCC"
+   },
+   "addresses": [
+    "001F3BCC",
+    "001F3BFA",
+    "001F3C1A"
+   ],
+   "related": [
+    "custom-mode-enter",
+    "hub-demo-button-patch",
+    "custom-mode-leave"
+   ],
+   "fact": "The hub item handler sub_001F3BCC normally starts d:\\demo\\cdx.xbe for action 8. The hook at loc_001F3BFA calls ma2_scn_custom_enter and jumps to loc_001F3C1A, so the button opens the Campaign Picker. The hook at loc_001F3BCC calls ma2_scn_hub_action with the activated action, which ends custom mode for every other item.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1710
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1712
+    }
+   ],
+   "tags": [
+    "hub",
+    "hook"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "custom-mode-enter",
+   "title": "Custom Scenarios mode swaps the campaign and save names",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_scn_custom_enter"
+   },
+   "addresses": [
+    "004B2910",
+    "0050E838",
+    "0050E844",
+    "00524A6C"
+   ],
+   "related": [
+    "campaign-path-pointer",
+    "save-name-swap",
+    "profile-snapshot"
+   ],
+   "fact": "ma2_scn_custom_enter snapshots the four player profiles (+0x60 to +0x9F), sets each difficulty's current destination to 0 and highest unlocked to the last mission, sets the difficulty at +0x90 to 0, swaps the save names, and points the campaign path format at \\missions\\scncamp%01d. It runs once, and only when at least one mission exists.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1333
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1336
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1350
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1355
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1359
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1361
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1363
+    }
+   ],
+   "tags": [
+    "custom",
+    "campaign",
+    "save"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "campaign-path-pointer",
+   "title": "Campaign path format pointer at 0x004B2910",
+   "subject": {
+    "kind": "global",
+    "id": "[0x004B2910]"
+   },
+   "addresses": [
+    "004B2910"
+   ],
+   "related": [
+    "custom-mode-enter",
+    "custom-mode-leave"
+   ],
+   "fact": "[0x004B2910] points at the format string for campaign paths. Custom mode replaces it with a heap string '\\missions\\scncamp%01d', and leave restores the saved pointer.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1301
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1340
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1342
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1361
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1376
+    }
+   ],
+   "tags": [
+    "global",
+    "campaign"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "save-name-swap",
+   "title": "Custom mode saves to MAScns.sav and MAScnsGame.wdf",
+   "subject": {
+    "kind": "save",
+    "id": "MAScns.sav / MAScnsGame.wdf"
+   },
+   "addresses": [
+    "0050E838",
+    "0050E844"
+   ],
+   "related": [
+    "custom-mode-enter",
+    "custom-mode-leave"
+   ],
+   "fact": "The profile save name std:string at 0x0050E838 swaps MASave.sav for MAScns.sav, and the checkpoint name at 0x0050E844 swaps MASaveGame.wdf for MAScnsGame.wdf. The swap is in place, so the lengths must match. A custom mission therefore never writes the real campaign profile or checkpoint.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1302
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1303
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1314
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1322
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1359
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1360
+    }
+   ],
+   "tags": [
+    "save",
+    "custom"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "profile-snapshot",
+   "title": "Profile fields snapshotted by custom mode",
+   "subject": {
+    "kind": "save",
+    "id": "profile +0x60.+0x9F"
+   },
+   "addresses": [],
+   "related": [
+    "custom-mode-enter",
+    "custom-mode-leave"
+   ],
+   "fact": "Custom mode saves 0x40 bytes per profile (+0x60 to +0x9F of a 0x11C record) and restores them on leave. They hold the per-difficulty current and highest destinations, the difficulty at +0x90 and the checkpoint field at +0x98. The profile table is at frontend+0x24, with the frontend at [0x00524A6C].",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1304
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1305
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1306
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1326
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1327
+    }
+   ],
+   "tags": [
+    "profile",
+    "save"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "custom-mode-leave",
+   "title": "Leaving custom mode restores the campaign",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_scn_custom_leave"
+   },
+   "addresses": [
+    "0050E838",
+    "0050E844",
+    "004B2910"
+   ],
+   "related": [
+    "custom-mode-enter",
+    "hub-action-8-hook"
+   ],
+   "fact": "ma2_scn_custom_leave restores the profile snapshot, the save names and the campaign format pointer, and clears the custom flag. It runs when any hub item other than action 8 is activated. Rebuilding the hub does not end the mode, so quitting a custom mission still returns to the mission picker.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1367
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1374
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1376
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1708
+    }
+   ],
+   "tags": [
+    "custom",
+    "leave"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "hub-leave-comment-stale",
+   "title": "Stale comment says the hub form build ends custom mode",
+   "subject": {
+    "kind": "function",
+    "id": "sub_001F3263"
+   },
+   "addresses": [
+    "001F3263"
+   ],
+   "related": [
+    "custom-mode-leave"
+   ],
+   "fact": "The comment above ma2_scn_custom_enter says the hub's form build sub_001F3263 calls ma2_scn_custom_leave. The code does not: only the activation hook at loc_001F3BCC calls it, through ma2_scn_hub_action. A later comment (line 1708) says a rebuild does not end the mode. The code is the reliable source.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1299
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1708
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1710
+    }
+   ],
+   "tags": [
+    "comment",
+    "stale"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "demo-row-policy",
+   "title": "Custom Scenarios row is dimmed when there are no missions",
+   "subject": {
+    "kind": "setting",
+    "id": "FEATURE_DEMOS row"
+   },
+   "addresses": [],
+   "related": [
+    "mission-count",
+    "hub-demo-button-patch"
+   ],
+   "fact": "The menu policy for the old demo row returns ma2_scn_mission_count == 0, so the Custom Scenarios row is dimmed when no custom mission exists and enabled when at least one does. The code is in bots/ma2_bots_ui.c.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "hub",
+    "policy"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "mission-count",
+   "title": "Custom mission count API",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_scn_mission_count"
+   },
+   "addresses": [],
+   "related": [
+    "demo-row-policy",
+    "custom-mode-enter"
+   ],
+   "fact": "ma2_scn_mission_count returns the number of loaded Mission scenarios. ma2_scn_custom_active tells whether custom mode is on.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1330
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1331
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.h",
+     "line": 14
+    }
+   ],
+   "tags": [
+    "api"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "mission-picker-selection",
+   "title": "Test mission is preselected in the picker",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_scn_menu_frame / ma2_scn_mission_picker"
+   },
+   "addresses": [
+    "0048F3E0",
+    "00485778",
+    "00208BF9",
+    "002265D0"
+   ],
+   "related": [
+    "campaign-ini-generated",
+    "ma2-test-autostart-walk"
+   ],
+   "fact": "In custom mode, the Test mission is selected once per Campaign Mission Picker (vtable 0x0048F3E0) by calling sub_00208BF9 on the mission barrel (vtable 0x00485778). ma2_scn_mission_picker does the same from recomp_manual.c by writing the selected index into the picker object.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1384
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1392
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1401
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1402
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1697
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1698
+    }
+   ],
+   "tags": [
+    "picker",
+    "menu"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "mission-barrel-layout",
+   "title": "Mission picker barrel layout",
+   "subject": {
+    "kind": "function",
+    "id": "mission barrel object"
+   },
+   "addresses": [],
+   "related": [
+    "mission-picker-selection"
+   ],
+   "fact": "A barrel's items run from +0xAC (first) to +0xB0 (end), 0x1C bytes each. The selected index is at +0x154, and each item's value is at +0xC. The picker count check needs (end - first) to be a multiple of 0x1C.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1388
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1389
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1392
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1456
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1458
+    }
+   ],
+   "tags": [
+    "menu",
+    "layout"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "ui-strings",
+   "title": "Built-in Custom Scenarios strings",
+   "subject": {
+    "kind": "menu",
+    "id": "Custom Scenarios title and description"
+   },
+   "addresses": [],
+   "related": [
+    "ma2-scn-text",
+    "hub-demo-button-patch"
+   ],
+   "fact": "The title is 'Custom Scenarios' (0x00FFFF00). The description is 'Play missions made with the MechAssault 2 Scenario Editor.' when at least one mission exists, and 'No custom missions yet. Make one with the MechAssault 2 Scenario Editor.' when none does (0x00FFFF01).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1715
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1718
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1719
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1720
+    }
+   ],
+   "tags": [
+    "ui",
+    "text"
+   ],
+   "date": "2026-10-20",
+   "addresses_unverified": [
+    "00FFFF00",
+    "00FFFF01"
+   ]
+  },
+  {
+   "id": "single-mission-skips-picker",
+   "title": "One custom mission goes straight in",
+   "subject": {
+    "kind": "behaviour",
+    "id": "Custom Scenarios with one mission"
+   },
+   "addresses": [],
+   "related": [
+    "ma2-test-autostart-walk",
+    "briefing-screen-open"
+   ],
+   "fact": "When exactly one custom mission exists, the Test walk skips the picker and goes straight to the match. The retail campaign intro movie still plays first, about 70 s, and Enter skips it. UPDATE: the retail rule stays true (the campaign picker is skipped when the profile's highest unlocked, profile +0x64 + d*12, is 0). For game builds from 35CBBE2C on, the custom campaign forces highest-unlocked to at least 1, so ONE custom mission shows the Custom Scenarios picker; Test autostart presses Enter on it (hub -> picker -> mission).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1651
+    }
+   ],
+   "tags": [
+    "mission",
+    "intro",
+    "how-editor-maps-to-game"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "cue-action-hooks",
+   "title": "MAActionSound and MAActionPlayVoice Execute hooks",
+   "subject": {
+    "kind": "function",
+    "id": "sub_0014CB91 / sub_0019B89F"
+   },
+   "addresses": [
+    "0014CB91",
+    "0019B89F"
+   ],
+   "related": [
+    "ma2-scn-action-cue",
+    "action-cue-offsets"
+   ],
+   "fact": "The Execute functions of MAActionSound (sub_0014CB91, recomp_0033.c) and MAActionPlayVoice (sub_0019B89F, recomp_0042.c) are hooked at loc_0014CB91 and loc_0019B89F. Each calls ma2_scn_action_cue with its cue property before the retail code runs. functions.json lists both as vtable slot 22.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1774
+    }
+   ],
+   "tags": [
+    "audio",
+    "hook"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "action-cue-offsets",
+   "title": "Cue property offsets on the action objects",
+   "subject": {
+    "kind": "property",
+    "id": "MAActionSound.CueEvent / MAActionPlayVoice.CueID"
+   },
+   "addresses": [],
+   "related": [
+    "cue-action-hooks"
+   ],
+   "fact": "The property serializers run with this = object+0x20. So MAActionSound's CueEvent is at object+0x68 and MAActionPlayVoice's CueID at object+0x78.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "audio",
+    "offset"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "ma2-scn-action-cue",
+   "title": "Cue hook routes scenario cues to the clip player",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_scn_action_cue"
+   },
+   "addresses": [],
+   "related": [
+    "cue-action-hooks",
+    "ma2-scn-clip",
+    "scenario-audio-play"
+   ],
+   "fact": "ma2_scn_action_cue receives the raw cue id. Retail ids are left to the game. A cue strictly inside the scenario range (0x5C100000 up to 0x5C100000 + 200*0x1000) goes to ma2_scn_audio_play. With RECOMP_SCENARIO_TRACE set it logs every action cue.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1776
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1779
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1780
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1781
+    }
+   ],
+   "tags": [
+    "audio",
+    "hook"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "ma2-scn-clip",
+   "title": "Cue to clip lookup",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_scn_clip"
+   },
+   "addresses": [],
+   "related": [
+    "ma2-scn-action-cue",
+    "audio-slot-limit"
+   ],
+   "fact": "ma2_scn_clip maps a global cue 0x5C100000 + slot*0x1000 + n to the WAV bytes of [Audio] n in that scenario's .ma2map. It needs a loaded slot, n between 1 and 63, and an existing entry. The archive stays in memory for the whole run. A missing entry is logged as '[Audio] n names missing'.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1759
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1761
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1763
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1765
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1767
+    }
+   ],
+   "tags": [
+    "audio",
+    "lookup"
+   ],
+   "date": "2026-10-20",
+   "addresses_unverified": [
+    "5C100000"
+   ]
+  },
+  {
+   "id": "audio-slot-limit",
+   "title": "Only [Audio] 1.63 are usable",
+   "subject": {
+    "kind": "limit",
+    "id": "[Audio] n"
+   },
+   "addresses": [],
+   "related": [
+    "ma2-scn-clip",
+    "scenario-ini-sections"
+   ],
+   "fact": "The game stores clip paths only for [Audio] n with n from 1 to 63 (the array has 64 entries). The cue range allows up to 4,095 per scenario, so clips numbered 64 and above are silently ignored by the game.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 629
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1763
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 66
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario_audio.cpp",
+     "line": 79
+    }
+   ],
+   "tags": [
+    "audio",
+    "limit"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "wav-accepted-formats",
+   "title": "WAV formats the game accepts",
+   "subject": {
+    "kind": "file",
+    "id": "imported WAV clip"
+   },
+   "addresses": [],
+   "related": [
+    "scenario-audio-play",
+    "editor-wav-import"
+   ],
+   "fact": "parse_wav accepts a RIFF/WAVE file with a fmt chunk in PCM (1) or IEEE float (3) format, with 1 or 2 channels and a sample rate from 8,000 to 96,000 Hz. WAVE_FORMAT_EXTENSIBLE is read through its sub-format. Anything else is logged as 'not a PCM WAV' and not played.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario_audio.cpp",
+     "line": 55
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario_audio.cpp",
+     "line": 63
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario_audio.cpp",
+     "line": 66
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario_audio.cpp",
+     "line": 74
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario_audio.cpp",
+     "line": 75
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario_audio.cpp",
+     "line": 91
+    }
+   ],
+   "tags": [
+    "audio",
+    "format"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "scenario-audio-play",
+   "title": "Imported clips play on an XAudio2 source voice",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_scn_audio_play"
+   },
+   "addresses": [],
+   "related": [
+    "ma2-scn-action-cue",
+    "audio-mute-settings"
+   ],
+   "fact": "ma2_scn_audio_play creates one XAudio2 source voice per clip on a shared mastering voice, submits the clip as one buffer, and sets the voice volume from [Audio] Volume (0 to 100, default 100). Finished voices are destroyed on the next play. The header describes the clip as 2D dialogue.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario_audio.cpp",
+     "line": 79
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario_audio.cpp",
+     "line": 102
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario_audio.cpp",
+     "line": 104
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario_audio.cpp",
+     "line": 106
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario_audio.cpp",
+     "line": 111
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario_audio.cpp",
+     "line": 44
+    }
+   ],
+   "tags": [
+    "audio",
+    "xaudio2"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "audio-volume-spec-mismatch",
+   "title": "SPEC says clips use voice volume; the code uses [Audio] Volume",
+   "subject": {
+    "kind": "setting",
+    "id": "[Audio] Volume"
+   },
+   "addresses": [],
+   "related": [
+    "scenario-audio-play"
+   ],
+   "fact": "says imported clips play 'at the game's voice volume'. The audio code reads [Audio] Volume (0 to 100) through ma2_pc_ini_get_int. The code is the more specific source, so the setting in code is the one in effect.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario_audio.cpp",
+     "line": 102
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario_audio.cpp",
+     "line": 85
+    }
+   ],
+   "tags": [
+    "audio",
+    "spec",
+    "stale"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "audio-mute-settings",
+   "title": "Clip muting: [Audio] Enabled and RECOMP_AUDIO_SILENT",
+   "subject": {
+    "kind": "setting",
+    "id": "[Audio] Enabled / RECOMP_AUDIO_SILENT"
+   },
+   "addresses": [],
+   "related": [
+    "scenario-audio-play"
+   ],
+   "fact": "A clip is muted (logged as 'muted by settings') when RECOMP_AUDIO_SILENT is set to a non-zero value, or when [Audio] Enabled is 0. The check runs before the WAV is parsed.",
+   "how_to_use": "Set RECOMP_AUDIO_SILENT=1 to test scenario logic without sound.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario_audio.cpp",
+     "line": 84
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario_audio.cpp",
+     "line": 85
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario_audio.cpp",
+     "line": 86
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario_audio.cpp",
+     "line": 8
+    }
+   ],
+   "tags": [
+    "audio",
+    "test"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "broadcast-body-text-works",
+   "title": "Custom message bodies and objectives display",
+   "subject": {
+    "kind": "behaviour",
+    "id": "MAActionBroadcast BodyTextID / ObjectiveItemDesc"
+   },
+   "addresses": [],
+   "related": [
+    "ma2-scn-text",
+    "broadcast-caption-missing"
+   ],
+   "fact": "Custom text in an MAActionBroadcast body and in a MARoot ObjectiveItemDesc%d (text ids 0x00F00000+n) displays in game. The objective shows as a HUD line and in the pause menu. Entries from 1 to 65535 work, including 60000 and above.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "text",
+    "message"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "broadcast-caption-missing",
+   "title": "Message caption (CaptionTextID) does not show",
+   "subject": {
+    "kind": "bug",
+    "id": "MAActionBroadcast CaptionTextID"
+   },
+   "addresses": [],
+   "related": [
+    "broadcast-body-text-works"
+   ],
+   "fact": "In the HUD message box a custom CaptionTextID (speaker or title) did not display; only the body text did. Open, and a game-side issue (OB3, low severity).",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "text",
+    "bug"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "briefing-screen-open",
+   "title": "Briefing screen is skipped for one custom mission",
+   "subject": {
+    "kind": "bug",
+    "id": "TitleText / BriefingText"
+   },
+   "addresses": [],
+   "related": [
+    "single-mission-skips-picker"
+   ],
+   "fact": "With one custom mission, Custom Scenarios plays the campaign intro movie and starts the mission directly, so the briefing screen (MARoot TitleText and BriefingText) is never shown. Whether custom ids would show there is untested. Game-side.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "mission",
+    "briefing",
+    "bug"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "ma2-test-args",
+   "title": "Test launch arguments",
+   "subject": {
+    "kind": "tool",
+    "id": "scenario / --mode / --bots / --skill"
+   },
+   "addresses": [],
+   "related": [
+    "test-file-focus",
+    "ma2-test-mode-table"
+   ],
+   "fact": "The editor's Test runs MechAssault 2.exe --scenario <file> [--mode <GameType>] [--bots <red>v<blue>] [--skill <0-4>]. --bots also accepts 'x' or ',' as separator. --mode is matched by name, and if the map does not have it the first mode is used. --bots and --skill hold for this launch only, and are not written to pc_settings.ini.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1000
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1008
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1009
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1027
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1034
+    }
+   ],
+   "tags": [
+    "test",
+    "args"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "ma2-test-mode-table",
+   "title": "GameType names map to engine mode numbers",
+   "subject": {
+    "kind": "tool",
+    "id": "k_modes table"
+   },
+   "addresses": [],
+   "related": [
+    "ma2-test-args",
+    "autostart-new-game-steps",
+    "bots3-destruction-is-ffa-team-types-1-3-and-0xB-0x11-correct"
+   ],
+   "fact": "The k_modes table maps names to engine numbers: TeamDestruction 3, Destruction 10 (0xA), CTF 14 (0xE), BaseWar 16 (0x10), SnatchIt 17 (0x11), CheckIt 15 (0xF), TeamLastManStanding and TeamLMS 1, LastManStanding and LMS 9, NotIt 4, Grinder 6. team_type is true for 1-3 and 0xA-0x11. CORRECTION: team_type is (gt>0 && gt<=3) (gt>0xA && gt<=0x11) (ma2_scenario.c:1011), so Destruction (10, 0xA) is FFA, not a team type (game-proven: destruction.log, all bots team 0). The name-to-number map above stands; --mode aliases LMS/TeamLMS do not match a map's own mode names and fall back to the map's first mode (ma2_scenario.c:1068).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 962
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 966
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 972
+    }
+   ],
+   "tags": [
+    "gametype",
+    "table"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "ma2-test-autostart-walk",
+   "title": "Test walks the game's menus into the scenario",
+   "subject": {
+    "kind": "tool",
+    "id": "ma2_scn_menu_frame / auto_frame"
+   },
+   "addresses": [
+    "00482170",
+    "00481B70",
+    "0048C228",
+    "0048C668",
+    "00482240",
+    "00481EF8"
+   ],
+   "related": [
+    "autostart-new-game-steps",
+    "autostart-give-up",
+    "single-mission-skips-picker"
+   ],
+   "fact": "After a Test launch, one step runs per menu frame: Press Start (HUB_START 0x00482170, Enter), then hub Multiplayer (action 4) or Custom Scenarios (action 8), then Local (action 1), then New Game with the mode and map chosen, then Enter in the Briefing Room (LOBBY 0x00482240). The walk ends when the in-game vtable 0x00481EF8 appears.",
+   "how_to_use": "RECOMP_SCENARIO_AUTOSTART=0 turns it off.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1415
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1417
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1418
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1419
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1420
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1641
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1643
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1649
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1655
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1662
+    }
+   ],
+   "tags": [
+    "test",
+    "menu",
+    "autostart"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "autostart-new-game-steps",
+   "title": "New Game step: mode, then map by name",
+   "subject": {
+    "kind": "function",
+    "id": "auto_newgame"
+   },
+   "addresses": [],
+   "related": [
+    "ma2-test-autostart-walk"
+   ],
+   "fact": "On New Game the game-type barrel is at menu+0x74 and the map barrel at menu+0x70. The step selects the game type by value, then finds the map by name (custom maps sit at a different place in each mode's list), selects it, waits 20 frames and presses Enter. If the mode is not offered, or the map is not listed after 120 frames, it gives up.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1544
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1546
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1552
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1569
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1584
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1591
+    }
+   ],
+   "tags": [
+    "test",
+    "menu"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "autostart-give-up",
+   "title": "Autostart gives up when a screen does not change",
+   "subject": {
+    "kind": "setting",
+    "id": "AUTO_GIVE_UP_MS"
+   },
+   "addresses": [],
+   "related": [
+    "ma2-test-autostart-walk"
+   ],
+   "fact": "If a menu does not move on within 15 s (AUTO_GIVE_UP_MS 15000), the autostart logs 'gave up', returns the menus to the player and releases the bot test settings. An unknown game type turns autostart off before it starts, and a map missing from the mode's list gives up at New Game.",
+   "how_to_use": "RECOMP_SCENARIO_AUTOSTART_STALL=<menu vtable hex> makes the walk do nothing on that menu, to test the give-up.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1422
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1629
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1511
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1513
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1032
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1636
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1638
+    }
+   ],
+   "tags": [
+    "test",
+    "timeout"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "autostart-press-retry",
+   "title": "Presses are repeated while a screen does not move on",
+   "subject": {
+    "kind": "behaviour",
+    "id": "may_press"
+   },
+   "addresses": [],
+   "related": [
+    "ma2-test-autostart-walk"
+   ],
+   "fact": "A press that changed nothing is repeated: after 2.5 s on a menu, up to 4 retries, and after 6 s while loading. This covers screens not yet ready for input, such as the Press Start animation.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1520
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1521
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1522
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1523
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1531
+    }
+   ],
+   "tags": [
+    "test",
+    "input"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "autostart-drop-press",
+   "title": "RECOMP_SCENARIO_AUTOSTART_DROP drops each screen's first press",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_SCENARIO_AUTOSTART_DROP"
+   },
+   "addresses": [],
+   "related": [
+    "autostart-press-retry"
+   ],
+   "fact": "When set to a non-zero value, the first press on each new screen is discarded, to test the retry path. It is a test hook only.",
+   "how_to_use": "RECOMP_SCENARIO_AUTOSTART_DROP=1 with a Test launch exercises the repeat logic.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1476
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1479
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1527
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1528
+    }
+   ],
+   "tags": [
+    "env",
+    "test"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "autostart-arm-conditions",
+   "title": "When autostart is armed",
+   "subject": {
+    "kind": "behaviour",
+    "id": "auto_arm"
+   },
+   "addresses": [],
+   "related": [
+    "test-file-focus",
+    "ma2-test-autostart-walk"
+   ],
+   "fact": "auto_arm runs after the scan only when the focus scenario is loaded and built, the boot index exists, and RECOMP_SCENARIO_AUTOSTART is not 0. A mission whose Id is not in the custom campaign turns it off. Each arming is logged with its mode, bots and skill.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1017
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1020
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1022
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1039
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1073
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1036
+    }
+   ],
+   "tags": [
+    "test",
+    "arm"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "autostart-verified-in-game",
+   "title": "Test autostart verified in game",
+   "subject": {
+    "kind": "behaviour",
+    "id": "Test autostart"
+   },
+   "addresses": [],
+   "related": [
+    "ma2-test-autostart-walk",
+    "autostart-ob1-superseded"
+   ],
+   "fact": "The Test autostart was run in game (test35 build, shipped in release20) and goes straight into the match on the map. Earlier notes listing it as open are superseded.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "test",
+    "verified"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "autostart-ob1-superseded",
+   "title": "Old open item OB1: Test did not start the match",
+   "subject": {
+    "kind": "bug",
+    "id": "USABILITY OB1"
+   },
+   "addresses": [],
+   "related": [
+    "autostart-verified-in-game"
+   ],
+   "fact": "USABILITY.md lists OB1 as open: the game ignored --mode, --bots and --skill, and Test stopped at the title screen. The autostart walk now handles these, so OB1 is superseded.",
+   "status": "superseded",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "test",
+    "stale"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "env-recomp-scenarios",
+   "title": "RECOMP_SCENARIOS=0 disables the whole layer",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_SCENARIOS"
+   },
+   "addresses": [],
+   "related": [
+    "scan-and-duplicates",
+    "rescan-delta"
+   ],
+   "fact": "When RECOMP_SCENARIOS is 0, both the scan and the rescan return at once, so no custom scenario loads and the game behaves as retail.",
+   "how_to_use": "Use RECOMP_SCENARIOS=0 to run the retail game with a scenario folder present.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1048
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1049
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1226
+    }
+   ],
+   "tags": [
+    "env",
+    "test"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "env-recomp-scenario-dir",
+   "title": "RECOMP_SCENARIO_DIR overrides the folder",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_SCENARIO_DIR"
+   },
+   "addresses": [],
+   "related": [
+    "scenario-folder-resolution"
+   ],
+   "fact": "When set, RECOMP_SCENARIO_DIR is the scenario folder, checked before the Scenarios.ini and Documents lookups. It is for tests.",
+   "how_to_use": "Point it at a test folder to load only those scenarios.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 686
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 687
+    }
+   ],
+   "tags": [
+    "env",
+    "test"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "env-recomp-scenario-file",
+   "title": "RECOMP_SCENARIO_FILE names the Test file",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_SCENARIO_FILE"
+   },
+   "addresses": [],
+   "related": [
+    "test-file-focus"
+   ],
+   "fact": "RECOMP_SCENARIO_FILE gives the same effect as --scenario: that .ma2map is loaded as the focus scenario.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 943
+    }
+   ],
+   "tags": [
+    "env",
+    "test"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "env-recomp-scenario-trace",
+   "title": "RECOMP_SCENARIO_TRACE logs cue ids",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_SCENARIO_TRACE"
+   },
+   "addresses": [],
+   "related": [
+    "ma2-scn-action-cue"
+   ],
+   "fact": "With RECOMP_SCENARIO_TRACE set to a non-zero value, each MAActionSound and MAActionPlayVoice cue is logged as 'action cue <id>'.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1779
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1780
+    }
+   ],
+   "tags": [
+    "env",
+    "trace"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "terrain-heightfield-format",
+   "title": "Terrain height field is an L8 MGIc picture",
+   "subject": {
+    "kind": "file",
+    "id": "MATerrain 'TerrainHeight Field'"
+   },
+   "addresses": [],
+   "related": [
+    "height-formula",
+    "mgiC-pic-format"
+   ],
+   "fact": "The terrain heights are an L8 MGIc picture (flags 0x4, linear, 64-byte row pitch, so 257 pixels is 320 bytes). Retail sizes are 129x129, 129x257 (UnderCover) and 257x257. TerrainWorldScale is 8 m per cell.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "terrain",
+    "format"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "height-formula",
+   "title": "Height formula and row order",
+   "subject": {
+    "kind": "concept",
+    "id": "TerrainHeight decode"
+   },
+   "addresses": [],
+   "related": [
+    "terrain-heightfield-format"
+   ],
+   "fact": "height = TerrainMinHeight + v/255 * (TerrainMaxHeight - TerrainMinHeight). World x runs along a stored row, and world z runs against the rows: stored row r is z = (H-1-r) * 8 m. The colour map and lightmap use the same orientation. fmt_test checks the formula against retail navigation nodes.",
+   "how_to_use": "fmt_test --game <install> reruns the check.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "terrain",
+    "formula"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "mgiC-pic-format",
+   "title": "MGIc picture container",
+   "subject": {
+    "kind": "file",
+    "id": "MGIc .tif"
+   },
+   "addresses": [],
+   "related": [
+    "terrain-heightfield-format",
+    "mgiC-pic-flags"
+   ],
+   "fact": "MGIc pictures start with a 0x20-byte head (00 00 01 00 'MGIc', size, section count). 'PIC ' and 'PAL ' sections follow, each holding tagged chunks: 'ver ' (1-byte payload), 'flgs', 'wdth', 'hgt ', 'mips', 'size', 'frms', 'dpth', 'bits'. Payloads are padded to 16 bytes.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "picture",
+    "format"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "mgiC-pic-flags",
+   "title": "MGIc flgs bits",
+   "subject": {
+    "kind": "file",
+    "id": "MGIc flgs"
+   },
+   "addresses": [],
+   "related": [
+    "mgiC-pic-format"
+   ],
+   "fact": "The low 4 bits of flgs give the format (0 A8R8G8B8, 1 R5G6B5, 3 A4R4G4B4, 4 L8, 5 A8, 7 A8L8). Bit 4 is swizzled (Xbox Morton order), bit 7 a cube map, bits 8-11 compression (1 DXT1, 3 DXT3, 5 DXT5), bit 12 a volume, bit 14 unknown, and bit 31 is set on every archive .tif.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "picture",
+    "flags"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "terrain-type-map",
+   "title": "MATerrainInfo type map: 0 playable, 8 special, 2 border, 1 out of bounds",
+   "subject": {
+    "kind": "file",
+    "id": "MATerrainInfo key 1F1646EA"
+   },
+   "addresses": [],
+   "related": [
+    "type-map-generated",
+    "type-map-validation",
+    "type-map-history"
+   ],
+   "fact": "MATerrainInfo key 1F1646EA holds a 512x512 16-bit type map with row 0 at z = 0. Values: 0 = playable ground, 8 = playable special (water or waterway inside the arena), 2 = the border band, 1 = out of bounds (bots never enter). Every retail multiplayer spawn, vehicle pad, CTF flag and SnatchIt object stands on 0 or 8.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "terrain",
+    "type-map",
+    "spawn"
+   ],
+   "date": "2026-10-20",
+   "addresses_unverified": [
+    "1F1646EA"
+   ]
+  },
+  {
+   "id": "type-map-history",
+   "title": "Why earlier maps never started a round",
+   "subject": {
+    "kind": "bug",
+    "id": "terrain type map 1F1646EA"
+   },
+   "addresses": [],
+   "related": [
+    "terrain-type-map"
+   ],
+   "fact": "Scratch maps on a copied base set the type map to 1 everywhere, or kept the base's own map under generated terrain. Either put the spawns on out-of-bounds cells, so bots got no simulation frames and the round never started. Clearing a 12 m disc under each spawn only let bots move 12-13 m. The fix was a generated map of its own, and the clearing was removed.",
+   "status": "historical",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "terrain",
+    "bug"
+   ],
+   "date": "2026-10-20",
+   "addresses_unverified": [
+    "1F1646EA"
+   ]
+  },
+  {
+   "id": "type-map-generated",
+   "title": "Generated terrain gets its own type map",
+   "subject": {
+    "kind": "concept",
+    "id": "generated type map"
+   },
+   "addresses": [],
+   "related": [
+    "terrain-type-map"
+   ],
+   "fact": "A new map that is not a copy gets its own type map: 0 inside, a 4-cell edge of 1, then a 6-cell band of 2. Copies and keep-Base-terrain worlds keep the Base map. The culture map (89FB5118) is always the Base level's.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "terrain",
+    "type-map"
+   ],
+   "date": "2026-10-20",
+   "addresses_unverified": [
+    "1F1646EA",
+    "89FB5118"
+   ]
+  },
+  {
+   "id": "type-map-validation",
+   "title": "Check scenario rules for the type map",
+   "subject": {
+    "kind": "tool",
+    "id": "Check scenario (multiplayer)"
+   },
+   "addresses": [],
+   "related": [
+    "terrain-type-map"
+   ],
+   "fact": "For multiplayer maps Check scenario errors when a spawn, vehicle pad, CTF flag or SnatchIt base or core is off 0 or 8. It warns when they sit in separate connected areas (cells without bits 1|2 join areas). Base War buildings are exempt, since retail Deliverance has power plants on 1. Missions are exempt, since Mission_05's start stands on 1.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "validation",
+    "terrain"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "pathfinding-mech-map",
+   "title": "_Mech.map is a text path graph on a 20 m grid",
+   "subject": {
+    "kind": "file",
+    "id": "Pathfinding/Scn<ID>_Mech.map"
+   },
+   "addresses": [],
+   "related": [
+    "pathfinding-size",
+    "mappath-db"
+   ],
+   "fact": "The campaign-AI path graph is a text file on a 20 m grid, stored as Pathfinding/Scn<ID>_Mech.map in the .ma2map and copied into the index at its own path. The editor builds it from the placed starts, spawns and AI units, keeping only reachable nodes, each snapped to its nearest node within 120 m.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 856
+    }
+   ],
+   "tags": [
+    "pathfinding",
+    "format"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "pathfinding-size",
+   "title": "Graph is capped near 2,500 nodes",
+   "subject": {
+    "kind": "concept",
+    "id": "pathfinding density cap"
+   },
+   "addresses": [],
+   "related": [
+    "pathfinding-mech-map"
+   ],
+   "fact": "The generator widens its 20 m lattice until the reachable part fits about 2,500 nodes, which matches retail density. Edited copies of all 36 retail maps gave 465 to 2,445 nodes. A copy that keeps its retail terrain and uses graphs the Base archive ships keeps those retail graphs.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "pathfinding",
+    "limit"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "pathfinding-blocks",
+   "title": "Generated graph blocks type 2 and 16 everywhere, and 1 in MP",
+   "subject": {
+    "kind": "concept",
+    "id": "pathfinding blocked bits"
+   },
+   "addresses": [],
+   "related": [
+    "pathfinding-mech-map",
+    "terrain-type-map"
+   ],
+   "fact": "The editor's pathfinding treats cells of type 2 and 16 as blocked everywhere, and type 1 only in multiplayer maps. Retail mission graphs cross 1 and 32: Mission_04 has 456 of 1,504 nodes on 1, and Mission_05 has 1,824 nodes on 32.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "pathfinding",
+    "terrain"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "mappath-db",
+   "title": "MAPathDB added to every saved world",
+   "subject": {
+    "kind": "class",
+    "id": "MAPathDB"
+   },
+   "addresses": [],
+   "related": [
+    "pathfinding-mech-map",
+    "catalog-object-dictionary"
+   ],
+   "fact": "The editor adds one MAPathDB object to every saved world, copied from NewRiverCity's, pointing at the generated graph. Only NewRiverCity's multiplayer world has one in retail. Bots look for pathfinding/*_mech.map in the level archive, so they find the editor's file. Whether this is harmless is still open.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "pathfinding",
+    "class"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "water-extent",
+   "title": "Water plane size comes from the template name",
+   "subject": {
+    "kind": "class",
+    "id": "MAWater"
+   },
+   "addresses": [],
+   "related": [
+    "catalog-object-dictionary"
+   ],
+   "fact": "SUPERSEDED (v249, t16 survey): MAWater size is the model bounding box (bs-mawater-size); the editor writes a generated model; see t16-units-roads-water-surprise-3. MAWater planes carry no size property the editor can find. The size is read from the template name (for example Water_Sw_1000x1000 NEW) and defaults to 500 m for drawing and pathfinding. Open.",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "water",
+    "class"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "heading-units",
+   "title": "Heading units differ by property",
+   "subject": {
+    "kind": "property",
+    "id": "heading properties"
+   },
+   "addresses": [],
+   "related": [
+    "heading-direction-open",
+    "catalog-object-dictionary"
+   ],
+   "fact": "CorporalHeading and VolumeHeading are degrees (retail values run 0, 90, 180, -90 and up to about ±1402). MALevelStart.StartOrientation is radians (0 to 2π). The forward vector is guessed as (sin h, cos h) in (x, z).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "heading",
+    "units"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "heading-direction-open",
+   "title": "Spawn heading zero is not verified",
+   "subject": {
+    "kind": "concept",
+    "id": "StartOrientation"
+   },
+   "addresses": [],
+   "related": [
+    "heading-units"
+   ],
+   "fact": "The rotation sign was checked in the editor (ProvingGround's wall segments join into closed rings). Whether a spawn's StartOrientation uses the same zero is unverified. Open.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "heading",
+    "open"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "mp-team-index",
+   "title": "MALevelStart TeamIndex and team sizes",
+   "subject": {
+    "kind": "property",
+    "id": "MALevelStart.TeamIndex"
+   },
+   "addresses": [],
+   "related": [
+    "mp-validation-rules",
+    "catalog-object-dictionary"
+   ],
+   "fact": "MALevelStart.TeamIndex is 1 for Red, 2 for Blue and 0 for free-for-all. Retail team maps have 12 spawns per team. The editor's Players tab places 6 spawns per team on a ring at once.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "spawn",
+    "team"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "mp-validation-rules",
+   "title": "Design rule: s for multiplayer teams",
+   "subject": {
+    "kind": "setting",
+    "id": "bot match team rules"
+   },
+   "addresses": [],
+   "related": [
+    "mp-team-index",
+    "mp-gametype-objects"
+   ],
+   "fact": "a player set these rules on 2026-10-20: a bot match allows at most 6 players per side, a team map needs at least 6 MALevelStart per team, and every enabled GameType needs its objects, copied from a retail map's MAMissionTypeGroup subtree.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "rules",
+    "mp"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "mp-gametype-objects",
+   "title": "Multiplayer mode flag names",
+   "subject": {
+    "kind": "concept",
+    "id": "MAMissionTypeGroup flags"
+   },
+   "addresses": [],
+   "related": [
+    "mp-validation-rules",
+    "base-war-objectives"
+   ],
+   "fact": "Root and MAMissionTypeGroup flags use the names CTF, TeamDestruction, BaseWar, SnatchIt, CheckIt, Destruction, NotIt, LMS (LastManStanding), TeamLMS and Grinder, plus unused names such as Generic, Skirmish and KickIt. They match the GameType lines in scenario.ini.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "gametype",
+    "class"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "base-war-objectives",
+   "title": "Base War needs objectives 0 and 1",
+   "subject": {
+    "kind": "property",
+    "id": "MAObjectiveType ObjectiveNumber 0 and 1"
+   },
+   "addresses": [],
+   "related": [
+    "mp-gametype-objects",
+    "base-war-bogged-down-2000hp-targets-are-indestructible-vtol"
+   ],
+   "fact": "Every retail Base War map has MAObjectiveType ObjectiveNumber 0 (Red power plant) and 1 (Blue power plant). Without them the match ends at once: with the Blue plant deleted in one copy, the game showed 'Red Team Wins' 600-0 with no kills. Check scenario now requires both.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "basewar",
+    "objective",
+    "bug"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "mission-trigger-timer",
+   "title": "MATriggerTimer duration in minutes",
+   "subject": {
+    "kind": "property",
+    "id": "MATriggerTimer.TrgTimerDuration"
+   },
+   "addresses": [],
+   "related": [
+    "catalog-object-dictionary"
+   ],
+   "fact": "TrgTimerDuration is the seconds value divided by 60, next to TrgTimerDurationSeconds. A disabled timer starts counting when an MAActionAI enables it, which is the retail 'delay' pattern.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "trigger",
+    "timer"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "gamecondition-values",
+   "title": "MAActionGameCondition win and lose values",
+   "subject": {
+    "kind": "property",
+    "id": "MAActionGameCondition.GameCondition"
+   },
+   "addresses": [],
+   "related": [
+    "catalog-object-dictionary"
+   ],
+   "fact": "GameCondition 1 means lose and 2 means win. All 46 retail uses match their trigger names.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "trigger",
+    "win",
+    "lose"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "nations",
+   "title": "Nation values for player, enemy and neutral",
+   "subject": {
+    "kind": "property",
+    "id": "Nation"
+   },
+   "addresses": [],
+   "related": [
+    "unit-side-crew",
+    "catalog-object-dictionary"
+   ],
+   "fact": "In missions the player is nation 6, enemies are 5, and abandoned or neutral is 0. The editor's side labels (Player's side, Enemy, Neutral) appear to map to these values; that mapping is inferred.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "nation",
+    "side"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "unit-side-crew",
+   "title": "Unit side sets its crew (empty or crewed)",
+   "subject": {
+    "kind": "behaviour",
+    "id": "set_unit_side"
+   },
+   "addresses": [],
+   "related": [
+    "empty-unit-lost-bug",
+    "neutral-unit-boarding"
+   ],
+   "fact": "Setting a unit's side also sets its crew. Enemy and Player's side units are crewed, with full detail and collidable. Neutral units are empty and climbable. Multiplayer pickup 'Mechs are empty by default (StartAbandoned=1, low detail, not collidable), so copies of them must be re-crewed.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "unit",
+    "crew"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "empty-unit-lost-bug",
+   "title": "Empty units count as lost, which won missions at once",
+   "subject": {
+    "kind": "bug",
+    "id": "MATriggerDestroyed on empty units"
+   },
+   "addresses": [],
+   "related": [
+    "unit-side-crew"
+   ],
+   "fact": "An empty 'Mech counts as lost at once for MATriggerDestroyed. Copies of multiplayer pickups placed in a mission made 'units destroyed -> win' fire on load, and Custom Scenarios restarted the mission about 70 times in 90 s. The fix re-crews enemy units and blocks a trigger on an empty unit in Check scenario.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "unit",
+    "bug",
+    "trigger"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "neutral-unit-boarding",
+   "title": "Neutral units become enterable (unpublished)",
+   "subject": {
+    "kind": "behaviour",
+    "id": "apply_unit_side (editor)"
+   },
+   "addresses": [],
+   "related": [
+    "unit-side-crew",
+    "pink-cube-open"
+   ],
+   "fact": "In the editor source, a Neutral 'Mech or vehicle gets StartAbandoned=1, AttackPilot=0, InitiallyCollidable=1, OverrideEnable=0 and an MAOwnerController cloned from a retail one. Walking up shows 'Press Q to enter', but a scripted Q did not change the player-context actor. Boarding is not proven against a retail control, and this build is not published.",
+   "status": "open-question",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "units",
+    "boarding"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "pink-cube-open",
+   "title": "Pink cube in a user mission (resolved 11-09: failed object build, see t27)",
+   "subject": {
+    "kind": "bug",
+    "id": "playtest mission (mission_09b base)"
+   },
+   "addresses": [],
+   "related": [
+    "neutral-unit-boarding",
+    "pink-placeholder-is-failed-object-build"
+   ],
+   "fact": "Rewriting the Ymir to ymir_low.NODE did not remove it. The object is unidentified, and the next step was to bisect by deleting objects. Open. RESOLVED 2026-11-09: no longer unidentified; most likely a failed object build (see t27), e.g. the Stiletto's or Ymir's .mtb-named effects/debris not shipped. The 10-21 file was not re-run. UPDATE 2026-11-09 (t27): the pink pole-and-cube is the game's marker for ANY object whose build failed (sub_D8221/sub_D8391), not only a missing model. Other causes: a template named inside the object's .mtb (debris, rubble, dust, explosion effects) whose files the scenario did not ship, and the 4 hard-coded MABuilding effect files on a Base without buildings. Editor d34766e + dcdcad4 (PC Release editor d062003f) ship all of these. See pink-placeholder-is-failed-object-build, pink-placeholder-mtb-template-refs, mabuilding-hardcoded-effect-files.",
+   "status": "superseded",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "mission",
+    "bug"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "model-path-resolve-save",
+   "title": "Save rewrites model paths to shipped variants (editor, unpublished)",
+   "subject": {
+    "kind": "behaviour",
+    "id": "ScenarioIO:resolve_model_paths"
+   },
+   "addresses": [],
+   "related": [
+    "pink-cube-open"
+   ],
+   "fact": "On save the editor rewrites Corporal3DObj paths that exist only as a variant to the file on the disc. Ymir exists only as Models/Mechs/Assault/Ymir/ymir_low.NODE in the multiplayer archives, so save writes that path.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "model",
+    "save"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "palette-no-model",
+   "title": "Templates whose model is not on the disc are greyed",
+   "subject": {
+    "kind": "behaviour",
+    "id": "Units palette"
+   },
+   "addresses": [],
+   "related": [
+    "ma2models-not-on-disc",
+    "palette-461-superseded"
+   ],
+   "fact": "The Units palette no longer hides templates whose model is absent. In the 2026-10-21 sweep, 279 are listed greyed with '- no model on the disc' (520 ok, 1 empty, 279 absent).",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "palette",
+    "model"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "palette-461-superseded",
+   "title": "Old palette hid 461 templates",
+   "subject": {
+    "kind": "behaviour",
+    "id": "USABILITY U23"
+   },
+   "addresses": [],
+   "related": [
+    "palette-no-model"
+   ],
+   "fact": "USABILITY U23 says the palette hides the 461 templates whose model is not shipped.",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "palette",
+    "stale"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "read-only-levels",
+   "title": "Retail levels open read-only with an editable-copy option",
+   "subject": {
+    "kind": "behaviour",
+    "id": "File > Open retail map"
+   },
+   "addresses": [],
+   "related": [
+    "editor-workflow"
+   ],
+   "fact": "Retail levels open read-only, with an orange banner and a 'Make an editable copy' button. The copy opens the New dialog with 'A copy of a real level' filled .",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "editor",
+    "copy"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "budget-objects",
+   "title": "Object budget for world.wdf",
+   "subject": {
+    "kind": "limit",
+    "id": "object count"
+   },
+   "addresses": [],
+   "related": [
+    "budget-size"
+   ],
+   "fact": "Warn above about 2,100 objects in world.wdf and error above 3,000. The largest retail mission, Mission_03, has 2,098. The limit exists because the game runs inside the Xbox's memory.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "budget",
+    "limit"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "budget-size",
+   "title": "Byte budget: the size warning should apply to the assets archive only",
+   "subject": {
+    "kind": "limit",
+    "id": "size warning"
+   },
+   "addresses": [],
+   "related": [
+    "budget-objects",
+    "assets-archive"
+   ],
+   "fact": "says to warn when Base plus [Assets] exceed 16 MB. The plan is to warn only on the assets archive, and to audit its closure against the placed templates.",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "budget",
+    "size"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "skies-masky2",
+   "title": "MASky2 sky properties and the sky picker",
+   "subject": {
+    "kind": "class",
+    "id": "MASky2"
+   },
+   "addresses": [],
+   "related": [
+    "catalog-object-dictionary",
+    "sky-model-names"
+   ],
+   "fact": "Each world has one MASky2 with Corporal3DObj (the sky model), CorporalMTB, SkyTerrainSkyScale (350 to 500), SkyTerrainSkyOffset (y -40 to -175), CorporalPos, CorporalHeading (degrees), and SkyFogTop and SkyFogBottom. The sky picker copies the model, mtb, scale, offset, position and heading from a retail world that uses that sky, and leaves the fog bands alone.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "sky",
+    "class"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "sky-model-names",
+   "title": "Sky model names do not always match folder names",
+   "subject": {
+    "kind": "asset",
+    "id": "sky models"
+   },
+   "addresses": [],
+   "related": [
+    "skies-masky2"
+   ],
+   "fact": "Env_SkyHesperus_01 holds Env_Sky_Hesperus_01[_MP], and En_Sky_WarmSun holds Env_Sky_WarmSun[_MP]. Env_SkySpace holds two skies (Env_SkySpace for cinema 2_4, Env_SkySpace02 for the lobby). Env_Planet is used by no world's MASky2.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "sky",
+    "asset"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "mgmodel-layout",
+   "title": "MGMODEL is an XML resource of materials, meshes and a node tree",
+   "subject": {
+    "kind": "file",
+    "id": "MGMODEL"
+   },
+   "addresses": [],
+   "related": [
+    "vertex-layout-flags",
+    "mtb-show-rule",
+    "ma2models-api"
+   ],
+   "fact": "A .MGMODEL's <xmlres> holds material elements (material_base, detail, complex, specular_mask, color_shift, env, solid, water, animated, distort, specular_alpha), meshxml entries that name the vertex and index entries, and a tree of node_* elements. Transforms are scale, then rotation about rot_axis by rot_angle, then translation. Space is left-handed, Y up, with the model's front on +Z.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "model",
+    "format"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "vertex-layout-flags",
+   "title": "Vertex layout flag bits",
+   "subject": {
+    "kind": "file",
+    "id": "vertex entries (.geomVert / {x verts})"
+   },
+   "addresses": [],
+   "related": [
+    "mgmodel-layout"
+   ],
+   "fact": "Vertex layout flags: 0x1 position float3, 0x100 packed normal (11:11:10), 0x8 diffuse colour, 0x100000 tangent, 0x200 and 0x400 one or two UV sets as int16 divided by 1024, 0x1000 and 0x2000 float2 UV sets, 0x80000 skin (4 bone indices and 4 weights). Every vertex file on the disc matches its stride.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "model",
+    "vertex"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "mtb-show-rule",
+   "title": "MTB visibility rule for an undamaged, piloted unit",
+   "subject": {
+    "kind": "file",
+    "id": "MAModSubObjectShow"
+   },
+   "addresses": [],
+   "related": [
+    "mgmodel-layout",
+    "mtb-state-flags"
+   ],
+   "fact": "A node with MAModSubObjectShow rules is visible only if some rule has Enable = 1, Abandoned = 0 and MinDamagePercent <= 100 <= MaxDamagePercent. EnableTree = 1 hides the subtree too. Damage cracks use 0 to 10, and entry lights use Abandoned 3 or 4 (abandoned units only).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "model",
+    "mtb"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "mtb-state-flags",
+   "title": "SubObjStateFlags meanings",
+   "subject": {
+    "kind": "file",
+    "id": "MAModSubObjectState SubObjStateFlags"
+   },
+   "addresses": [],
+   "related": [
+    "mtb-show-rule"
+   ],
+   "fact": "Flag 0x1 is tracking and turret yaw, 0x2 turret pitch, 0x4 a tank attach point, 0x8 battle-armour no-climb, 0x10 defence (shield bubbles, AMS), 0x200000 torso, 0x400000 and 0x800000 claw and battle-armour attach points, 0x2000000 and 0x4000000 pilot entry points, 0x8000000 effect dummies, 0x10000000 ejection, 0x20000000 topple, 0x40000000 topple pivot. ma2models hides 0x10 nodes whose meshes are all effect materials.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "model",
+    "mtb",
+    "flags"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "lowdetail-substitution",
+   "title": "Multiplayer templates resolve to _low model files",
+   "subject": {
+    "kind": "file",
+    "id": "_low model substitution"
+   },
+   "addresses": [],
+   "related": [
+    "mgmodel-layout",
+    "ma2models-resolver"
+   ],
+   "fact": "Multiplayer levels ship only *_low model files, while templates name the full models (atlas.NODE, VMil_VTOL.MGMODEL). The resolver tries the name as written, then <stem>_low, then the other extension, within each archive before moving on, so a level's own _low file wins. How the game chooses _low in MP was not traced in the XBE.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "model",
+    "lowdetail"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "ma2models-resolver",
+   "title": "ma2models resolves model names and collects the closure",
+   "subject": {
+    "kind": "tool",
+    "id": "ma2models library"
+   },
+   "addresses": [],
+   "related": [
+    "lowdetail-substitution",
+    "assets-section-format"
+   ],
+   "fact": "ma2models (models/src, namespace ma2m) opens archives with Base first, resolves template models, decodes meshes and textures, and returns the file closure used for [Assets]. The closure skips entries not on the disc (found == false). The editor compiles it straight .",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "tool",
+    "models"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "ma2models-not-on-disc",
+   "title": "Many templates reference models absent from the disc",
+   "subject": {
+    "kind": "concept",
+    "id": "missing models"
+   },
+   "addresses": [],
+   "related": [
+    "ma2models-resolver",
+    "palette-no-model"
+   ],
+   "fact": "461 of the 1,411 distinct (model, mtb) pairs in GlobalEntities name models not on the disc in any form (dev sets, the Live lobby, cut characters). Retail MP maps decode 2,892 of 2,892 templates with the rest of the disc, and GlobalEntities has 950 shipped pairs.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "model",
+    "limit"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "mgiC-terrain-pictures",
+   "title": "Retail terrain pictures by format",
+   "subject": {
+    "kind": "asset",
+    "id": "Terrain/*.tif"
+   },
+   "addresses": [],
+   "related": [
+    "mgiC-pic-format",
+    "colour-map-alpha"
+   ],
+   "fact": "The level archives hold colour and detail maps as DXT1 (125), DXT5 (30) and DXT3 (15), and lightmaps as swizzled A8L8 (38). In a lightmap, L is diffuse light and A is the shadow mask (0 means in shadow).",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "picture",
+    "census"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "colour-map-alpha",
+   "title": "Colour map alpha is a detail blend mask",
+   "subject": {
+    "kind": "concept",
+    "id": "colour map alpha"
+   },
+   "addresses": [],
+   "related": [
+    "mgiC-terrain-pictures"
+   ],
+   "fact": "The colour map's alpha is a detail-texture blend mask. Base means are BoggedDown 182, Mission_05 221 and GoCommando 22. Generated maps used to write 255, which washed the scene out, so new maps use the Base mean alpha.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "terrain",
+    "colour"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "fog-band-rule",
+   "title": "Height fog band sits under the lowest ground",
+   "subject": {
+    "kind": "setting",
+    "id": "FogTop / FogMode (generated terrain)"
+   },
+   "addresses": [],
+   "related": [
+    "colour-map-alpha"
+   ],
+   "fact": "Mission_05 uses FogMode 2 with a height-fog band that covers its lowest 10 percent. Generated terrain now places FogTop 2 m under the lowest ground, keeping the band thickness. Moving the band to the height percentiles was not enough, because the player then started in the low ground.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "fog",
+    "terrain"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "editor-lightmap-bake",
+   "title": "Editor bakes the lightmap from the sun",
+   "subject": {
+    "kind": "tool",
+    "id": "Bake lightmap"
+   },
+   "addresses": [],
+   "related": [
+    "mgiC-terrain-pictures"
+   ],
+   "fact": "The editor's Bake lightmap uses the MAEnvironment sun with terrain shadows, and strokes re-bake on release. Undo and redo re-light the terrain.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "terrain",
+    "lightmap"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "editor-build",
+   "title": "Editor build outputs",
+   "subject": {
+    "kind": "tool",
+    "id": "build.cmd"
+   },
+   "addresses": [],
+   "related": [
+    "editor-tests"
+   ],
+   "fact": "build.cmd builds Scenario Editor.exe and with Visual Studio 18 (vcvars64 is called automatically) and the vendored Dear ImGui 1.92.5. build.cmd tests builds only the format tests. The editor reads retail game_files at run time and never contains retail model or texture bytes.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "tool",
+    "build"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "editor-tests",
+   "title": "Format tests (fmt_test)",
+   "subject": {
+    "kind": "tool",
+    "id": "fmt_test"
+   },
+   "addresses": [],
+   "related": [
+    "editor-build"
+   ],
+   "fact": "fmt_test checks, against game_files: all 61 world files and the 60 culled template sets round-trip byte-identically, every heightfield and terrain picture round-trips, all 212 Terrain/*.tif decode, the MGF writer keys match retail, the height formula matches retail nav nodes, and two sample scenarios are built, saved and reloaded. The final 2026-10-21 build reported 1,265 checks passed and 0 failed.",
+   "how_to_use": "fmt_test --game \"PC Release\"",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "tool",
+    "test"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "editor-test-save-run",
+   "title": "Test saves, checks, and runs the game with the scenario",
+   "subject": {
+    "kind": "tool",
+    "id": "editor Test (F5)"
+   },
+   "addresses": [],
+   "related": [
+    "ma2-test-args",
+    "editor-test-refusal"
+   ],
+   "fact": "Test (F5) validates, saves and runs MechAssault 2.exe with --scenario <file>, --mode, --bots and --skill, using the install folder set in Options. Check scenario runs before every Test, and a Must-fix item blocks it.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "tool",
+    "test"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "editor-test-refusal",
+   "title": "Test refuses while the game is already running",
+   "subject": {
+    "kind": "behaviour",
+    "id": "editor Test"
+   },
+   "addresses": [],
+   "related": [
+    "editor-test-save-run"
+   ],
+   "fact": "If the game is already running, Test refuses and explains, because a second instance would not see new scenarios (fixed as W6).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "tool",
+    "test"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "editor-recovery",
+   "title": "Autosave and crash recovery",
+   "subject": {
+    "kind": "behaviour",
+    "id": "editor autosave / recovery"
+   },
+   "addresses": [],
+   "related": [
+    "editor-logs"
+   ],
+   "fact": "An autosave runs every two minutes while there are unsaved changes, into a recovery slot in %LOCALAPPDATA%\\MechAssault2\\Autosave. A crash handler writes a minidump and a log, and saves the scenario to the recovery slot. On the next start the editor offers the work back.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "editor",
+    "recovery"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "editor-logs",
+   "title": "Editor crash logs",
+   "subject": {
+    "kind": "file",
+    "id": "%LOCALAPPDATA%\\MechAssault2\\Logs"
+   },
+   "addresses": [],
+   "related": [
+    "editor-recovery"
+   ],
+   "fact": "Crash reports (a minidump and a text log) go to %LOCALAPPDATA%\\MechAssault2\\Logs.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "logs"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "editor-dev-flags",
+   "title": "Editor developer flags for headless runs and bisects",
+   "subject": {
+    "kind": "tool",
+    "id": "editor command-line flags"
+   },
+   "addresses": [],
+   "related": [
+    "editor-play-harness"
+   ],
+   "fact": "The editor takes --shot out.bmp [--retail <Map>] [file] [--tab N] [--topdown] [--cam x,z,dist,yaw,pitch] [--select UID] [--overlay bit] to render a frame and exit. It also takes --model-sweep FILE, --place-before-start UID=metres, --unit-side UID=N, --trigger-units NAME=a,b, --drop-trigger NAME, --save-to PATH and --confirm-test, for scripted bisects.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "tool",
+    "flags"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "editor-play-harness",
+   "title": "Headless input player (--play)",
+   "subject": {
+    "kind": "tool",
+    "id": "play script.txt"
+   },
+   "addresses": [],
+   "related": [
+    "editor-dev-flags",
+    "editor-controls-checklist"
+   ],
+   "fact": "The editor's --play script drives the GUI headless: moves, clicks, drags, wheel, keys, holds, typing, waits, shot, dump, script and exit. Mouse and keys go through ImGui's input queue, so each checklist row is repeatable. The client is 1600x900.",
+   "how_to_use": "MA2 Scenario Editor.exe <file.ma2map> --play script.txt",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "tool",
+    "test",
+    "headless"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "editor-controls-checklist",
+   "title": "Controls checklist results",
+   "subject": {
+    "kind": "tool",
+    "id": "USABILITY controls checklist"
+   },
+   "addresses": [],
+   "related": [
+    "editor-play-harness"
+   ],
+   "fact": "The headless checklist passed for ghost placement, left-click place, cancel with right-click or Escape, Q/E rotate, select and drag, delete, box select, copy and paste, camera pan, zoom and rotate, top-down, every terrain brush, paint, undo and redo, save and reopen, Check scenario, Test, options, Help and Getting Started. Edge scrolling was not verified headless.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "editor",
+    "checklist"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "editor-usability-crash-fix",
+   "title": "Crash fix: GPU textures released after present",
+   "subject": {
+    "kind": "bug",
+    "id": "Renderer:retire / end_frame"
+   },
+   "addresses": [],
+   "related": [
+    "editor-recovery"
+   ],
+   "fact": "A use-after-free crashed the editor after a Raise click. ImGui drew the minimap and colour-map previews, and a finished brush stroke released those GPU textures in the same frame. Textures are now released only after Present (Renderer:retire, end_frame, and ModelCache:end_frame). About 20 strokes with undo and redo ran with no crash.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "editor",
+    "crash",
+    "bug"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "editor-name-bug",
+   "title": "Map name stayed New Map (W2)",
+   "subject": {
+    "kind": "bug",
+    "id": "scenario.ini Name"
+   },
+   "addresses": [],
+   "related": [
+    "scenario-ini-sections"
+   ],
+   "fact": "The game lists a map by its Name, which stayed 'New Map' whatever file name was typed. Fixed: the first Save of a map still called New Map or New Mission takes the file name.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "editor",
+    "bug",
+    "name"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "editor-null-description-bug",
+   "title": "Empty description shows as NULL (W1)",
+   "subject": {
+    "kind": "bug",
+    "id": "scenario.ini Description"
+   },
+   "addresses": [],
+   "related": [
+    "scenario-ini-sections"
+   ],
+   "fact": "An empty description showed as NULL under the map in the New Game menu. Fixed: scenario.ini gets 'A custom scenario (by <author>).' when the description is empty.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "editor",
+    "bug"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "editor-workflow",
+   "title": "Editor workflow: New, edit, Test",
+   "subject": {
+    "kind": "concept",
+    "id": "editor workflow"
+   },
+   "addresses": [],
+   "related": [
+    "read-only-levels",
+    "editor-test-save-run"
+   ],
+   "fact": "New makes a Multiplayer map or Mission from a theme level, and its sky, lighting, ground textures and models come from the level archive. Terrain, Players, Units, Triggers and Messages tabs edit the scenario, and Save writes the .ma2map. Triggers compile to native MATrigger and MAAction trees in the group 'Editor Triggers'. NOTE (v249, t16 survey): the Triggers tab now edits native MATrigger/MAAction objects in place; the \"Editor Triggers\" group appears only for legacy files and is renamed \"Triggers\" on load (t16-triggers-sets-surprise-1).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "workflow"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "editor-trigger-text-ids",
+   "title": "Inline message text gets ids from 60000",
+   "subject": {
+    "kind": "concept",
+    "id": "editor text ids"
+   },
+   "addresses": [],
+   "related": [
+    "ma2-scn-text",
+    "editor-workflow"
+   ],
+   "fact": "On save, inline text in triggers and messages gets text ids from 60000 upward in the scenario's [Strings] block. Imported WAV clips get cue ids 0x5C000000 + n.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "text",
+    "audio"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "editor-wav-import",
+   "title": "Editor converts imported WAV to 16-bit PCM",
+   "subject": {
+    "kind": "behaviour",
+    "id": "WAV import"
+   },
+   "addresses": [],
+   "related": [
+    "wav-accepted-formats"
+   ],
+   "fact": "The editor accepts any PCM or float WAV (8, 16, 24 and 32 bit, float, any rate and any channel count) and converts it to 16-bit PCM at 22050, 44100 or 48000 Hz, stereo at most. The status bar says what was converted. Verified with 8-bit 11 kHz, 24-bit 96 kHz 6-channel and float 32 kHz files.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "editor"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "editor-mission-units-lose-ai",
+   "title": "Copied mission units lose AI orders",
+   "subject": {
+    "kind": "concept",
+    "id": "placed mission units"
+   },
+   "addresses": [],
+   "related": [
+    "unit-side-crew"
+   ],
+   "fact": "Copies of retail units lose the source mission's AI orders, paths, objective markers and kill references, but keep their nation (enemies are 5). Open for missions.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "unit",
+    "ai"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "ai-orders-structure",
+   "title": "AI orders hang off a unit through MAAIGroup and MAEvent",
+   "subject": {
+    "kind": "class",
+    "id": "MAAIGroup / MAEvent / MAPatrol / MADefend / MAFollow / MAAttack"
+   },
+   "addresses": [],
+   "related": [
+    "catalog-object-dictionary"
+   ],
+   "fact": "A unit's AI orders are MAAIGroup, then MAEvent (TriggerID = the trigger that starts the behaviour, Priority 2), then one order: MAPatrol with MAWaypointGroup (WaypointID = the first MAWaypoint), MADefend (DefendUID = a NULL MACorporeal marker, Radius), MAFollow (FollowUID = the player's MALevelStart, FollowRadius), or MAAttack (AttackUID = MALevelStart with AttackPlayer 2, the player).",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "ai",
+    "class"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "objectives-on-maroot",
+   "title": "Objectives live on MARoot",
+   "subject": {
+    "kind": "class",
+    "id": "MARoot ObjectiveItemDesc / ob%dvar0 / ob%dobj%d"
+   },
+   "addresses": [],
+   "related": [
+    "broadcast-body-text-works",
+    "catalog-object-dictionary"
+   ],
+   "fact": "Objectives are stored on MARoot: ObjectiveItemDesc%d (a text id), ob%dvar0 (the mission variable that completes it), ob%dobj%d (radar objects) and mfname%d. TitleText and BriefingText are text ids. Objective n is completed by mission variable n.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "objective",
+    "maroot"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "trigger-fields",
+   "title": "Common trigger fields and mission variables",
+   "subject": {
+    "kind": "class",
+    "id": "MATrigger* common fields"
+   },
+   "addresses": [],
+   "related": [
+    "catalog-object-dictionary"
+   ],
+   "fact": "Common trigger fields are TriggerEnabled, TriggerAutoReset (loop), TriggerFired, NumberOfTimesActivated and MissionVariable (-1 everywhere in retail). Actions are child objects. MAActionMissionVariableSet writes MissionVariableSet with VariableState always 1.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "trigger",
+    "class"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "trigger-logic",
+   "title": "MATriggerLogic inputs and LogicType",
+   "subject": {
+    "kind": "class",
+    "id": "MATriggerLogic"
+   },
+   "addresses": [],
+   "related": [
+    "trigger-fields",
+    "catalog-object-dictionary"
+   ],
+   "fact": "MATriggerLogic takes MoeEntityReference children as inputs (ReferenceUID = the trigger). LogicType 0 means all inputs, 1 means any, and Inverse 1 means not.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "trigger",
+    "logic"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "trigger-destroyed",
+   "title": "MATriggerDestroyed TypeOfCheck and CombineMethod",
+   "subject": {
+    "kind": "class",
+    "id": "MATriggerDestroyed"
+   },
+   "addresses": [],
+   "related": [
+    "trigger-fields",
+    "empty-unit-lost-bug"
+   ],
+   "fact": "TypeOfCheck 1 means the MoeEntityReference children and 2 means DestroySet (an entity set). CombineMethod 1 means any, 2 means all and 3 means percent (corrected 2026-10-24, batches 44/46). DamageLevel is a percentage of damage (0 means destroyed), and AllowJacking applies.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "trigger",
+    "destroyed"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "trigger-area-player",
+   "title": "Player-in-area check values",
+   "subject": {
+    "kind": "class",
+    "id": "MATriggerRadius / MATriggerCuboidalVolume"
+   },
+   "addresses": [],
+   "related": [
+    "catalog-object-dictionary"
+   ],
+   "fact": "A 'player in area' trigger uses TypeOfCheck 3, PlayerEntitesOnly 1, NationCompare 6 or 10, and InRadiusCheck or VolumeStateTest 1 for inside. The area is TriggerPoint and EncounterRadius, or VolumeWidth, Length and Height with VolumeHeading in degrees. NationCompare was copied from the first retail prototype and is unverified.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "trigger",
+    "area"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "broadcast-fields",
+   "title": "MAActionBroadcast fields",
+   "subject": {
+    "kind": "class",
+    "id": "MAActionBroadcast"
+   },
+   "addresses": [],
+   "related": [
+    "broadcast-body-text-works",
+    "catalog-object-dictionary"
+   ],
+   "fact": "MAActionBroadcast has BodyTextID, CaptionTextID, TimeDisplayedFor, PauseGame and DestinationRefID 2. The caption is not displayed in game (see broadcast-caption-missing).",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "message",
+    "class"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "ma-action-sound-fields",
+   "title": "MAActionSound and MAActionMusic fields",
+   "subject": {
+    "kind": "class",
+    "id": "MAActionSound / MAActionMusic"
+   },
+   "addresses": [],
+   "related": [
+    "cue-action-hooks",
+    "catalog-object-dictionary"
+   ],
+   "fact": "MAActionSound has CueEvent, IsQueued and DelayBeforePlay. MAActionMusic has MusicCue, IntensityLevel and MusicEvent. MAActionPlayVoice's CueID is at object+0x78 (see action-cue-offsets).",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "audio",
+    "class"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "editor-trigger-actions-map",
+   "title": "Editor effects map to native classes",
+   "subject": {
+    "kind": "class",
+    "id": "trigger effects"
+   },
+   "addresses": [],
+   "related": [
+    "ma-action-sound-fields",
+    "trigger-logic"
+   ],
+   "fact": "Editor effects compile to native classes: MAActionShow (Enable, ActionEntity or AISet, EnableTree), MAActionRemoveEntity (ActionEntity or ActionSet, ShowKillEffect), MAActionAI (EnableAI, enables triggers, units or spawners), MAActionNation (Nation), MAActionTeleport (MarkerUID, Heading, InstantTeleport, TeleportLocal), and MAActionCheckPointSave (suffix). NOTE (v249): describes the old compile model; see t16-triggers-sets-surprise-1 and -2 (no fact shows MAActionAI enabling a spawner; spawners use TriggerEnableID).",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "trigger",
+    "class"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "catalog-object-dictionary",
+   "title": "Object and property dictionary",
+   "subject": {
+    "kind": "concept",
+    "id": "catalog-object-dictionary"
+   },
+   "addresses": [],
+   "related": [
+    "mgf-v4-header-and-records",
+    "world-file-structure"
+   ],
+   "fact": "That file is the source for property meanings, units and enums. This topic links to it rather than repeating them.",
+   "how_to_use": "Open and look up the class or property key.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "dictionary",
+    "catalog"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "scenario-test-sweep",
+   "title": "18-map regression sweep for scenario changes",
+   "subject": {
+    "kind": "tool",
+    "id": "sweep32 / sweep33 / sweep34"
+   },
+   "addresses": [],
+   "related": [
+    "editor-tests"
+   ],
+   "fact": "The sweep runs the 18 retail Multiplayer maps with an empty scenario folder: sweep32 gave 18/18 clean, sweep33 18/18 with 0 faults, and sweep34 on test32 18/18 with 0 faults. Grinder's BOT-STALL lines are a game over at about 118 s, not a freeze.",
+   "how_to_use": "Run an empty scenario folder through the sweep before publishing.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "test",
+    "sweep"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "quit-remount-test",
+   "title": "Quit to hub unmounts, and a later remount works",
+   "subject": {
+    "kind": "tool",
+    "id": "quit_scn.py"
+   },
+   "addresses": [],
+   "related": [
+    "level-unload-hook"
+   ],
+   "fact": "quit_scn.py q1 and q2 showed that quitting to the main hub unmounts the scenario's assets archive, and that the next level remounts it and the retail map loads after.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "test",
+    "unmount"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "editor-samples",
+   "title": "Sample scenarios and their checks",
+   "subject": {
+    "kind": "tool",
+    "id": "editor samples"
+   },
+   "addresses": [],
+   "related": [
+    "editor-tests",
+    "sky-model-names"
+   ],
+   "fact": "Samples in editor\\samples: BoggedDown_Plateau (a copy of Bogged Down), Small_TeamDestruction (a from-scratch 129-cell map with 6 Red and 6 Blue spawns on GoCommando's base), Mission_Ambush (a Mission_05 mission with briefing, enemies, a clip and a checkpoint), and Sky_Test (a Bogged Down copy with New River City's aurora sky, which adds 8 [Assets] files).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "sample",
+    "test"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "campaign-title-ids",
+   "title": "Generated campaign entries use name ids",
+   "subject": {
+    "kind": "concept",
+    "id": "campaign titleid"
+   },
+   "addresses": [],
+   "related": [
+    "campaign-ini-generated"
+   ],
+   "fact": "The generated custom campaign uses the name ids (0x00FF0000 + 2*slot) for titleid and descriptionid, so the mission picker shows the scenario's own name.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 877
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 878
+    }
+   ],
+   "tags": [
+    "campaign",
+    "text"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "campaign-intro-open",
+   "title": "Open: the campaign intro movie plays before a single custom mission",
+   "subject": {
+    "kind": "behaviour",
+    "id": "intro movie"
+   },
+   "addresses": [],
+   "related": [
+    "single-mission-skips-picker"
+   ],
+   "fact": "The intro movie plays for about 70 s before a single custom mission, and Enter skips it. The open question is the briefing screen, see briefing-screen-open.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "mission",
+    "open"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "text-lookup-order",
+   "title": "Text lookup order in ma2_scn_text",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_scn_text"
+   },
+   "addresses": [],
+   "related": [
+    "ma2-scn-text",
+    "ui-strings"
+   ],
+   "fact": "The lookup order is: the UI base 0x00FFFF00 first, then the name ids from 0x00FF0000, then the global scenario text range from 0x00F10000. Any id outside these returns the original string.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1728
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1730
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1739
+    }
+   ],
+   "tags": [
+    "text"
+   ],
+   "date": "2026-10-20",
+   "addresses_unverified": [
+    "00FFFF00",
+    "00FF0000",
+    "00F10000"
+   ]
+  },
+  {
+   "id": "scn-slot-limit",
+   "title": "At most 200 scenarios are loaded",
+   "subject": {
+    "kind": "limit",
+    "id": "SCN_MAX"
+   },
+   "addresses": [],
+   "related": [
+    "scenario-scan-and-duplicates"
+   ],
+   "fact": "The game loads at most 200 scenarios (SCN_MAX). Each takes a slot, which sets its name id pair, its cue block of 4,096 and its text block.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 60
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 923
+    }
+   ],
+   "tags": [
+    "limit"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "scenario-text-count-limit",
+   "title": "Each scenario's [Strings] takes n = 1.65535",
+   "subject": {
+    "kind": "limit",
+    "id": "[Strings] n"
+   },
+   "addresses": [],
+   "related": [
+    "scenario-ini-sections",
+    "text-id-space-overlap-risk"
+   ],
+   "fact": "[Strings] n accepts 1 to 65535 (SCN_TEXT_LOCAL_MAX is 0xFFFF). A text id 0x00F00000+n whose n has no [Strings] entry is left unchanged and logged as missing.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 620
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 67
+    }
+   ],
+   "tags": [
+    "text",
+    "limit"
+   ],
+   "date": "2026-10-20"
+  }
+ ]
+}

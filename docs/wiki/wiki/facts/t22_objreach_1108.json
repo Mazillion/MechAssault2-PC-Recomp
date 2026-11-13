@@ -1,0 +1,135 @@
+{
+ "pack": "t22_objreach_1108",
+ "title": "Objective-reach audit (11-08): tank slope, vehicle spawn pins, Check It walks",
+ "facts": [
+  {
+   "id": "objreach-tankslope-illwind",
+   "title": "Ill Wind team-2 tank exit: a 30-37 deg face open on the light grid, plus a drop link down it",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "HPROBE along 1205,1420 -> 1165,1376 shows y 14.8 -> -6.9 with slope 47-76 (rise/run x100) and light-grid clearance 4-9 m (heavy 0): the light grid (wall at 0.8) left it open and the tank planner (light grid) routed down it; every team-2 tank bounced at 1195-1209,1412-1425 until PocketBail. Limiting tank cells to slp<=55 in passable was not enough: the drop-link search still added a 6 m 'drop' 1190,1402 y9.5 -> 1190,1388 y3.7 over the face because the cells in between were not blocked, only steep. Fix 12882a1 (TankSlope): ma2_path_set_slope_max(55) for tanks and no drop link across a non-blocked cell steeper than the limit. The real exit is the 16-22 deg ramp at x 1200-1204 (slope 29-41). After: tanks 2-11 s in the exit box (25-38 s before), no bail there in the rc10 matrix.",
+   "how_to_use": "RECOMP_BOT_HPROBE=\"x0,z0,x1,z1,step|.\" prints terrain/surface/clear/heavy/slope per point at nav build; RECOMP_BOT_PATHTEST_SLOPE=55 applies the tank slope limit to PATHTEST queries.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "pathing",
+    "tank",
+    "ill-wind",
+    "nav-grid"
+   ]
+  },
+  {
+   "id": "objreach-vehpad-respawn-pin",
+   "title": "A vehicle respawns on whatever stands on its spawn spot (VTOL on a tank, Ill Wind team 1)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "rc9_63b: a VTOL (02146130) appeared at t~54 at 331.2,17.8,976.6 on a tank crossing that spot (BOT-CONTACT d=2.5 m, hull 6.7); the tank did not move to two decimals for 15 s until PocketBail; again later in the run and at the 'Mech spot 338,959. The game's vehicle generator does not keep the spot clear of a ground vehicle (wiki: MACrateGenerator occupancy scan 0x152B32, radius unknown). Fix 687e095 (VehPad): where an unoccupied vehicle actor is first seen is a spawn spot (radius = measured hull, 9 m VTOL); an empty spot within 80 m is a planner obstacle for tanks. Ill Wind team-1 base bails: rc2 4, rc4 4, rc6 1, rc10 0.",
+   "how_to_use": "[BOT-VEHPAD] lines list the learned spots per map; [C7] vehpad plans.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "pathing",
+    "tank",
+    "vehicles",
+    "respawn"
+   ]
+  },
+  {
+   "id": "objreach-nml-mesa-terminal",
+   "title": "Check It No Man's Land terminal 634,74,1227 is on a mesa reachable only up its east face",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Pilot PATHTEST with slope<=55 has no route (gap 82 m); a 'Mech route ends 89 m short. Without a slope limit the pilot route goes up the west face (30 deg at 505,1240 then 43 deg at 521-524,1256-1260), which a pilot cannot walk: FootFallback pilots stood at 505-509,1237-1242 for the walk's 40 s (rc6_73b, rc10_73a b1/b2). A BattleArmor reached it by walking 583,55,1177 -> 604,74,1192 (rc10_73b, after a VTOL lift); another churned at the foot 153 s (p30_73a b1). Claimed in 2 of 8 matrix runs. Fix 78aef13: WalkProgress (walking pilot no 5 m closer in 10 s -> skip 25 s) and ClaimProgress (any claim no 10 m closer in 30 s -> skip 25 s).",
+   "how_to_use": "Same probes: RECOMP_BOT_HPROBE / RECOMP_BOT_PATHTEST on mode 7 map 3.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "pathing",
+    "check-it",
+    "no-mans-land",
+    "pilot"
+   ]
+  },
+  {
+   "id": "objreach-killingfields-pilot-freeze",
+   "title": "Killing Fields terminal 2: FootFallback pilots can freeze against their own hull on getting out",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "rc11_72b b3/b5, p31_72a b0: right after the eject at the platform foot (456-479,1191-1263) the pilot logs AiKick and FROZEN (no 0.5 m in 3 s) with the carrot 8-10 m off; WalkProgress now ends that walk after 10 s (was 40 s). Terminal 2 is still claimed 1-2 times per run.",
+   "how_to_use": "grep \"getting out to walk|made no progress\" in stderr.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "check-it",
+    "killing-fields",
+    "pilot",
+    "eject"
+   ]
+  },
+  {
+   "id": "objreach-otr-tank-snag",
+   "title": "On the Rocks CTF 1509-1514,1503-1506: tanks pinned by something not on the nav grid (open)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "rc4_65b (8 bails, one tank), rc10_65a (2): the hull stops dead (position equal to 2 decimals for 14 s, pivot does nothing). HPROBE: terrain = surface, slope 32 (18 deg), light clearance 43 m; PATHTEST routes straight off it; no vehicle or objective within 25 m. So a collision shape neither terrain_height nor the surface rays ; the eject is refused (no room) and WedgeFight keeps it there. Needs the static-prop collision data.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "pathing",
+    "tank",
+    "on-the-rocks",
+    "open"
+   ]
+  },
+  {
+   "id": "objreach-matrix-rc10",
+   "title": "Objective-reach matrix numbers (rc2/rc4/rc6/rc10, same analyser)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "22 cells x 2 per build (rc2 20). no_route: rc2 34/1092 s, rc4 30/859 s, rc6 12/457 s, rc10 9/174 s. gave_up: 5/204, 6/442, 2/76, 2/108. open_stall: 6/262, 6/471, 4/246, 3/167. [BOT-TRAPPED] bails per 44 runs: rc4 16, rc6 9, rc10 7. Crashes 0 in all. Per-cluster table in NOTES OBJECTIVE-REACH.md.",
+   "how_to_use": "audit/objreach.py SRC REC TXT --json OUT; objreach_table.py OUT.md; cluster_table.py.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "audit",
+    "objective-reach"
+   ]
+  }
+ ]
+}

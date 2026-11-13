@@ -1,0 +1,1550 @@
+{
+ "pack": "t3_first_pass_research",
+ "title": "Code research, first pass: bots and custom-map details",
+ "facts": [
+  {
+   "id": "tree3-start-generic-slot-differs-from-other-17-slots",
+   "title": "On several missions the single-player start key StartVehiclesGeneric holds a different container from the other 17 StartVehicles* slots",
+   "subject": {
+    "kind": "property",
+    "id": "MARoot.StartVehiclesGeneric (1F13DE84)"
+   },
+   "addresses": [],
+   "related": [
+    "start-chain-structure",
+    "start-chain-ba",
+    "start-chain-rommel"
+   ],
+   "fact": "Single player reads StartVehiclesGeneric (1F13DE84). On most missions all 18 StartVehicles* slots hold the same container. On Mission_11a the generic slot is 123726 (Avatar Ingame Container, an on-foot pilot) while the other 17 slots are 124035 (Mad Dog). The pattern repeats in the data for other missions: M13b generic 123726 vs 17x Rommel 124052; M04 generic 124038 (Owens) vs 17x on-foot; M17a and M17b generic 124001 (Battle Armor) vs 17x NovaCat; M01b generic 125894 vs 17x 124486; M02 generic 125894 vs 17x 124001. The game starts the player on foot on M11a, as the grey pilot. Only the M11a start was seen in game; the other missions are from the data.",
+   "how_to_use": "Open: a copy of M13b or M04 played in game to confirm the on-foot start. An editor that shows the 17-slot container as the player start will report the wrong vehicle.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "start",
+    "mission_11a",
+    "start-vehicle"
+   ],
+   "date": "2026-10-24"
+  },
+  {
+   "id": "tree3-m11a-swap-sets-at-intro-end",
+   "title": "On Mission_11a the intro cinema hands over from Foster Actor to the Uziels set at intro end",
+   "subject": {
+    "kind": "asset",
+    "id": "Mission_11a MASwapSet Uziels 128588 / Foster Actor 128587"
+   },
+   "addresses": [],
+   "related": [
+    "dropship-swapset-usage",
+    "what-is-visible-at-mission-start-setup-timers-show-remove-sp"
+   ],
+   "fact": "Mission_11a has two native swap sets, Swap Set Uziels (128588) and Swap Set Foster Actor (128587), both with bSwappedIn=1 at start. The trigger group TG - Intro End (under InGame Cinema 0 > Triggers) runs MAActionSwapSetOut on Foster Actor and MAActionSwapSetIn on Uziels, so the cinema stand-in is swapped out when the intro ends.",
+   "how_to_use": "Open: whether bSwappedIn=0 on a member set hides its members at load.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "swap-set",
+    "mission_11a"
+   ],
+   "date": "2026-10-24"
+  },
+  {
+   "id": "tree3-snowdust-emitter-node-frame-and-texture",
+   "title": "Env_SnowDust_01 snow emitter sits in node 'efx', which maps local +Y to world -X, and uses the VD_Tank_Smoke texture",
+   "subject": {
+    "kind": "asset",
+    "id": "Env_SnowDust_01.mgparticle in Env_Precip_Snow_01.MGMODEL"
+   },
+   "addresses": [],
+   "related": [
+    "snow-precipeffectid-31780-env-snow-blowing-model-env-precip"
+   ],
+   "fact": "Env_SnowDust_01 is attached to node 'efx' of the precip model. That node's rotation maps local +Y to world -X and local Z to world Z; the mtb Offset (0,-20,10) matches the editor position (20,0,10) under this frame. Velocity is 18 m/s up the node's Y axis, with a 7 degree cone and an 8 x 9.9 x 50 box in node frame. The texture is VD_Tank_Smoke 64x64 (RGB mean 120, alpha mean 52/255); ENV_snow 256x256 is nearly empty (alpha mean 0.6), so the flakes change little. The M10 slope lift is about nine overlapping smoke quads.",
+   "how_to_use": "Open: whether the game also yaws the precipitation frame with the camera (untested; the M10 pose forward is near +Z).",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "snow",
+    "precip",
+    "mission_10"
+   ],
+   "date": "2026-10-24"
+  },
+  {
+   "id": "tree3-translucent-vegetation-vertex-light-has-point-light-te",
+   "title": "Translucent vegetation vertex light = Kd x (ambient + sun + sum of point-light colour x attenuation), with N.L = 1 on every term",
+   "subject": {
+    "kind": "function",
+    "id": "model vertex light V0 (translucent-shading models: trees, bushes, Env_Deadbush, grass)"
+   },
+   "addresses": [],
+   "related": [
+    "m13a-culture-scatter-env-deadbush-diffuse-d0-fits-0-86-ambie",
+    "scatter-formula-0-86-ambient-plus-1-29-sun-gives-editor-lumi",
+    "m15-model-v0-sun-has-extra-factor"
+   ],
+   "fact": "For translucent-shading models (trees, bushes, Env_Deadbush, grass) the game's vertex light V0 is Kd x (ambient + sun + the sum of point-light colour x attenuation), with N.L = 1 for every term. M13a brush (Kd 2/3): d0 = 0.667(A+S) + p x lamp (0.36, 0.35, 0.28), with p between 0 and 0.72; unlit floor draws give A. M03 conifer (Kd 146): d0 = Kd(A+S) + lamp hue (1, 0.92, 0.53). This supersedes the earlier V0 = Kd x (A+S) reading and the rejected 0.86A + 1.29S fit.",
+   "how_to_use": "Open: whether the point-light term applies to other translucent classes (grass, Env_Deadbush on other maps).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "render",
+    "vegetation",
+    "vertex-light",
+    "supersedes"
+   ],
+   "date": "2026-10-25"
+  },
+  {
+   "id": "tree3-m13a-game-terrain-combiner-program-08421-decode",
+   "title": "Game terrain program 08421 on M13a combines colour map, detail mix, vertex specular and light map as out = 4 x colormap x mix x (V1.rgb x V1.a x T3.a + T3.rgb)",
+   "subject": {
+    "kind": "function",
+    "id": "game terrain program 08421 (combiner stages s0-s6)"
+   },
+   "addresses": [],
+   "related": [
+    "m13a-culture-scatter-env-deadbush-diffuse-d0-fits-0-86-ambie"
+   ],
+   "fact": "Decoded from the combiner words of the M13a ground trace: s0 r1 = t1; s1 r0 = t0.a x t1 + (1 - t0.a) x t2 (mix); s2 r1 = 2 x r0 x c0.a (0.5), so mix; s3 r1 = 2 x mix x t0; s4 r0 = V1.rgb x T3.a; s5 r0 = r0 x V1.a + T3.rgb; s6 r0 = 2 x r0 x r1. Result: out = 4 x colormap x mix x (V1.rgb x V1.a x T3.a + T3.rgb). V1 is the vertex specular (d1) and T3 is the per-frame light map (file ambient x static lightmap + pools). The micro pass samples detail texture 80A28000 at x15.6 and x112 tiling.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "render",
+    "terrain",
+    "combiner",
+    "mission_13a"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "tree3-m13a-near-ground-lit-term-1-55x-editor-over-game",
+   "title": "On M13a the editor's lit terrain term at the near ground (pixel 52,280) is 1.55x the game's, and the micro pass accounts for only 0.97 vs 0.85",
+   "subject": {
+    "kind": "asset",
+    "id": "Mission_13a near-ground pixel (52,280) of the 640x480 same-pose shot"
+   },
+   "addresses": [],
+   "related": [
+    "tree3-m13a-game-terrain-combiner-program-08421-decode"
+   ],
+   "fact": "Same-pose stage dumps (editor on master 0c0ee4c, game trace m13a_ground_g3): lit terrain before micro, editor 20.9, 22.5, 19.5 vs game 13, 15, 13 (1.55x); after micro (final), editor 20.2, 22.0, 18.6 (x0.97) vs game 11, 12, 11 (x0.85). So most of the near-ground error sits in the lit terrain term, not in the micro pass. Light map lm.r 0.816 and lm.a 1.0 on the editor side; the game T3 texel was not dumped.",
+   "how_to_use": "Open: the game T3 (815EB000) texel at the pixel, to split the 1.55x between the light map and the vertex-specular term. Whole-image pair ratio (ground 1.4x near, 1.1x horizon) is in the same summary.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "render",
+    "terrain",
+    "mission_13a",
+    "measured"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "tree3-maspawner-parentid-spawnid-zero-initialid-pairs-no-chi",
+   "title": "MASpawner ParentID and SpawnID are 0 in every retail spawner; InitialID and InitialSecondID are odd/even 0xF80000xx pairs; the spawn tick does not test for a direct child",
+   "subject": {
+    "kind": "class",
+    "id": "MASpawner (ParentID, SpawnID, InitialID, InitialSecondID)"
+   },
+   "addresses": [
+    "00133C70",
+    "0013321F"
+   ],
+   "related": [
+    "spawner-runtime-offsets"
+   ],
+   "fact": "In the retail dumps (Mission_05, 7 spawners; Mission_04, 19; catalog over 1202 spawners) ParentID and SpawnID are always 0. The link to the stand object is the entity-tree parent (Mission_05 spawner 141817 sits under the NULL MACorporeal 32093), not these fields. At runtime the spawn handshake at 0x133C70 stores a value from [edi+0x2C] into the ParentID slot (runtime +0xA4), so ParentID becomes a spawned-unit slot (medium); what SpawnID (+0xA8) does is unknown. InitialID and InitialSecondID are a per-spawner pair in the 0xF80000xx range (InitialID odd: 0xF8000001, 03, 05; InitialSecondID the even partner), at runtime +0xAC and +0xB0. The spawn tick at 0x13321F gates only on the Enabled bit (runtime +0x78 bit 0x01), the handshake bit 0x10 and the caps/timer; no direct-child test was found. Enabled is 0 on 205 of 1202 retail spawners. Catalog offset + 0x20 = runtime offset.",
+   "how_to_use": "Open: what [edi+0x2C] is at 0x133C70; what SpawnID and the InitialID gate do; whether a spawner whose child is deleted still spawns (needs an in-game trace). Direct-child norm: 1201 child instances for 1202 spawners (class counts, not per spawner).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "spawner",
+    "authoring",
+    "reinforcements"
+   ],
+   "date": "2026-10-26",
+   "addresses_unverified": [
+    "00133659"
+   ]
+  },
+  {
+   "id": "tree3-objectives-list-shows-one-current-objective-advance-on",
+   "title": "The game shows ONE current objective (banner, HUD, radar, pause panel); the next appears only when the current one completes",
+   "subject": {
+    "kind": "function",
+    "id": "sub_0021D6F7 Objectives Display / global 0x4EB23C current objective index"
+   },
+   "addresses": [
+    "004EB23C",
+    "0021D6F7",
+    "001FC461",
+    "00169A49",
+    "001699ED"
+   ],
+   "related": [
+    "objective-completion-and-advance",
+    "objective-table",
+    "maroot-objectives-keys"
+   ],
+   "fact": "Objective records live in a 30-record table (0x50E860, stride 0x64) read through one current index (global 0x4EB23C). The Objectives Display (sub_0021D6F7, vtable 0x48A4F0 slot 14) lists record i only when i == the current index; HUD_Text (sub_001FC461) shows the current record's text when it is enabled, not done and non-empty; the start banner (sub at 0x1F7D9D) and radar target markers (sub at 0x21DA39) also read the current record. Completion (sub_00169A49) marks every record whose mission variables are all set as done, but the index advances (sub_001699ED: next record not yet done) ONLY when the completed record is the current one; a later objective finished early is ticked silently and skipped. Retail missions are linear chains of 5-16 enabled slots (M02, M03: 'Intro Over' -> 'Steal Tank' -> 'Kill Stuff' -> .), never parallel lists. Proven in game on an editor-built mission (g3, d12_objective_order.ma2map): the start banner listed only 'FIRST: wait 8 seconds'; after its 8 s timer the pause panel listed only 'SECOND: survive 5 minutes'. A disabled (ObjectiveEnabledBool 0) current record shows nothing and stalls the advance (inferred from the walk, not observed). Editor: the Objectives section shows a hint saying the game shows one objective at a time.",
+   "how_to_use": "Editor tab: Objectives & Triggers > Add objective. Author objectives as an ordered chain; all user lines need EnabledBool 1 and a text. Do not expect objectives 2-3 in the pause list until 1 is done. Unknown: the start-banner and pause-panel builders themselves, the sub_00165164==0x10 / obj+0x69 branch of sub_0021D6F7.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "objectives",
+    "editor-maps-to-game"
+   ],
+   "date": "2026-10-26",
+   "addresses_unverified": [
+    "0050E860"
+   ]
+  },
+  {
+   "id": "tree3-editor-water-wading-depth-type-map-bit-8-no-drown-code",
+   "title": "Water wading is the type-map bit (8) plus MAEnvironment per-type values; no drown/swim code found; retail shallow water is ~0.3-1.6 m deep, editor default dig capped at 1.4 m",
+   "subject": {
+    "kind": "property",
+    "id": "type map cell bit 8 (shallow wade) / MAWater plane / MAEnvironment per-type water values"
+   },
+   "addresses": [],
+   "related": [
+    "retail-water-depth-under-type-map-cells-shallow-0-to-2-m-dee"
+   ],
+   "fact": "The game decides wading from the terrain type-map bit (8 shallow, 16 deep, 32 waterway) and MAEnvironment per-type values (Speed, Damage, Cooling, Mech may enter, Pilot in for shallow/deep/waterway); no code was found that drowns, slows or pushes out a pilot by water depth, and no swim state exists: the pilot follows the terrain bed. Retail data (all worlds with MAWater): type-8 cells lie median 0.3-1.2 m, p90 <=1.6 m below the plane (Bogged Down 0.9/1.2, flat MP lakes No Man's Land 2.9 m, Troubled Waters 4.4 m); type-16 cells 2-8 m (campaign only). The old editor default lake (min(pond_depth, 0.3 x short side)) was ~8 m with every cell below the surface marked 8, and an on-foot pilot sank fully. Editor fix: dug basin default capped at 1.4 m (kWadeDepth, water_ux.cpp dig_water_basin) with a 'Deep (only 'Mechs can wade)' tick for up to 8 m; Place water marks playable cells under the footprint as water ground (type map 8; moving/deleting water now clears old marks, 27ff6ab). GAME PROOF (g3, PC Release, UI-made wade_shallow.ma2map, default dig): the pilot wades thigh-deep, head and torso above the surface, no sinking. Deep (type 16): game-observed g3: a lake ~4 m deep with cells marked 16 lets the on-foot pilot walk in fully submerged and out the far side, no block, no damage in ~10 s (default MAEnvironment); a 1.2 m lake marked 8 is knee-deep. Editor now marks under-water cells deeper than 1.6 m as 16 ('Deep water' overlay) and warns that a pilot ends up below the surface. Shallow water reads faint from afar (thickness alpha ~ vertical depth/4, MEDIUM).",
+   "how_to_use": "Editor: Terrain > Water > Place water / Dig a basin. Keep wadable lakes 1-2 m deep; use the Deep tick only for mechs.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "water",
+    "wade",
+    "editor-maps-to-game"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "tree3-player-death-restarts-mission-no-retail-lose-trigger",
+   "title": "Player death restarts the mission by itself; retail missions have no lose-on-player-death trigger, and an empty Destroyed(IncludePlayers) trigger fires at load",
+   "subject": {
+    "kind": "class",
+    "id": "MATriggerDestroyed IncludePlayers / engine mission restart"
+   },
+   "addresses": [
+    "001FB241",
+    "000C8BDC"
+   ],
+   "related": [
+    "retail-missions-have-no-player-destroyed-trigger-"
+   ],
+   "fact": "Runtime-observed: when the player dies the game restarts the level itself; a lost custom mission (Lose action, e.g. the Countdown template reaching 00:00) also silently restarts with no 'Mission failed' screen in Custom Scenarios. Retail missions have no trigger watching the player for this. Where retail does use MATriggerDestroyed with IncludePlayers 1 ('TD - PlayerDead' 261413, 'TD - Player Died' 155977/'TD - Player Is Dead' 156618) it carries a DestroySet (MoeEntitySet) + CombineMethod 1 + TypeOfCheck 2; the set is what makes it wait. An editor trigger with IncludePlayers 1 and NO set/units passes at once: Lose fires at load and the mission reloads forever; the 'Lose if the player is destroyed' template was removed and Check scenario flags the pattern as Must fix. Members of sets 261412/130400 are not in the dictionary (LOW). Engine death path (failed.ggf, sub_001FB241, health test sub_000C8BDC) has no caller found: general case LOW.",
+   "how_to_use": "Editor: Objectives & Triggers > Templates; Check scenario. No lose-on-death trigger is needed. Use the Countdown template for lose conditions.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "lose",
+    "player-death",
+    "triggers",
+    "editor-maps-to-game"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "tree3-intro-cinema-0s-timer-fails-in-custom-mission-1s-plays",
+   "title": "A 0 s timer that starts a cinema did not play the intro in an editor-built mission; 1 s and 3 s do (retail Mission_05 uses 0 s)",
+   "subject": {
+    "kind": "class",
+    "id": "MATriggerTimer (0x148BB7) -> MAActionActivateCinema (0x156AD8) -> cinema start sub_00155A99"
+   },
+   "addresses": [
+    "00148BB7",
+    "00156AD8",
+    "00155A99",
+    "004EB19C"
+   ],
+   "related": [
+    "cinema-activate-start"
+   ],
+   "fact": "An earlier 3 s timer cinema also played (G6). The editor wiring is field-identical to retail Mission_05 'TT - StartUp' (a 0 s timer), so the wiring is not the cause. Code (HIGH): the timer's first update only ARMS it (sets +0xBC armed and +0xB4 start time from the game clock at 0x4E2440); it fires on the next update when elapsed >= +0xB8, so a 0 s timer fires one tick after arming, not on the arming frame. MAActionActivateCinema returns silently if its cinema uid resolves to null; the cinema start sub_00155A99 is a no-op if a cinema is already active (byte 0x4EB19C set) and starts no controller when the Camera Controllers child list is empty. Best explanation (MEDIUM, not reproduced): the 0 s fire lands in the first ticks while load state is still settling or another cinema is active, Start returns silently and the fire is consumed; 1 s and 3 s let those frames pass. No 'mission started' gate on trigger updates was found. How retail Mission_05 avoids it is unknown (LOW). Editor: 'Play at mission start' and the 'Play the intro cutscene when the mission starts' template now write a 1 s timer.",
+   "how_to_use": "Editor: Objectives & Triggers > Templates > Play the intro cutscene when the mission starts; Cameras & Cutscenes > Play at mission start. Keep intro cinema timers at 1 s or more and start only one cinema at mission begin. Open: trace 0x4EB19C and the trigger tick at the 0 s fire; check TrgTimerDuration units (minutes vs seconds) and the 0x4E2438 vs 0x4E2440 clocks.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "cutscene",
+    "cinema",
+    "timer",
+    "editor-maps-to-game"
+   ],
+   "date": "2026-10-26",
+   "addresses_unverified": [
+    "00148C0E",
+    "00148C7B",
+    "00148C94"
+   ]
+  },
+  {
+   "id": "tree3-retail-mp-worlds-use-only-15-trigger-action-classes",
+   "title": "The 16 retail Multiplay worlds use only 15 trigger/action classes (404 instances); 29 classes are campaign-only",
+   "subject": {
+    "kind": "asset",
+    "id": "Mu: worlds (16 retail MP maps) trigger/action census"
+   },
+   "addresses": [],
+   "related": [
+    "editor-triggers-tab-templates-"
+   ],
+   "fact": "Census over dictionary (per-class world counts; summed counts match world_count for all 44 checked classes). MP worlds (prefix Mu:): BoggedDown, Deliverance, GoCommando, IllWind, InYourFace, KillingField, MountainHigh, NewRiverCity, NoMansLand, OnTheRocks, OverFalls, ProvingGround, RushHour, TroubledWaters, UnderCover, WitchCauldron. MP uses 404 trigger/action/event instances (campaign 2647), from only these classes (MP instances / MP worlds): MATriggerTimer 43/16, MATriggerDestroyed 60/9, MATriggerRadius 20/5, MATriggerMenuActivate 30/6, MATriggerGameTime 16/16, MATriggerNationRadius 4/1, MAActionSound 72/16, MAActionAI 45/5, MAActionAttribute 34/16, MAActionCheckItGoal 30/6, MAActionMusic 16/16, MAActionNation 24/12, MAActionRemoveEntity 5/5, MAActionResponse 1/1, MAActionTeleport 4/1. Campaign-only (0 in MP): MAActionShow, MAActionMissionVariableSet, MAEvent, MATrigger, MATriggerLogic, MAActionBroadcast, MAActionPlayAnim, MAActionPlayVoice, MAActionActivateCinema, MAActionGameCondition, MATriggerCuboidalVolume, MAActionMoeEFX, MATriggerCounter, MATriggerAttach, MAActionCheckPointSave, MAActionChangeHUD, MATriggerPlayerVehicleType, MAActionAIFire, MAActionLights, MAActionUber, MAActionSwapSetOut/In, MATriggerUber, MAActionDropShip, MAActionAIScan, MATriggerPoint, MAActionAttachDetach, MAActionChangePlayerVehicle, MATriggerSpider. MP match logic mostly lives outside trigger classes: MAMissionTypeGroup (111 MP instances, 0 campaign), MASpawner, MAPowerupDrop, MACrateGenerator, MAOwnerController. MAActionCheckItGoal is run from MATriggerMenuActivate. Notable MP names: 'TGT - GameOver' (MATriggerGameTime, match-end timer with a sound child), 'Action - Check It!' (MAActionCheckItGoal -> MACheckpoint), 'TNR Turret Tele 1' (MATriggerNationRadius, UnderCover). The counts show only what retail MP worlds PLACE, not whether the MP runtime would execute the campaign-only classes. Mi:3DLobby (a frontend) is counted as campaign here.",
+   "how_to_use": "Editor: MP maps' Triggers > Templates / Add when / Add action should default to these 15 classes (3A MP template filter) plus MP object classes; others can sit behind 'Advanced'.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "multiplayer",
+    "triggers",
+    "editor-maps-to-game",
+    "mp-template-filter"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "tree3-maenvironment-deep-water-fields-no-consumer-found-pilo",
+   "title": "MAEnvironment deep-water fields (SpeedDeep, DamageDeep, CoolingDeep, MechDeep, PilotDeep): retail value spread, no consumer found; default deep water did not hurt or block a pilot",
+   "subject": {
+    "kind": "class",
+    "id": "MAEnvironment deep/shallow/waterway fields (reader sub_00124CC1, entity = reader offset + 0x20)"
+   },
+   "addresses": [
+    "00124CC1",
+    "001234D6"
+   ],
+   "related": [
+    "tree3-editor-water-wading-depth-type-map-bit-8-no-drown-code",
+    "retail-water-depth-under-type-map-cells-shallow-0-to-2-m-dee"
+   ],
+   "fact": "MAEnvironment carries one group of five fields per water type, selected by the terrain type-map bit (8 shallow, 16 deep, 32 waterway): Speed ('Speed in - deep water'), Damage, Cooling, Mech ('Mech may enter') and Pilot ('Pilot in'): SpeedDeep, DamageDeep, CoolingDeep, MechDeep, PilotDeep (names from reader sub_00124CC1; reader offsets known only for CoolingWaterway +0x1C0, DamageLava +0x1F0, SpeedShallow +0x23C, entity = reader + 0x20). No code consumer was found for any deep field, so what the deep values do is INFERRED, not code-confirmed. Retail spread over the 66 worlds with a MAEnvironment (value x worlds). DEEP: Speed 100x49, 75x8, 90x6, 50x3; Damage 0x50, 200x8, 125x3, 0.1x2; Cooling 0x44, 16x14, 8x5, 4x2; Mech may enter 1x57, 0x9; Pilot in 1x51, 100x11, 0x3, 10x1. SHALLOW: Speed 100x52, 90x8, 75x3, 95x3; Damage 0x55, 100x7, 10x3, 200x1; Cooling 0x39, 8x21, 16x3, 4x3; Mech 1x54, 0x12; Pilot 1x54, 100x7, 0x4, 2x1. WATERWAY: Speed 100x63, 90x3; Damage 0x65, 1x1; Cooling 0x52, 4x11, 8x3; Mech 1x55, 0x11; Pilot 1x56, 0x10. 'Pilot in' is bimodal (1.0 vs 100.0); the scale (flag vs percent) is unconfirmed. Game-observed (g3, wade_deep.ma2map, default MAEnvironment): an on-foot pilot walks fully submerged through a ~4 m lake of type-16 cells, no block and no damage in ~10 s, consistent with the default/most common DamageDeep 0 and PilotDeep 1; this does NOT support the editor tooltip claim that deep water is 'Mechs only' (mech behaviour and the retail DamageDeep 200/125 worlds untested). Open: the sampler that reads the type-map bit and indexes these fields (the AI singleton reads CoolingWaterway; sub_001234D6 reads env+0x1C0, attribution may be wrong), whether MechDeep 0 blocks a mech, whether Damage is per second.",
+   "how_to_use": "Editor: Environment > Water values / Terrain > Water 'Deep' tick.",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "water",
+    "maenvironment",
+    "editor-maps-to-game"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "tree3-retail-trigger-name-prefixes-tt-td-tr-tg-tl-map-to-tri",
+   "title": "Retail developers prefix trigger names with a short code (TT, TD, TR, TG, TL, TB, TMA, TA, TC, TPVT, TGT, TUB, TNR, TSB) that maps almost 1:1 to the trigger class",
+   "subject": {
+    "kind": "asset",
+    "id": "retail trigger/action instance names, 11,518 named instances over 60 worlds"
+   },
+   "addresses": [],
+   "related": [
+    "editor-triggers-tab-templates-"
+   ],
+   "fact": "Parsed from all 60 world WDFs (11,518 named MATrigger*, MAAction*, MAGroup, MoeEntitySet, instances). Code -> class (consistency): TT = MATriggerTimer (861/884, 97%; 'TT - Start', 'TT - StartUp'); TD = MATriggerDestroyed (451/451, 100%; 'TD - PlayerDead'); TR = MATriggerRadius (388/388, 100%; 'TR - Inside HUB'); TG = base MATrigger (370/387, 96%; 'TG - Intro End', 'TG - 2 start': trigger group / generic); TL = MATriggerLogic (297/297; 'TL - All enemies dead'); TB = MATriggerCuboidalVolume (121/122; box inferred); TMA = MATriggerMenuActivate (73/75; 'TMA - gate switch'); TA = MATriggerAttach (35/35); TC = MATriggerCounter (32/37; 'Counter - ' for 5 others); TPVT = MATriggerPlayerVehicleType (22/23); TGT = MATriggerGameTime (16/16; 'TGT - GameOver'); TUB = MATriggerUber (7/7); TNR = MATriggerNationRadius (4/4); TSB = MATriggerSpider (2/2). All MAAction* names start with 'Action - ' which is a class label, not a code (4,532 instances, 100%). MAGroup, MoeEntitySet, MAWaypointGroup, MASwapSet names are ordinary text (no codes). Exceptions: 23 MATriggerTimer names have no code, about 12 MATrigger names are default 'Trigger (Generic)_00006', separators vary ('TT-delay', 'TD -ship', 'TT_delay', 'TR Player in Uziel'), casing varies ('Intro end'/'Intro End'). Action names quote trigger names verbatim ('Action - Enable TT - delay stiletto intro'), so renaming a trigger would break such action text. The codes are developer convention; whether runtime code reads them is unchecked. Editor display rule: strip with a whitelist regex ^(TT|TD|TR|TG|TL|TB|TMA|TA|TC|TPVT|TGT|TUB|TNR|TSB)(\\s*[-_]\\s*|\\s+) (case-insensitive) for trigger classes and ^Action\\s*-\\s* for MAAction*; do NOT use a generic [A-Z]{1,4} pattern.",
+   "how_to_use": "Editor: Triggers list/tab display names (prefix stripping) and new-trigger default names; keep the stored name unchanged.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "triggers",
+    "naming",
+    "editor-maps-to-game"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "tree3-mission-variable-table-readers-objective-check-trigger",
+   "title": "The mission-variable table (0x4EB9E0) is read by the objective check AND by every MATrigger fire gate and MATriggerTimer, so deleting an objective's variable setter can break triggers",
+   "subject": {
+    "kind": "global",
+    "id": "mission variable table 0x4EB9E0 (30 bytes, ids 1.29)"
+   },
+   "addresses": [
+    "001452D4",
+    "00148BB7",
+    "00169A49",
+    "001A94A1",
+    "0016990A",
+    "000F235C",
+    "000F175D"
+   ],
+   "related": [
+    "objective-completion-and-advance",
+    "tree3-objectives-list-shows-one-current-objective-advance-on"
+   ],
+   "fact": "Readers (code-confirmed by a literal grep of 0x4EB9E0 over recomp_*.c): the objective completion check sub_00169A49 (recomp_0037.c:15436-15520; a record is done when every variable id at record +0x2C has a nonzero byte); the MATrigger base fire routine sub_001452D4 (recomp_0032.c:18049, read at 0x1453C3 /:18234), which takes a variable id from MATrigger+0x90 and fires only when table[id] == byte MATrigger+0x94 (ids <= 0 or >= 30 skip the check); MATriggerTimer sub_00148BB7 (recomp_0033.c:3971, read at:4031); and the save path sub_000F175D (recomp_0024.c:21776). Writers: MAActionMissionVariableSet sub_001A94A1 (recomp_0045.c:37), sub_0016990A (recomp_0037.c:15201), load sub_000F235C (recomp_0024.c:23326). No direct reads found in MATriggerLogic, MAActionGameCondition, MATriggerDestroyed or MATriggerRadius (literal grep only; indirect reads through a call to sub_001452D4 are not excluded, and the older claim that MATriggerRadius sub_00145D77 reads the table is not supported). Retail catalog: MissionVariable range -1.29, 2751 instances (~line 48821; the sample is -1 in most, 0 in a few), so non-negative ids DO appear on retail triggers. Not checked: whether a retail trigger's MissionVariable id equals an objective's ob<N>var<j> in a given mission (no per-object MATrigger dump for Mission_05).",
+   "how_to_use": "Editor: when an objective is deleted, keep the setter action's variable (just unlink the objective) instead of writing -1, unless the variable is proven unused by every trigger in the level: a trigger gated on that variable would otherwise never fire (or always fire).",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "objectives",
+    "mission-variables",
+    "triggers",
+    "editor-maps-to-game"
+   ],
+   "date": "2026-10-26",
+   "addresses_unverified": [
+    "004EB9E0"
+   ]
+  },
+  {
+   "id": "tree3-on-foot-pilot-can-complete-destroy-objective-and-win-p",
+   "title": "An on-foot pilot completes a 'Destroy these' objective (4 demolition charges kill a Loki) and wins the mission; the objective check has no killer or weapon test",
+   "subject": {
+    "kind": "function",
+    "id": "sub_00169A49 objective completion check / MATriggerDestroyed"
+   },
+   "addresses": [
+    "00169A49",
+    "0050E860"
+   ],
+   "related": [
+    "tree3-mission-variable-table-readers-objective-check-trigger",
+    "tree3-objectives-list-shows-one-current-objective-advance-on"
+   ],
+   "fact": "Game-observed: new flat mission, player start On foot (pilot), one enemy Loki ~50 m ahead with AI off, Objectives > Add objective > Destroy these (the Loki), 'Win the mission when every objective is done' ticked. The pilot's fire key drops demolition charges; 4 charges destroyed the Loki, the objective completed and the mission was WON (return to hub). This matches the code read: the objective check sub_00169A49 (recomp_0037.c:15436-15520) tests only mission-variable bytes and never the killer or weapon. It also proves in game the full chain Destroy objective -> objective complete -> Win (reinforcement arrival remains unproven). The on-foot kill is slow, not impossible.",
+   "how_to_use": "Editor: Objectives & Triggers > Add objective > Destroy these. The on-foot start only needs a hint about how slow the kill is, not a block.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "objectives",
+    "destroy",
+    "on-foot",
+    "win",
+    "editor-maps-to-game"
+   ],
+   "date": "2026-10-26",
+   "addresses_unverified": [
+    "004EB9E0"
+   ]
+  },
+  {
+   "id": "tree3-barrel-charge-effect-318-ppc-l3-shared-by-most-guns-ha",
+   "title": "MABarrel.BarrelChargeEffectID 318 = MAEffect 'PPC L3 Charge' is the charge effect shared by most mech guns; Hammer, LRM, SRM and mortars have none",
+   "subject": {
+    "kind": "field",
+    "id": "MABarrel.BarrelChargeEffectID (Templates.mgf)"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Retail data: BarrelChargeEffectID 318 = MAEffect 'PPC L3 Charge' is shared by Laser, Pulse Laser, Machine Gun, Autocannon, Gauss, Flamer and the Elemental/BattleArmor lasers; PPCs use their own (26265 L1, 697 L2, 318 L3); AlphaStrike uses 125299; Hammer, LRM, SRM, Guided Missile and mortars have 0 (no charge effect). So a mech charging any of the 318 guns shows the blue PPC-style arcs (retail behaviour, not an editor error). Hammer is BarrelClass 14 like LRM: a hold-to-charge lob missile (BarrelChargeRate 75, TimeToMaxLob 2.0, no lock). Loki loadout 32717 = SRM + Autocannon x2 + Pulse Laser.",
+   "how_to_use": "Editor: weapon/loadout display; no editor control changes this. When a render or effect audit sees PPC-style arcs on a laser/autocannon mech, it is the shared 318 effect.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "weapons",
+    "effects",
+    "templates"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "tree3-bowman-hammer-silent-charge-one-fire-cue-per-release-g",
+   "title": "Bowman Hammer makes no sound request while charging and one fire-cue request per release; silent charge is retail behaviour",
+   "subject": {
+    "kind": "weapon",
+    "id": "Bowman Hammer (BarrelClass 14) audio"
+   },
+   "addresses": [
+    "000D34C5",
+    "000D06BC",
+    "0008252B"
+   ],
+   "related": [
+    "tree3-barrel-charge-effect-318-ppc-l3-shared-by-most-guns-ha"
+   ],
+   "fact": "Game-confirmed: holding the Bowman Hammer produces NO sound request during the charge and exactly one fire-cue request per release (chain 000D34C5 / 000D06BC / 0008252B).",
+   "how_to_use": "Audio/weapon audits: do not report 'no charge sound' for the Hammer as a bug.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "weapons",
+    "audio",
+    "hammer"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-vehicle-pref-actual-values-supersede-bots-vehicle-valu",
+   "title": "Bot vehicle preference in the code: every 'Mech = 1.0, VTOL 0.55 + 0.05 x skill, BattleArmor 0.30 + 0.05 x skill; the game's m_nBattleScore is unused",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_brain.c vehicle_pref / vehicle_value / pick_swap"
+   },
+   "addresses": [],
+   "related": [
+    "bots-vehicle-value"
+   ],
+   "fact": "Corrects bots-vehicle-value (which says tank 0.75, BA 0.70 + 0.08 x skill, VTOL 0.45 + 0.08 x skill). Current code: vehicle_pref(MECH) = 1.0 for every 'Mech, VTOL = 0.55 + 0.05 x skill, BattleArmor = 0.30 + 0.05 x skill (ma2_bot_brain.c:1096-1106, 1187, pick_swap 1240); the skill bonus makes Elites prefer VTOL/BA. The game's own strength rating m_nBattleScore (Templates.mgf, getter vtable +0x90, loader 0x464BEC) is not used: light 'Mechs 6 (Puma, Uller, Raven, Cougar, Kit Fox, Owens, Hackman, Corvus), 7 (Belial, Mad Dog, Stiletto, Raptor), 9 (Loki, MadCat, Bowman, Thor, Catapult, Hellbringer, Summoner, Timber Wolf, NovaCat), 10 (Atlas, Ragnarok, Star Adder, Prometheus, Blood Asp); Rommel/APC 4; VTOL - Player 4; BattleArmor/Elemental 3; PlayerTurret Gauss / Guided Missile 2; pilots 1. So a bot takes the nearest free 'Mech, not the strongest.",
+   "how_to_use": "Bots audit t3B-01 (proposed pref = 0.7 + 0.03 x score). Use m_nBattleScore as the game's own vehicle strength.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "vehicles",
+    "correction"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-bots-never-eject-vehicle-death-kills-pilot-supersedes",
+   "title": "Bots no longer eject at low HP; a vehicle destroyed with its pilot inside kills the pilot (the bot respawns as a full-HP pilot at base)",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_brain.c pick_swap / G_EJECT sources"
+   },
+   "addresses": [],
+   "related": [
+    "bots-eject-rule"
+   ],
+   "fact": "Corrects bots-eject-rule ('eject below 12 % HP with an enemy within 80 m'): that rule is no longer in the bot code. Current exits: swap (HP <= 35 % AND a usable vehicle <= 70 m AND no enemy within 50 m), trapped/bail, and not-allowed kinds (ma2_bot_brain.c:1240-1270, 1660-1672). Runtime data (31 runs): 216 of 277 vehicle -> pilot transitions happen at hp < 0.15 (mech 115, VTOL 51, BA 28, tank 22) and the 'pilot' reappears at its base with hp 1.0 (E2E_1022 bot 10: MECH hp 0.00 at 724,1306 for 3 s, then PILOT at 955,827 = a respawn). In MP a vehicle destroyed with the pilot inside = the pilot dies; there is no automatic eject on destruction. Bots therefore ride every vehicle to its death.",
+   "how_to_use": "Bots audit t3B-02 (mode-gated bail-out proposed). Do not assume bots eject.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "vehicles",
+    "eject",
+    "correction"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-skill-reaction-times-0-90-0-55-0-30-0-12-supersede-tea",
+   "title": "Bot reaction time is 0.90 / 0.55 / 0.30 / 0.12 s (Recruit/Regular/Veteran/Elite) and only delays committing to Attack and switching targets, not the first shot",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_brain.c k_skill (133-138), mem_acquired / mem_engageable"
+   },
+   "addresses": [],
+   "related": [
+    "bots-team-skill-table"
+   ],
+   "fact": "t01b's 'Skill table' is right: reaction 0.90 / 0.55 / 0.30 / 0.12 s (c4 t4-B6 quotes Recruit 0.90 . Elite 0.12). The t01a bots-team-skill-table reaction values 0.60 / 0.44 / 0.28 / 0.12 are stale (Recruit 0.60, Regular 0.44, Veteran 0.28 are wrong; Elite 0.12 matches); its aim-error / QTE numbers were not re-checked.",
+   "how_to_use": "Bots audit t4-B6 (gate fire on mem_acquired). Quote reaction times from this fact.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "skill",
+    "correction"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-mixed-6v6-roster-with-one-human-verified-in-run-logs",
+   "title": "Mixed 6v6 with one human on Red (cfg 5 Red / 6 Blue bots): Red bots Recruit x2, Regular, Veteran, Elite; Blue bots Elite x2, Veteran, Regular x2, Recruit",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bots_core.c compute_roster / mixed_skills; ma2_bots_ui.c place_humans"
+   },
+   "addresses": [],
+   "related": [
+    "mixed-skill-spread",
+    "mixed-skill-bump"
+   ],
+   "fact": "Data-verified: the human counts as an Elite of his side; the side facing the player gets its weakest place bumped one notch (E E V R R Rc); the other side keeps E E V R Rc Rc. Placement only runs when the hidden [Bots] AutoBalance ini key is 1 (default 1, no UI row; ma2_bots_ui.c:953,105). FFA has no 6-a-side cap (total 12 incl. humans). Grinder: bots capped to 1 (ma2_bots_core.c:381) but 'Off' (0 bots) is also allowed.",
+   "how_to_use": "Bots audit t3C-00/t3C-01/t3C-03.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "roster",
+    "skill"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-bot-teams-diag-prints-only-nations-0-1",
+   "title": "[BOT-TEAMS] prints only nation 0 and 1 counts, but 6v6 teams sit on other nation ids, so the log cannot show side sizes",
+   "subject": {
+    "kind": "diagnostic",
+    "id": "[BOT-TEAMS] / [BOT-ROSTER] log lines"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "In FFA, [BOT-ROSTER] labels the FFA total as 'bots red=11 blue=0' next to the team config 'cfg red=5 blue=6' (cfg.ffa not printed; ma2_bots_core.c:400).",
+   "how_to_use": "When auditing a 6v6 from logs, count [BOT-PLAYER] created lines per team, not [BOT-TEAMS].",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "diagnostics"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-boarding-baseline-574-boardings-first-tap-median-6-7-s",
+   "title": "Bot boarding is healthy: 574 boardings in 40 runs, 100 % entered on the first Y tap, median 6.7 s",
+   "subject": {
+    "kind": "metric",
+    "id": "[BOT-BOARDING] logs,"
+   },
+   "addresses": [],
+   "related": [
+    "bots-boarding-time"
+   ],
+   "fact": "CanCarryFlag is 0 for 'VTOL - Player' and the tanks 'Manticore'/'Partisan', 1 for every MP 'Mech, BattleArmor, Rommel and the APCs (MEDIUM, Templates data).",
+   "how_to_use": "Baseline for judging boarding changes.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "vehicles",
+    "boarding"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-stuck-watchdog-is-6-s-not-the-designed-2-s",
+   "title": "The bot stuck watchdog fires after 6 s without 3 m of progress (2.5 s on a boarding leg), not the design's 2 s, and recovers in several escalating steps",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_ctrl.c stuck watchdog (~1376-1470)"
+   },
+   "addresses": [],
+   "related": [
+    "stuck-memory-off"
+   ],
+   "fact": "Code read: stuck = no 3 m progress in 6 s (2.5 s on a boarding leg) or 12 s 'shuttling' inside an 11 m patch; recovery: the spot 4 m ahead becomes a per-bot obstacle (90 s), ma2_trav_learn 30 s, re-probe + wall sweep; a second stall on open map adds a shared 'unseen obstacle' (r 2.5 m, kept for the whole match, side_prop_add ctrl.c ~1418); then backtrack 4 s to a breadcrumb; jet hop on 'Mech/BA; status.trapped after 4 stalls makes the brain bail out (eject, no_board 120 s). section 6 says ~2 s. Log lines ([BOT-DROP], [BOT-CTRL] no progress/shuttling, [BOT-BACKTRACK], [BOT-ESCAPE], [BOT-TRAPPED], [BOT-NAV] learned) print only with RECOMP_BOT_DIAG and [BOT-SUM] has no stuck counters.",
+   "how_to_use": "Bots audit t3A-01/t3A-05/t3A-06. Quote 6 s, not 2 s.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "navigation",
+    "stuck"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-planner-links-ledges-down-only-no-jet-up-links",
+   "title": "The bot planner links ledges DOWN only (one-way drops, <= 20 m); there are no jet-up links, so 'Mechs/BA never jet onto a ridge unless stuck",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_path.c (PATH_DROP_REACH 20 m)"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Code read: ma2_bot_path.c:176-190 and 355-385 build one-way DROP links down (<= 20 m reach, forbidden for 10 min per 15 m edge after a failed attempt); going up a ledge is never planned: jets up only as stuck recovery (ctrl.c ~1439) or a brain-picked roof (upjet). Design section 6 promises 'Mech/BA jump links. Also: moving vehicles are excluded from the static obstacle grid (obstacle_top: movers -> dyn) and handled as dynamic obstacles with path invalidation. Battle Armor causes 206 of 324 no-progress stalls in the 20-run s13 sweep (Go Commando 41 + 49, Rush Hour 59, In Your Face FFA 20), mostly single stalls in open ground; BA minimum carrot is 8 m (ctrl.c ~81, kind_min_carrot), inside MoveTo's known 5-10 m halt band (inferred cause). Confirmed on the current build (3D's Killing Field run): 76 of 80 stalls are Battle Armor, all single stalls, 80 backtracks.",
+   "how_to_use": "Bots audit t3A-03/t3A-04.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "navigation"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-nav-graph-chosen-by-loading-archive-custom-map-reports",
+   "title": "The bot nav graph is chosen by the loading archive, so a custom editor map built on one of 4 graph-shipping bases would load the base level's graph",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_mapid.c / ma2_bots_core.c ~1232-1247"
+   },
+   "addresses": [],
+   "related": [
+    "nav-load-order"
+   ],
+   "fact": "Code + log: the graph source is picked from the loading ARCHIVE; a custom editor map reports its BASE level (3D's 6v6 log: '[BOT-NAV] map=boggeddown.mgf shipped=none', source=generated). Four bases ship a 'Mech graph: In Your Face, New River City, Rush Hour (= Mission16_Mech.map), Witch Cauldron (ma2_bot_mapid.c:28-43); the others generate from the obstacle grid (Killing Field 7947 nodes / 407 components; Over Falls 7381 / 513; Go Commando 2036 / 116). A custom map built on one of the four would load the RETAIL graph for edited terrain (roam points brain.c ~1080, flank via-points ~1021); the editor-written Pathfinding/Scn<ID>_Mech.map is never used. The bots find every other map feature by CLASS at run time, not by name or retail UID: vehicles = MAMech/MATank/MAFlyer/MATurret + entry zones from their MACrateGenerator children; helipads = any MABuilding with an MACollectionArea child; power-ups = MAPowerUp; CTF flags = MAFlagCTF + MATriggerFlagStatus; data cores = MASnatchItDataCore; checkpoints = MACheckpoint / MATriggerCheckpoint; water = MAWater; 'home' = the bot's first spawn spot (b->home_pos, brain.c:2485). No teleport/jump-pad logic exists. Missing features degrade gracefully (no vehicle: fight on foot; no pad: VTOL uses an armour power-up within 300 m; no objectives: deathmatch behaviour).",
+   "how_to_use": "Editor: MP map authoring; bots audit t3A-08, t3-custom-00.05.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "navigation",
+    "custom-maps",
+    "editor-maps-to-game"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-custom-terrain-always-gets-walk-grid-coarse-graph-gene",
+   "title": "Bots navigate custom terrain: the walking planner always runs on an obstacle grid built from the live terrain; the coarse 20 m node graph is generated unless the base level ships a 'Mech graph",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_path.c / core.c ensure_nav / ma2_trav_build / ma2_bot_mapid.c"
+   },
+   "addresses": [],
+   "related": [
+    "bots3-nav-graph-chosen-by-loading-archive-custom-map-reports"
+   ],
+   "fact": "Code + logs: (1) the walking planner (ma2_bot_path.c, 2 m grid A*) ALWAYS runs on an obstacle grid built at match start from the live terrain + colliders (core.c ensure_nav -> ma2_trav_build, then a fine prop pass), on retail and custom maps alike; this is what bots actually walk. (2) The coarse 20 m node graph (roam points, flank via-points, connectivity) is generated from that grid on any map whose base ships no 'Mech graph (3D's custom 6v6: '[BOT-NAV] obstacle grid ok 508x508 . source=generated:gen_B670C477 nodes=2601 components 1'). An unknown cache id -> terrain-match against the 4 shipped graphs, accepted only at score >= 0.5 and 0.2 ahead of the next; else generated and cached as %LOCALAPPDATA%\\MechAssault2\\BotNav\\gen_<terrain fingerprint>.map (edited terrain = new fingerprint; with the obstacle grid ready the cache is skipped and the graph regenerated each match). Only the 4 bases that ship a graph (In Your Face, New River City, Rush Hour, Witch Cauldron) give a custom map the RETAIL graph (bots3-nav-graph-chosen-by-loading-archive-.). The bot source has ONE real retail tie (the archive pick in ma2_bot_mapid.c: 14 MP archives + core.c k_nav_archives); everything else is map-agnostic (no retail UIDs, template ids, coordinates or names used as code). The optional stuck-memory file (off by default) is keyed by the archive name, so custom maps on one base would share penalties (t3-custom-A06).",
+   "how_to_use": "Editor: MP map authoring; bots audit t3A-08, t3-custom-A01.A06.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "navigation",
+    "custom-maps",
+    "editor-maps-to-game"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-lanes-found-from-live-terrain-team-modes-only-fan-out",
+   "title": "Bot lanes are planned from the live terrain at t >= 1 s in team modes only (up to 3 lanes, none in FFA or when the bases are < 300 m apart)",
+   "subject": {
+    "kind": "function",
+    "id": "core.c ~2643-2710 lanes, brain.c ~943-1030 lane_pick/lane_point"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Code read: in TEAM modes at t >= 1 s the core plans team-centroid -> enemy-centroid on the obstacle grid, adds a danger corridor along it and re-plans twice, giving up to 3 distinct lanes ([BOT-LANES]); each bot takes one (g_lane, lane_pick / lane_point; flank via-points must be reachable on the node graph). Not built when the bases are < 300 m apart or in FFA modes (bots go straight and rely on roam/flank). Test map c3-proof\\bots_custom_full.ma2map (id 0DAA6085) was rebuilt with two steep Plateau walls giving north hills / central valley with a building choke / south lake + bridge to measure per-lane traversal. GAME PROOF: [BOT-LANES] found exactly the 3 lanes built in the editor ('3 lane(s) from 156,509 to 869,507 (corridor 128 m) in 15 ms'; main = central valley, side +1 apex 498,332 = south lake/bridge, side -1 apex 668,662 = north hills); bots were handed lanes; traffic in x 400-650 by z band: central 252 samples (7 bots), south 57 (2), north 52 (2), 0 on the walls, so every lane is used (central-heavy: it holds the objective and is shortest). Only 5 no-progress stalls in the match; one pilot wedged 30 s at 181,291 by its own base. Lane use detail (t3-custom-path-D01): most bots stay in one lane all match (bots 5/6/8 central only, 9 south only, 7 north only, 10 used north+south); no wall jumps, 2 % of samples clumped (< 8 m), no bot stuck 20 s+ in one 3 m cell; retail-flat comparison td6v6 (no lanes): 25 % clumped, all in the centre. Retail comparison (t3-custom-path-A06, 3D's Killing Field copy TD 6v6, killingfield_td.log): '[BOT-LANES] 3 lane(s) from 387,1667 to 1112,921 (corridor 187 m)', side lanes 408 m and 301 m off the main route, graph generated from the obstacle grid (map=killingfield.mgf shipped=none, 7947 nodes), so custom terrain fans out like retail. Stuck counts there: 80 stalls (76 Battle Armor), 0 trapped, 3 learned obstacles, 2 escapes; the t3A-02 ledge-drop retry did not recur (BA start, 0 drops; needs a 'Mech-start run).",
+   "how_to_use": "Bots audit t3-custom-path-A02/A03; use bots_custom_full for lane counts.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "navigation",
+    "lanes"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-damaged-vtol-repair-needs-pack-or-pad-else-fights-on-m",
+   "title": "A damaged VTOL repairs at an armour pack within 300 m or the nearest pad within 2.5 km, else fights on; a mode with missing flags/bases/cores scores no objective and plays as deathmatch",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_brain.c ~1697-1726 repair; ma2_bot_brain_obj.c objective_eval"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Code read: helipads = any MABuilding with an MACollectionArea child (core.c ~2363, ma2_bot_pad_add); the editor palette's 'Military VTOL pad' carries one (bots_custom_full: 6 collection areas). A damaged VTOL (hp < 20-45 % by skill) heads for an armour pack within 300 m (no enemy within 120 m of it), else the nearest pad within 2.5 km; with NEITHER, G_REPAIR is never scored and it fights on until it dies (no fly-home-and-hover path); ground units do not use pads at all. objective_eval scores objectives only when w->nobjectives > 0 and obj_find returns both sides' pieces (brain_obj.c ~47-57, 71-76, 269-283): CTF without flags or Snatch It without bases/cores gives objective score 0 and the bots fight as in Team Destruction (no freeze, no wandering). The editor flags these as Must fix ('[text omitted]', 'Snatch It needs the Snatch It bases / data core', verified on bots_custom_stripped, id 1C6565DE). The game does not require a helipad or heal pad at a base, so a missing pad is not a Must fix (suggested Check warning only).",
+   "how_to_use": "Editor Check wording t3-custom-A05; bots audit t3-custom-A03/A04.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "vtol",
+    "repair",
+    "objectives",
+    "editor-maps-to-game"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-battle-armor-swap-targets-not-claimed-so-bas-chase-the",
+   "title": "A BattleArmor swapping into a 'Mech does not reserve it (claims exist only for GET_VEHICLE), so most BA bots chase the same free 'Mechs at every BA-start match",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bots_core.c:2796-2806 claims; ma2_bot_brain.c:2259-2297 order_swap"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Log + code: claims are made only for MA2_ORD_GET_VEHICLE, and order_swap drives with travel/eject orders, so several BattleArmors chase the same free 'Mech; the first in takes it, the rest find it occupied, re-pick and set off again. ctf.log: 641 swap-go + 101 swap-eject notes; 7 of 11 BA bots start a swap at t = 1.2 and are still BattleArmor at t = 31 (again at 33 and 63); only 9 swaps complete in 180 s; snatch.log similar (16 stuck episodes, 6 swaps). Observed, root cause read from code (inferred). MORE EVIDENCE: goal=swap is 507 of ~2000 samples in CTF and 434 in Snatch It; on a retail-terrain map (Killing Field copy, Battle Armor start, TD 6v6, bots-t3d\\killingfield_td.log) goal=swap is 1013-1110 of ~1900 bot samples (53-58 %), 8 of 11 BA bots start a swap at t = 1.1 and are still BattleArmor at t = 31, 2-4 bots chase the SAME 'Mech (02451C40) in every 5 s window for the first minute, only 8 boardings and 13 kills in 170 s. On foot, bots also dither between vehicles (t3-custom-D02: bot 2 set getveh on 4 different vehicles without boarding any; 170 getveh samples, 1 boarding). FIX PROOF: C3 smokes PASSED, no crash. Counters '[C7] c3': custom_full TD assigned = 16, reassigned = 1, switches = 14, foot_getveh = 4; Killing Field TD assigned = 30, swaps_claimed = 19, swap_cooldown_blocks = 11, commit_holds = 3, and goal=swap fell to 33 % of samples against the 51 % baseline. So claiming swap targets plus a per-bot swap cooldown and vehicle-target commitment cut the swap churn by about a third on the retail-terrain map (single runs, not a large sample).",
+   "how_to_use": "Bots audit t3B-08 (make the swap target a claim); explains t3D-05 churn.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "vehicles",
+    "swap"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-editor-made-maps-pad-vehicles-missing-in-team-destruct",
+   "title": "On an editor-made map with vehicle pads only, Team Destruction had no vehicle entity at run time (CTF copy did), and pilots stalled 5-12 m short of an editor-placed 'Mech",
+   "subject": {
+    "kind": "observation",
+    "id": "bots-t3d\\td6v6.log / ctf.log / custfull_td.log (map t3d_allmodes, bots_custom_full)"
+   },
+   "addresses": [],
+   "related": [
+    "boarding-rule"
+   ],
+   "fact": "Run logs: on t3d_allmodes (pads: BattleArmor, Loki, Guided-Missile turret; no parked vehicles; players start on foot) Team Destruction had NO vehicle entity at run time (0 [BOT-HULL], 0 [BOT-VEHPICK], all 11 bots pilots for 180 s) while CTF on the BattleArmor-start copy had 'Mechs, VTOLs and turrets (46 [BOT-HULL]): the pads did not produce vehicles for Team Destruction, most likely because pads or their vehicles sit only in the CTF/BaseWar/Snatch game-type groups of the editor kit, or a pad only spawns when asked (inferred; matches the wiki rule that match logic and spawners live in MAMissionTypeGroup per game type). On the editor map bots_custom_full pilots reach the editor-placed 'Mech but stall 5-12 m from its hull without tapping Y, then silently drop it (custfull_td.log: 4 of 5 arrivals stalled, e.g. bot 0 frozen at 232.38,620.36 for 2 s, 5.7 m from hull 018A9020, dest = entry 241,624 behind it); retail runs never do this (574/574 boarded). Possible editor pad stand height / collision difference (inferred). UPDATE: on the stripped test map bots_custom_stripped (every MAPowerUp/MAPowerupDrop deleted, incl. ones nested in spawners / mission-type groups) in Team Destruction all 11 bots stayed pilots for 164 s: the 4 'Mechs EXIST (BOT-HULL kind=2 at 225,378 / 791,404 / 236,616 / 743,285) but none is usable (0 'Mech picks vs 11 in custfull2_td); the same 'Mechs were picked in custstrip_ctf. Cause is MAP DATA, not a bot fault: bot-side 'usable' needs an ARMED entry zone (see bots3-vehicle-usable-needs-armed-entry-zone.), and the strip evidently removed what arms the TD pads' entry zones. Proposed A/B (3D): RECOMP_TEST_DUMP_NEAR=791,404,15,5 on custstrip_td vs custfull2_td should list the 'Mech's children (expect MACrateGenerator + MATriggerPoint in full, missing/unarmed in stripped). Editor implication: deleting powerups/salvage must not touch pad internals; Check should warn 'This vehicle pad cannot be boarded: its entry zone has no crate generator/trigger point' (players hit the same dead pad). ROOT CAUSE FOUND: the editor copied a game type's retail objects only for some types; Team Destruction's vehicle bays and turrets sit in a retail group called 'TD Specific' that was never copied, so TD maps had no vehicles. 9982d3c makes EVERY ticked game type copy its retail objects on New / tick. Editor proof (MCP l3d): New map TD + Check It -> status 'Added the Team Destruction, Check It objects', TD bay groups present (f13_new_dialog.png); game proof pending on g3 (CheckIt + TD 5v6 on that map). This resolves the earlier 'pads sit in per-game-type groups' inference.",
+   "how_to_use": "Editor MP authoring: check which MAMissionTypeGroup the pad belongs to; bots audit t3-custom-06/07.",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "bots",
+    "vehicles",
+    "boarding",
+    "editor-maps-to-game"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-vehicle-usable-needs-armed-entry-zone-and-no-heal-pad",
+   "title": "A bot treats a vehicle as usable only if it is free, alive, own or neutral nation and has an ACTIVE entry zone (armed MACrateGenerator / live MATriggerPoint); with no heal pad the bots just fight or flee",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_brain.c:1174-1183 usable; ma2_bot_entry.c:84-104"
+   },
+   "addresses": [],
+   "related": [
+    "bots3-editor-made-maps-pad-vehicles-missing-in-team-destruct",
+    "entry-zone-gen-layout",
+    "bots-vehicle-entry-zones"
+   ],
+   "fact": "Code read: the bot-side usable test needs a vehicle that is free, alive, of own or neutral nation, and with an ACTIVE entry zone (MACrateGenerator armed -> live MATriggerPoint, ma2_bot_brain.c:1174-1183, ma2_bot_entry.c:84-104). Nothing logs WHY a vehicle is unusable (a one-shot [BOT-VEHSKIP] diag was proposed). Game proof for the no-pad case (t3-custom-09, bots-t3d\\custstrip_ctf.log, bots_custom_stripped = no pads, no power-ups): no [BOT-PAD] and no goal=repair in either run; the one low-HP VTOL went goal=retreat at hp 0.13-0.03 while moving (531,676 -> 613,688 in 3 s) and was shot down at t=43: no hover, no freeze, i.e. it fled and fought as a player would. Remaining risks are the pad-present cases (t3-custom-01/02: VTOL heals at the nearest pad of ANY team, and the 45 s give-up does not stop G_REPAIR).",
+   "how_to_use": "Editor MP authoring: a pad is only useful if its entry zone is armed; bots audit t3-custom-08/09.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "vehicles",
+    "boarding",
+    "editor-maps-to-game"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-destruction-is-ffa-team-types-1-3-and-0xB-0x11-correct",
+   "title": "Destruction (type 10) is a free-for-all; team game types are 1-3 and 0xB-0x11 (correction of the k_modes 'team_type 1-3 and 0xA-0x11')",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_scenario.c:1011 team_type; k_modes"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "CORRECTION: team_type is (gt > 0 && gt <= 3) (gt > 0xA && gt <= 0x11), so Destruction (0xA = 10) is FFA, NOT a team mode; the t04_scenario k_modes fact ('team_type is true for 1-3 and 0xA-0x11') is stale and the t01b table is right. Game-proven: bots-t3d\\destruction.log shows all bots on team 0 (103 kills in 115 s). LMS (type 9) is a real FFA with one life each (11 players, 'Talon Wins!' after 44 s, lms_end.png). Other modes run once each on g3 (all 10 editor-offered autostart modes): Not-It 'It' passed 19 times in 150 s with all non-It bots chasing It (229 kills); Snatch It: red bots carried 2 cores into their base, cores grabbed 6 times, 56 kills; Team LMS ended ~40 s; Team Destruction in Battle Armor 137 kills (Blue 360-51). The engine has 17 game types (2 Soccer, 5 GiantKillers, 7 ScoutMatch, 8 SkirmishMatch, 11 TeamScoutMatch, 12 TeamSkirmishMatch, 13 TakeIt besides the 10 known); scenario autostart k_modes (ma2_scenario.c:1001-1005) and the bot code know only 10, so selectable extras would play as deathmatch. Test-harness bug: autostart compares --mode with the map's own mode names (ma2_scenario.c:1068), so the aliases 'LMS' / 'TeamLMS' never match and fall back to the map's first mode ('[SCENARIO] test autostart: mode LMS is not one of C6DC280C's modes, using TeamDestruction').",
+   "how_to_use": "Bots audit t3D-06/t3D-10; replaces the team-type conflict listed as open in the wiki.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "game-modes",
+    "team-types",
+    "correction"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-editor-made-maps-check-it-base-war-end-at-once-grinder",
+   "title": "On editor-made maps Check It and Base War matches end ~5 s after the start, and Grinder is an empty field (no waves, no vehicles)",
+   "subject": {
+    "kind": "observation",
+    "id": "bots-t3d checkit.log / basewar.log / grinder.log (g3, editor maps)"
+   },
+   "addresses": [],
+   "related": [
+    "tree3-retail-mp-worlds-use-only-15-trigger-action-classes"
+   ],
+   "fact": "Game-proven: (1) Check It ticked on an editor map adds NO checkpoints (MACheckpoint; CTF/Base War/Snatch It get kits, the editor status after Create lists only those); with no checkpoints the match ENDS AT ONCE: 'Red Team Wins!' 0-0 about 5 s in (bot lines stop at t = 5, 0 [OBJ-CLAIM]). (2) Base War on an editor map also ends ~5 s in with 'Blue Team Wins!' (every blue player 1 point, 0 kills, 0 deaths); both sides got two kit buildings (24000 hp and 2000 hp, nation 1 and 2) from the editor's Base War kit; the cause is UNKNOWN (what the game's Base War win check reads: a base/generator link or count the kit misses for the red side); not separated from kit-vs-game yet (needs a retail Base War map re-test). Time-to-first-'Mech in Grinder is therefore still unmeasured (wiki bots-grinder-ba-swap ~15 s). UPDATE: Check It is now an editor kit type: MACheckpoint plates + their 'Check It!' terminals (MATriggerMenuActivate) copied from Deliverance with CheckPointUID remapped (editor proof: 5 plates each with its terminal); Check gives a Must fix 'Check It needs the checkpoints' and a warning for a plate with no terminal; game proof pending. Base War (F20): the editor kit is byte-for-byte retail (2 plants, ObjectiveNumber 0 and 1, same props as BoggedDown), so the ~5 s 'Game Over' is NOT a kit fault; it needs a retail Base War run (copy ready) to split game vs map. UPDATE: the Base War Game Over cause is now read from the files: dangling MARoot objective slot UIDs (see bots3-base-war-objectives-are-marroot-slots-0-1-.); the 'cause UNKNOWN' above is superseded (game proof pending). BASE WAR PROVEN: on the fixed map (f20_editor_fixed) Base War runs and both plants are damaged (see bots3-base-war-objectives-.).",
+   "how_to_use": "Editor MP authoring: add a Check It kit (checkpoints), investigate the Base War kit, find the Grinder wave objects; Check should warn per ticked mode.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "game-modes",
+    "editor-maps-to-game",
+    "check-it",
+    "base-war",
+    "grinder"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-team-destruction-on-foot-start-pads-produce-almost-no",
+   "title": "In Team Destruction on editor maps the vehicle pads produce (almost) no vehicles and bots on foot cannot hurt each other; modes without objective code play as deathmatch",
+   "subject": {
+    "kind": "observation",
+    "id": "bots-t3d td6v6.log / custstrip_td.log / ctf.log"
+   },
+   "addresses": [],
+   "related": [
+    "bots3-editor-made-maps-pad-vehicles-missing-in-team-destruct"
+   ],
+   "fact": "Game-observed: (a) vehicle entities [BOT-HULL] in TD: td6v6 0, custom full 5, custom stripped 5, against Capture the Flag on the same maps 46 / 26, so pads/kits are only active in some game types (see bots3-editor-made-maps-pad-vehicles-missing-. for the armed-entry-zone cause on the stripped map). (b) where vehicles exist bots in TD pick attack/hunt on enemy pilots instead of getveh (custom stripped TD: 5 hulls, getveh 44 samples, 0 boarded; the same map in CTF 10 of 11 boarded within 7-92 s). (c) pilots cannot damage pilots: td6v6 shows shots = 0, dmg = 0 for all 11 bots with ~140 s engaged, ff_holds 2400-9200, min separation ~0: ten minutes of pilots standing in a heap with no kills. (d) objective_eval branches only for NotIt / CTF / SnatchIt / CheckIt / BaseWar, so Team Destruction, Destruction, LMS and Team LMS are plain deathmatch (no lives/elimination awareness); VTOL, flyer and turret bots skip the mode objective entirely (only the flag-run hook uses VTOLs). (e) CTF captures are rare: in 180 s one enemy-flag grab (t = 78, carrier killed 8.4 s later, flag returned t = 94); the 5 red bots never reached the blue flag; notes grab 235, guard 201, escort 20, carry 19, return 16.",
+   "how_to_use": "Bots audit t3D-01.04; editor Check should warn when 'Players start as: On foot' and no usable vehicle exists.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "game-modes",
+    "vehicles",
+    "team-destruction",
+    "ctf"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-bots-take-every-mech-human-left-on-foot-no-human-inten",
+   "title": "Bots hold every free 'Mech while the human is on foot (measured: 33 of 41 samples); bots have no knowledge of the human's intent and no last-'Mech reservation",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_brain.c vehicle_usable 1174-1183, 1196-1203, pick 1222-1238, pick_swap 1240-1270; ma2_bots_core.c claims 2796-2806"
+   },
+   "addresses": [],
+   "related": [
+    "bots3-battle-armor-swap-targets-not-claimed-so-bas-chase-the"
+   ],
+   "fact": "The 'race' case (a bot boards the 'Mech the human runs to) cannot yet be measured: in MCP runs the human never moves and the only human-walk hook RECOMP_TEST_HUMAN_BOARD walks to a VTOL (ma2_bots_core.c:3734-3760). Code today: (a) vehicle_value subtracts only 0.25 when another pilot (human or bot, same team; any player in FFA) is >= 3 m closer to the vehicle, by straight distance, no heading or speed; (b) claims exist only between bots (MA2_ORD_GET_VEHICLE; not even swaps, see the swap-claim fact); the human never holds a claim; (c) every bot picks and claims at t = 0.0 before the human has moved; (d) no count of free 'Mechs anywhere (usable, pick_vehicle, pick_swap and the pad change-ride roll all ignore humans). A bot 20 m behind the human can still out-value it (Mech 1.0 vs -0.25 penalty). Proposed (t3-sk-B03/B04, Phase 2): one claim table with hard bot claims + a soft human-intent claim (closing > 2 m/s for >= 0.5 s, heading within 35 deg, within 120 m, lasting 3 s) and a last-free-'Mech reservation (free <= humans on foot -> 'Mech unusable to bots); log [BOT-YIELD] / [BOT-RESERVE]; proof plan = rerun custfull2_td (before 33/41) and extend RECOMP_TEST_HUMAN_BOARD with a kind.",
+   "how_to_use": "Bots audit t3-sk-B01.B05.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "vehicles",
+    "human",
+    "swap"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-skill-barely-changes-behaviour-in-ctf-runs-measured-pe",
+   "title": "Measured per skill in 6v6 CTF runs: damage per bot-minute is flat (985 / 947 / 1037 / 1007), the goal mix is the same, dodging is the only clearly skill-scaled behaviour",
+   "subject": {
+    "kind": "metric",
+    "id": "bots-t3d skill-counts.md (ctf_recruit / ctf / ctf_veteran / ctf_elite / ctf_mixed .log)"
+   },
+   "addresses": [],
+   "related": [
+    "bots3-skill-reaction-times-0-90-0-55-0-30-0-12-supersede-tea",
+    "bots3-6v6-td-on-the-editor-fresh-map-skill-ladder-holds-elit"
+   ],
+   "fact": "Game runs: damage per bot-minute Recruit 985 / Regular 947 / Veteran 1037 / Elite 1007; shots per minute 74 / 73 / 100 / 97; kills 63 / 51 / 84 / 91 (so kills rise, damage does not); goal mix the same at every skill (swap 24-27 %, objective 24-31 %, attack 18-29 %); dodging is the only clearly skill-scaled behaviour (0.23 / 0.36 / 1.19 / 2.30 per minute); peek-hide 0.03-0.07 per minute and cover 0-2 % at every skill; time in a 'Mech Elite 22 % vs Regular 28 % (any vehicle 27 % vs 34 %), time dead (goal=none) Elite 12 % vs Regular 8 %, swap churn ~24 % of Elite time; friendly-fire holds 154-350 per bot-minute at every skill (Regular lowest). The lower Elite end damage in these runs is explained by less time in a 'Mech and more swap/dead time, not by peek/hide. Flag grabs 0/1/1/0, captures 0. Mixed run (--skill 4, small samples) consistent. Skill spread in CTF itself is not re-measured yet. See bots3-6v6-td-on-the-editor-fresh-map-skill-ladder-holds-elite-7-kills-1-death-vs-recruit-1-2-attack-samples-8-45-47-percent.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "skill",
+    "metrics"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-human-pilot-body-has-no-campaign-ai-bot-drive-helpers",
+   "title": "The human player's pilot body has no campaign AI, so the bot-side drive helpers cannot move it; tests that need the human to walk must use MCP game_key / game_mouse",
+   "subject": {
+    "kind": "test-hook",
+    "id": "RECOMP_TEST_HUMAN_BOARD / ma2_bots_core.c:3734-3760"
+   },
+   "addresses": [],
+   "related": [
+    "bots3-bots-take-every-mech-human-left-on-foot-no-human-inten"
+   ],
+   "fact": "Code + game: the human player's pilot body has no campaign AI (vcall actor+0x200 returns none), so the bot-side drive helpers (MoveTo via AI, body_walk_direct, the body speed/turn calls) do not move it. RECOMP_TEST_HUMAN_BOARD's walk therefore never moved the human in 3 runs ([HUMAN-HP] pos constant); it was also VTOL-only (ma2_bots_core.c:3734-3760). Consequence: any bots test that needs the human to move (the 'race for a Mech' case, yield rule A/B) must drive the human through the MCP tools game_key / game_mouse: camera-relative WASD, about 30 degrees per 800 px of mouse movement at sensitivity 100, Y = Q (enter/exit).",
+   "how_to_use": "Bots Phase 2 test design (t3-sk-B05 proof plan); do not extend RECOMP_TEST_HUMAN_BOARD with a 'Mech kind expecting it to move the human.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "testing",
+    "human"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-ledge-drop-giveup-clock-keyed-on-plan-top-so-a-mech-re",
+   "title": "The bot ledge-drop give-up did not fire for a 'Mech: its 5 s clock was keyed on the plan's top point, which replans move (a 'Mech stepped off the same ledge every 3 s for 33 s)",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_ctrl.c drop leg (give-up rule); F11 / t3-dropgiveup"
+   },
+   "addresses": [],
+   "related": [
+    "bots3-stuck-watchdog-is-6-s-not-the-designed-2-s"
+   ],
+   "fact": "Verified in a log: in the baseline run bots-baseline\\ (installed game 35CBBE2C, Killing Field) bot 7 (kind = 2, 'Mech) '[BOT-DROP] steps off' at 696,52,1233 every 3 s for 33 s (t = 188.7-218.8) until the 6 s 'off the leg' path gave up at t = 222.2; the drop give-up rule (no 2 m descent within 5 s -> forbid drops there 10 min) never fired because the attempt clock was keyed on the plan's top point, which replans move. Fix F11 (branch t3-dropgiveup) keys the clock on where the body stands (6 m).",
+   "how_to_use": "Bots Phase 2; the earlier finding t3A-02 (same retry loop) is now confirmed on the installed build.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "navigation",
+    "stuck"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-no-board-entry-dropped-while-bot-inside-so-trapped-mec",
+   "title": "A trapped-'Mech bail-out re-boarded the same 'Mech 2 s later because the no-board entry vanished while the bot was still inside; New River City valley exits are 40-50 m wide on the planner grid",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_brain.c no_board_refresh; F10; C5 chokes"
+   },
+   "addresses": [],
+   "related": [
+    "bots3-stuck-watchdog-is-6-s-not-the-designed-2-s",
+    "bots3-ledge-drop-giveup-clock-keyed-on-plan-top-so-a-mech-re"
+   ],
+   "fact": "Verified in game + bots code: ma2_bot_brain.c no_board_refresh removes a no-board entry as soon as its vehicle is occupied; at the trapped-'Mech bail-out the bot is still inside, so the 120 s 'leave this hull alone' entry vanished on the next tick and the bot re-boarded the same 'Mech 2 s after getting out (bot 0, hull 025454D0, t = 41 -> 43). Also measured on a New River City copy: the valley exits are 40-50 m wall to wall on the bots' planner grid, the open route between the bases 60-80 m; the C5 chokes piece (RECOMP_BOT_CHOKES / [Bots] Chokes) treats a lane section < 46 m wide for >= 30 m as a choke (keep right when wide, wait at the mouth when < 30 m, file in behind a teammate, switch lane when the queue >= 3 or the wait reaches 8 s).",
+   "how_to_use": "Bots Phase 2 review: F10, C5; keep the no-board timer independent of occupancy.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "boarding",
+    "navigation",
+    "stuck"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-base-war-objectives-are-marroot-slots-0-1-naming-the-p",
+   "title": "Base War's objectives are MARoot objective slots 0 and 1 that name the power plants BY UID; the editor's kit copy left them dangling, so the match ended ~5 s in ('Blue Team Wins!')",
+   "subject": {
+    "kind": "key",
+    "id": "MARoot ObjectiveType0/1, NumObjectiveObjects0/1, ob0obj0 / ob1obj0; MABuilding sub_00127ED7 / sub_00128000"
+   },
+   "addresses": [
+    "0050E860",
+    "00127ED7",
+    "00128000"
+   ],
+   "related": [
+    "bots3-editor-made-maps-check-it-base-war-end-at-once-grinder",
+    "tree3-mission-variable-table-readers-objective-check-trigger",
+    "base-war-bogged-down-2000hp-targets-are-indestructible-vtol"
+   ],
+   "fact": "Code + file read: the game's Base War objectives are MARoot objective slots 0 and 1 (ObjectiveType0/1 = 9 Red base / 10 Blue base, NumObjectiveObjects0/1 = 1), and each slot names its target BY UID: retail BoggedDown ob0obj0 = 126031 (BldInd_BW_PowerPlant_Red), ob1obj0 = 124373 (BldInd_BW_PowerPlant_Blue). On the editor map t3d_allmodes the plants had been renumbered by the kit clone (players.cpp clone_from_world gives clones new UIDs and remaps refs only INSIDE the clone; MARoot is not in the clone) to 139757 / 139759, and in multiplayer saves the step that rewrites ob%dobj%d from the MAObjectiveType parents (triggers.cpp compile_expanded, the 'ri >= 0 && !s.multiplayer' block ~line 557) is skipped, so slots 0 and 1 kept the retail UIDs, which point at nothing. The game then treats Red's base objective (slot 0) as already gone and Blue wins at once: 'Blue Team Wins!' with every Blue player on 1 point at t = 3 ([OBJ-PL] stats word 18 = 1 for all nat = 2 players, basewar.log). MABuilding sub_00127ED7 / sub_00128000 (recomp_0029.c ~3970-3990) read MARoot objective record [ObjectiveNumber].type (table 0x50E860 + n * 0x64 + 0x10) and set building+0x1E4 = 1 when it is 9 or 10 (= Base War plant); that part still works on editor maps because the MAObjectiveType under each plant keeps ObjectiveNumber 0/1. The per-frame Base War win check itself was not traced. Second difference (probably not the cause): the three retail MoeEntitySets ('Invulnerabilty at Start' = the 4 VTOL bays, 'Red Stuff' 15 members, 'Blue Stuff' 14) are EMPTY on every editor-made map, so root trigger 'TT - Setup' actions (MAActionNation on Red/Blue Stuff, MAActionAttribute Modifier 3 on Invulnerabilty) hit nothing. Side note: on the editor map the bay vehicles' MAOwnerController MoverTemplateUID does not resolve in world.wdf (it does in retail). Game proof pending: vs the control f20_boggeddown_copy.ma2map. GAME PROOF: with the 91d5795 objective-slot fix the editor map no longer ends at ~5 s; both plants take steady damage, Red 24000 -> 13785 (57%), Blue 24000 -> 15691 (65%); [C7] basewar t=180 dmg_red=8574 dmg_blue=7484. So the dangling-UID cause is confirmed (fixed map runs, control ended at once). See base-war-bogged-down-2000hp-targets-are-indestructible-vtol-bays-plants-are-the-24000hp-ones.",
+   "how_to_use": "Editor MP authoring (kit clones): any object a MARoot key names by UID must be remapped; Check should flag a Base War map whose objective slots point at missing UIDs. Verified in game 2026-10-27: maps re-saved with editor 91d5795 or later run Base War normally.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "base-war",
+    "editor-maps-to-game",
+    "objectives"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "bots3-bot-brain-costs-half-a-millisecond-per-frame-spikes-ar",
+   "title": "All 11 offline bots' brain work costs ~0.5 ms per frame; the rare 8-66 ms frame spikes are the game thread stalled inside a call into game code (one sight ray), not bot work",
+   "subject": {
+    "kind": "metric",
+    "id": "[C7] brain_ms / [BOT-SPIKE] (t3-brainspike 1a90fdf, diagnostic build)"
+   },
+   "addresses": [],
+   "related": [
+    "bots3-no-board-entry-dropped-while-bot-inside-so-trapped-mec"
+   ],
+   "fact": "Measured: New River City TD 5v6 240 s with RECOMP_BOT_SPIKE_MS = 6: 18645 frames, ONE spike: t = 42.6 bot 7 ('Mech, attacking) 8.3 ms wall but 0.3 ms thread CPU, all of it in perceive during one sight ray (ai_los -> the game's own raycast); brain_max this run 10.0 ms (the earlier 33-66 ms spikes did not recur). The bots' own work is ~0.5 ms per frame for all 11 bots (C7 brain_ms); the rare spikes are the game thread blocked or pre-empted inside a call into game code, not bot cost.",
+   "how_to_use": "Bots perf review: do not optimise the brain for these spikes; the diagnostic build logs [BOT-SPIKE] per-stage ms + thread CPU when RECOMP_BOT_SPIKE_MS is exceeded.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "performance"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bots3-game-type-rules-from-the-games-own-help-text-team-lms",
+   "title": "HIGH (code): the game's team test sub_16616C is true for ids 1-3 and 11-17 and FFA for 4-10, so Team LMS (1) I",
+   "subject": {
+    "kind": "table",
+    "id": "MP game types 1-17 (sub_16616C team test, text.mgf strings ~16140-17310)"
+   },
+   "addresses": [],
+   "related": [
+    "bots3-destruction-is-ffa-team-types-1-3-and-0xB-0x11-correct"
+   ],
+   "fact": "HIGH (code): the game's team test sub_16616C is true for ids 1-3 and 11-17 and FFA for 4-10, so Team LMS (1) IS a team mode; the Local New Game screen maps list value 1 to 0xA (Destruction) at 0x226C10 before session+0x44 (sub_1D2210), so ma2_bots_ui.c:313 is a menu-index quirk and ma2_bots_core.c team_mode_of is right. MEDIUM (English strings in text.mgf matched by name, not by id): Destruction and Team Destruction = highest score when time runs out, plus a kill limit ('Play until this number of kills'); LMS and Team LMS = 'You only get one chance', last man / team standing (lives probably MechLives AA0EDCD6 obj+0x64, unverified); Not It = POINTS PER KILL WHILE IT (not per second); Grinder = hold out against impossible odds; CTF = capture the enemy flag at your base ('%s scores!'), limit = generic 'Point Limit:' or Kill Limit; Take It (13) = steal the enemy's data core and return it to your base (core carry, not a ball or zone); Check It = '[text omitted]' (+ generic time limit); Snatch It = collect all data cores to your base ('Data Cores:' counter); Base War = destroy the enemy's Geothermal Generators / HQ ('%s team has lost two Geothermal Generators!'). LOW: Soccer 2, Giant Killers 5, Scout 7, Skirmish 8, Team Scout 11, Team Skirmish 12 have no help text, only names in sub_1661C1; MAActionSoccerGoal (vt 0x47B628, sub_1A185F, stat id 0x12) exists but no ball class was found; string 'GIANTS_; SCOUTS_' at 0x15D920 not followed. Likely leftover modes with no UI or maps.",
+   "how_to_use": "Per-mode bot objectives: Take It is a data-core steal-and-return mode like Snatch It, not a ball mode; Not It scores per kill while It. Win thresholds are map settings, so read them from the level's trigger groups, not from bot code.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "game-types"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bots3-grinder-kit-clone-broke-its-entity-sets-wave-mechs-poi",
+   "title": "Editor Grinder kit: the clone copies the retail 'Grinder Specific' group but broke its entity sets (set ids renumbered wrongly, DestroySet / RadiusSet never mapped), so the waves never run",
+   "subject": {
+    "kind": "editor-kit",
+    "id": "bots3-grinder-kit-clone-broke-its-entity-sets-wave-mechs-pointed-at-the-kit-group-and-wave-cleared-triggers-were-dangling"
+   },
+   "addresses": [],
+   "related": [
+    "bots3-editor-made-maps-check-it-base-war-end-at-once-grinder"
+   ],
+   "fact": "Fix maps the sets for every kit with new sets (TD, CTF, Snatch etc. too). Maps: (before) vs b2_f47_grinder_fixed.ma2map (after; all 51 links name the right set). Explains the earlier game result 'Grinder on an editor map: 0 waves, 0 kills' (t3D-09). Status stays pending-game-proof for wave 2+. WAVE 2 NOT PROVABLE WITH BOTS: (1) --bots 1v0: Grinder ends 'GAME OVER' once every player has died once (the idle human died at 13.5 s, the bot at 147 s after 2 kills, score 7); (2) --bots 3v0: the game gives Grinder only 1 bot ([BOT-ROSTER] 'FFA . bots ffa=1 cfg ffa=3'), 313 s, 1 kill, bot alive. This is the documented co-op cap (wiki bots-grinder-one-bot / grinder-one-bot), not a bug. On the fixed map wave 1 arrives ONE 'Mech at a time from ONE spawner (454,298): new enemy at t=9, then t=86 / 109 after the previous one died, with 5 bay 'Mechs at the start, so a lone bot cannot clear wave 1 in one life. Wave-2 proof needs a god-mode / human-free test hook or a data proof of the trigger chain (the 058de37 map has all 51 set links correct). PARKED: 'Grinder only 1 bot' is BY DESIGN in our code (ma2_bots_core.c:383 + ma2_bots_ui.c:933-941 cap Grinder at 1 bot, 'two-player co-op against the waves'), so that review row can close. The wave-2 proof would need a keep-alive test hook (the match ends GAME OVER once every player has died once and the lone bot never clears wave 1); by the value test it is a test-only hook for a P3 mode, so it is parked, not scheduled. The kit's wave 2+ links are proven by data only (all 51 set links correct on the 058de37 map). KEEP-ALIVE HOOK BUILT: game branch t3-grinderkeep 3328bd7: RECOMP_BOT_TEST_KEEPALIVE=1 (env only, default off, no ini) refills every player's unit to full each tick and prints '[TEST-KEEPALIVE] refills' every 10 s; exe 'MechAssault 2 keep.exe'. A Grinder 1v0 ~6 min run on b2_f47_grinder_fixed is queued for g2; this is the wave-2 game proof. WAVE 2 PROVEN: wave 1 = 6 'Mechs one at a time from spawner 454,298 (spawns t=10/80/120/180/280/390; bot kills t=81.6/123.1/184.6/280.5/383.1/495.7); after kill 6 the next 'Mech spawns from a NEW spawner 451,712 at t=500 = the wave-2 trigger fired. No GAME OVER (the human pilot died at 41.6 s, the bot stayed alive: 691 refills). So the kit's DestroySet/RadiusSet links work in game. Grinder wave AI units appear in the bot runtime's player list (player == actor), so the first hook version also refilled the game's own wave units; fixed in a53b265. Refilling a pilot via actor+0x184 does not save a pilot (the human still died); Mech/BA only is enough here.",
+   "how_to_use": "Grinder editor maps made with editor 058de37 or later run waves 1 and 2 in game. To test waves with a bot, set RECOMP_BOT_TEST_KEEPALIVE=1.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "editor",
+    "grinder"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bots3-no-shipped-mp-map-declares-soccer-giant-killers-scout",
+   "title": "No shipped MP map's mission-type groups enable game types 2 (Soccer/KickIt), 5, 7, 8, 11, 12 or 13: all 111 MAMissionTypeGroup instances have those flags = 0",
+   "subject": {
+    "kind": "data",
+    "id": "MAMissionTypeGroup flags (raw slice MAMissionTypeGroup.json, 16 MP maps, 111 instances)"
+   },
+   "addresses": [],
+   "related": [
+    "bots3-game-type-rules-from-the-games-own-help-text-team-lms"
+   ],
+   "fact": "Data check: across the 111 MAMissionTypeGroup instances on the 16 retail MP maps (NewRiverCity, RushHour, InYourFace, OnTheRocks, ProvingGround, BoggedDown, Deliverance, KillingField, MountainHigh, NoMansLand, WitchCauldron, IllWind, OverFalls, UnderCover, GoCommando, TroubledWaters) the per-type flags GiantKillers, ScoutMatch, Skirmish, TeamScoutMatch, TeamSkirmish, TakeIt and KickIt (mask bit 2, called Soccer in the bots table) each have ONE distinct value, 0, on all 111. So no shipped map enables those game types; they are leftover modes with no maps (consistent with the game having no help text for them and the editor not offering them). Flag counts that are set: CTF 7 groups (BoggedDown, Deliverance, GoCommando, IllWind, NewRiverCity, OnTheRocks, WitchCauldron), TeamDestruction 25, BaseWar 6, SnatchIt 7, LMS 4, TeamLMS 8, Grinder 6 (slice: 0 x105, 1 x6); the other three counts (7, 7, 6) are probably CheckIt, Destruction, NotIt but are unverified (counts). Mask = per-group level data (+0x7C on MAMissionTypeGroup, bit k = game type k, loader 0x165954, gate 0x122FB5/0x1663EF).",
+   "how_to_use": "Bot work: do not build objectives for Soccer, Giant Killers, Scout, Skirmish, Team Scout, Team Skirmish or Take It; no retail map can start them. Custom maps could, but the editor does not offer them.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "game-types"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bots3-sky-pieces-fight-zones-mech-rating-eject-save-and-solo",
+   "title": "[C7] zones samples=61, multi=54 (89% of samples show >=2 separate fights per side), most=4 fights, skip_full=3",
+   "subject": {
+    "kind": "bot-behaviour",
+    "id": "bots3-batch2-sky-pieces-fight-zones-mech-rating-eject-save-and-solo-vtol-flag-run-fired-in-one-ctf-smoke-on-cf"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "[C7] zones samples=61, multi=54 (89% of samples show >=2 separate fights per side), most=4 fights, skip_full=3, spread_hunts=3. f36-solo (VTOL cover run when no BattleArmor is available to carry the flag): cover_runs=2, flag_taken=1. f37-eject (bail out of a dying vehicle to save the pilot; rides on to LMS/TeamLMS or a free ride <= 150 m, chance Recruit 25%.Elite 95%): bail_ride=1, rode_on=1, no_reason=1 (bot 4 in a tank at hp 0.05 under 4 attackers ejected and walked to a 'Mech 122 m away). f23-rating (prefer the stronger 'Mech, Atlas over Puma): switch on, stronger_picks=0 = the weaker-nearer case did not occur on CF, so it is NOT exercised. All four switches default ON ([Bots] FightZones, MechRating, EjectSave, FlagRunSolo; MechRating=0 is the rollback). 2b4aa98 (merged) adds per-skill diag fields: zones spread_hunts_<sk>, f23-rating stronger_picks_<sk>, f37-eject chances_<sk> + bail_<sk> (eject rate = bail/chances), f36-solo cover_runs_<sk>. Note: b2_review_fresh_6v6.ma2map has the 12 start units but no spare parked 'Mechs, so F23 probably stays 0 there; a map with 2+ parked 'Mechs of different weight (e.g. a KF copy) is the F23 test.",
+   "how_to_use": "Read these four counters in a [C7] log to see whether each piece fired; a 0 for stronger_picks means the map offered no weaker-nearer choice, not that the piece is broken. F23 needs a map with parked 'Mechs of different weights to be proven.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "ctf",
+    "vehicles"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bots3-shipped-new-river-city-nav-nodes-sit-exactly-2-m-over",
+   "title": "The shipped New River City nav nodes sit exactly 2.00 m above the terrain; the old exact 0.5 m terrain-match test therefore always scored 0.00 (F21 now fits y = h + offset)",
+   "subject": {
+    "kind": "nav",
+    "id": "NRC node heights vs terrain 216EF193, bots F21"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The old test demanded an exact 0.5 m match, scored 0.00 and so threw the terrain-height data away. F21 now fits a line: 'terrain-match=1.00 raw=1.00 (fit y=1.000*h+2.00, 283/283 samples, terrain 216EF193) -> kept'; [C7] f21 kept=1.",
+   "how_to_use": "When judging whether nav node heights agree with the terrain, fit y = a*h + b over all samples instead of testing a fixed offset; shipped maps use 2.00 m over the ground.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "nav",
+    "nrc"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bots3-lanes-and-flanks-smoke-on-nrc-left-and-centre-lanes-fi",
+   "title": "Bots lanes on New River City: left 428 / centre 438 / right 6 samples; flanks started 5, arrived 2; the +1 (right) lane stays empty although 12 trips followed it",
+   "subject": {
+    "kind": "bot-behaviour",
+    "id": "ma2_bot_brain.c F45 lanes + flanks (cca9f52 pull-up-own-lane, x3 own-lane hunt weight), F35, F38"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "With cca9f52 fight_left 177 vs fight_centre 160 (was 70/149), fight_multi 206 (was 65), flank_trips 22 (was 6), off_way 54 (short 19 / far 22 / detour 13), pulls 12, pushes 19. Flanks started 5 (veteran 1 / elite 4), arrived 2 (average 8.4 s), dropped 3. brainspike rays_max 2.37 ms, deferred 0. F35 ba_stalls 2, skipped_backtracks 2. F38 (ledge test) 0 tries on NRC = untested, it needs a map with ledges. OPEN: the +1 lane apex 708,542 is 457 m off the route, so bots probably leave it or fight off it at once, or it crosses ground they cannot hold; needs a heat map (3B's --heatmap) on NRC and an editor map. ROOT CAUSES of the empty +1 lane: no bot ever came within 250 m of the +1 apex 708,542; only 2 bots followed it (12 trips, all restarting at the spawn end point 20). (1) lane_assign ranks heavies first by their CURRENT kind, so every board / death reshuffles the team (69 flips in 240 s of that log, [C7] lane_changes 60); (2) +1 bots spawn next to the centre / left fight and drop to fight / engage orders (a lane only steers travel), so trips restart at each retarget. A/B RESULT: share_right A 41 / B 21; lane_changes A 16 / B 18, so the stable deal is NOT the main lever (the 60 flips in lanes3 were an outlier). Right-lane trip ends: A paused(fight) 5, retarget 4, stalled 5; B paused 13, retarget 13, stalled 2. No bot reached the apex in either run. ROOT CAUSE (run A): the +1 lane's first points by the east spawn (pts 14-18, ~1310-1334,622-658) are a gap a tank cannot get through: bot 8 (tank) circled 1308-1325,663-684 for 50 s (t=105-157), each retarget restarting the trip at pt 18. Fix built, not proven: 5276b49 on t3-rightlane = no progress along the lane for 10 s -> aim 2 points further on (twice, kept across retargets for 30 s), then give the lane up (LaneSkip=1, [C7] right_skips / right_end_noprog, [BOT-LANE] 'no progress' line); exe rightlane2.exe; one NRC run (~5 min) queued. LANE-SKIP NOT PROVEN: the skip fired (bot 8 BA, pt 17 -> 13 at t=27.9, pt 18 -> 12 at t=37.9) but bot 8 still stalled at 1338,656 / 1328,636 ([BOT-CTRL] 'no progress', nav=0) and share_right stayed 0. LEDGE ROOT CAUSE (offline from rl2): the +1 lane's east end (pts 12-18, 1250-1338,588-658) runs over a ledge (BA at y 11-17 on 1328-1338,636-656; '[BOT-DROP] steps off at 1328,14,636'), and the lane path (planned west -> east) drops off it to the east spawn, so it is one-way: east-team bots must climb it. Fix built, not proven: t3-rightlane f7225e5 (lane build records drop points; a trip walked from the far end joins past the last drop and heads there first; LaneDrops=1, [C7] drop_joins; exe rightlane3.exe); one NRC run (~5 min) queued; merge deadline. LANEDROPS NOT PROVEN: drops found at +1 points 13.18 as predicted, drop_joins 12, share_right 78 (best yet), but no bot reached point 12 or beyond: from the east spawn the planner's only route to point 12 goes north through the centre, so the +1 lane is one-way (west team only). Not merged. LANEBACK PROVEN + MERGED: flank lanes are also planned BACK from the lane_b spawn, so the east team walks its own polylines (side 9 = none that way). Ledge detail: the +1 lane's east end is a ledge (y 11-17 at 1328-1338,636-656) over the east spawn, so planned west -> east it drops at lane points 13.18; planned east -> west with the centre / left made expensive, the planner finds its own +1 route (apex 816,512) and east bots do reach it. Proof rl4 (rightlane4.exe = 24597e3, NRC 5v6 240 s, 0 faults, bots-t3a\\rl4.log.gz): east team within 250 m of the +1 apex 708,542: 93 samples / 2 bots (rl3: 0); west 77 / 2 (rl3: 0); share_right 146 (rl3 78), fight_right 112 (32), share_left 199 (95), share_centre 503 (733); back_found 2. The merge itself was not re-smoked. Switch RECOMP_BOT_LANE_BACK=0 / [Bots] LaneBack=0. SWITCH CACHE CAVEAT: c7_on caches ONE switch per [C7] piece, and the five lane switches (LANE_STABLE / DROPS / BACK / SKIP / SPREAD) share the piece name 'lanes', so the first one read sets all five. Any single-switch lane A/B (e.g. the LaneStable 1 vs 0 run rl1 that concluded 'the stable deal is not the main lever', and rl2 / rl3 / rl4 comparisons) either did nothing or turned all of them off, so those A/B conclusions are UNRELIABLE until re-checked; the plain before / after runs are not affected because they changed the code, not one switch. SWITCH CACHE FIXED: LaneStable / Skip / Drops / Back each get their own [C7] piece. Consequence: the rl1 LaneStable 1 vs 0 A/B did NOT test LaneStable alone (shared piece), so its conclusion ('the stable deal is not the main lever') is VOID; rl2-rl4 used defaults (no switch) and the LaneBack proof compared builds (rl3 vs rl4), so it stands. Smoke NRC TD 5v6 ~150 s with only RECOMP_BOT_LANE_STABLE=0 (bots-t3a\\laneswitch-smoke.log.gz, exe 'a test folder'): '[C7] lanestable switch=off' while lanes / laneback / lanedrops / laneskip stay on; back lanes found 2; 0 faults. So the LaneStable A/B can now be redone cleanly. CTF PACE (c4, 4D, n=3): default runs send GRAB / RETURN trips along flank lanes and the opening grab runner stalls ~20 s at lane point 0; all lanes off recovered ~40% of the b2->b3 capture gap (7.0 / 2.33 vs 5.5 / 1.5; b2 9.5 / 3.5). LANEOBJ MERGED ab0a23b: 4D's CTF-LANES-FIX part A: GRAB / CARRY / RETURN / CHASE_IT objective trips go straight, not by lane (switch RECOMP_BOT_LANE_OBJ / [Bots] LaneObjective, own [C7] piece laneobj; '[C7] lanes obj_straight'). TD untouched (G_OBJECTIVE only). Parts B-D (lane detour cap, keep lane on a moving target, 5 s skip at point 0) not built: part A removes objective trips from lanes. LANEOBJ FOOT CHECK: Recruit 7.8 vs 8.7, Regular 8.9 vs 9.9, Veteran 11.8 vs 10.7 (+1.1, 11 spells = noise), Elite 9.1 vs 10.5; 61 vs 59 spells, 0 died on foot both, plants 0 both; [shortened in the public copy]",
+   "how_to_use": "Read [C7] lanes/flanks/f35/f38 in a log; the right lane being near 0 on NRC is a known open issue, not a log error.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "lanes",
+    "nrc",
+    "flanks"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bots3-mech-rating-f23-only-exists-for-pilots-on-foot-battlea",
+   "title": "F23 ('Mech rating, prefer the stronger 'Mech) lives only in pick_vehicle (pilots on foot); BattleArmor starts trade up through pick_swap, which ignored it, so F23 cannot fire on a BA-start map; the fix 4c79bcc is unproven and was not merged",
+   "subject": {
+    "kind": "bot-behaviour",
+    "id": "ma2_bot_brain.c pick_vehicle / pick_swap, F23 MechRating"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Run 2 with fix 4c79bcc (rating + counter in pick_swap too) still stronger_picks 0 while swaps_claimed rose 25 -> 46 and Elite/Recruit kills looked lower (1 noisy run): probably no spot on KF has two free 'Mechs of different weight within the 70 m swap range of a bot. Decision: 4c79bcc NOT merged before the freeze (unproven, doubles swap churn). The b2_review_fresh_6v6 map also has no spare parked 'Mechs.",
+   "how_to_use": "A 0 on stronger_picks is expected on BA-start maps and on maps with no parked 'Mechs; do not read it as a regression.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "vehicles",
+    "f23"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bots3-editor-map-mode-proofs-check-it-passes-ctf-captures-2",
+   "title": "Editor-made all-modes map: Check It passes (5 checkpoints claimed), CTF captures 2 (editor maps were 0 before F46), Snatch It is weak (1 grab, 0 cores home), Not It shows no kills at all",
+   "subject": {
+    "kind": "mode-proof",
+    "id": "b2_allmodes_fresh.ma2map, bots F46/F44/Snatch It/Not It"
+   },
+   "addresses": [],
+   "related": [
+    "bots3-game-type-rules-from-the-games-own-help-text-team-lms",
+    "pilot-on-foot-weapon-is-the-pilot-bomb-not-a-pistol-remote-o"
+   ],
+   "fact": "CTF (t3-modes 1b45f1a, 300 s): ctf_captures 2, grabs 5 (all bots), returns 2, go_full 6 / stages 9, lead_escort_s 5.7, 0 faults (log bots-t3c-b2\\ctf-fresh-smoke2.txt). SNATCH IT weak: 1 grab, 0 cores home in 252 s; from 60 s the grab bots (obj=atk/grab!) sit within 10-20 m of the 5-core pile at 391,680 but touch no core until 198 s; that Blue carrier got to ~100 m from its base (835,517) and the core went home at 228 s; [C7] f26 holds=418 drops_enemy_on_it=4 (log b2_snatchit_allmodes_422901b.log). NOT IT: FFA 11 bots ([BOT-ROSTER] 'bots ffa=11'; [BOT-TEAMS] lists 12 nations), 0 deaths, 0 shots, 0 damage for every bot in 247 s; 'It' = bot 1 from t=0 and never changes; all 11 stay on foot, ord=engage eng=1 on the same target near the human, never fire (log b2_notit_allmodes_422901b.log). Open: Snatch It touch-the-core path. Read 'pistol' here as the bomb placer and 'never fire' as 'never place a bomb'. See pilot-on-foot-weapon-is-the-pilot-bomb-not-a-pistol-remote-or-proximity-detonation-user.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "modes",
+    "ctf",
+    "snatch-it",
+    "check-it",
+    "not-it",
+    "editor"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bots3-not-it-works-on-a-retail-map-the-editor-not-it-map-has",
+   "title": "Not It works on a retail map (NRC copy: It changes 5 times, 27-185 shots per vehicle bot) but the editor's b2_allmodes_fresh has NO free vehicles in the Not It match, so every bot stays an on-foot pilot and none fires",
+   "subject": {
+    "kind": "mode-proof",
+    "id": "Not It, [BOT-VLIST], editor Not It kit, pilot fire gate [BOT-PFIRE]"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The bots are right; the editor map spawns no rides when the Not It game type is chosen. Still OPEN: the pilot-on-foot fire gate, and whether retail Not It starts players in 'Mechs or has parked rides (if yes the editor's Not It kit must add them: authoring item). LMS: 5 of 11 boarded (2 tanks, 2 BA + bot 1/3), 6 stayed pilots, consistent with fewer free rides than pilots (in FFA each pilot has its own nation 1.15 and rides are first-come); the nation filter (vehicle_usable refuses a ride owned by another non-neutral nation) is NOT ruled out for LMS, no [BOT-VLIST] in that log; a DIAG=2 LMS run would show the rides' nations. UPDATE: LMS NATION FILTER RULED OUT: rides were boarded by FFA nations 8-14; the 6 bots left on foot lost races (11 pilots vs 6 rides). Open low-priority: 10 'refused' (no game prompt) at respawned tanks; needs one DIAG=2 LMS run on g3. Retail NRC Not It starts everyone in Battle Armor spread ~800 m; the editor wrote one start choice into every slot (see bots3-marootstart-vehicle-slots-.). NATION FILTER OUT FOR GOOD: [BOT-VLIST] shows 18 free rides on b3_allmodes_rides, ALL nation=0 (unset), and vehicle_usable only refuses nation > 0, != 6, != the bot's own, so it can never refuse them. 3 'refused' no-prompts: two with d_entry 4.1-5.0 m > r 3.0-4.1 m (bot stopped just outside the entry radius), one at a respawned ride 024594C0 at 3.8 m inside r = 4 (respawned rides are not in VLIST, which is listed only at start). The respawn no-prompt stays a low-priority open item (needs an LMS-armed DIAG=2 run on a post-6faf6f9 exe). RESPAWN REFUSAL CHECK: b3_lms_rides_64e21d4.log (post-6faf6f9, DIAG=2) has 0 refusals, but the match ends at ~50 s with BA starts so no respawned ride is tried; every refused ride in b3_lms_rides_422901b.log (3) and lms-fresh-smoke.txt (10) has nation=0, so NATION IS RULED OUT. Causes: (a) t=10.0 tank 02351700: [BOT-WEDGE] ray hit another pilot standing in the zone (lost race, body-blocked, harmless); (b) t=48.4 BA 024594C0 = a RESPAWN at 875,533 (destroyed there at t=9.6; its [BOT-HULL] is all 0.0, built before the model existed): the bot stood in the zone 3 s and [BOT-BOARDP] shows the game offering UID p428 = F8000005, not this BA; the smoke run's 7 probes at respawned tanks show p428 = 0 (no offer). So a respawned ride's zone offers some other UID or nothing. Impact small (3-10 wasted ~4 s tries per match).",
+   "how_to_use": "When a mode shows 0 shots on an editor map, check [BOT-VLIST] first: no free rides means a kit/authoring gap, not a brain bug.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "modes",
+    "not-it",
+    "lms",
+    "vehicles",
+    "editor"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bots3-test-autostart-mode-aliases-lms-teamlms-now-match-the",
+   "title": "Proof (g4, modefix.exe, b2_allmodes_fresh, --mode LMS --bots 5v6 --quick-test): '[SCENARIO] test autostart: ar",
+   "subject": {
+    "kind": "tooling",
+    "id": "ma2_scenario.c auto_arm, --mode aliases"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Proof (g4, modefix.exe, b2_allmodes_fresh, --mode LMS --bots 5v6 --quick-test): '[SCENARIO] test autostart: armed: 3AE88353 'b2_allmodes_fresh' as LastManStanding (type 9)' -> New Game type 9, 0 faults, clean quit (log bots-t3a\\modefix-lms.log.gz). Always read the 'armed:' line to confirm the mode a run actually used.",
+   "how_to_use": "Check the '[SCENARIO] test autostart: armed: as <mode> (type N)' line of every mode test.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "tooling",
+    "modes"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bots3-6v6-td-on-the-editor-fresh-map-skill-ladder-holds-elit",
+   "title": "Elite 7 kills / 1 death vs Recruit 1 / 2 (kills per bot-minute 0.73 vs 0.10); damage per shot falls with skill",
+   "subject": {
+    "kind": "bot-behaviour",
+    "id": "bots3-6v6-td-on-the-editor-fresh-map-skill-ladder-holds-elite-7-kills-1-death-vs-recruit-1-2-attack-samples-8-45-47-percent"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Elite 7 kills / 1 death vs Recruit 1 / 2 (kills per bot-minute 0.73 vs 0.10); damage per shot falls with skill (Recruit sprays). Zones multi 55/70 samples, skip_full 8, spread_hunts 8 (elite 5). F37 1 chance (recruit), rode_on 1, no bail. F23 0 as expected (no spare parked 'Mechs). The review tool works end to end (3 tables + PNG); caveat: its thirds are data-driven (2nd-98th percentile of bot positions), so left/right is not symmetric about the starts when bots roam to one side. Design rule: skill must NEVER change damage, armour, health or weapon stats for any bot; the same weapon does the same damage for every player. So skill differences may only come from perception, reaction, aim error and decisions; read the 'damage per shot falls with skill' line above as an aim / accuracy effect (more of a Recruit's shots miss or spray), not a damage-number change.",
+   "how_to_use": "Baseline for comparing later 6v6 TD runs with the same tool.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "review",
+    "td",
+    "skill"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bots3-marootstart-vehicle-slots-are-keyed-crc-of-startvehicl",
+   "title": "MARoot's per-game-type start-vehicle slots are keyed crc_acc('StartVehicles' + type name): all 17 hashes, and the retail defaults (Battle Armor for Not It / LMS / Destruction / Grinder, on foot for the rest)",
+   "subject": {
+    "kind": "key",
+    "id": "MARoot StartVehicles<type> keys"
+   },
+   "addresses": [],
+   "related": [
+    "bots3-not-it-works-on-a-retail-map-the-editor-not-it-map-has"
+   ],
+   "fact": "RIDES FIX PROVEN IN GAME: Not It 5v6: 11/11 bots start in BATTLE ARMOR and fire 157-198 shots each by 60 s (before the fix: 11 on-foot pilots, 0 shots). LMS 5v6: 11/11 start in Battle Armor, 118-167 shots each by 50 s. The Team Destruction slot stays on foot and its pilots board vehicles (8 MECH / 1 TANK / 1 VTOL by 50 s). Trading up from BA to 'Mechs was not measured in 60 s. Ready for the editor master merge.",
+   "how_to_use": "To find what a game type starts players , look up the slot key above in MARoot; spec",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "editor",
+    "modes",
+    "vehicles"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bots3-snatch-it-core-pickup-gate-is-sub-00135946-mechs-can-g",
+   "title": "Snatch It core pickup: gate sub_00135946 (touch handler sub_00135811 -> attach sub_001359CF); 'Mechs can grab, yet all 4 grabs on 2 maps were Battle Armor and no core got home even on the retail Killing Field copy",
+   "subject": {
+    "kind": "function",
+    "id": "MASnatchItDataCore pickup, sub_00135811 / sub_00135946 / sub_001359CF / sub_001351A9"
+   },
+   "addresses": [
+    "00135811",
+    "00135946",
+    "001359CF",
+    "001351A9",
+    "00135D48"
+   ],
+   "related": [],
+   "fact": "Code read: the core pickup gate sub_00135946, called from touch handler sub_00135811 which then attaches via sub_001359CF, passes when the toucher is not already carrying (sub_135D48), is not taking from its own nation's base, core+0x1D4 == 0, for an MAMover toucher, actor+0x1E8 has bit 0x10 (logged 'Mech / BA / tank bodies all have it: a1E8 = .3F / .BF). The last carrier cannot re-pick up for a short time after a drop (+0x1DC, +0x1C8 vs 0x4B04A0). sub_001351A9 is the carried-core update (carry offset by carrier class 0x4EAF84 / 0x4EAF78). So 'Mechs CAN grab. Game results: editor b2_allmodes_fresh 1 grab, 0 cores home; retail Killing Field copy (log b2_snatchit_kfretail_422901b.log, 237 s) 3 grabs, 0 cores home = weak on retail too, so not an editor-map problem (the only map difference is pile spacing 5 m vs retail 10 m). All 4 grabs on both maps were Battle Armor within ~0-4 m; a 'Mech that passed 3.7 m from a core never picked one up. Grabbers ring the pile at 18-25 m because of the path goal snap (16 m) and teammates acting as obstacles. GRAB WALK RESULT: 'Mechs DO grab (run A: a 'Mech grabbed 1 s into its straight walk and the core went home at 55 s, the first core home on that map). But run C (64e21d4, aim-through) got 1 grab / 0 home with 15 give-ups: 'Mechs stop dead ~9-13 m from the editor pile and never reach it. Bots aim at the live core position, so the blocker is probably a collision volume or raised pad around the editor kit's pile at 391,680 (retail KF's pile is reached by Battle Armor at 0.2 m). Next, no game slot needed: inspect the kit pile in the editor (what is placed there, heights, collision) against retail KF. KIT ROOT CAUSE: the editor kit scaled the retail pile's 10 m core spacing to 5 m on a 1 km map, and the 5 big core models then formed one solid block that 'Mechs stopped 9-13 m . This replaces the earlier guess of a collision volume or raised pad. PILE10 PASS: 3 grabs (t=26.3, 60.6, 201.2, each right after a [BOT-GRABWALK] kind=2 walk), 2 cores HOME (t=61.2 into the Red base, t=89.0 into the Blue base), the third dropped at 222 s; 8 give-ups of 59 walks (run C on the squeezed 5 m pile: 1 grab / 0 home / 15 give-ups). 0 faults. A/B with the grab walk OFF (RECOMP_BOT_GRAB_WALK=0, same map / exe / 5v6 / 240 s, log b3_snatchit_pile10_walkoff_64e21d4.log): 4 grabs off the pile plus 1 re-grab of a dropped core, 2 cores HOME (t=95.5, 175.8, Blue base), 0 faults. So the EDITOR KIT SPACING IS THE WHOLE FIX; the grab walk adds nothing; t3-snatch is parked, not merged. dd855b2 is mergeable (on editor master c628ca7, fast-forward).",
+   "how_to_use": "Why a bot does not pick up a core: check the 5 conditions above first; the observed failure is the bots' final approach, not the pickup rule. On editor Snatch It maps made before dd855b2, cores sit 5 m apart: re-tick the kit or move the cores to >= 10 m.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "snatch-it",
+    "modes"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bots3-on-foot-pilots-never-fire-the-native-pistol-fire-sub-1",
+   "title": "On-foot pilot weapon = the PILOT BOMB, not a gun: the gun-fire path (sub_18482E -> sub_F13E9) refuses a pilot because no gun mount exists on a pilot body; the left mouse on foot goes through the DropPack bomb path instead",
+   "subject": {
+    "kind": "bug",
+    "id": "bot pilot fire, sub_18482E, [BOT-PFIRE]"
+   },
+   "addresses": [
+    "001041FB",
+    "0012B234",
+    "0018482E",
+    "001858EF",
+    "001B0682",
+    "000B2BE0",
+    "000E664C",
+    "000E66B5",
+    "000E6838",
+    "000F1306",
+    "000F1364",
+    "000F13E9",
+    "000F1458"
+   ],
+   "related": [
+    "bots3-not-it-works-on-a-retail-map-the-editor-not-it-map-has",
+    "pilot-bomb-is-droppack-explosive-pack-placed-and-detonated-b",
+    "pilot-on-foot-weapon-is-the-pilot-bomb-not-a-pistol-remote-o"
+   ],
+   "fact": "A g3 diag run (fresh-map Not It, [BOT-PFIRE] with sub_18482E gate fields, t3-modes 886e0ea) is queued. Retail Not It is unaffected because bots there start in Battle Armor and fire from vehicles. PFIRE NARROWED: the selected weapon slot matches (w+0x98 = arsenal+0x7C = 0), actor bit 17 is clear, and the refire timer ai+0x118 is a clock stamp (clock ~48000; clearing it makes the game re-arm +5 s, still returns 0), so it is NOT the sub_1858EF ready check. The refusal is inside the weapon's own fire sub_12B234 -> sub_F13E9, which returns al=0 when the mount object w+0x9C does not resolve from the slot ids w+0x84.0x90, or when mount+0x13C == 0; otherwise it calls sub_CFE30. A diag build printing those fields (same line for Mech/BA bots) is ready; g3 run queued. ROOT CAUSE GAME-PROVEN: every bot pilot's pistol has mount slots 0,-1,-1,-1 and its mount object w+0x9C stays 0, so sub_F1364(slot id 0) resolves nothing -> the weapon's own fire sub_F13E9 returns 0 -> sub_18482E returns 0. The pistol mount lookup (decoded): slot id 0 -> owner MACorporeal tree +0xA8 must hold a MAModSubObjectState whose byte +0xBC == 0. Open: what a HUMAN pilot's pistol has at w+0x84 / w+0x9C (id -> mount via class [0x4EAF2C] lookup, x+4 -> +0xA8 -> sub_B2BE0 -> vt+0x78); likely the hand / hardpoint mount is registered only for the player-controlled pilot, or the id must be the pilot body's mount id. A PMOUNT diag (t3-modes 9f7ba34: bot pilot vs human pilot weapon mount chain) is queued on g2/g3; code-side fix work meanwhile. RESOLVED: BY DESIGN: a weapon fires only from a MOUNT = a MAModSubObjectState node (class [0x4EB01C], byte +0xBC == the weapon's slot id; slots are w+0x84.0x90, -1 = empty) in its MACorporeal owner's model tree (+0xA8). Both sub_F13E9 and sub_F1458 (via sub_F1306 -> sub_F1364) return 0 without one. The lookup is sub_B2BE0(tree, id, callback 0xF13C2, 0) -> [0x4EAF48], then the node's vt+0x78 (0x107B2B on 'Mech mounts). Control (nrc_copy): every 'Mech, human and bot, has mount ids 0 and 1. Every on-foot pilot, HUMAN INCLUDED, has none (ids 0-7 all empty), and the human pilot shows no gun in the screenshot: the arsenal pistol (class C14020DA, slots 0,-1,-1,-1) is unmounted, so in the retail game an on-foot pilot cannot shoot. This corrects the earlier 'bot-only defect' reading (but see Correction: 'cannot shoot' is true only for a GUN). Bot implication: on foot, bots should not 'engage' with fire (wasted eng_s and friendly-fire holds) but go for a vehicle / hijack / evade; Not It and LMS on maps where everyone starts on foot need vehicles on the map or a BA / 'Mech start (see the MARoot start-slot fact). Read 'pistol' here as the bomb placer and 'never fire' as 'never place a bomb'. See pilot-on-foot-weapon-is-the-pilot-bomb-not-a-pistol-remote-or-proximity-detonation-user. Behaviour vtable slot 50 = sub_1B0682 (vt 0x477410 / 0x47DF90) reads avatar+0x26C: bit 17 set (the same fire bit [BOT-PFIRE] reads) and bit 25 clear -> sub_1041FB -> DropPackManager at avatar+0x254 (vt 0x4678A8). The bomb = DropPack 'Explosive Pack' (key 5A255EC2) on every pilot template (IsDropPackEnabled 1; ArmingTime 0.1 s, ManuallyTrigger 1; body 116392 Env_Detonator_Player, blast MAEffect 125315), with MATriggerLogic + MATriggerRadius + MATriggerTimer children. Press handler sub_E664C (state +0x80 0/1/2): with a pack deployed (+0x84, pack+0x8C), state 0 and +0x7C set, a press calls sub_E6838 = detonate (second press); otherwise a press sets state 1 = place (placement/update sub_E66B5 from 0x10441C). The 'Mech-walks-over / ~5 s linger trigger is most likely the pack's trigger-radius / timer DATA (LOW: no constant found in code). Bot recipe (MEDIUM, inferred): skip sub_18482E on foot; set avatar+0x26C bit 17 (bit 25 clear) for a tick and let slot 50 run (or call sub_1041FB with ebx = avatar); first check avatar+0x254 != 0, byte behavior+0x6E4 == 0, byte +0x6BD, and whether the bot behaviour reaches slot 50 at all; press again to detonate. See wiki pilot-bomb-is-droppack-. and pilot-on-foot-weapon-is-the-pilot-bomb-. BOT BOMBS ARE LIVE: bots now plant pilot bombs through this path; see bots3-bot-pilots-plant-pilot-bombs-. for the mechanism and proof.",
+   "how_to_use": "A unit on foot has a bomb, not a gun: expect 0 gun shots from pilots. For bots, plant-then-leave at the objective, then board; bots in 'Mechs should avoid known enemy bombs.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "bots",
+    "pilots",
+    "firing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bots3-replan-blocked-rise-on-killing-field-is-teammates-cros",
+   "title": "[C7] replan_blocked rising on Killing Field (17 -> 25) is bots crossing teammates on the way to rides (harmless); the real defect was a bot replanning every 0.3 s against its own target (fix 2dcd2e4, unmerged)",
+   "subject": {
+    "kind": "bot-behaviour",
+    "id": "ma2_bot_ctrl.c blocked-route replan check, branch t3-replan 2dcd2e4"
+   },
+   "addresses": [],
+   "related": [
+    "bots3-6v6-td-on-the-editor-fresh-map-skill-ladder-holds-elit"
+   ],
+   "fact": "It is the flip side of C4: contacts per minute 5.04 -> 2.76, because the route is replanned around a unit instead of bumping into it. No stall: stuck_long 0 on KF, stuck_s 1.56 vs C0 0.99 (C0 seed range 0.88-1.61), no thrash (max 5 replans per bot+blocker). On NRC / NRC CTF replans went DOWN (40 -> 29, 45 -> 32.5). The 'ed4 replans up' reading is NOT supported: C0 median 5 (seeds 17/4/5), B1 3; the 12 was a single c3fix-ed4 run. REAL DEFECT in that run: 10 of its 12 replans were one bot replanning every 0.3 s for ~5 s against ITS OWN TARGET (the idle human pilot it was heading for; a route to the target always ends on it); same on the fresh 6v6 (2 of 5). The bot still moved, so it looked fine, but plans were wasted. Fix 2dcd2e4 on t3-replan: the blocked-route check skips b->order.target (one line, built ok). A short g3 smoke (ed4 or fresh 6v6 TD with an idle human target, DIAG=1, ~3 min) must show own-target replans 0 and stuck unchanged before it merges. FIX PROVEN + MERGED: g3 smoke on ed4 (c3-proof\\bots_custom_full TD 5v6 skill 4, 180 s, log): replans 12 -> 6, own-target replans 10 -> 0, no crash, stuck_long 0, trapped 0. stuck_s 0.28 -> 0.74 (3 episodes vs 2) is at the known terrain hole ~174-195,272-297 (pilots on foot, static geometry blocks h1/h3), plus 3 C3 reassigns vs 0 this run: unrelated to the change. ED4 HOLE: the stuck pilots on ed4 all walk to VTOL 018ABE30 (hull at 180,265, zone ~180,269) and freeze at y -2.5.-3 (182,285 / 181,291 / 195,272 / 174,290) with every [BOT-BLOCK] ray clear or hitting only static geometry C3E3D036; the game body does not move for 5-20 s, then the bot backtracks and gives up the ride. The obstacle grid does not mark it blocked (the planner sends a straight 1-point path). Likely a terrain step / bank between the hollow and the VTOL bay that the grid samples as passable. A g3 grid dump is needed (test exe 374DEEA9, env RECOMP_BOT_NAV_REGION=150,240,230,320 + RECOMP_BOT_PATHTEST from 182,285 / 195,272 to 180,272). ED4 HOLE RESOLVED: the obstacle grid's downward probe stopped at the editor water plane; see bots3-editor-maps-with-a-water-plane-hide-solid-objects-below-it-.",
+   "how_to_use": "A higher replan_blocked count alone is not a regression; check who the blocker is (teammate moving vs own target) and stuck_long.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "nav",
+    "replan"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bots3-editor-maps-with-a-water-plane-hide-solid-objects-belo",
+   "title": "On editor maps with a Water plane the bot obstacle grid's downward physics ray hits the water surface first and never sees solid objects below it (a walled VTOL bay read as open ground); fixed by probing again from 5 cm under the surface",
+   "subject": {
+    "kind": "nav",
+    "id": "bot obstacle grid downward probe, g_cls.water, t3-waterprobe a67af79"
+   },
+   "addresses": [],
+   "related": [
+    "bots3-replan-blocked-rise-on-killing-field-is-teammates-cros"
+   ],
+   "fact": "On ed4 (c3-proof\\bots_custom_full) a walled VTOL-bay structure at 174-195,272-297 read as open bed: pilots walked toward VTOL 018ABE30 (hull 180,265) and froze at y -2.5.-3 with every [BOT-BLOCK] ray clear (the 'ed4 hole'). FIX: the grid probes on, casting again from 5 cm under the water surface. PROOF (g3, ed4 TD 5v6 skill 4): stalls at the hole 4 -> 0, pathtests now route round (n = 1 straight -> n = 3.7), grid obstacles 1042 -> 1694 (859 under-water hits), 0 faults. No new [C7] counter (the grid line gains 'N under water'). OPEN: that bay VTOL may have no walk-in route at all (a pilot reached its south side, met a terrain bank at 176,239 and gave up after ~20 s instead of 25+ s at the hole); maybe exclude rides with no ground route from VEHPICK. VEHROUTE: the bay VTOL at 180,265 (018ACE00 / 018ABE30) has NO walk-in route (a terrain bank at 176,239 blocks it). Evidence ed4-water-a67af79: it drew bots 0, 6, 7, 8 (6 and 7 from 426 / 470 m) and none boarded; only bot 0 learned (30 s, itself). The fix: pick_vehicle skips rides on another walk-graph island; a pilot that stalls or finds no path > 15 m short of a ride marks it for the whole roster via the refused list (90 s, 240 s on repeat); switch RECOMP_BOT_VEH_ROUTE=0 / [Bots] VehRoute=0 = old; [C7] vehroute island_skips / marked; [BOT-VEHROUTE] line. Exe 'MechAssault 2 vehroute.exe' (A8D3E7C7 = 9443569); one g3 run (ed4 TD 5v6 skill 4 240 s, env RECOMP_BOT_DIAG=1) proves it. VEHROUTE NOT PROVEN: the bay VTOL 018ACF00 was picked 10 times with 0 marks (no pilot reported a stall / no_path on the way: they re-pick before the controller stalls) and nobody boarded ANY VTOL.",
+   "how_to_use": "If bots freeze next to structures on an editor map with water, check the grid line's 'under water' count; RECOMP_BOT_UNDERWATER=0 restores the old probe.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "nav",
+    "editor",
+    "water"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bots3-vtol-flag-runs-pair-with-a-battlearmor-carrier-0-paire",
+   "title": "VTOL + Battle Armor flag runs: 0 paired runs in 3 NRC CTF runs (bots rarely ride a BA, so a VTOL has no partner); a human BA carrier never posts a lift, so no VTOL comes for the player unless they claw on; 'VTOL waits for the player' was never built",
+   "subject": {
+    "kind": "bot-behaviour",
+    "id": "ma2_bot_brain.c frun / lift_post (a67af79 ~line 3013), t3-frun 8ad85f4 VtolWaitPlayer"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "SUPER: a bot BattleArmor carrier more than 250 m from home posts a lift (lift_post, ~line 3013); any team VTOL < 260 m, hp > 50%, no attackers takes it (not skill-scaled, gives up after 25 s); frun pairs scale by skill (p_try). A HUMAN BA carrier never posts a lift (only bot brains call lift_post), so no VTOL comes for the player unless they claw on. BUILT: [C7] frun started / started_<skill> / started_player, reached_<phase>(_player), ends_<reason>, captures / captures_<skill> / captures_player; VtolWaitPlayer (RECOMP_BOT_VTOL_WAIT_PLAYER / [Bots] VtolWaitPlayer, default on): a human clawed on and flown to their flag gets a flag run with him as the BA: cover orbit while he grabs (40 s; ends if he walks 200 m off), then the VTOL comes down beside the carrier, he re-claws and is flown home (the existing ctf=1 path). RESULT: PAIRED VTOL + BA RUNS = 0 (0 per skill). VTOL rolls: 'no BattleArmor teammate' 13, 'their flag is carried' 9, 'no free BA in reach' 2, damaged 2; 3 SOLO cover runs (Recruit, Regular, Elite; 7-23 s, all ended 'a teammate has their flag'); captures 3 / 1 / 3, all by ground carriers. CAUSE: on NRC the bots almost never ride a BattleArmor (early samples: Mechs / VTOLs / tanks, 0-4 BA), so a paired run has no partner, rate ~0 by construction. Options: run the counters on a map that ships BAs (bots-t3d\\b2_allmodes_fresh) and/or raise the 'VTOL wants a partner' BA pick bonus. NEW ORDER: measure carrier-lift posted / taken / boarded / delivered home per VTOL skill for bot and human carriers, and spec VTOLs recognising a teammate carrier (bot or human) and breaking off to fetch him, more readily the higher the skill. CARRIER MERGED 0055a1d: [C7] lift counters ON; CtfBaPick DEFAULT ON (proven to fire: 5 hits / 3 took a BA in carrier1, 2 / 2 in the smoke); LiftCarrier and LiftHuman DEFAULT OFF (no BA flag carrier in 2 runs, so the lift path was never used). FERRY HOOK (RECOMP_TEST_HUMAN_FERRY): a human boards a BA, the VTOL fetches them and flies them to their flag, they let go and take the flag (ferry1/2 logs); both times the VTOL ended the run by its own damage give-up, so the wait / return leg is UNPROVEN. VtolWaitPlayer ON.",
+   "how_to_use": "A paired-run rate of 0 on NRC CTF is expected (no BA riders); test the pairing on a BA map.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "vtol",
+    "ctf"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bots3-foot-time-baseline-for-3-a67af79-seconds-on-foot-per-s",
+   "title": "Foot-time baseline: seconds on foot per spell by skill (all / boarded-only) and plants per spell; the rule-(d) yardstick for pilot-bomb pieces",
+   "subject": {
+    "kind": "metric",
+    "id": "foot_baseline_a67af79.txt"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Seconds on foot per spell, ALL / BOARDED-ONLY / plants per spell: Recruit 15.8 / 11.5 / 0.01 (167 spells); Regular 24.4 / 10.5 / 0.09 (152); Veteran 23.9 / 10.1 / 0.11 (129); Elite 25.8 / 10.8 / 0.15 (149).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "metric",
+    "pilot-bomb"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bots3-surprise-behaviours-package-for-5-rare-fun-tricks-with",
+   "title": "Package: (1) grudges, (2) momentum / streak mood, (4) Recruit mistakes (first-target tunnel vision, ignore fla",
+   "subject": {
+    "kind": "bot-design",
+    "id": "(4A v1; common rarity model A, sp_roll gate)"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Package: (1) grudges, (2) momentum / streak mood, (4) Recruit mistakes (first-target tunnel vision, ignore flanks, straight lines, firing out of range, chasing VTOLs they cannot hit, switching to whoever shot last), (5) Veteran baiting into teammates / corners, (6) Elite power-up timing + denial, (7) Elite levels the building the enemy hides behind, (8) Elite mechs stomp pilots / BA at their feet, (9) crossfire / pincer by Vet / Elite pairs, (10) cover a teammate's hijack, (11) shoot a clinging BA off a teammate, (12) revenge on a teammate's killer. NOT archetypes / roles (#3 rejected). RULES: each behaviour has its own switch + [C7] piece + a rarity cap (per-bot cooldown of minutes, random roll, no repeat of the same trick on the same player back to back); target = the player meets each one now and then (~0-2 times per 10-min match); core behaviours stay dominant; FAIR DAMAGE holds (decisions / timing / aim only, never damage or health).",
+   "how_to_use": "Any new surprise piece must use the common sp_roll gate and a [C7] sp_<name> counter; review it as 'rare' (0-2 meetings per 10 min), not as a core behaviour.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "bots",
+    "surprise"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "ma2-power-up-respawn-clock-is-macrategenerator-respawntime-t",
+   "title": "MP power-up respawn: 'RespawnTime' lives on MACrateGenerator (not MAPowerupDrop); countdown ticked by vt slot 7 (0x152B98) with stamp +0x8C / interval +0x88; respawn spawns at the generator's own position (+0x78); clock restarts every frame while predicate 0x152B32 holds",
+   "subject": {
+    "kind": "class-behaviour",
+    "id": "MACrateGenerator (RespawnTime catalog 151CD021)"
+   },
+   "addresses": [
+    "00152A98",
+    "00152A32",
+    "00152B98",
+    "00152A14",
+    "00152B32",
+    "00152AFA",
+    "0017E701",
+    "00152C24"
+   ],
+   "related": [],
+   "fact": "OWNER: the 'Powerup respawner (Multiplayer only)' object is a MACrateGenerator; MAPowerupDrop children hold the powerup template (NumPowerups always 1). RespawnTime is stored at [this+0x68] (get/set 0x152A98 / save 0x152A32; the catalog says offset 136 = 0x88 and read site 0x152ABE; the copy +0x68 -> +0x88 was not found, probably ctor 0x15296A / 0x152C6C or helper 0xC4B2D). COUNTDOWN (code-confirmed): vt slot 7 (0x152B98) each tick: elapsed = now - stamp [this+0x8C] compared with interval [this+0x88]; on expiry restamp, pick a child (0x152AFA), spawn it with 0x17E701 at [this+0x78] (the generator's own position vector) => V2 SAME SPOT: yes (code-confirmed for the argument; 'the call spawns the entity' is inferred). Slot 11 (0x152A14) writes the stamp only when predicate 0x0C364B holds. V1: the clock probably does NOT start at level start; it starts when slot 11 sees the child taken (inferred pickup path), and while predicate 0x152B32 holds the tick re-stamps every frame, so it counts only while the spot is clear (inferred; needs an in-game trace of slot 11 and 0x152B32). The tick is gated by a global byte [0x18F10 object +0x69]; no per-crate active flag found. Taken power-ups park at the map edge (1,1 / 300,0) while waiting (older wiki fact, not rechecked). The same MACrateGenerator class is used for vehicle entry zones, so RespawnTime also sits on that role. UNKNOWN: predicates 0x0B3BA0 (taken check), 0x152B32 (occupancy scan, radius), who calls slot 11 (the real pickup hook). In-game test: set RespawnTime 5 s, pick up, time the return, stand on the spot, log 0x152B32.",
+   "how_to_use": "For a power-up-timing trick read the interval from the generator ([this+0x68]/[+0x88]) and the stamp [+0x8C]; confirm the pickup hook in game before relying on a countdown estimate.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "powerup",
+    "surprise",
+    "code"
+   ],
+   "date": "2026-10-27",
+   "addresses_unverified": [
+    "00152ABE"
+   ]
+  }
+ ]
+}

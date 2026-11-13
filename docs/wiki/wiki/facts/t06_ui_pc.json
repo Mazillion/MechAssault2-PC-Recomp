@@ -1,0 +1,3449 @@
+{
+ "pack": "t06_ui_pc",
+ "title": "PC port: menus, input, settings, saves, packaging",
+ "facts": [
+  {
+   "id": "menu-vtable-video",
+   "title": "Video settings menu is the 0048B360 vtable",
+   "subject": {
+    "kind": "menu",
+    "id": "~Video Calibration Menu (vtable 0048B360)"
+   },
+   "addresses": [
+    "0048B360",
+    "002206BD"
+   ],
+   "related": [
+    "ma2_pc_submenu_update"
+   ],
+   "fact": "The Video Calibration menu uses vtable 0048B360 and is settings page type 0 (Display). ma2_pc_video_menu_update calls ma2_pc_submenu_update(object, 0x48B360). Its update hook is recomp_0057 at loc_002206BD.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 514
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 576
+    },
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 115
+    }
+   ],
+   "tags": [
+    "menu",
+    "settings",
+    "display"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "menu-vtable-volume",
+   "title": "In-game Volume menu is the 0048BE60 vtable",
+   "subject": {
+    "kind": "menu",
+    "id": "~MechAssault In-Game Volume Menu (vtable 0048BE60)"
+   },
+   "addresses": [
+    "0048BE60",
+    "002202E8",
+    "00223D2D"
+   ],
+   "related": [
+    "ma2_pc_submenu_destroyed"
+   ],
+   "fact": "The Volume menu is vtable 0048BE60 and settings page type 1 (Audio). Its update hook is recomp_0057 at loc_002202E8 and its destroy hook is recomp_0058 at loc_00223D2D.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 514
+    },
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 121
+    },
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 127
+    }
+   ],
+   "tags": [
+    "menu",
+    "settings",
+    "audio"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "menu-vtable-controls",
+   "title": "In-game Controller Options menu is the 0048BF20 vtable",
+   "subject": {
+    "kind": "menu",
+    "id": "~MechAssault In-Game Controller Options Menu (vtable 0048BF20)"
+   },
+   "addresses": [
+    "0048BF20",
+    "0021F8DF",
+    "00223D8E"
+   ],
+   "related": [],
+   "fact": "The Controller Options menu is vtable 0048BF20 and settings page type 2 (Controls). It opens page 4 (Controller) instead when a gamepad was the last device. Its update hook is recomp_0057 at loc_0021F8DF and its destroy hook is recomp_0058 at loc_00223D8E.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 514
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 519
+    },
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 117
+    },
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 126
+    }
+   ],
+   "tags": [
+    "menu",
+    "settings",
+    "controls"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "menu-keyboard-dialog",
+   "title": "Keyboard text-entry dialog is the 0048F7D0 vtable",
+   "subject": {
+    "kind": "menu",
+    "id": "~Mech Assault Keyboard Dialog (vtable 0048F7D0)"
+   },
+   "addresses": [
+    "0048F7D0",
+    "001FD869"
+   ],
+   "related": [
+    "pc_input_text_capture",
+    "ma2_gui_keyboard_dialog"
+   ],
+   "fact": "Name entry uses interface\\menus\\dialogs\\dlg_keyboard.ggf. ma2_pc_form_loading detects it when the form owner's vtable is 0048F7D0, clears queued text events, sets pc_input_text_capture(1) and releases camera capture. Keyboard bindings are suppressed while text capture is on; the physical gamepad stays active.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 349
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 350
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 355
+    },
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 99
+    }
+   ],
+   "tags": [
+    "menu",
+    "text-entry",
+    "input"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "menu-class-main-hub",
+   "title": "Main menu and HUB Start vtables gate the Esc exit prompt",
+   "subject": {
+    "kind": "menu",
+    "id": "~Auto Menu: Main Menu (0x481B70) and ~Auto Menu: HUB Start (0x482170)"
+   },
+   "addresses": [
+    "00481B70",
+    "00482170",
+    "00481EF8"
+   ],
+   "related": [],
+   "fact": "Escape on the main menu (0481B70) or the HUB start screen (0482170) with no submenu open requests the EXIT GAME dialog. The HUD vtable 0481EF8 is excluded from menu_available. 0482170 is also the title input context. Confirming the dialog with result 1 or 3 posts WM_CLOSE.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 39
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 621
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 338
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 437
+    }
+   ],
+   "tags": [
+    "menu",
+    "exit",
+    "input-context"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "menu-hooks-pulse-sites",
+   "title": "Where the PC menu pulse is hooked into guest code",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_pc_menu_pulse call sites"
+   },
+   "addresses": [
+    "001F34BE",
+    "001FC712",
+    "001FD243",
+    "001FCEB6",
+    "001FD26E"
+   ],
+   "related": [
+    "ma2_pc_menu_selection",
+    "ma2_menu_policy_pulse"
+   ],
+   "fact": "ma2_pc_menu_pulse(object,vtable) is called from loc_001F34BE (Auto Menu: Main Menu, recomp_0051), loc_001FC712 (Pause Menu, recomp_0052, owner ~Pause Menu#5), and loc_001FD243 (Base Dispatch, Select Mission, Mech Selection and Restart confirm, recomp_0052). loc_001FCEB6 and loc_001FD26E feed selection and result. The pulse drives barrel arrows, menu policy, the input context, the footer glow and the RECOMP_MENU_DUMP tree.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 28
+    },
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 91
+    },
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 97
+    },
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 95
+    },
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 96
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 363
+    }
+   ],
+   "tags": [
+    "menu",
+    "hooks"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "menu-hook-modal-pulse",
+   "title": "Modal dialog pulse hook at 001FBE6A",
+   "subject": {
+    "kind": "function",
+    "id": "loc_001FBE6A in recomp_0052 (FrontEnd.Activate / FrontEnd.Back)"
+   },
+   "addresses": [
+    "001FBE6A"
+   ],
+   "related": [
+    "modal_available"
+   ],
+   "fact": "The modal pulse ma2_pc_modal_pulse runs at loc_001FBE6A. It calls sync_text_dialog, and while a modal is active (guest[0x5240D4] > guest[0x5240D0]) it re-runs ma2_pc_menu_pulse with the last menu object. The underlying menu keeps its input context, and Escape never turns into Start while a modal is up.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 101
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 450
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 40
+    }
+   ],
+   "tags": [
+    "menu",
+    "modal"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "menu-policy-disabled-items",
+   "title": "Unavailable menu items are shown disabled, not removed",
+   "subject": {
+    "kind": "menu",
+    "id": "ma2_bots_ui.c menu policy (called from ma2_pc_menu_pulse)"
+   },
+   "addresses": [
+    "001FCBA6",
+    "00224520",
+    "002CD920"
+   ],
+   "related": [
+    "ma2_menu_policy_pulse",
+    "RECOMP_ONLINE_MENUS",
+    "RECOMP_SPLITSCREEN_MENUS",
+    "RECOMP_DEMO_MENUS"
+   ],
+   "fact": "Conquest (main action 7), Game Demos (action 8, launches cdx.xbe), System Link (2), Xbox Live (3) and Add Guest (4) are shown with the game's own disabled state 5. The pause menu hides the Xbox Live status box (text 0xAC8) and the R Sign In legend (0x70010002, action 9). Some items are re-decided every frame and are answered at 00224520 (no network link, so System Link is disabled) and 001FCBA6 (no free controller, so Add Guest is disabled). The fork switches RECOMP_ONLINE_MENUS, RECOMP_SPLITSCREEN_MENUS and RECOMP_DEMO_MENUS restore the original items.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 370
+    }
+   ],
+   "tags": [
+    "menu",
+    "policy",
+    "env_var"
+   ],
+   "date": "2026-10-15",
+   "how_to_use": "Run with RECOMP_MENU_DUMP=1 to print the [MENU-DUMP] widget tree of the actual context before changing a policy."
+  },
+  {
+   "id": "menu-pause-action600-fix",
+   "title": "Pause action 600 is Add Guest or Quit to Main Hub, decided by text",
+   "subject": {
+    "kind": "menu",
+    "id": "pause menu item action 600 (slot +0x78)"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bots_ui.c menu policy"
+   ],
+   "fact": "Action 600 is Add/Remove Guest (text 0x7D00/0x7D01) only when byte 0x50C94D is set (a networked session). Otherwise it reads Quit to Main Hub (text 0xE) and is enabled. The policy had matched the slot alone, so bot matches had no exit from 2026-10-15 to 2026-10-19. The fix also matches the text.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "menu",
+    "pause",
+    "bug"
+   ],
+   "date": "2026-10-19"
+  },
+  {
+   "id": "menu-pause-slot-order",
+   "title": "Pause menu slot order",
+   "subject": {
+    "kind": "menu",
+    "id": "Pause Menu item constructor (action order)"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The Pause Menu constructor stores items from +0x6C in action order 100, 200, 500, 600, 400, 11, 8, 9, 800. So the slot at +0x78 is action 600 and Multiplayer Options is at +0x7C. Match on the action number, not the slot offset.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "menu",
+    "pause"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "menu-main-action-numbers",
+   "title": "Main menu action numbers used by the policy",
+   "subject": {
+    "kind": "menu",
+    "id": "Main menu actions 2, 3, 4, 7, 8"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Main menu actions are 2 = Multiplayer System Link, 3 = Xbox Live, 4 = Add Guest, 7 = Conquest and 8 = Game Demos. The policy disables them with state 5. Hub button activatecommand CRCs are not in this pack.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "menu",
+    "hub"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "menu-pc-submenu-type-map",
+   "title": "Settings page type and page numbers",
+   "subject": {
+    "kind": "menu",
+    "id": "ma2_pc_submenu_update page mapping"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_pc_submenu_update"
+   ],
+   "fact": "The page type comes from the vtable: 0048B360 gives 0 (Display), 0048BE60 gives 1 (Audio), 0048BF20 gives 2 (Controls). A gamepad last-device opens page 4 (Controller) from type 2. Pages are 0 Display, 1 Audio, 2 Controls, 3 Keyboard and mouse bindings (three pages of eight), 4 Controller.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 514
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 519
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 273
+    }
+   ],
+   "tags": [
+    "menu",
+    "settings"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "menu-row-counts",
+   "title": "Rows per settings page",
+   "subject": {
+    "kind": "menu",
+    "id": "row_count, row_top and row_step"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Page 0 (Display) has 13 rows, page 1 (Audio) 5, page 2 (Controls) 9, page 3 (Bindings) 10 (8 bindings plus Next and Back) and page 4 (Controller) 4. Page 0 rows start at y 90 with step 23; the other pages start at y 99 with step 28, in 640x480 units.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 273
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 275
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 276
+    }
+   ],
+   "tags": [
+    "menu",
+    "layout"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "menu-back-returns",
+   "title": "Back and Escape return from each settings page",
+   "subject": {
+    "kind": "menu",
+    "id": "page_key and activate return values"
+   },
+   "addresses": [],
+   "related": [
+    "save_settings"
+   ],
+   "fact": "page_key returns 2 (close) on Escape or Backspace, except on the bindings page (3), which goes back to page 2 with selection 4. activate returns 2 for Controls row 8 (Back), Volume row 4 (Back) and Controller row 3 (Back). ma2_pc_submenu_update then saves (save_settings(false)), clears the page and releases mouse capture, and returns 2 to the guest. Controls row 5 opens bindings (page 3) and row 7 opens the controller page. Controller row 2 returns to Controls with selection 0.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 504
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 507
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 492
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 494
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 499
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 572
+    }
+   ],
+   "tags": [
+    "menu",
+    "navigation"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "menu-escape-no-quit-submenu",
+   "title": "Settings pages do not quit the game",
+   "subject": {
+    "kind": "menu",
+    "id": "ma2_pc_submenu_update result handling"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "When a settings page returns 2 the guest menu gets the Back result and nothing exits the process. The window hook only turns Escape into the exit prompt on the main menu and HUB start screens.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 569
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 621
+    }
+   ],
+   "tags": [
+    "menu",
+    "exit"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "menu-controls-page-opens-by-device",
+   "title": "Controls opens the page for the device last used",
+   "subject": {
+    "kind": "menu",
+    "id": "Controls entry, type 2"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "When the Controls menu opens and the last device was a gamepad, the page starts on the Controller page (page 4); otherwise it starts on the keyboard and mouse Controls page (page 2). Each page links to the other device's page, so the mouse can configure the controller without the page changing underneath.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 519
+    }
+   ],
+   "tags": [
+    "menu",
+    "controls"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "settings-ini-location",
+   "title": "Where pc_settings.ini lives",
+   "subject": {
+    "kind": "file",
+    "id": "pc_settings.ini"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_pc_settings_path",
+    "pc_storage.h"
+   ],
+   "fact": "The packaged default is pc_settings.ini beside the exe, or one folder up. The per-user copy is %LOCALAPPDATA%\\MechAssault2\\pc_settings.ini, found through ma2_pc_settings_path. Preferences persist across launches and survive an executable update. The game writes the INI on Back (save_settings(false)) or Apply (save_settings(true)).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 156
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 161
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 227
+    }
+   ],
+   "tags": [
+    "settings",
+    "ini",
+    "files"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "settings-precedence",
+   "title": "Precedence: env var, then INI, then built-in default",
+   "subject": {
+    "kind": "concept",
+    "id": "pc_settings precedence"
+   },
+   "addresses": [],
+   "related": [
+    "pc_setting",
+    "env_int"
+   ],
+   "fact": "main.c reads each INI key with its fallback and clamps it to a range, then writes the value into the matching RECOMP_* env var. If the env var is already set the INI value is skipped. ma2_pc_settings_initialize then reads each env var with its own default. So an env var beats the INI, the INI beats the built-in default, and an out-of-range INI value falls back to the default.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 135
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 141
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 142
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 690
+    }
+   ],
+   "tags": [
+    "settings",
+    "env_var"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "settings-display-keys",
+   "title": "[Display] keys and what they change",
+   "subject": {
+    "kind": "setting",
+    "id": "[Display] section of pc_settings.ini"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_WINDOW_WIDTH",
+    "RECOMP_WINDOW_HEIGHT",
+    "RECOMP_FULLSCREEN",
+    "RECOMP_VSYNC",
+    "RECOMP_FRAME_LIMIT",
+    "RECOMP_PRESERVE_ASPECT",
+    "RECOMP_SCALE_FILTER",
+    "RECOMP_SHOW_FPS",
+    "RECOMP_DRAW_DISTANCE",
+    "RECOMP_TEXTURE_QUALITY",
+    "RECOMP_FMV_QUALITY",
+    "RECOMP_SHADER_PRELOAD"
+   ],
+   "fact": "WindowWidth and WindowHeight (default 1280x960) set the window and the scene render pixels. Fullscreen selects borderless mode. VSync and FrameLimit (0-1000, 0 = unlimited) set the present policy. PreserveAspect (1 = Automatic, 0 = Original 4:3) controls the 3D camera widening. SmoothScaling sets the scale filter. ShowFPS draws an ImGui frame-rate overlay. DrawDistance (0-100, 50 = Original) scales fog, far clip and object visibility. TextureQuality (0 Original, 1 2x, 2 4x) and FMVQuality (0 Original, 1 Enhanced) choose the enhanced packs. PreloadShaders pre-creates level shaders. RenderScale is deleted from the INI on each save.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 175
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 177
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 181
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 178
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 185
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 186
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 187
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 189
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 230
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 232
+    }
+   ],
+   "tags": [
+    "settings",
+    "display",
+    "ini"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "settings-audio-keys",
+   "title": "[Audio] keys",
+   "subject": {
+    "kind": "setting",
+    "id": "[Audio] section of pc_settings.ini"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_AC97_READY",
+    "RECOMP_AUDIO_VOLUME"
+   ],
+   "fact": "Enabled (RECOMP_AC97_READY) is a presence switch: 0 clears the env var so the APU is not brought up, and the save never writes it. Volume (0-100, default 100) is the master level and is saved as [Audio] Volume. The effects, speech and music levels are in the guest profile, not the INI.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 199
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 200
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 234
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 548
+    }
+   ],
+   "tags": [
+    "settings",
+    "audio"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "settings-input-keys",
+   "title": "[Input] keys and their ranges",
+   "subject": {
+    "kind": "setting",
+    "id": "[Input] section of pc_settings.ini"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_KEYBOARD",
+    "RECOMP_MOUSE_AIM",
+    "RECOMP_MOUSE_SENSITIVITY",
+    "RECOMP_INVERT_Y",
+    "RECOMP_INVERT_FLIGHT",
+    "RECOMP_KEYBOARD_LAYOUT"
+   ],
+   "fact": "Keyboard (0/1) enables keyboard bindings, MouseAim (0/1) enables mouse aiming, MouseSensitivity (INI accepts 1-500; the UI steps 10 to 500, default 100), InvertY (0/1) inverts mouse Y, and InvertFlight (0/1) inverts the flight controls for VTOL. KeyboardLayout (string, default pc) is passed through RECOMP_KEYBOARD_LAYOUT.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 190
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 191
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 192
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 193
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 194
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 241
+    }
+   ],
+   "tags": [
+    "settings",
+    "input",
+    "ini"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "settings-mouse-sensitivity-gap",
+   "title": "Mouse sensitivity INI range is wider than the UI range",
+   "subject": {
+    "kind": "setting",
+    "id": "[Input] MouseSensitivity"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "main.c accepts MouseSensitivity 1-500, but the Controls row changes it with change(. 10, 500, direction*10). So a saved value below 10 jumps to 10 on the first change of that row. The row text shows the stored value unchanged until then.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 192
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 490
+    }
+   ],
+   "tags": [
+    "settings",
+    "input",
+    "gap"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "settings-bindings-section",
+   "title": "[Bindings] section: virtual-key code per action",
+   "subject": {
+    "kind": "setting",
+    "id": "[Bindings] section of pc_settings.ini"
+   },
+   "addresses": [],
+   "related": [
+    "Start",
+    "MouseFire"
+   ],
+   "fact": "Each action is a Windows virtual-key code under its name: Start, Back, A, B, X, Y, White, Black, LeftTrigger, RightTrigger, MoveLeft, MoveRight, MoveBack, MoveForward, LeftThumb, RightThumb, MouseFire, MouseAltFire. Values outside 1-255 fall back to the default. Defaults are Enter, Backspace, Space, F, R, Q, 1, 2, C, V, A, D, S, W, Shift, Ctrl, Left mouse and Right mouse.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 35
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 37
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 695
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 242
+    }
+   ],
+   "tags": [
+    "settings",
+    "bindings"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "settings-window-messages",
+   "title": "Window messages used by the settings and frontend code",
+   "subject": {
+    "kind": "concept",
+    "id": "PC_WINDOW_* messages in pc_frontend.h"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "PC_WINDOW_CONFIG_MESSAGE (0x8051) applies window size and fullscreen, and is sent only by Apply. PC_WINDOW_CAPTURE_MESSAGE (0x8052) updates mouse capture. PC_WINDOW_MOUSE_MESSAGE (0x8053) and PC_WINDOW_CAMERA_MESSAGE (0x8054) handle pointer and camera capture. PC_WINDOW_RENDERER_ERROR_MESSAGE (0x8055) shows the renderer error and closes the game. PC_WINDOW_AIM_MESSAGE (0x8056) turns on mouse aim when play resumes from a menu on keyboard and mouse.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.h",
+     "line": 68
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.h",
+     "line": 69
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.h",
+     "line": 70
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.h",
+     "line": 71
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.h",
+     "line": 72
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.h",
+     "line": 74
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 243
+    }
+   ],
+   "tags": [
+    "window",
+    "messages"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "settings-apply-vs-back",
+   "title": "Apply saves and applies window geometry; Back saves without it",
+   "subject": {
+    "kind": "setting",
+    "id": "Display Apply (row 11), Restore (row 12) and Back"
+   },
+   "addresses": [],
+   "related": [
+    "save_settings"
+   ],
+   "fact": "Row 11 'Apply display settings' calls save_settings(true), which writes all keys and posts PC_WINDOW_CONFIG_MESSAGE. Back calls save_settings(false), with no window message. Restore display defaults (row 12) resets PreloadShaders, VSync, FrameLimit, RenderScale, Aspect, Filter, ShowFPS, DrawDistance, TextureQuality and FMVQuality. It does not change window size, fullscreen or any key. The values are written on Back or Apply.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 485
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 486
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 227
+    }
+   ],
+   "tags": [
+    "settings",
+    "apply",
+    "restore"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "settings-render-scale-retired",
+   "title": "RenderScale is retired and deleted on save",
+   "subject": {
+    "kind": "setting",
+    "id": "[Display] RenderScale"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_RENDER_SCALE"
+   ],
+   "fact": "The 1x-4x rendering multiplier is no longer used. Save deletes the RenderScale key from the INI. RECOMP_RENDER_SCALE remains only as a diagnostic: main.c defaults it to 0, and pc_display_render_extent uses it only when it is 1-4.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 232
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 184
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 113
+    }
+   ],
+   "tags": [
+    "settings",
+    "retired"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "settings-texture-quality-fallback",
+   "title": "Texture and video quality fall back to Original when packs are missing",
+   "subject": {
+    "kind": "setting",
+    "id": "[Display] TextureQuality and FMVQuality"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_TEXTURE_PACK_DIR"
+   ],
+   "fact": "check_optional_content runs when the Display page opens. It checks game_files\\texture_packs (or RECOMP_TEXTURE_PACK_DIR) for the 2x and 4x index.json, and D:\\Movie\\Enhanced\\2x. If the saved choice's content is missing it is reset to 0 at runtime, and the row text says 'enhanced packs not installed'. Cycling skips uninstalled texture choices.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 259
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 270
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 271
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 474
+    }
+   ],
+   "tags": [
+    "settings",
+    "enhanced",
+    "fallback"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "settings-frame-limit-presets",
+   "title": "Frame limit row cycles fixed presets",
+   "subject": {
+    "kind": "setting",
+    "id": "[Display] FrameLimit row"
+   },
+   "addresses": [],
+   "related": [
+    "PC_FRAME_LIMIT"
+   ],
+   "fact": "The row cycles 0 (Unlimited), 30, 60, 90, 120, 144, 165, 180, 240 and 360. The source searches only for an exact preset, so a saved value of 75 falls through to index 9: Left goes to 240 and Right to Unlimited. A candidate chooses the adjacent offered preset instead (75 -> Left 60, Right 90).",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 478
+    }
+   ],
+   "tags": [
+    "settings",
+    "frame-limit",
+    "candidate"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "settings-draw-distance",
+   "title": "Draw distance row and slider",
+   "subject": {
+    "kind": "setting",
+    "id": "[Display] DrawDistance"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The value is 0-100 with 50 = Original. Row 7 steps by five with Left and Right. A click or drag on the bar (x 315-566, row 7) sets the value from the pointer, (x-325)*100/230, and dragging continues while the button is held. The hint line reads 0 = 0.5x, 50 = Original, 100 = 2x. The renderer applies the distance (fog, far clip and visibility); that code is not in this pack.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 481
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 538
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 540
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 333
+    }
+   ],
+   "tags": [
+    "settings",
+    "display",
+    "distance"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "settings-controls-page-keys",
+   "title": "Controls page keys and what each changes",
+   "subject": {
+    "kind": "setting",
+    "id": "Controls page rows 0-8 (page 2)"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Row 0 toggles keyboard controls, row 1 mouse aiming, row 2 changes mouse sensitivity in steps of 10, row 3 Invert mouse Y, and row 4 Invert flight controls (VTOL), the only UI entry for InvertFlight. Row 5 opens the bindings screen, row 6 restores control defaults (all bindings, sensitivity 100, no inversion, mouse aim and keyboard on), row 7 opens the controller page and row 8 is Back.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 490
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 491
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 492
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 493
+    }
+   ],
+   "tags": [
+    "settings",
+    "controls"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "settings-controller-options-profile",
+   "title": "Controller invert and vibration are guest profile options, not INI keys",
+   "subject": {
+    "kind": "setting",
+    "id": "Controller page rows 0 and 1 (ma2_gui_controller_option)"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_gui_controller_option"
+   ],
+   "fact": "Row 0 'Invert right stick Y' and row 1 'Vibration' read and write the original player profile through ma2_gui_controller_option, ma2_gui_controller_set and ma2_gui_controller_commit. They persist across restarts in the profile, not in pc_settings.ini. Mouse inversion stays in the INI. Row 2 goes to the keyboard and mouse settings.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 322
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 498
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 571
+    }
+   ],
+   "tags": [
+    "settings",
+    "controller",
+    "profile"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "settings-volume-page",
+   "title": "Volume page: master and guest-side channel levels",
+   "subject": {
+    "kind": "setting",
+    "id": "Volume page rows 0-4"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_gui_volume"
+   ],
+   "fact": "Row 0 is the master volume in PC_VOLUME (INI [Audio] Volume), in steps of 5. Rows 1-3 are Effects, Speech and Music. Those are written into the guest object at +0x84 + (row-1)*4 as 0.65535, in steps of 3277. They show as ((value*100)+32767)/65535 percent and are committed through ma2_gui_volume_commit on Back.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 487
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 488
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 302
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 570
+    }
+   ],
+   "tags": [
+    "settings",
+    "audio",
+    "volume"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "settings-binding-capture",
+   "title": "Binding capture: waiting, Escape cancels, reserved keys",
+   "subject": {
+    "kind": "setting",
+    "id": "Bindings page (page 3) capture"
+   },
+   "addresses": [],
+   "related": [
+    "pc_binding_set"
+   ],
+   "fact": "Selecting a binding sets waiting_binding. The next key press or mouse button is stored with pc_binding_set, except Escape, which cancels. Menu Enter and Escape and F8 and F11 stay reserved. Each change bumps the input revision so prompts redraw.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 506
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 496
+    }
+   ],
+   "tags": [
+    "settings",
+    "bindings",
+    "capture"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "settings-bindings-pages",
+   "title": "Bindings screen: three pages of eight",
+   "subject": {
+    "kind": "setting",
+    "id": "Bindings pages 0-2"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The bindings screen shows eight rows per page. Row 8 is 'Next page' and cycles 0-2, and row 9 is 'Back to controls'. Rows past PC_BINDING_COUNT are hidden on the last page. Keys are named by key_name: mouse buttons, Enter, Esc, and GetKeyNameText for the rest.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 317
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 277
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 246
+    }
+   ],
+   "tags": [
+    "settings",
+    "bindings"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "settings-controller-capture-guard",
+   "title": "Controller D-pad and A are gated while a binding is captured",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_pc_submenu_update controller input branch"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_pc_submenu_update"
+   ],
+   "fact": "Controller button edges, the last axis and repeat timers update on every frame. The D-pad and A dispatch is gated on !capturing_binding. A private candidate (F3) also suppresses stale controller edges after capture begins. Its status is not confirmed against the source checked here.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 558
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 562
+    }
+   ],
+   "tags": [
+    "settings",
+    "controller",
+    "capture",
+    "candidate"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "settings-page-mouse-hit",
+   "title": "Mouse hit testing on settings pages",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_pc_submenu_update mouse handling"
+   },
+   "addresses": [],
+   "related": [
+    "esc_back_hit"
+   ],
+   "fact": "Pointer coordinates map into a 640x480 canvas, centred and letterboxed with scale min(w/640, h/480). A row is hit for x 70-570 and a valid row index; a left click activates it and a right click decreases it. Esc: Back is clickable in x 392-466 (plus or minus 8) on the hint row. The ESC_BACK constants are the source of this area.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 535
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 542
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 546
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 146
+    }
+   ],
+   "tags": [
+    "settings",
+    "mouse"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "input-context-enum",
+   "title": "Input context and when it changes",
+   "subject": {
+    "kind": "concept",
+    "id": "PcInputContext: GAMEPLAY, MENU, TITLE, MOVIE"
+   },
+   "addresses": [
+    "00482170"
+   ],
+   "related": [
+    "pc_input_set_context"
+   ],
+   "fact": "ma2_pc_input_context_update picks MOVIE while a movie plays, MENU while a modal is up, GAMEPLAY when no menu has pulsed in the last 250 ms, TITLE for vtable 0482170, and MENU otherwise. Entering any context other than gameplay or movie posts PC_WINDOW_CAPTURE_MESSAGE. Returning to gameplay on keyboard and mouse with mouse aim on posts PC_WINDOW_AIM_MESSAGE.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 338
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 341
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 343
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.h",
+     "line": 47
+    }
+   ],
+   "tags": [
+    "input",
+    "context"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "input-mouse-capture-rules",
+   "title": "Mouse capture: how it is taken and released",
+   "subject": {
+    "kind": "concept",
+    "id": "pc_frontend_capture and camera capture"
+   },
+   "addresses": [],
+   "related": [
+    "F8",
+    "F11",
+    "Alt+Enter"
+   ],
+   "fact": "The settings page captures the mouse on open (pc_frontend_capture(1)) and releases it on Back. Escape while the camera is captured releases the camera and does not pause. WM_KILLFOCUS releases the camera capture. A left click on the 3D lobby scene (x 0-1, y below 0.64, main menu only) starts camera capture. Escape restores the cursor in the lobby, and F8 toggles capture.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 521
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 616
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 635
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 617
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 160
+    }
+   ],
+   "tags": [
+    "input",
+    "capture",
+    "mouse"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "input-f8-f11-pass-through",
+   "title": "F8 and F11 bypass the menu hook and keep working",
+   "subject": {
+    "kind": "concept",
+    "id": "window_message F8/F11 pass-through"
+   },
+   "addresses": [],
+   "related": [
+    "F8",
+    "F11"
+   ],
+   "fact": "While a settings page owns input, F11 and F8 are returned to the window procedure (return 0) instead of being queued, so the window shortcuts keep working. F11 or Alt+Enter toggles fullscreen.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 609
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 204
+    }
+   ],
+   "tags": [
+    "input",
+    "shortcuts"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "input-pause-escape",
+   "title": "Escape is the gameplay pause; Start and Escape are shown as Esc in prompts",
+   "subject": {
+    "kind": "concept",
+    "id": "Gameplay pause (Escape or Start)"
+   },
+   "addresses": [],
+   "related": [
+    "PC_START"
+   ],
+   "fact": "During gameplay Escape opens the pause menu, and controller Start or Menu does too. PC_START is bound to Enter by default and is shown as Esc in gameplay and objective-review prompts. Only the pause UI is in this pack; the trigger path lives in guest code.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 51
+    },
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 52
+    }
+   ],
+   "tags": [
+    "pause",
+    "prompt"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "input-skip-intro",
+   "title": "Intro skip and title continue",
+   "subject": {
+    "kind": "concept",
+    "id": "Intro skip (ma2_pc_form_loading and pc_input_movie_skip)"
+   },
+   "addresses": [
+    "001F40D3"
+   ],
+   "related": [
+    "pc_input_movie_skip"
+   ],
+   "fact": "Enter, Space, Escape or a left click skips a prerecorded intro. Controller Menu/Start also skips. Skipping does not choose the next menu item. The skip is latched by pc_input_movie_skip and consumed by the title patch at loc_001F40D3 through pc_input_movie_skip_pending.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 34
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 91
+    }
+   ],
+   "tags": [
+    "input",
+    "movie",
+    "skip"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "input-gamepad-device-switch",
+   "title": "Last-used device decides prompts and rumble",
+   "subject": {
+    "kind": "concept",
+    "id": "pc_input_note_gamepad / pc_input_note_keyboard"
+   },
+   "addresses": [],
+   "related": [
+    "pc_input_device"
+   ],
+   "fact": "pc_input_note_gamepad makes the gamepad the active device when a button is newly pressed, or when an axis moves past its deadzone (stick deadzone 7849 left, 8689 right; trigger threshold 30). An axis counts as activity when it changes by more than 4 (triggers) or 512 (sticks) between reports. Any keyboard or mouse event calls pc_input_note_keyboard. A device change bumps the input revision and runs the output-policy callback, so rumble stops when keyboard or mouse takes over.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 187
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 189
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 202
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 184
+    }
+   ],
+   "tags": [
+    "input",
+    "device",
+    "prompts",
+    "rumble"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "input-mouse-aim-look-hooks",
+   "title": "Mouse look is injected through ma2_mouse_look at guest camera sites",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_mouse_look (recomp_0038, recomp_0039)"
+   },
+   "addresses": [
+    "00175C5C"
+   ],
+   "related": [
+    "ma2_mouse_look"
+   ],
+   "fact": "ma2_mouse_look(component, axis, controller_value) is called from the guest camera code at loc_00175C5C in recomp_0039 and from recomp_0038. Raw mouse movement is used after the controller response curve, with no joystick deadzone and no stick speed cap (PC_CONTROLS.md). That the Invert Y and sensitivity settings are applied inside this hook is inferred from its name and arguments, not read from its body.",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 148
+    },
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 146
+    }
+   ],
+   "tags": [
+    "input",
+    "mouse",
+    "aim"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "input-invert-flight-consumer",
+   "title": "Invert flight's consumer is not in this pack",
+   "subject": {
+    "kind": "setting",
+    "id": "Invert flight controls (VTOL), [Input] InvertFlight"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_INVERT_FLIGHT"
+   ],
+   "fact": "The setting is stored in the INI and shown as 'Invert flight controls (VTOL)'. Its consumer in the guest flight code is not in the pack. The UI sets PC_INVERT_FLIGHT and it is saved, but no reader is visible in these files.",
+   "status": "open-question",
+   "confidence": "inferred",
+   "source": [
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.h",
+     "line": 20
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 491
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 194
+    }
+   ],
+   "tags": [
+    "input",
+    "flight",
+    "gap"
+   ],
+   "date": "2026-10-21",
+   "how_to_use": "Grep the generated code for PC_INVERT_FLIGHT or pc_setting_get(PC_INVERT_FLIGHT) to find the reader."
+  },
+  {
+   "id": "input-keyboard-layout",
+   "title": "Keyboard layout setting",
+   "subject": {
+    "kind": "setting",
+    "id": "[Input] KeyboardLayout"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_KEYBOARD_LAYOUT"
+   ],
+   "fact": "KeyboardLayout is a string, default pc. main.c passes it into RECOMP_KEYBOARD_LAYOUT unless that env var is already set. pc_prompts.cpp reads the Windows layout with GetKeyboardLayout(0) to decide when cached prompt text is stale.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 196
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 197
+    },
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 145
+    }
+   ],
+   "tags": [
+    "input",
+    "layout"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "prompt-text-hook",
+   "title": "Prompt text rewrite: ma2_pc_prompt_text",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_pc_prompt_text (pc_prompts.cpp)"
+   },
+   "addresses": [
+    "000C0FD0",
+    "001FFA04",
+    "00200F56"
+   ],
+   "related": [
+    "ma2_pc_wide"
+   ],
+   "fact": "Guest text draws are rewritten at loc_000C0FD0 (recomp_0020), loc_001FFA04 and loc_00200F56 (recomp_0053). The rewrite turns authored 'Press A', 'the B button', 'White button' and similar into the current bound key names. Gamepad prompts keep A, B, X, Y, RB, LB and Menu. Results are cached by source text per input revision and keyboard layout, up to 128 entries.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 130
+    },
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 161
+    },
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 146
+    },
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 205
+    },
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 68
+    },
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 134
+    },
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 135
+    }
+   ],
+   "tags": [
+    "prompt",
+    "text",
+    "hook"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "prompt-context-rules",
+   "title": "Prompt context: menu commands versus gameplay actions",
+   "subject": {
+    "kind": "concept",
+    "id": "button_label context rules"
+   },
+   "addresses": [],
+   "related": [
+    "button_label"
+   ],
+   "fact": "A/B wording in a menu context becomes Enter/Esc only for the explicit command list: continue, confirm, select mission, join, update, try again, read this message, start the troubleshooter and cancel. Other A/B wording uses the current gameplay binding. 'Press START' becomes Esc in gameplay and objective-review lines. 'Pull the Right/Left trigger' becomes a Press of the mouse fire key on keyboard only.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 44
+    },
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 55
+    },
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 155
+    }
+   ],
+   "tags": [
+    "prompt",
+    "context"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "prompt-dpad-arrows",
+   "title": "D-pad becomes arrow keys on keyboard prompts",
+   "subject": {
+    "kind": "concept",
+    "id": "D-pad and thumbstick wording on keyboard"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Keyboard prompts replace 'D-pad' with 'arrow keys'. 'left thumbstick' becomes the current forward, left, back and right keys, and 'right thumbstick' becomes 'mouse'. Changing movement bindings does not change the D-pad wording.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 197
+    },
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 198
+    },
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 199
+    }
+   ],
+   "tags": [
+    "prompt",
+    "dpad"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "prompt-id-ranges",
+   "title": "Text ID ranges routed by ma2_pc_localized",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_pc_localized id ranges"
+   },
+   "addresses": [
+    "002B4979"
+   ],
+   "related": [
+    "ma2_pc_page_text",
+    "ma2_bots_localized",
+    "ma2_scn_text"
+   ],
+   "fact": "ma2_pc_localized (hooked at loc_002B4979 in recomp_0070) routes by text id: 0x00F00000-0x00FFFFFF to the scenario text (ma2_scn_text), 0x70020000-0x7002FFFF to the bots text (ma2_bots_localized), and 0x70000000-0x70000FFF to the settings page text (ma2_pc_page_text). Id 94 is 'Press Enter or click to start' (or 'Press Menu to start' on gamepad). Ids 0x70010000-0x70010005 are footer legends: Enter, Esc, then the bound keys for X, Y, RB and LB, with short names (LMB, Bksp, PgUp and so on) for mouse and special keys.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 212
+    },
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 213
+    },
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 214
+    },
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 216
+    },
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 217
+    },
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 131
+    }
+   ],
+   "tags": [
+    "text",
+    "ids",
+    "localized"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "prompt-qte-caption",
+   "title": "QTE captions use the bound key",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_pc_qte_caption(mask)"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_pc_qte_caption"
+   ],
+   "fact": "QTE masks map to actions: 4 = A, 1 = X, 2 = Y, 0x40 = B, 0x10 = mouse alt fire (LT alternative) and 0x20 = mouse fire (RT alternative). The label is the bound key in short form (M1, Spc, Ent and similar). Dual bindings give a 'primary / alternative' legend. Gamepad input returns no caption. Captions wider than 28 units (or a legend over 108) are rejected.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 269
+    },
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 272
+    },
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 278
+    },
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 283
+    },
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 250
+    }
+   ],
+   "tags": [
+    "qte",
+    "prompt"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "prompt-font-virtual",
+   "title": "Prompt font width compensation for the HUD",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_pc_font_virtual (recomp_0020 at loc_000C1640 and loc_000C1755)"
+   },
+   "addresses": [
+    "000C1640",
+    "000C1755"
+   ],
+   "related": [],
+   "fact": "A thread-local counter ma2_pc_font_virtual is incremented at loc_000C1640 and decremented at loc_000C1755 around glyph submission. While it is non-zero the widescreen centring offset is skipped. The counter is static TLS in gen0020.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 69
+    },
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 70
+    },
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 71
+    }
+   ],
+   "tags": [
+    "font",
+    "widescreen"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "text-page-hints",
+   "title": "Settings page text entries",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_pc_page_text entry numbers"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_pc_page_text"
+   ],
+   "fact": "The text id picks the page: entry 0 is the page title (DISPLAY SETTINGS, AUDIO SETTINGS or CONTROLS), entries 1-13 are rows, 18 is the draw-distance hint, and anything else is the hint line. The hint is gamepad text (D-pad, A, B) or keyboard text (Arrows, Enter, Esc).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 328
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 331
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 332
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 333
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 334
+    }
+   ],
+   "tags": [
+    "text",
+    "settings"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "rumble-native-motors",
+   "title": "Vibration reaches the native XInput motors",
+   "subject": {
+    "kind": "concept",
+    "id": "Vibration output"
+   },
+   "addresses": [],
+   "related": [
+    "pc_input_register_output_policy_callback"
+   ],
+   "fact": "PC_CONTROLS.md says vibration reaches the native XInput motors. Switching to keyboard and mouse stops primary-controller feedback on the next game report, and switching away or closing the window stops active motors at once. Vibration is controller option 1 ('Vibration: On/Off') in the profile.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 322
+    }
+   ],
+   "tags": [
+    "rumble",
+    "xinput"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "rumble-pause-candidate",
+   "title": "Pause rumble candidate: four-bit port mask and paused branch",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_InputFeedbackPaused and recomp_0001 sub_0001FE60 paused branch"
+   },
+   "addresses": [
+    "0001FE60"
+   ],
+   "related": [
+    "xbox_InputFeedbackPaused"
+   ],
+   "fact": "A private candidate (pause-candidate) adds xbox_InputFeedbackPaused(blocked_ports), a four-bit port mask. It changes the sub_0001FE60 entry and its paused branch in recomp_0001 and xinput_device.c. On pause it suppresses physical output at once, clears stale effects, and keeps each resumed port suppressed until its zero is retired. Checked by 48 combined CPU scenarios and 47 expiry regressions. It is a separate candidate queue and was not verified in play. Status is open.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "rumble",
+    "pause",
+    "candidate"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "rumble-expiry-candidate",
+   "title": "Rumble expiry bug: a skipped zero is never retried",
+   "subject": {
+    "kind": "function",
+    "id": "sub_0001FE60 expiry block (1FEC2-1FEF2)"
+   },
+   "addresses": [
+    "0001FE60",
+    "0001FE00",
+    "0001FD30",
+    "0002B990"
+   ],
+   "related": [
+    "sub_0001FE00 cancel",
+    "sub_0001FD30 scheduler",
+    "sub_0002B990 wrapper"
+   ],
+   "fact": "The accepted manager clears an expired effect's duration, start, magnitudes and port even when its single zero request is skipped because a previous transfer is pending (status 997). A later completion cannot recover that zero, so the motors can keep running. The candidate keeps the slot, port and duration reserved until the wrapper reports the zero accepted. Checked by a 789-event CPU comparison; motor sensation was not tested. Status: candidate, not confirmed as shipped.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "rumble",
+    "expiry",
+    "bug"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "rumble-scheduler-slots",
+   "title": "Rumble effects: ten slots, scheduler takes the first duration-zero slot",
+   "subject": {
+    "kind": "concept",
+    "id": "Rumble scheduler and slots"
+   },
+   "addresses": [
+    "0001FD30",
+    "0001FE00",
+    "0001FE60"
+   ],
+   "related": [],
+   "fact": "The scheduler sub_0001FD30 picks the first slot with duration 0, so a retained retry slot is not overwritten. sub_0001FE60 runs expiry and sub_0001FE00 is the cancel path. There are ten slots. A pending zero occupies one, so when all ten are reserved the scheduler refuses new requests until a stop is accepted and a slot is released.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "rumble",
+    "scheduler"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "rumble-usb-dispatch-crash",
+   "title": "USB dispatch crash: stack-matched dispatch region candidate",
+   "subject": {
+    "kind": "function",
+    "id": "kernel_thunk_dispatch_body and bridge_KfRaiseIrql (kernel_bridge.c, kernel_hal.c)"
+   },
+   "addresses": [
+    "0042532E",
+    "00424AF2",
+    "0042441E",
+    "0041D8B6"
+   ],
+   "related": [
+    "kernel_run_dpc",
+    "kernel_hal.c dispatch_acquire"
+   ],
+   "fact": "Observed crash (run 2026-10-10) at native RVA 0x0310AF47, mapping to sub_0042532E+0x507 during USB SET_REPORT construction. Demonstrated defect: kernel_thunk_dispatch_body advances g_esp before the IRQL bridge call, so the HAL stack matcher can skip the USB dispatch lock or misclassify direct native calls. Candidate: bridge_KfRaiseIrql and bridge_KeRaiseIrqlToDpcLevel bracket the HAL call with xbox_DispatchRegionEnter and Leave, and the stack matcher goes. A pool race was reproduced in CPU tests. The crash is not claimed resolved.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "rumble",
+    "usb",
+    "crash",
+    "candidate"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "rumble-usb-isr-dpc",
+   "title": "USB ISR, completion DPC and request builder addresses",
+   "subject": {
+    "kind": "function",
+    "id": "USB ISR sub_0042441E, completion DPC sub_00424AF2, builder sub_0042532E"
+   },
+   "addresses": [
+    "0042441E",
+    "00424AF2",
+    "0042532E",
+    "00425264",
+    "0041D8B6",
+    "004257C4"
+   ],
+   "related": [],
+   "fact": "The hardware ISR is sub_0042441E, registered by sub_0041D8B6 through import 425A24. It handles status and MMIO and queues the controller DPC through import 425A30. The completion DPC sub_00424AF2 is registered (recomp_0102.c:16240) through import 4259EC for object+440. The request builder sub_0042532E calls the allocator at 00425264. The submission entry 004257C4 raises IRQL through 4259E0.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "usb",
+    "rumble"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "rumble-restart-heap",
+   "title": "Restart heap free-tail candidate (D27)",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_memory_layout.c allocator (BA6C)"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Candidate D27 changes the normal allocator in xbox_memory_layout.c. When a bump request would pass the heap top, it joins the highest free descriptor that ends at the watermark, provided the whole aligned request fits. Controlled CPU cases (request 3761904, watermark 48785136, capacity 50855936) reject on baseline and succeed on the candidate. The native restart repair is unproven: it needs a repeat restart capture.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "heap",
+    "restart",
+    "candidate"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "save-folder-location",
+   "title": "Saves, profiles and logs are per Windows user",
+   "subject": {
+    "kind": "save",
+    "id": "%LOCALAPPDATA%\\MechAssault2 (Saved Games and Logs)"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_pc_storage_initialize"
+   ],
+   "fact": "Saves and caches are in %LOCALAPPDATA%\\MechAssault2\\Saved Games. Logs go to %LOCALAPPDATA%\\MechAssault2\\Logs, named by time and pid. main.c creates the folders from LOCALAPPDATA, and falls back to the exe folder if that fails. The installer ships no save or profile data, and a fresh install on a machine with a profile shows that profile. Profiles are shared per Windows user, not per install (decision 2026-10-20).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 108
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 116
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 118
+    }
+   ],
+   "tags": [
+    "save",
+    "files"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "save-storage-copy-missing",
+   "title": "Storage copies missing files only",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_pc_copy_missing / ma2_pc_storage_initialize"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_pc_copy_missing"
+   ],
+   "fact": "pc_storage.h declares ma2_pc_copy_missing(source, destination). It copies a file only if the destination is missing, so an existing save is never replaced. main.c calls ma2_pc_storage_initialize(YOUR_GAME_DIR) during startup, after the kernel init and before the kernel bridge.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_storage.h",
+     "line": 8
+    },
+    {
+     "file": "kit/source/game/src/pc_storage.h",
+     "line": 9
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 560
+    }
+   ],
+   "tags": [
+    "save",
+    "storage"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "save-profile-file-layout",
+   "title": "Profile save file names and sizes",
+   "subject": {
+    "kind": "save",
+    "id": "MASave.sav and Missions\\MASaveGame.wdf"
+   },
+   "addresses": [
+    "00320D69",
+    "0015EFF2"
+   ],
+   "related": [
+    "MASave.sav",
+    "MASaveGame.wdf"
+   ],
+   "fact": "A save holds MASave.sav (308 bytes in a checked sample) and Missions\\MASaveGame.wdf (3145728 bytes, preallocated checkpoint generation). The checkpoint writes MASaveGame.wdf to the Z: cache path, from the original string Z:\\Missions\\MASaveGame.wdf at 00475FA8. A profile-only span writes 380 bytes: 308 profile and 72 global settings. Field meanings are not in this pack.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "save",
+    "layout",
+    "wdf"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "save-checkpoint-chain",
+   "title": "Checkpoint write chain in the original code",
+   "subject": {
+    "kind": "function",
+    "id": "sub_0015D4C7 -> sub_0015EFF2 -> sub_000B53E0 -> sub_000B9400"
+   },
+   "addresses": [
+    "0015D4C7",
+    "0015EFF2",
+    "00167B25",
+    "000B53E0",
+    "000B9400",
+    "00167D16",
+    "0015CED6"
+   ],
+   "related": [],
+   "fact": "sub_0015D4C7 calls sub_0015EFF2 (checkpoint to cache). sub_0015EFF2 prepares the root, temporarily installs the progress callback 0015CED6, calls B53E0, and restores state. B53E0 is the only direct caller of the common writer B9400. Its other callers are sub_00167B25 (existing profile envelope, gen0037) and sub_00167D16 (overlapping generated entry). sub_00167B25 writes 24+284 signed profile bytes and then runs the checkpoint graph through B53E0.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "save",
+    "checkpoint",
+    "chain"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "save-progress-callback",
+   "title": "Save progress callback 0015CED6 runs at 100 ms",
+   "subject": {
+    "kind": "function",
+    "id": "sub_0015CED6 (progress callback)"
+   },
+   "addresses": [
+    "0015CED6",
+    "000BBAF0",
+    "000BCAD0"
+   ],
+   "related": [],
+   "fact": "The progress callback 0015CED6 calls BBAF0 and sometimes BCAD0. The serializer gates it at 100 ms, so a long callback can take most of the save interval. Reducing how often it runs would change behaviour unless its side effects are shown to be independent. A wrapper in recomp_manual.c overrides 0015CED6, calls the generated callback once, and times it when RECOMP_SAVE_LATENCY is set.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "save",
+    "callback"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "save-latency-probe",
+   "title": "RECOMP_SAVE_LATENCY diagnostic (opt-)",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_SAVE_LATENCY"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_SAVE_LATENCY"
+   ],
+   "fact": "When RECOMP_SAVE_LATENCY is exactly 1, one [SAVE-LATENCY] line goes to stderr at each save exit. It gives whole-save, pre-graph, graph and post-graph ticks, the callback count and wall time, native IO per file bucket (b0 MASave.sav, b1 MASaveGame.wdf, b2 cache WDF, b3 other, b4 unresolved) and an 'other' remainder. Ticks convert with ms = ticks*1000/hz. Disabled, it makes no clock calls or path lookups. Callbacks outside a save print [SAVE-LATENCY-UNCOVERED]. Probes wrap create, write, flush, close and set-information classes 19 and 20 only.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "save",
+    "diagnostic",
+    "env_var"
+   ],
+   "date": "2026-10-10",
+   "how_to_use": "Set RECOMP_SAVE_LATENCY=1, do one normal Save and Quit or checkpoint, then read the [SAVE-LATENCY] line. Require the full-span record and no coverage error before optimizing."
+  },
+  {
+   "id": "save-latency-attribution-gap",
+   "title": "Save pause attribution: measured spans miss most of the checkpoint",
+   "subject": {
+    "kind": "concept",
+    "id": "Save pause attribution"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Observed profile spans have graph ticks of 0 and do not time the reported Saving pause, because the checkpoint-to-cache path bypasses sub_00167B25. A 3690 ms PERF-PACING window was seen near one save, on a different thread, so it is only temporal proximity. The Save and Quit transfer (sub_167DB6 and sub_167ED9 call 2BD76E before sub_167B25) is not measured.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "save",
+    "latency",
+    "history"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "save-latency-superseded-plan",
+   "title": "Superseded save-latency reservation: recomp_0019 and recomp_0035",
+   "subject": {
+    "kind": "concept",
+    "id": "save-latency-superseded-plan"
+   },
+   "addresses": [
+    "000B9400",
+    "0015EFF2",
+    "00167B25"
+   ],
+   "related": [],
+   "fact": "The later latency proposal dropped those for kernel_bridge.c, recomp_manual.c and recomp_0037.c (sub_00167B25 graph phase), and that is the scope approved and implemented. The three-file plan with 0019 and 0035 is superseded.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "save",
+    "superseded"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "save-latency-rule-no-stop",
+   "title": "Save latency measurement must not change save semantics",
+   "subject": {
+    "kind": "concept",
+    "id": "Save latency constraints"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The probe keeps guest registers, stack, memory and results identical, and keeps the flush, preallocation, callback order and signing. Disabled paths change no result. The measured graph interval is B53E0-inclusive: checkpoint creation, preallocation, serialization, header work and the final close.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "save",
+    "constraints"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "save-install-storage-policy",
+   "title": "Installer save data policy",
+   "subject": {
+    "kind": "save",
+    "id": "Installer save data"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The installer carries no save data. Saves and settings stay in the per-user folder, and a new install does not delete an existing profile.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "save",
+    "installer"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "save-playtest-resume-kit",
+   "title": "Playtest capture kit: Resume and Continue (historical kit README)",
+   "subject": {
+    "kind": "tool",
+    "id": "Start-Playthrough.ps1 (playtest capture kit)"
+   },
+   "addresses": [],
+   "related": [
+    "Start-Playthrough.ps1 -Action Collect"
+   ],
+   "fact": "The playtest kit's Start-Playthrough.ps1 starts a playthrough once and resumes it later. Resume uses the saved profile under PC Test Kit\\Test Results and never silently creates a new one. Logs stream to disk: each raw channel keeps 8 MiB chunks, the timeline 16. This README is from a previous kit.",
+   "status": "historical",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "tool",
+    "playtest",
+    "resume"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "launcher-entry",
+   "title": "MechAssault 2.exe launcher and startup order",
+   "subject": {
+    "kind": "file",
+    "id": "main.c WinMain"
+   },
+   "addresses": [],
+   "related": [
+    "xbox_WatchdogStart",
+    "load_xbe"
+   ],
+   "fact": "WinMain configures logging, opts the process out of EcoQoS power throttling, looks for pc_assets\\common.mgf (else .\\pc_assets), reads the cache namespace from cache.version, then loads game_files\\ma2.xbe, showing 'Failed to load game_files' if that fails. It initialises the kernel and storage, starts the kernel bridge, arms the watchdog, and runs the recompiled entry point.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 451
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 463
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 478
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 484
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 487
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 512
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 560
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 619
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 625
+    }
+   ],
+   "tags": [
+    "launcher",
+    "startup"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "launcher-config-defaults",
+   "title": "Launcher sets process defaults before the game starts",
+   "subject": {
+    "kind": "env_var",
+    "id": "configure_pc defaults"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_PB_EXEC",
+    "RECOMP_GPU",
+    "RECOMP_EXIT_ON_CLOSE",
+    "RECOMP_USB",
+    "RECOMP_INPUT_LATCH"
+   ],
+   "fact": "configure_pc sets RECOMP_PB_EXEC=1 and RECOMP_GPU=d3d11, and RECOMP_TITLE_KEVENTS, RECOMP_VBLANK, RECOMP_FB_WINDOW, RECOMP_HEAP_RECLAIM, RECOMP_ASYNC_IO, RECOMP_USB, RECOMP_INPUT_LATCH, RECOMP_MOUSE_GUEST_POLL and RECOMP_EXIT_ON_CLOSE to 1, each only if unset. It also sets RECOMP_RENDER_SCALE to 0.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 164
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 165
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 174
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 184
+    }
+   ],
+   "tags": [
+    "launcher",
+    "env_var"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "env-console-logging",
+   "title": "Console and log file env vars",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_CONSOLE"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_CONSOLE"
+   ],
+   "fact": "RECOMP_CONSOLE set to a nonzero value attaches or allocates a console and points stdio at it. Otherwise, when neither stdout nor stderr is a disk file or pipe, stderr goes to a timestamped log in %LOCALAPPDATA%\\MechAssault2\\Logs and stdout goes to NUL. Both streams are then unbuffered.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 99
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 100
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 105
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 126
+    }
+   ],
+   "tags": [
+    "env_var",
+    "logging"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "env-window-and-display",
+   "title": "Window and display env vars",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_WINDOW_WIDTH, RECOMP_WINDOW_HEIGHT, RECOMP_FULLSCREEN, RECOMP_DISPLAY_TRACE"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_DISPLAY_TRACE"
+   ],
+   "fact": "RECOMP_WINDOW_WIDTH and RECOMP_WINDOW_HEIGHT (default 1280x960) set the starting client size. RECOMP_FULLSCREEN (default 0) starts borderless. RECOMP_DISPLAY_TRACE prints [PC-DISPLAY] lines for client size, aspect and movie changes.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 689
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 74
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 76
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 175
+    }
+   ],
+   "tags": [
+    "env_var",
+    "display"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "env-menu-trace",
+   "title": "Menu, footer and pointer trace env vars",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_MENU_TRACE, RECOMP_MENU_DUMP, RECOMP_NO_BARREL_ARROWS, RECOMP_UI_LIVE, RECOMP_FOOTER_TRACE"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_MENU_TRACE",
+    "RECOMP_MENU_DUMP",
+    "RECOMP_NO_BARREL_ARROWS",
+    "RECOMP_UI_LIVE",
+    "RECOMP_FOOTER_TRACE"
+   ],
+   "fact": "RECOMP_MENU_TRACE prints [PC-MENU], [PC-MOUSE], [PC-ARROWS] and [PC-POINTER] lines, and [PC-GLOW] shows under it. RECOMP_MENU_DUMP=1 prints each menu's widget tree as [MENU-DUMP] once it settles. RECOMP_NO_BARREL_ARROWS turns off the barrel arrows and value-row clicks. RECOMP_UI_LIVE uses the injected pointer instead of GetCursorPos. RECOMP_FOOTER_TRACE prints [PC-FOOTER].",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 362
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 425
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 368
+    }
+   ],
+   "tags": [
+    "env_var",
+    "trace",
+    "menu"
+   ],
+   "date": "2026-10-15",
+   "how_to_use": "RECOMP_MENU_DUMP=1 RECOMP_MENU_TRACE=1, then open the menu and read [MENU-DUMP] in the log."
+  },
+  {
+   "id": "env-texture-and-fmv",
+   "title": "Texture and FMV env vars",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_TEXTURE_QUALITY, RECOMP_FMV_QUALITY, RECOMP_TEXTURE_PACK_DIR"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_TEXTURE_QUALITY",
+    "RECOMP_FMV_QUALITY"
+   ],
+   "fact": "RECOMP_TEXTURE_QUALITY (0-2) and RECOMP_FMV_QUALITY (0-1) override the INI keys. RECOMP_TEXTURE_PACK_DIR changes where the 2x and 4x index.json files are checked; the default is game_files\\texture_packs.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 187
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 188
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 260
+    }
+   ],
+   "tags": [
+    "env_var",
+    "enhanced"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "env-shader-preload",
+   "title": "RECOMP_SHADER_PRELOAD and per-level shader lists",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_SHADER_PRELOAD"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_SHADER_PRELOAD"
+   ],
+   "fact": "RECOMP_SHADER_PRELOAD (default 0) pre-creates a level's shaders while it loads. It is the same as the [Display] PreloadShaders key and Display row 10, 'Load level shaders when loading'. Per-level lists are recorded even when the option is off, in %LOCALAPPDATA%\\xboxrecomp\\shader-cache\\levels\\LEVEL.txt. The shipped lists are pc_assets\\shader-levels.txt.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 189
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 238
+    }
+   ],
+   "tags": [
+    "env_var",
+    "shaders"
+   ],
+   "date": "2026-10-15",
+   "how_to_use": "Desktop A/B on Bogged Down: miss-path CPU time 107 ms to 9 ms, 70 shaders pre-created in 15 ms (2026-10-15)."
+  },
+  {
+   "id": "env-input-trace",
+   "title": "Input env vars and their INI twins",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_KEYBOARD, RECOMP_MOUSE_AIM, RECOMP_MOUSE_SENSITIVITY, RECOMP_INVERT_Y, RECOMP_INVERT_FLIGHT, RECOMP_USB, RECOMP_INPUT_LATCH, RECOMP_MOUSE_GUEST_POLL, RECOMP_USB_PADS"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_KEYBOARD",
+    "RECOMP_MOUSE_AIM",
+    "RECOMP_INVERT_Y",
+    "RECOMP_USB",
+    "RECOMP_USB_PADS"
+   ],
+   "fact": "Each Input INI key has a RECOMP_* twin (RECOMP_KEYBOARD, RECOMP_MOUSE_AIM, RECOMP_MOUSE_SENSITIVITY, RECOMP_INVERT_Y, RECOMP_INVERT_FLIGHT). RECOMP_USB, RECOMP_INPUT_LATCH and RECOMP_MOUSE_GUEST_POLL default to 1. RECOMP_USB_PADS sets the controller count, and the split-screen Add Guest menu needs it at 2 or more.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 171
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 172
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 190
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 191
+    }
+   ],
+   "tags": [
+    "env_var",
+    "input"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "env-audio-and-watchdog",
+   "title": "Audio and watchdog env vars",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_AC97_READY, RECOMP_AUDIO_VOLUME, RECOMP_WATCHDOG_SECS"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_WATCHDOG_SECS"
+   ],
+   "fact": "RECOMP_AC97_READY gates the APU: when it is absent the APU is not initialised. RECOMP_AUDIO_VOLUME (0-100) overrides the master volume. RECOMP_WATCHDOG_SECS arms the hang watchdog only when set, and the watchdog must be started on the guest thread, after the dispatch init.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 548
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 200
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 611
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 619
+    }
+   ],
+   "tags": [
+    "env_var",
+    "audio",
+    "watchdog"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "env-save-latency",
+   "title": "RECOMP_SAVE_LATENCY gate",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_SAVE_LATENCY"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_SAVE_LATENCY"
+   ],
+   "fact": "The variable is read once per process and only the exact character 1 enables it. It is never written to the INI. The disabled save path does no clock or path work.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "env_var",
+    "save"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "env-cache-namespace",
+   "title": "Cache namespace from cache.version",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_CACHE_NAMESPACE, RECOMP_GAME_OVERLAY"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_GAME_OVERLAY",
+    "RECOMP_CACHE_NAMESPACE"
+   ],
+   "fact": "RECOMP_GAME_OVERLAY defaults to pc_assets if it holds common.mgf, else .\\pc_assets. RECOMP_CACHE_NAMESPACE is read from the first line of cache.version, but only when that line is letters, digits or hyphens. A missing or bad file leaves it unset.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 484
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 485
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 492
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 493
+    }
+   ],
+   "tags": [
+    "env_var",
+    "cache"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "frontend-setting-storage",
+   "title": "Frontend setting storage and atomics",
+   "subject": {
+    "kind": "concept",
+    "id": "pc_setting_get/set (pc_frontend.c)"
+   },
+   "addresses": [],
+   "related": [
+    "pc_setting_get",
+    "pc_binding_set"
+   ],
+   "fact": "PC settings and bindings are atomic ints stored as value+1, so zero means unset and the fallback is returned. Reads are acquire loads and writes are interlocked. Bindings bump the input revision on change. Output-policy callbacks (used for rumble) run when the captured state, input context or device changes.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 164
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 165
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 167
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 170
+    }
+   ],
+   "tags": [
+    "frontend",
+    "settings"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "frontend-cinematic-pacing",
+   "title": "Cinematics are paced to 30 Hz",
+   "subject": {
+    "kind": "function",
+    "id": "pc_display_cinematic and pc_cinematic_pace"
+   },
+   "addresses": [],
+   "related": [
+    "pc_display_cinematic"
+   ],
+   "fact": "pc_display_cinematic(1) sets the original 4:3 view and a 30 FPS cap until it is cleared, without changing the saved settings. pc_cinematic_pace holds each frame to 1/30 s just before present, using a high-resolution waitable timer and a short spin. A lower user frame limit still applies after it.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 85
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 131
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 135
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.h",
+     "line": 31
+    }
+   ],
+   "tags": [
+    "display",
+    "cinematic",
+    "fps"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "frontend-aspect-rules",
+   "title": "Aspect and movie rules",
+   "subject": {
+    "kind": "function",
+    "id": "pc_display_aspect"
+   },
+   "addresses": [],
+   "related": [
+    "pc_display_aspect"
+   ],
+   "fact": "pc_display_aspect(original) returns the screen aspect when PC_ASPECT is on, a size is known and no cinematic is active; otherwise it returns the original. Movies keep their own shape because the movie player lays them out from the screen size it is given. The earlier forcing of 4:3 for movies was removed on 2026-10-14, since it squeezed a widened frame.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 98
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 93
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 95
+    }
+   ],
+   "tags": [
+    "display",
+    "aspect",
+    "movies"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "frontend-render-extent",
+   "title": "Scene render size comes from the selected resolution",
+   "subject": {
+    "kind": "function",
+    "id": "pc_display_render_extent and pc_render_size_get"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The scene render size is the selected resolution, not a multiplier. pc_display_render_extent fits a 4:3 scene inside the selected pixels, unless RECOMP_RENDER_SCALE gives a diagnostic height. With no render size set, pc_render_size_get falls back to the display size, then to 640x480.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 69
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 108
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 113
+    }
+   ],
+   "tags": [
+    "display",
+    "resolution"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "frontend-message-hooks",
+   "title": "Render runs on the GPU thread; window callbacks must queue events instead of touching the immediate context.",
+   "subject": {
+    "kind": "concept",
+    "id": "pc_frontend_register (render and window-message callbacks)"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Render runs on the GPU thread; window callbacks must queue events instead of touching the immediate context.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.h",
+     "line": 6
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.h",
+     "line": 11
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 699
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 700
+    }
+   ],
+   "tags": [
+    "frontend",
+    "threading"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "installer-single-file",
+   "title": "Installer is one exe that holds the whole kit",
+   "subject": {
+    "kind": "tool",
+    "id": "MechAssault 2 Recomp Installer.exe (release\\)"
+   },
+   "addresses": [],
+   "related": [
+    "build_stub.cmd",
+    "pack_installer.py"
+   ],
+   "fact": "The release deliverable is one installer exe (about 102 MB, later 107-108 MB), the only file in release\\. A native stub unpacks an LZMS-compressed kit (Windows Compression API) to %TEMP%\\MA2RecompInstaller-<id>. It runs the bundled Python 3.13 pythonw on installer\\gui.py (tkinter), or installer\\install.py when given arguments, and deletes the unpacked copy on exit. Enhanced textures and videos can be added later by running the same exe on the install folder.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "installer",
+    "packaging"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "installer-pipeline",
+   "title": "Installer pipeline: XISO to xboxrecomp to MSVC to PC Release",
+   "subject": {
+    "kind": "tool",
+    "id": "Installer steps (11)"
+   },
+   "addresses": [],
+   "related": [
+    "make_payload.py",
+    "pack_installer.py",
+    "build_pc_assets.py"
+   ],
+   "fact": "The install runs 11 steps: unpack the XISO, run xboxrecomp, apply the patch set, build with MSVC and copy out a clean PC Release. The rebuild order is assemble.py, cmake_patch.py, gen_patch.py make, make_payload.py, then installer-exe\\pack_installer.py. The asset chain is build_pc_assets.py (12 rows, with the Bots wrapper, display_rows and QTE icons). make_payload.py records the installed PC Release exe, so rerun it after each publish and before packing; release.json's exe hash is provenance only.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "installer",
+    "pipeline"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "installer-msvc-autoinstall",
+   "title": "Installer fetches VS Build Tools when no compiler is found",
+   "subject": {
+    "kind": "tool",
+    "id": "install.py Build Tools path"
+   },
+   "addresses": [],
+   "related": [
+    "install.py --vs <VS folder>",
+    "install.py --until <step>",
+    "install.py --help"
+   ],
+   "fact": "When there is no compiler, install.py downloads Microsoft's vs_buildtools.exe (aka.ms/vs/18/stable, then 17/release), checks its Authenticode signature (unsigned files are rejected), and runs it elevated with the VCTools workload and the VC Redist component. Hidden flags: --vs <VS folder> to reuse an install, and --until <step>.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "installer",
+    "toolchain"
+   ],
+   "date": "2026-10-19"
+  },
+  {
+   "id": "installer-build-root-ascii",
+   "title": "Accented install paths: build in an ASCII folder",
+   "subject": {
+    "kind": "tool",
+    "id": "Installer.build_root"
+   },
+   "addresses": [],
+   "related": [
+    "build.cmd"
+   ],
+   "fact": "An accented Windows user name breaks link.exe, which reads Ninja's .rsp in the ANSI code page (LNK1181). Installer.build_root puts src and build in <drive>:\\MA2RecompBuild-<hash> (fallbacks ProgramData, Public) when the work folder is not ASCII. finish removes that folder. build.cmd starts with chcp 65001 for UTF-8 under cmd, but chcp alone does not fix the link step.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "installer",
+    "encoding",
+    "build"
+   ],
+   "date": "2026-10-20",
+   "how_to_use": "Test with the real build; a small test project hides the link problem (no response file)."
+  },
+  {
+   "id": "installer-test-harness",
+   "title": "Installer end-to-end test and checks",
+   "subject": {
+    "kind": "tool",
+    "id": "CLI end-to-end run (--xiso and --dest must be absolute)"
+   },
+   "addresses": [],
+   "related": [
+    "replay.py"
+   ],
+   "fact": "The CLI end-to-end run executes all 11 steps with --xiso and --dest as absolute paths (a relative --xiso stops at step 1), with --keep-work. Checks: objcompare (201/202 objects identical, the only difference the path-hashed .data$rs), common.mgf inner files identical, the editor exe identical, and a 6v6 bot match or a scenario playing from the install. replay.py honours REPLAY_GAMEDIR.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "installer",
+    "test"
+   ],
+   "date": "2026-10-21",
+   "how_to_use": "python objcompare against <_work/build>; replay.py with REPLAY_GAMEDIR. Use absolute --xiso and --dest."
+  },
+  {
+   "id": "publish-target-policy",
+   "title": "Publish only to PC Release",
+   "subject": {
+    "kind": "tool",
+    "id": "publish.py --freeze/--stage/--install"
+   },
+   "addresses": [],
+   "related": [
+    "publish.py"
+   ],
+   "fact": "Publish only to MechAssault 2\\PC Release and its Playthrough Capture kit. PC Release Bots was abandoned after the 2026-10-14 merge (57702bc3). Laptop zips cover PC Release files only. publish.py CURRENT must stay at the installed exe hash that --stage asserts on.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "publish",
+    "policy"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "publish-superseded-both-folders",
+   "title": "Superseded: publish to both PC Release and PC Release Bots",
+   "subject": {
+    "kind": "concept",
+    "id": "Publish policy history"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Earlier notes say to update both PC Release and PC Release Bots. That is superseded: only PC Release is updated.",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "publish",
+    "superseded"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "installer-release-fix-v5",
+   "title": "Assembled resource fix v5: Sky_Test and Small_TeamDestruction hang on loading",
+   "subject": {
+    "kind": "tool",
+    "id": "release-fix-v5 (scenario load gate)"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_SCENARIO_TRACE"
+   ],
+   "fact": "In run v5 the Sky_Test and Small_TeamDestruction scenarios hung on the loading screen after the level-resource gate fired. The load stalled after a directory open and before the Partition5 cache. The desc hook was reverted in v6, which removed the hang but gave a black match with an empty board. The only change kept is removing the RECOMP_SCENARIO_TRACE probes. Scenarios that need an assembled archive (Scn*.mgf) do not load yet.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "scenario",
+    "loading",
+    "bug"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "installer-patch-hook-regen",
+   "title": "patch_pc_frontend.py reapplies hooks after code regeneration",
+   "subject": {
+    "kind": "patch",
+    "id": "bringup\\patch_pc_frontend.py"
+   },
+   "addresses": [],
+   "related": [
+    "patch_pc_frontend.py"
+   ],
+   "fact": "patch_pc_frontend.py reapplies the menu, text, input, audio and display hooks to generated recomp_00xx.c files after regeneration. Each edit anchors on a unique 'loc_XXXXXXXX:' line and is idempotent. If an anchor is missing it raises 'hook changed; inspect'. It covers recomp_0020 (prompts and font), 0051 (main menu and movie skip), 0052 (pause and dispatch menus), 0053 (text prompts), 0057 and 0058 (settings submenus), 0039 and 0038 (mouse look), 0041 (controller), 0095 and 0096 (audio trace) and others.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 7
+    },
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 20
+    },
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 112
+    },
+    {
+     "file": "kit/source/game/bringup/patch_pc_frontend.py",
+     "line": 226
+    }
+   ],
+   "tags": [
+    "patch",
+    "hooks",
+    "regen"
+   ],
+   "date": "2026-10-21",
+   "how_to_use": "Run after regenerating generated recomp code (made at install time, not in the repository); it raises if a hook anchor changed."
+  },
+  {
+   "id": "input-readme-api",
+   "title": "xbox_input layer: Xbox XInput API to Windows XInput",
+   "subject": {
+    "kind": "file",
+    "id": "kit/source/game/src/input/README.md (xbox_input)"
+   },
+   "addresses": [],
+   "related": [
+    "xbox_InputGetState",
+    "xbox_InputSetState"
+   ],
+   "fact": "The xbox_input layer maps the Xbox controller API to Windows XInput (xinput_xbox.h and xinput_device.c). Buttons are a bitmask; the analog A, B, X, Y, Black, White and trigger values are 0-255 with a press threshold of 30. Black maps to RB and White to LB. Ports are 0-3. xbox_InputSetState takes motor speeds 0-65535.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/runtime/src/input/README.md",
+     "line": 3
+    },
+    {
+     "file": "kit/source/runtime/src/input/README.md",
+     "line": 121
+    },
+    {
+     "file": "kit/source/runtime/src/input/README.md",
+     "line": 110
+    },
+    {
+     "file": "kit/source/runtime/src/input/README.md",
+     "line": 134
+    },
+    {
+     "file": "kit/source/runtime/src/input/README.md",
+     "line": 37
+    }
+   ],
+   "tags": [
+    "input",
+    "xinput"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "input-xbox-to-pc-mapping",
+   "title": "Default PC key for each Xbox input",
+   "subject": {
+    "kind": "concept",
+    "id": "Default keyboard and mouse mapping"
+   },
+   "addresses": [],
+   "related": [
+    "default_keys"
+   ],
+   "fact": "Defaults: Enter or Escape = Start/pause, Space = A, F = B, R = X, Q = Y, 1 and 2 = White and Black (RB and LB on a pad), WASD = left stick, mouse movement = camera and aim, IJKL = right stick, Left mouse or V = right trigger, Right mouse or C = left trigger, Shift and Ctrl = stick clicks, Arrows = D-pad, Backspace = Back.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "input",
+    "defaults"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "settings-fidelity-review-scope",
+   "title": "Fidelity review brief: scope and PC feature list",
+   "subject": {
+    "kind": "file",
+    "id": "settings-fidelity-review-scope"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The fidelity review brief lists PC features to review, including keyboard and mouse, resolution and aspect settings, enhanced textures and FMVs, wider draw distance, menus, saves and capture. It treats PC_CONTROLS.md as the intended-behaviour reference, warns that it may contain older claims, and asks for checks against current code and logs. It is a review brief, not a spec.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "review",
+    "brief"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "backlog-pc-polish-status",
+   "title": "Status of the PC polish candidates",
+   "subject": {
+    "kind": "concept",
+    "id": "backlog-pc-polish-status"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The candidate is not in the the game source tree source checked here. The backlog is coordination text, not a spec.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "status",
+    "candidate"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "prompt-candidate-status",
+   "title": "Prompt candidate P1-P5: status and results",
+   "subject": {
+    "kind": "patch",
+    "id": "pc_prompts.cpp P1-P5 candidate"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_pc_prompt_text"
+   ],
+   "fact": "A prompt-only candidate changes the authored-text rewrite: A, B, X and Y after Press are mapped in order, Pull becomes Press only in the trigger phrases, explicit thumbstick directions use the current movement keys, D-pad stays arrow keys, and context is applied per instruction. Of 181 rows, 31 change. A focused fixture passes 113 checks (42 failures on the baseline). P6 ('or B' without a repeated Press) and P7 are outside this batch. The source checked here already has bare-button and per-instruction logic; whether it equals the candidate was not checked.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "prompt",
+    "candidate"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "settings-page-default-keys-named",
+   "title": "Binding names in the settings UI",
+   "subject": {
+    "kind": "setting",
+    "id": "binding_labels / binding_names"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The Bindings page labels are 'Start / pause', 'Back', 'Xbox A' through 'LB / Black', LT, RT, 'Move left', 'Move right', 'Move backward', 'Move forward', 'Left stick press', 'Right stick press', 'Mouse RT' and 'Mouse LT'. The INI names are Start, Back, A, B, X, Y, White, Black, LeftTrigger, RightTrigger, MoveLeft, MoveRight, MoveBack, MoveForward, LeftThumb, RightThumb, MouseFire and MouseAltFire.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 35
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 36
+    }
+   ],
+   "tags": [
+    "settings",
+    "bindings",
+    "names"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "prompt-binding-mapping-note",
+   "title": "Mouse fire and alt fire are the Right and Left triggers",
+   "subject": {
+    "kind": "setting",
+    "id": "MouseFire and MouseAltFire bindings"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The triggers map to MouseFire (default Left mouse, shown as the Right trigger) and MouseAltFire (default Right mouse, shown as the Left trigger). The PC_CONTROLS.md table 'Left mouse / V' for right trigger and 'Right mouse / C' for left trigger matches the default keys.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 37
+    }
+   ],
+   "tags": [
+    "settings",
+    "bindings",
+    "triggers"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "menu-tutorial-hub-cover",
+   "title": "Menu Enter and Esc on the hub versus gameplay",
+   "subject": {
+    "kind": "menu",
+    "id": "HUB and gameplay Enter/Esc"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The main menu and HUB start screens use Enter to select and Escape to request the exit prompt, not pause. In gameplay Escape is pause. The Credits page relabels its back prompt to Esc, and Enter does nothing there.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 617
+    }
+   ],
+   "tags": [
+    "menu",
+    "keys"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "settings-clamp-table",
+   "title": "Settings clamp ranges (main.c)",
+   "subject": {
+    "kind": "concept",
+    "id": "Range table in configure_pc"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Clamp ranges on load: WindowWidth 640-7680, WindowHeight 480-4320, Fullscreen 0-1, PreserveAspect 0-1, SmoothScaling 0-1, VSync 0-1, FrameLimit 0-1000, ShowFPS 0-1, DrawDistance 0-100, TextureQuality 0-2, FMVQuality 0-1, PreloadShaders 0-1, Keyboard 0-1, MouseAim 0-1, MouseSensitivity 1-500, InvertY 0-1, InvertFlight 0-1, Enabled 0-1, Volume 0-100. Out-of-range values use the default.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 175
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 181
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 186
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 192
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 200
+    }
+   ],
+   "tags": [
+    "settings",
+    "range"
+   ],
+   "date": "2026-10-21"
+  }
+ ]
+}

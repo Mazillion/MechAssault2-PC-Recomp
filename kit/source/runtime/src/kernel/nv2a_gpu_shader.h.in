@@ -1,0 +1,2 @@
+static const char nv2a_gpu_shader_source[] =
+"@NV2A_GPU_SHADER_SOURCE@";

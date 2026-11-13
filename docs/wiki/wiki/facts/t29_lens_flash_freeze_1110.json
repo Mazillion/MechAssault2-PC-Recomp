@@ -1,0 +1,276 @@
+{
+ "pack": "t29_lens_flash_freeze_1110",
+ "title": "Explosion lens flash and the screen haze fix (R26 tint)",
+ "facts": [
+  {
+   "id": "lens-filter-screen-flash",
+   "title": "MAModSubObjectLensFilter is the explosion screen flash: a full-screen colour quad shown when the effect comes into view",
+   "subject": {
+    "kind": "class",
+    "id": "MAModSubObjectLensFilter"
+   },
+   "addresses": [
+    "0013F4BD",
+    "0013FC88",
+    "0013F5D3",
+    "0013F832",
+    "000AFCB0",
+    "000AFBA0"
+   ],
+   "related": [
+    "sub_0013FC88",
+    "sub_000AFCB0",
+    "Expl_Mech_01.mtb"
+   ],
+   "fact": "MAModSubObjectLensFilter (ctor sub_0013F4BD, primary vtable 0x471E18, object 0x108 bytes) is a sub-object of explosion and hit effects. On its first active update sub_0013F5D3 creates a filter object (class vtable 0x463D74, ctor sub_000AFBA0, 0x40 bytes) per view and puts it on the view overlay list (view+0x164). The view draws it after the 3D scene and glow pass and before the HUD with sub_000AFCB0: an untextured pre-transformed 640x480 quad, blend SRC_ALPHA/INV_SRC_ALPHA, z LEQUAL, fog on. Saved fields (sub_0013F8FB): StartAlpha, EndAlpha, DeltaAlpha, CurAlpha, Color, Texture. Runtime: colour RGB +0xBC.+0xC4, StartAlpha +0xD0, DeltaAlpha +0xD8, CurAlpha +0xDC, single-view filter +0xCC, per-view {view, filter} pairs [+0xFC, +0x100).",
+   "how_to_use": "RECOMP_LENS_TRACE=1 logs every lens update and drawn flash.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_0032.c (made at install time, not in the repository)",
+     "line": 4690
+    },
+    {
+     "file": "generated recomp_0018.c (made at install time, not in the repository)",
+     "line": 5130
+    }
+   ],
+   "tags": [
+    "render",
+    "effects",
+    "lens-filter"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "lens-filter-update-fade",
+   "title": "The lens flash fades only inside its own update sub_0013FC88: visible and CurAlpha -= dt*DeltaAlpha while the effect is in view",
+   "subject": {
+    "kind": "function",
+    "id": "0013FC88"
+   },
+   "addresses": [
+    "0013FC88",
+    "0013FD69",
+    "0013FF21",
+    "0016B25E",
+    "002B0B20",
+    "002B1270",
+    "00107DA3"
+   ],
+   "related": [
+    "MAModSubObjectLensFilter"
+   ],
+   "fact": "sub_0013FC88 (vtable slot 24, called through sub_002B1270 only when slot 25 sub_00107DA3 allows it) returns early when the sub-object has no owner or its timing window (sub_002B0B20: StartTime +0x64, Duration +0x68, TimingFlags +0x70) is closed. Otherwise, per view (pairs list; view to camera via sub_0016B25E then [+0x154] vt+0x44), sub_0013FF21 tests the owner against the camera (vt+0x4C, plane mask 0x3F): in view, CurAlpha -= dt (double 0x4E2428) * DeltaAlpha, the colour is copied to the filter (sub_000AFC50) and filter+8 = 1; out of view, filter+8 = 0 with the alpha held. The filter flag and alpha are written nowhere else, so a skipped update leaves the last state on screen.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_0032.c (made at install time, not in the repository)",
+     "line": 4690
+    }
+   ],
+   "tags": [
+    "render",
+    "effects",
+    "lens-filter"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "lens-filter-retail-values",
+   "title": "Retail lens flash values: white, StartAlpha 0.2 fading at 0.6/s (mech death Expl_Mech_01, starts 2.2 s ) or 0.2 at 3/s (BA mortar); no texture",
+   "subject": {
+    "kind": "asset",
+    "id": "Expl_Mech_01.mtb"
+   },
+   "addresses": [],
+   "related": [
+    "MAModSubObjectLensFilter",
+    "boggeddown.mgf"
+   ],
+   "fact": "Lens filters exist in explosion and hit .mtb files of every MP and campaign archive (14 in boggeddown.mgf: Expl_BD_LG_01, Expl_BattleArmor, Expl_Mech_01, Expl_Tur_01/02, Expl_VE_*, BA_Mortar_Hit*, AlphaStrike_Hit*, LavaGun_Hit). Expl_Mech_01: Color FFFFFFFF, StartAlpha 0.2, DeltaAlpha 0.6, EndAlpha 0, Texture empty, StartTime 2200 ms, TimingFlags 1. BA_Mortar_Hit: StartAlpha 0.2, DeltaAlpha 3. Runtime traces also show flashes starting at 0.5 with delta 2.0 (colour 1,1,0.88). A normal flash is gone in 0.25-0.33 s.",
+   "how_to_use": "Class key .mtb WDF = crc32('MAModSubObjectLensFilter') ^ 0xFFFFFFFF = 8A67F057.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "effects",
+    "assets",
+    "lens-filter"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "screen-haze-frozen-lens-flash",
+   "title": "Screen haze bug: a frozen explosion lens flash; fixed by hiding a lens quad its update no longer shows (R26 tint 9896cc8)",
+   "subject": {
+    "kind": "concept",
+    "id": "screen haze / frozen lens flash"
+   },
+   "addresses": [
+    "0013FC88",
+    "0013FD69",
+    "000AFCB0",
+    "0013F832"
+   ],
+   "related": [
+    "recomp_manual.c",
+    "ma2_lens_shown",
+    "ma2_lens_draw_check",
+    "ma2_lens_forget"
+   ],
+   "fact": "The periodic grey-white haze is a uniform blend of the whole 3D scene toward near-white with alpha about 0.2, HUD clean, hard on and off, constant for 3.5 s. Fitted against the scene it matches the normal fading explosion flashes in the same capture (alpha about 0.19, same colour) except that it does not fade. Cause: the lens quad keeps visible = 1 and its alpha when its update stops running while the explosion effect still exists. Fix (v26-tint 9896cc8): sub_0013FC88/sub_0013FD69 mark a filter when they show it (ma2_lens_shown), sub_000AFCB0 hides a lens quad not shown in this frame or the one before (ma2_lens_draw_check, frame counter 0x4E2420), and sub_0013F832 forgets released filters (ma2_lens_forget). Screen fades (death/respawn black, blue loading tint) use the same filter class but are not tracked, so they are unchanged.",
+   "how_to_use": "A/B: RECOMP_LENS_FREEZE_FIX=0 restores the old behaviour. RECOMP_TEST_LENS_FREEZE=<s> skips one lens update for <s> s right after its flash shows (forced reproduction).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 1440
+    }
+   ],
+   "tags": [
+    "render",
+    "bug",
+    "fix",
+    "lens-filter",
+    "R26"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "screen-haze-natural-trigger-open",
+   "title": "Which gate stops the lens update in natural play is not pinned down yet",
+   "subject": {
+    "kind": "concept",
+    "id": "lens update gate"
+   },
+   "addresses": [
+    "00107DA3",
+    "00107F63",
+    "00030440",
+    "0016B25E"
+   ],
+   "related": [
+    "sub_002B1270",
+    "MACameraThird"
+   ],
+   "fact": "Candidates read from code: (1) slot 25 sub_00107DA3 (owner flags, damage-percent window , in multi-view mode, the range test sub_00107F63 that compares view-to-owner distance with max(600, camera vt+0x38); the stale-x87 reading of vt+0x38 was REFUTED 2026-11-10, see lens-range-test-far-distance-ok); (2) the per-view mapping sub_0016B25E returning 0, which leaves the filter untouched; (3) the timing window. Five instrumented runs (Team Destruction Bogged Down, Grinder In Your Face and New River City, 3840x1600, DrawDistance 100) showed only normal fades. The fix covers all three paths.",
+   "how_to_use": "RECOMP_LENS_TRACE=1, then look for '[LENS] STALE' (gate fields) or '[LENS] hide frozen' lines.",
+   "status": "open-question",
+   "confidence": "inferred",
+   "source": [
+    {
+     "file": "generated recomp_0026.c (made at install time, not in the repository)",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "render",
+    "lens-filter",
+    "open"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "lens-trace-env",
+   "title": "RECOMP_LENS_TRACE, RECOMP_TEST_LENS_FREEZE, RECOMP_LENS_FREEZE_FIX and RECOMP_COVER_TRACE",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_LENS_TRACE"
+   },
+   "addresses": [],
+   "related": [
+    "recomp_manual.c",
+    "nv2a_pb_exec.c"
+   ],
+   "fact": "RECOMP_LENS_TRACE=1 logs '[LENS] upd' per lens update (alpha, delta, the 0x50C85C single-view flag, the views list from [0x524A5C]+0x1C and the {view>filter(visible alpha)} pairs), '[LENS] draw' per drawn flash or fade, '[LENS] STALE' when a drawn lens quad's sub-object has not updated for 0.15 s, and '[LENS] hide frozen' when the fix hides one. RECOMP_TEST_LENS_FREEZE=<s> freezes the first bright lens flash for <s> s (test only). RECOMP_LENS_FREEZE_FIX=0 turns the fix off. RECOMP_COVER_TRACE=1 (nv2a_pb_exec.c cover_trace) logs blended programmable draws whose transformed vertices cover the 640x480 target or straddle w = 0, at most 40 lines a flip.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 1395
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 2626
+    }
+   ],
+   "tags": [
+    "env",
+    "diagnostic",
+    "lens-filter"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "frame-overlay-order",
+   "title": "Frame tail on MP maps: 3D scene, glow (8001/8001), lens flashes and fades (untextured, 302/303, fog on), then the HUD",
+   "subject": {
+    "kind": "concept",
+    "id": "frame overlay order"
+   },
+   "addresses": [],
+   "related": [
+    "sub_000AFCB0",
+    "nv2a_pb_exec.c"
+   ],
+   "fact": "Frame traces (RECOMP_FRAME_TRACE) on Bogged Down and New River City end the 3D pass with the glow chain (a 160x120 to 320x240 draw at 0x00002000, then a full-screen 320x240 quad with blend CONSTANT_COLOR 8001/8001, bc 00FFFFFF), then the view overlay list (lens flashes and screen fades as untextured pre-transformed quads, combiner prog 00000, final combiner fog lerp), then the HUD sprites. Earlier in the scene a 640x480 full-screen pass with blend DST_COLOR/DST_ALPHA (306/304, texture 80488000) runs every frame; its diffuse is (0.2, 0.2, 0.2, 0.506) in play and bluish (0.443, 0.455, 0.584, 0.2) in the menus.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "render",
+    "trace"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "lens-range-test-far-distance-ok",
+   "title": "Lens range test sub_00107F63 reads a real far distance (fld [builder+0x80]); the clue is refuted",
+   "subject": {
+    "kind": "function",
+    "id": "00107F63"
+   },
+   "addresses": [
+    "00107F63",
+    "0006D5A0",
+    "00139771"
+   ],
+   "related": [
+    "sub_0013FC88",
+    "sub_00030440",
+    "0045DDD0"
+   ],
+   "fact": "sub_00107F63 walks the view list (sub_00018F30+0x1C.+0x20) and calls vt+0x38 on MEM32(view+0x154), the camera builder (vtable 0x45DDD0, runtime-observed in RECOMP_CAM_SET). Slot 14 of 0x45DDD0 is sub_0006D5A0 = d9 81 80 00 00 00 c3 (fld dword [ecx+0x80]; ret), a real float return; only one other vtable (0x461008 region) holds it. sub_00030440 (mov al,1; ret) is a generic return-true used by 694 vtable slots and is not the slot reached here. The recomp keeps x87 in global g_fp_stack/g_fp_top in both the normal and __fast variants, so the callee's push reaches the caller's fst at 0x108003 regardless of the 'returns int_or_void' tag; caller bytes ff5238 d95508 d9450c . dff1 ddd8 7705 match the C. Range = max(arg, builder+0x80), in range if range^2 > dist^2 to owner+0xF0; the function returns 1 if ANY view is in range. It is only reached when sub_00018F10+0x69 == 0 or sub_0016282C fails (caller 0x139771), i.e. not on the normal single-view path.",
+   "how_to_use": "Do not chase stale x87 here; look at the other lens update gates (sub_002B0BB0 window, owner flags in sub_00107DA3, sub_0016B25E mapping).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "render",
+    "lens-filter",
+    "x87"
+   ],
+   "date": "2026-11-10"
+  }
+ ]
+}

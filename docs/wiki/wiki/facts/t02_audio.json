@@ -1,0 +1,2586 @@
+{
+ "pack": "t02_audio",
+ "title": "Audio (APU, DSound, XACT)",
+ "facts": [
+  {
+   "id": "audio-pipeline-overview",
+   "title": "Audio path from the guest title to XAudio2",
+   "subject": {
+    "kind": "concept",
+    "id": "guest DirectSound -> APU VP -> GP/EP -> XAudio2"
+   },
+   "addresses": [],
+   "related": [
+    "MAActionSound",
+    "apu_vp.c",
+    "apu_dsp_runtime.c"
+   ],
+   "fact": "The title drives DirectSound, which writes voice records and registers in the APU MMIO range (0xFE800000+). Each 32-sample frame (667 us at 48 kHz) the voice processor mixes every active voice into 32 mixbins. The GP DSP program (DSP56300 interpreter) , every eighth frame, the EP program turn the mixbins into stereo. The result is converted to int16 and submitted to XAudio2 with 4 x 1024 buffers. The host DirectSound layer in kit/source/game/src/audio is not on this path.",
+   "how_to_use": "Run with RECOMP_AUDIO_STATS=1 to see the XA2 underrun counters, or RECOMP_APU_PIPELINE_CAPTURE to capture the mixbins.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1847
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 581
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 664
+    }
+   ],
+   "tags": [
+    "audio",
+    "pipeline"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "vp-frame-order",
+   "title": "mcpx_apu_vp_frame order: tails, then voice lists, then monitor",
+   "subject": {
+    "kind": "function",
+    "id": "mcpx_apu_vp_frame"
+   },
+   "addresses": [],
+   "related": [
+    "voice_process",
+    "owned tails"
+   ],
+   "fact": "mcpx_apu_vp_frame runs once per audio frame. It first advances every owned drain tail (voices whose data has ended), then walks the three voice lists 2D, 3D and MP through voice_process, then raises the idle-voice notification, then writes the VP monitor buffer if the monitor is set to VP. Tail drains are therefore mixed before the frame's live voices.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1847
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1859
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1915
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1948
+    }
+   ],
+   "tags": [
+    "audio",
+    "vp"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "voice-list-regs",
+   "title": "Three voice lists: 2D, 3D and MP",
+   "subject": {
+    "kind": "address",
+    "id": "voice_list_regs"
+   },
+   "addresses": [],
+   "related": [
+    "voice_process",
+    "multipass-read"
+   ],
+   "fact": "The VP walks three circular voice lists, each with top, current and next registers: 2D (TVL2D/CVL2D/NVL2D), 3D (TVL3D/CVL3D/NVL3D) and MP, the multipass list (TVLMP/CVLMP/NVLMP). Voices are processed in list order and the list index is passed to voice_process.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 81
+    }
+   ],
+   "tags": [
+    "audio",
+    "vp"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "voice-process-chain",
+   "title": "voice_process: envelope, sample, filter, HRTF, gain, mix",
+   "subject": {
+    "kind": "function",
+    "id": "voice_process"
+   },
+   "addresses": [],
+   "related": [
+    "voice_mix_block",
+    "voice_filter_block",
+    "voice_resample_callback"
+   ],
+   "fact": "voice_process returns at once for a paused voice. Otherwise it steps the filter envelope, pulls samples through the sinc resampler, runs the per-voice state-variable low-pass when the voice's filter mode asks for it, optionally runs HRTF for 3D voices, then computes a gain per bin as envelope times attenuate(volume) divided by 2^headroom. The block is then added into the mixbins by voice_mix_block.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1626
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1784
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1797
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1807
+    }
+   ],
+   "tags": [
+    "audio",
+    "vp"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "voice-mix-block",
+   "title": "voice_mix_block: how a voice reaches a mixbin",
+   "subject": {
+    "kind": "function",
+    "id": "voice_mix_block"
+   },
+   "addresses": [],
+   "related": [
+    "HRTF",
+    "mixbins",
+    "hrtf-ear-map"
+   ],
+   "fact": "For each of the eight bins a voice routes to, voice_mix_block adds gain times the sample into mixbins[bin], skipping bins outside the 32 mixbins and zero gains. Mono voices read the sample from channel b modulo channel count. When HRTF is on for a voice, slots 0 to 3 read ear b>>1 instead, so slots 0 and 1 carry the left ear and slots 2 and 3 the right.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1505
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1517
+    }
+   ],
+   "tags": [
+    "audio",
+    "vp",
+    "hrtf"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "multipass-read",
+   "title": "Multipass voices read a mixbin (bin 31) instead of a sample",
+   "subject": {
+    "kind": "property",
+    "id": "NV_PAVS_VOICE_CFG_FMT.MULTIPASS / MULTIPASS_BIN / CLEAR_MIX"
+   },
+   "addresses": [],
+   "related": [
+    "MULTIPASS_BIN",
+    "3D voices",
+    "multipass-trace-result"
+   ],
+   "fact": "A multipass voice ignores its own sample. It copies mixbins[mp_bin] (mp_bin from the MULTIPASS_BIN field, normally 31) into both channels, and if CLEAR_MIX is set it zeroes that mixbin afterwards. Per the 2026-10-11 notes, a 3D sound is a source voice that writes bin 31 followed by an MP voice that moves it on to bins 6 and 7.",
+   "how_to_use": "RECOMP_APU_MP_TRACE=1 reports how many writers each read of bin 31 has.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1673
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1679
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_regs.h",
+     "line": 358
+    }
+   ],
+   "tags": [
+    "audio",
+    "3d",
+    "multipass"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "apu-constants",
+   "title": "VP and mixer constants",
+   "subject": {
+    "kind": "concept",
+    "id": "MCPX_HW_MAX_VOICES 256, 64 3D voices, 32 samples per frame, 32 mixbins"
+   },
+   "addresses": [],
+   "related": [
+    "apu_regs.h"
+   ],
+   "fact": "The VP has 256 hardware voices, and the first 64 are the 3D voices (handles below 64 get HRTF and 3D treatment). A frame is 32 samples, which is 667 us at 48 kHz. There are 32 mixbins, and bin 31 is the multipass bin.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_regs.h",
+     "line": 330
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_regs.h",
+     "line": 331
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_regs.h",
+     "line": 333
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_regs.h",
+     "line": 334
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_regs.h",
+     "line": 358
+    }
+   ],
+   "tags": [
+    "audio",
+    "constants"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "sinc-resampler",
+   "title": "Voice resampler: libsamplerate SRC_SINC_FASTEST, 2 channels",
+   "subject": {
+    "kind": "function",
+    "id": "voice_resample / voice_resample_callback"
+   },
+   "addresses": [],
+   "related": [
+    "voice_tail_budget",
+    "pitch-rate-cap"
+   ],
+   "fact": "Each voice owns a libsamplerate callback converter (SRC_SINC_FASTEST, two channels). The callback voice_resample_callback pulls up to 32 samples per call from the guest voice. When the voice has stopped being active the callback returns silence , after the sinc support is padded, returns zero to make libsamplerate end its input.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1409
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1415
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1434
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1439
+    }
+   ],
+   "tags": [
+    "audio",
+    "resample"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "pitch-rate-cap",
+   "title": "Pitch ratio below 1/8 is held at 1/8",
+   "subject": {
+    "kind": "setting",
+    "id": "voice pitch ratio cap"
+   },
+   "addresses": [],
+   "related": [
+    "voice_resample"
+   ],
+   "fact": "A voice whose resample ratio is below 1/8 is played at 1/8, and the first 20 cases are logged as [APU-RATE]. The source comment says that without the cap one such voice cost the APU frame thread seconds while it held d->lock (a freeze on 2026-10-14), and that no real sound sits there.",
+   "how_to_use": "[APU-RATE] lines in stderr show voices hitting the cap.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1468
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1471
+    }
+   ],
+   "tags": [
+    "audio",
+    "resample",
+    "freeze"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "dsp-frame",
+   "title": "mcpx_apu_dsp_native_frame: GP every frame, EP every eighth",
+   "subject": {
+    "kind": "function",
+    "id": "mcpx_apu_dsp_native_frame"
+   },
+   "addresses": [],
+   "related": [
+    "dsp_run_frame",
+    "headroom_ep_block",
+    "apu_time_frame"
+   ],
+   "fact": "This is the per-frame hand-off from the mixbins to the DSP programs. It joins the previous DSP frame, runs the GP when its reset register is 3 and it has a DSP, and runs the EP only when ep_frame_div is a multiple of 8. The GP and EP run on their own thread one frame behind the voices, unless RECOMP_APU_DSP_THREAD=0 or RECOMP_APU_PIPELINE_CAPTURE is set, which run them inline.",
+   "how_to_use": "RECOMP_APU_DSP=0 disables the GP and EP entirely.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 664
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 684
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 685
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 649
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 15
+    }
+   ],
+   "tags": [
+    "audio",
+    "dsp"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "dsp-gp-input",
+   "title": "GP input: mixbins times 0.25, then float_to_24b",
+   "subject": {
+    "kind": "function",
+    "id": "dsp_run_frame"
+   },
+   "addresses": [],
+   "related": [
+    "DSP_HEADROOM_GAIN",
+    "float-to-24b"
+   ],
+   "fact": "When headroom is on, dsp_run_frame multiplies every mixbin sample by 0.25 (minus 12 dB) before writing it to the GP mixbuffer in X space. The conversion is float_to_24b, which saturates at plus or minus full scale (1.0). Before the headroom fix this saturation was the audible clip in dense fights.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 581
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 586
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 589
+    }
+   ],
+   "tags": [
+    "audio",
+    "dsp",
+    "clipping"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "ep-output-24bit",
+   "title": "EP output read at 24 bits and restored",
+   "subject": {
+    "kind": "function",
+    "id": "headroom_ep_block"
+   },
+   "addresses": [],
+   "related": [
+    "headroom-limiter",
+    "mem_read"
+   ],
+   "fact": "headroom_ep_block rebuilds the EP's stereo block from the 512 24-bit words the EP DMA reads through mem_read. It checks each against the 16-bit word the DMA produced (v >> 8). If any word mismatches, the block falls back to the 16-bit data at the same restored level. The block is then passed to headroom_output.",
+   "how_to_use": "[APU-HEADROOM] lines report when the 16-bit fallback is used.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 145
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 184
+    }
+   ],
+   "tags": [
+    "audio",
+    "dsp",
+    "clipping"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "headroom-limiter",
+   "title": "Headroom restore and 32-sample soft limiter",
+   "subject": {
+    "kind": "function",
+    "id": "headroom_output"
+   },
+   "addresses": [],
+   "related": [
+    "DSP_HEADROOM_CEILING",
+    "DSP_HEADROOM_RELEASE",
+    "headroom_ep_block"
+   ],
+   "fact": "headroom_output multiplies the EP block back by 4 (the inverse of the 0.25 input gain), then runs a 32-sample lookahead limiter with a 0.99 ceiling and a release of 2.083e-4 per sample (about 100 ms at 48 kHz). Only samples above full scale are reduced, and quiet passages pass with gain 1.0. Output is clamped to int16.",
+   "how_to_use": "With RECOMP_AUDIO_STATS=1, [APU-HEADROOM] shows frames, percentage limited and minimum gain every 938 frames.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 103
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 82
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 83
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 84
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 132
+    }
+   ],
+   "tags": [
+    "audio",
+    "clipping",
+    "limiter"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "dsp-headroom-default-on",
+   "title": "DSP headroom is on by default (RECOMP_APU_DSP_HEADROOM=0 turns it off)",
+   "subject": {
+    "kind": "setting",
+    "id": "RECOMP_APU_DSP_HEADROOM"
+   },
+   "addresses": [],
+   "related": [
+    "headroom-limiter",
+    "clip-fix-confirmed"
+   ],
+   "fact": "dsp_headroom reads RECOMP_APU_DSP_HEADROOM once. Unset means on. Setting it to 0 restores the original path exactly, and the first call logs [APU-HEADROOM] on or off.",
+   "how_to_use": "Set RECOMP_APU_DSP_HEADROOM=0 for an A/B against the original clipping path.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 89
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 92
+    }
+   ],
+   "tags": [
+    "audio",
+    "env",
+    "clipping"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bus-limiter-optin",
+   "title": "Pre-GP bus limiter: opt-in only (RECOMP_APU_LIMITER=1)",
+   "subject": {
+    "kind": "setting",
+    "id": "RECOMP_APU_LIMITER"
+   },
+   "addresses": [],
+   "related": [
+    "bus_limit"
+   ],
+   "fact": "bus_limit applies one gain to all 32 mixbins before the GP, with a 32-sample lookahead, a 0.98 ceiling and about 100 ms release. It is off by default and runs only when RECOMP_APU_LIMITER is set to a non-zero value.",
+   "how_to_use": "RECOMP_APU_LIMITER=1 (launcher Try-Audio-Limiter.cmd) for the comparison.",
+   "status": "historical",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 487
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 500
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 504
+    }
+   ],
+   "tags": [
+    "audio",
+    "limiter",
+    "clipping"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "apu-limiter-h-unused",
+   "title": "apu_limiter.h block limiter is defined but not called",
+   "subject": {
+    "kind": "file",
+    "id": "apu_limiter.h"
+   },
+   "addresses": [],
+   "related": [
+    "bus-limiter-optin",
+    "apu_state.h"
+   ],
+   "fact": "apu_limiter.h defines apu_limit_block, a limiter with a 0.92 ceiling and 80 ms recovery. apu_state.h includes it, but no call site exists in this source tree. The live pre-GP limiter is bus_limit in apu_dsp_runtime.c.",
+   "how_to_use": "Do not change apu_limiter.h expecting an audible effect; grep for apu_limit_block first.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_limiter.h",
+     "line": 2
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_limiter.h",
+     "line": 18
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_state.h",
+     "line": 277
+    }
+   ],
+   "tags": [
+    "audio",
+    "limiter",
+    "dead-code"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "float-to-24b",
+   "title": "float_to_24b saturates at full scale",
+   "subject": {
+    "kind": "function",
+    "id": "float_to_24b"
+   },
+   "addresses": [],
+   "related": [
+    "dsp-gp-input"
+   ],
+   "fact": "float_to_24b multiplies by 2^23 and clamps to the 24-bit range, so any mixbin sample at or above 1.0 is flattened. In the 2026-10-11 battle capture 82,753 samples each in bins 6 and 7 hit that clamp.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/fpconv.h",
+     "line": 56
+    },
+    {
+     "file": "kit/source/game/src/apu/fpconv.h",
+     "line": 58
+    }
+   ],
+   "tags": [
+    "audio",
+    "clipping"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "xa2-output",
+   "title": "XAudio2 interface",
+   "subject": {
+    "kind": "file",
+    "id": "apu_xaudio2.h"
+   },
+   "addresses": [],
+   "related": [
+    "audio-pipeline-overview"
+   ],
+   "fact": "The XAudio2 backend takes interleaved stereo 16-bit samples through xa2_submit_samples and waits for OnBufferEnd through xa2_wait_for_space. The notes say the queue is 4 buffers of 1024 samples. Underrun and backpressure counters are printed with RECOMP_AUDIO_STATS.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_xaudio2.h",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "audio",
+    "xaudio2"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "sign-magnitude-hrir",
+   "title": "HRIR taps are sign-magnitude (experimental, opt-)",
+   "subject": {
+    "kind": "asset",
+    "id": "HRIR tap encoding (SET_HRIR)"
+   },
+   "addresses": [],
+   "related": [
+    "hrtf-default-off",
+    "hrtf-gain-policy-open"
+   ],
+   "fact": "The title's HRIR tables read better as sign-magnitude than as two's complement: 0x86 is -6 and 0x80 is negative zero. set_hrir_coeff_tar stores tap/128 with that rule. On 89 of 96 traced ear responses this gives a smoother curve, but the absolute hardware gain of the taps is not established.",
+   "how_to_use": "The [APU-GAIN] and [APU-MIX] hrir lines print decoded taps.",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 373
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 385
+    }
+   ],
+   "tags": [
+    "audio",
+    "hrtf"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "hrtf-default-off",
+   "title": "HRTF is off by default; RECOMP_APU_HRTF switches it",
+   "subject": {
+    "kind": "setting",
+    "id": "RECOMP_APU_HRTF"
+   },
+   "addresses": [],
+   "related": [
+    "apu_hrtf_enabled",
+    "env-hrtf"
+   ],
+   "fact": "g_config.audio.hrtf is false. apu_hrtf_enabled reads RECOMP_APU_HRTF once and caches it. A non-empty non-zero value enables HRTF, a 0 forces the bypass, and an unset variable keeps the default. A voice only uses HRTF when it is a 3D voice and its HRTF target handle is not HRTF_NULL_HANDLE.",
+   "how_to_use": "RECOMP_APU_HRTF=1 for the comparison; restart the game to change it.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_shim.h",
+     "line": 328
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_shim.h",
+     "line": 335
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_shim.h",
+     "line": 339
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1784
+    }
+   ],
+   "tags": [
+    "audio",
+    "hrtf",
+    "env"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "hrtf-gain-policy-open",
+   "title": "HRTF target normalization is not hardware-authentic",
+   "subject": {
+    "kind": "function",
+    "id": "hrtf_filter_set_target_params"
+   },
+   "addresses": [],
+   "related": [
+    "sign-magnitude-hrir",
+    "hrtf-corrected-candidate"
+   ],
+   "fact": "hrtf_filter_set_target_params divides each ear's taps by their absolute sum, so every nonzero filter ends at L1 = 1 and never boosts. The hardware HRIR gain is unknown, so this normalization is a software policy and not a measured hardware behaviour.",
+   "status": "open-question",
+   "confidence": "inferred",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_state.h",
+     "line": 126
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_state.h",
+     "line": 133
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_state.h",
+     "line": 137
+    }
+   ],
+   "tags": [
+    "audio",
+    "hrtf",
+    "open-question"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "hrtf-continue-fix",
+   "title": "Normalization loop: break became continue",
+   "subject": {
+    "kind": "function",
+    "id": "hrtf_filter_set_target_params"
+   },
+   "addresses": [],
+   "related": [
+    "HRTF",
+    "hrtf-ear-map"
+   ],
+   "fact": "The normalization loop once ended with break when the left ear's L1 sum was 0 or 1, so the right ear was never copied. Public PIO tests reproduced a zero right-ear target for that case. The fix changes the early exit to continue so each ear is handled on its own.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_state.h",
+     "line": 137
+    }
+   ],
+   "tags": [
+    "audio",
+    "hrtf",
+    "bug"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "hrtf-ear-map",
+   "title": "HRTF ear mapping: submixes 6,8,7,9 are ear-major",
+   "subject": {
+    "kind": "property",
+    "id": "SET_HRTF_SUBMIXES"
+   },
+   "addresses": [],
+   "related": [
+    "voice_mix_block",
+    "HRTF"
+   ],
+   "fact": "The title programs SET_HRTF_SUBMIXES as 6,8,7,9: front-left, back-left, front-right and back-right. The original b % channels selection sent the left ear to both bins 6 and 7. HRTF slots 0 to 3 now use ear b>>1, so bins 6 and 8 carry the left ear and 7 and 9 the right.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1517
+    }
+   ],
+   "tags": [
+    "audio",
+    "hrtf",
+    "bug"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "hrtf-mono-to-stereo",
+   "title": "HRTF output is stereo; channel count is set to 2 after HRTF",
+   "subject": {
+    "kind": "function",
+    "id": "voice_process"
+   },
+   "addresses": [],
+   "related": [
+    "voice_mix_block",
+    "owned tails"
+   ],
+   "fact": "HRTF turns a mono voice into two ear signals, but the mix path used channels = 1, so the right output was discarded. voice_process now sets channels to 2 after HRTF filtering, and the frozen tail snapshot keeps the same channel count.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1790
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1791
+    }
+   ],
+   "tags": [
+    "audio",
+    "hrtf",
+    "bug"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "hrtf-corrected-candidate",
+   "title": "Corrected HRTF three-file candidate accepted for a combined listening build",
+   "subject": {
+    "kind": "patch",
+    "id": "apu_shim.h + apu_vp.c + apu_state.h (corrected HRTF)"
+   },
+   "addresses": [],
+   "related": [
+    "hrtf-default-off",
+    "sign-magnitude-hrir",
+    "hrtf-ear-map",
+    "hrtf-continue-fix",
+    "hrtf-mono-to-stereo"
+   ],
+   "fact": "The original default-on two-file HRTF patch was rejected. The corrected three-file candidate was accepted for a controlled human test. Its CPU tests pass 605 checks with HRTF on and 592 with the bypass, and the bypass output is byte-identical to the baseline. A native clipping improvement is not proven.",
+   "how_to_use": "Rebuild all four APU units (VP, core, DSP, DSP runtime) when staging these files.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "audio",
+    "hrtf",
+    "patch"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "hrtf-rollback-default-off",
+   "title": "Default HRTF rollback with gain trace (accepted)",
+   "subject": {
+    "kind": "patch",
+    "id": "hrtf-rollback-default-off"
+   },
+   "addresses": [],
+   "related": [
+    "hrtf-default-off",
+    "env-gain-trace"
+   ],
+   "fact": "A private rollback sets hrtf=false again, keeps the corrected right-ear and tail-snapshot fixes, and adds the bounded RECOMP_APU_GAIN_TRACE. The default output is byte-identical to the prior bypass. The sealed tests check this state, but it does not establish hardware HRIR gain.",
+   "how_to_use": "The capture launcher strips inherited RECOMP_ variables. Set RECOMP_APU_GAIN_TRACE=1 in the final game process environment.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "audio",
+    "hrtf",
+    "env"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "hrtf-headroom-trace",
+   "title": "Gain trace: title asks for no headroom attenuation",
+   "subject": {
+    "kind": "setting",
+    "id": "SET_SUBMIX_HEADROOM / SET_HRTF_HEADROOM"
+   },
+   "addresses": [],
+   "related": [
+    "env-gain-trace"
+   ],
+   "fact": "In gain-trace run 2026-10-11, every submix headroom bin was first written as 1 and then all 32 bins were written as 0, and the HRTF headroom was 0. So the title does not attenuate the submixes, and the overload is not caused by a headroom setting the port ignores.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "hrtf",
+    "clipping"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "hrir-observed-table",
+   "title": "Observed HRIR table in the title",
+   "subject": {
+    "kind": "asset",
+    "id": "HRIR entry (31 taps per ear)"
+   },
+   "addresses": [],
+   "related": [
+    "sign-magnitude-hrir"
+   ],
+   "fact": "Every logged HRIR entry in gain-trace run 141809 had the same 31 taps, with L equal to R and ITD 0. The notes read it as an initialization table, not positional data. Its gain at /128 scale is DC -2.9 and L2 2.7. Later tables may have been hidden by the trace cap.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "hrtf"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "multipass-trace-result",
+   "title": "Multipass pairing: adjacent pairs dominate; mis-pairing not shown",
+   "subject": {
+    "kind": "concept",
+    "id": "MP bin 31 readers"
+   },
+   "addresses": [],
+   "related": [
+    "multipass-read",
+    "env-mp-trace"
+   ],
+   "fact": "In run 193044 about 20 to 45 percent of bin 31 reads carried 2 to 5 writers, which matches several 3D sources sharing one emitter. Total writers equalled total consumed and bin 31 was never left over at frame end, so no sound is lost. Mis-pairing is not shown.",
+   "how_to_use": "RECOMP_APU_MP_TRACE=1 prints [APU-MP] lines every 5 s.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1575
+    }
+   ],
+   "tags": [
+    "audio",
+    "3d",
+    "multipass"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "multipass-overload",
+   "title": "Bins 6 and 7 overload comes from 3D multipass voices at unity gain",
+   "subject": {
+    "kind": "concept",
+    "id": "bins 6 and 7 (XTLK front submixes)"
+   },
+   "addresses": [],
+   "related": [
+    "multipass-read",
+    "clip-pregp-pipeline-capture"
+   ],
+   "fact": "In the 2026-10-11 end-of-mission-2 trace, every 3D contribution to bins 6 and 7 came from multipass voices. Up to 52 multipass visits to bin 6 occurred in one 32-sample frame, with no duplicate routing and no decoder overshoot of note (block peaks up to 1.26). Bins 6 and 7 peaked at 2.85 to 3.55 before the GP.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "clipping",
+    "3d"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "clip-pregp-pipeline-capture",
+   "title": "Pipeline capture: clipping is already present before the GP",
+   "subject": {
+    "kind": "concept",
+    "id": "mixbins 6, 7, 10, 3 before the GP"
+   },
+   "addresses": [],
+   "related": [
+    "float-to-24b",
+    "env-pipeline-capture"
+   ],
+   "fact": "The 39.6 s capture of the mission-2 2v2 battle showed mixbins 6 and 7 peaking at 2.965, with 82,753 samples each clamped by float_to_24b, and about 187,031 clamped mixbin samples in total. The game's GP produced only 4,306 full-scale output samples. So the overload is in the VP mix, and the GP is linear.",
+   "how_to_use": "Capture with RECOMP_APU_PIPELINE_CAPTURE=<prefix> and analyze with analyze_pipeline_capture.py.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "clipping",
+    "capture"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "clip-ep-sum-saturation",
+   "title": "Second cause: the EP's 24-bit stereo sum saturates",
+   "subject": {
+    "kind": "concept",
+    "id": "EP stereo downmix (24-bit)"
+   },
+   "addresses": [],
+   "related": [
+    "headroom-limiter",
+    "ep-output-24bit"
+   ],
+   "fact": "In run 193044 about 14 percent of output samples sat flat at full scale during 0:47 to 0:50 of the recording, in runs up to 7 ms, and 44,674 samples were full-scale in total. The DMA reduces EP words to 16 bits with v >> 8 and does not clamp. The saturation is inside the EP's sum of front, centre, LFE, rear, reverb and XTLK, not in the GP.",
+   "how_to_use": "Check the game-audio.wav full-scale count against the 44,674 baseline.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "clipping"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "clip-fix-confirmed",
+   "title": "With GP input at -12 dB and the EP read at 24 bits, the fixed build recorded 0 full-scale samples in run 19425",
+   "subject": {
+    "kind": "patch",
+    "id": "apu_dsp_runtime.c headroom (EXE f09c87fc, run 194251)"
+   },
+   "addresses": [],
+   "related": [
+    "dsp-headroom-default-on",
+    "headroom-limiter",
+    "ep-output-24bit"
+   ],
+   "fact": "With GP input at -12 dB and the EP read at 24 bits, the fixed build recorded 0 full-scale samples in run 194251, against 44,674 before. Peaks reached 3.2 times the old clip point and were brought down smoothly, and quiet windows were untouched. The confirmed in play the glitchy audio was gone.",
+   "how_to_use": "Check the game-audio.wav full-scale count and the [APU-HEADROOM] lines in a new recording.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "clipping",
+    "fix"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "clip-volume-no-help",
+   "title": "Turning PC volume down never helped clipping",
+   "subject": {
+    "kind": "concept",
+    "id": "PC_VOLUME is applied after the EP"
+   },
+   "addresses": [],
+   "related": [
+    "clip-ep-sum-saturation"
+   ],
+   "fact": "PC volume is applied in mcpx_apu_prepare_output_frame after the EP. The overload happens inside the EP, so lowering the volume scales an already clipped waveform and never removes the flat tops.",
+   "status": "historical",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "clipping"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "clip-verdict",
+   "title": "A pre-GP limiter did not help, and HRTF in its first form made effects quiet and muddled",
+   "subject": {
+    "kind": "concept",
+    "id": "clip-user-verdict"
+   },
+   "addresses": [],
+   "related": [
+    "clipping",
+    "hrtf-default-off",
+    "bus-limiter-optin"
+   ],
+   "fact": "A pre-GP limiter did not help, and HRTF in its first form made effects quiet and muddled. Both are opt-in now, and the defaults are the original bypass with no limiter. Changes that only alter loudness are rejected.",
+   "how_to_use": "Back any claim with a recorded game-audio.wav, not log level statistics.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "verdict"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "voice-tail-bug",
+   "title": "Bug: one-shot and ending sounds lose their final block and buffered tail",
+   "subject": {
+    "kind": "function",
+    "id": "voice_off / voice_process (tail)"
+   },
+   "addresses": [],
+   "related": [
+    "owned-tail-design",
+    "sinc-resampler"
+   ],
+   "fact": "Original behaviour: when a voice ran out of data, voice_off was called mid-block and voice_process returned before mixing the last 32-sample block, so the sinc converter's buffered output was never drawn. In a 44.1 kHz test one-shot the output ended at sample 2335 with a cut step of 0.442, which is a click. The fix keeps the final block and drains the converter.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "audio",
+    "tail",
+    "click",
+    "bug"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "owned-tail-design",
+   "title": "Owned tail: the voice's output drains after data ends",
+   "subject": {
+    "kind": "function",
+    "id": "mcpx_apu_vp_frame (tail loop) / voice_process (tail snapshot)"
+   },
+   "addresses": [],
+   "related": [
+    "voice-tail-bug",
+    "voice_tail_budget",
+    "env-tail-stats"
+   ],
+   "fact": "When a voice ends with its data, the VP snapshots its gains, bins, SVF and HRTF state into the filter record, then keeps resampling 32 samples per frame from the converter. The tail ends at real EOF (the callback returns zero after padding) and when the output and filter state are below 1e-7. A guard expiry logs [APU] Tail guard exceeded and is treated as a failure, not as success. VOICE_ON, explicit OFF, PAUSE and RELEASE cancel the tail.",
+   "how_to_use": "Any [APU] Tail guard exceeded line blocks acceptance.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1809
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1824
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1847
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1886
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1895
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1553
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1439
+    }
+   ],
+   "tags": [
+    "audio",
+    "tail"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tail-earlier-patch-superseded",
+   "title": "The first tail patch drained at most 12 blocks and did not follow filters",
+   "subject": {
+    "kind": "patch",
+    "id": "audio-voice-tail.patch (12-block drain)"
+   },
+   "addresses": [],
+   "related": [
+    "owned-tail-design",
+    "voice-tail-bug"
+   ],
+   "fact": "The first tail patch drained at most 12 blocks and did not follow filters. The drained tail also bypassed SVF and HRTF, and a guest VOICE_OFF did not stop the drain. The full-tail repair replaced it.",
+   "status": "superseded",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "tail",
+    "superseded"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tail-full-candidate",
+   "title": "Full-tail repair: converter EOF, SVF/HRTF continuation, bounded guard",
+   "subject": {
+    "kind": "patch",
+    "id": "apu_vp.c + apu_state.h full-tail candidate"
+   },
+   "addresses": [],
+   "related": [
+    "owned-tail-design",
+    "voice-tail-bug",
+    "env-tail-stats"
+   ],
+   "fact": "The full-tail candidate passed 1,784 focused assertions and 32 waveform comparisons against an unbounded zero-input oracle, whose maximum error was 1.32e-7. Guest-visible state, notifier and offset timing stayed byte-identical to the baseline. A 2049-case signed pitch sweep passed with no guard expiry.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "audio",
+    "tail"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tail-native-gate",
+   "title": "Bounded native gate for the tail fix (Mission01b): pass",
+   "subject": {
+    "kind": "tool",
+    "id": "audio-native-gate comparison"
+   },
+   "addresses": [],
+   "related": [
+    "owned-tail-design"
+   ],
+   "fact": "A bounded native comparison of baseline and repaired builds on Mission01b passed: 67,501 frames, 30 starts and 30 finishes, 2 silent skips, 0 guards and 0 frames over the 667 us budget. The gate covered menu, loading and idle only, with no explosions and no high-overlap scene. Publication was not approved.",
+   "how_to_use": "Run the same gate before accepting a tail change.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "tail",
+    "test"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tail-cpu-budget-open",
+   "title": "High-overlap tail cost exceeds the 667 us frame budget",
+   "subject": {
+    "kind": "concept",
+    "id": "128 audible tails + 128 active voices"
+   },
+   "addresses": [],
+   "related": [
+    "owned-tail-design",
+    "sinc-resampler",
+    "sse2-src-sinc"
+   ],
+   "fact": "With 128 audible tails and 128 active voices, the matched benchmark measured a median of 812 us and a p95 of 1285 us for the full-tail build, against a 667 us frame. The optimized build is no faster on that workload. An SSE2 stereo sinc change cut the median to 555 us, but its p95 of 689 us still exceeds the budget. Whether real play reaches this load is unmeasured.",
+   "how_to_use": "Read [APU-TAIL] over667 and the XA2 underrun deltas in a dense fight.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "performance",
+    "open-question"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tail-silent-skip",
+   "title": "Silent tails are cancelled when all frozen gains are zero",
+   "subject": {
+    "kind": "function",
+    "id": "voice_process (silent tail skip)"
+   },
+   "addresses": [],
+   "related": [
+    "owned-tail-design",
+    "env-tail-stats"
+   ],
+   "fact": "At natural exhaustion, if every frozen mixbin gain and the monitor gain are zero, the host cancels the tail. Those gains cannot change during the owned tail, so the cancelled samples could never reach an output. On a permanently silent 128 tail + 128 active workload this cut the median from 798.9 us to 402.3 us. It does not claim SRC EOF.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1811
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1816
+    }
+   ],
+   "tags": [
+    "audio",
+    "tail",
+    "performance"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "env-tail-stats",
+   "title": "RECOMP_AUDIO_TAIL_STATS prints [APU-TAIL] every 5 s",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_AUDIO_TAIL_STATS"
+   },
+   "addresses": [],
+   "related": [
+    "owned-tail-design",
+    "tail-silent-skip"
+   ],
+   "fact": "When the variable is set, the VP reads two QPC timestamps per frame and prints one [APU-TAIL] line every 5 s. Fields are tick, frames, active-src, tail-src, filter-only, peak-tails, starts, silent-skips, finishes, guards, avg-us, max-us and over667. It adds no per-voice clocks or logs.",
+   "how_to_use": "The capture launcher drops RECOMP_ variables, so set RECOMP_AUDIO_TAIL_STATS=1 in the game process environment.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 39
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 57
+    }
+   ],
+   "tags": [
+    "audio",
+    "env",
+    "telemetry"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "sse2-src-sinc",
+   "title": "SSE2 stereo sinc change (bit-identical, about 13 percent faster)",
+   "subject": {
+    "kind": "patch",
+    "id": "libsamplerate src_sinc.c calc_output_stereo"
+   },
+   "addresses": [],
+   "related": [
+    "tail-cpu-budget-open"
+   ],
+   "fact": "The SSE2 change computes the two stereo channels in parallel, keeping the original tap order, float coefficient subtraction and rounding. A 120-case oracle and 5,248,000 waveform samples were bit-identical to the scalar path. The median cost fell about 13 to 14 percent on the matched benchmark.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "audio",
+    "performance",
+    "patch"
+   ]
+  },
+  {
+   "id": "xact-list-spin",
+   "title": "XACT list-walk spin froze the game after a truck explosion",
+   "subject": {
+    "kind": "function",
+    "id": "sub_003DEA53"
+   },
+   "addresses": [
+    "003DEA53",
+    "000BCAD0"
+   ],
+   "related": [
+    "XACT",
+    "xact-list-guard"
+   ],
+   "fact": "Run 2026-10-11 (EXE 28798d5d) froze for good after a truck was blown up. The main thread stayed inside the per-frame XACT update sub_003DEA53, which sub_000BCAD0 calls once per frame, while voices went silent. The function walks three circular LIST_ENTRY lists of the XACT engine object (heads at +0x44, +0x64 and +0x5C), and one list no longer led back to its head. The root cause is still unknown.",
+   "how_to_use": "Grep the run's stderr for [XACT-LIST] first.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "xact",
+    "freeze"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "xact-list-guard",
+   "title": "XACT list guard: relink after 4096 steps",
+   "subject": {
+    "kind": "patch",
+    "id": "patch_xact_list_guard.py (recomp_0097.c)"
+   },
+   "addresses": [
+    "003DEA53"
+   ],
+   "related": [
+    "xact-list-spin",
+    "xact-update-crash-delete-null-via-engine-5c-list-loop-unguar"
+   ],
+   "fact": "The guard counts steps in each of the three XACT list loops. After more than 4096 steps it relinks the list from its head through the nodes reachable without a repeat, fixes the back links, and logs [XACT-LIST] (at most 16 lines). A debug-only self-loop injection (RECOMP_TEST_XACT_CORRUPT) showed the repair kept audio running. It is a mitigation, not a root-cause fix. See xact-update-crash-delete-null-via-engine-5c-list-loop-unguarded-notit-nrc-crash1.",
+   "how_to_use": "RECOMP_TEST_XACT_CORRUPT exists only in the debug injection build.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "xact",
+    "freeze",
+    "patch"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "xact-heap-guard",
+   "title": "XACT timer heap crash guard: drop non-guest entries",
+   "subject": {
+    "kind": "patch",
+    "id": "XACT timer min-heap (sub_003E708C / sub_003E716F)"
+   },
+   "addresses": [
+    "003E708C",
+    "003E716F"
+   ],
+   "related": [
+    "xact-list-spin"
+   ],
+   "fact": "On 2026-10-13 one run in hundreds crashed in sub_003E708C, the XACT timer min-heap compare, on the garbage pointer 0xCBCEB981 during the pop in sub_003E716F. The guard patch_xact_heap_guard.py (the game source tree, recomp_0098.c) drops non-guest entries on push, pop and remove, and logs [XACT-HEAP]. The heap layout is +0 array, +4 capacity, +8 count, node+8 u16 index and node+0x18 64-bit due time.",
+   "how_to_use": "Grep stderr for [XACT-HEAP].",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "audio",
+    "xact",
+    "crash"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "xact-cue-list-spin",
+   "title": "Second XACT spin: game thread walks a bank cue list under the XACT lock",
+   "subject": {
+    "kind": "function",
+    "id": "sub_003E4A20"
+   },
+   "addresses": [
+    "003E4A20"
+   ],
+   "related": [
+    "sub_003DDE80",
+    "xact-irql-dsound-race"
+   ],
+   "fact": "On 2026-10-14 (run s11m4, In Your Face 6v6, t=127) the game thread looped in sub_003E4A20, which walks a sound bank's cue list at +0x14 under the XACT lock. The old guard did not cover it, so the same guard was added to recomp_0098.c.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "xact",
+    "freeze"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "xact-irql-dsound-race",
+   "title": "XACT IRQL raise does not exclude the DirectSound DPC: lock order fix",
+   "subject": {
+    "kind": "concept",
+    "id": "XACT CIrql raise / DSound API lock 0x3C4598"
+   },
+   "addresses": [
+    "003DDEAD",
+    "003C4598",
+    "003E8059",
+    "003DDEDC"
+   ],
+   "related": [
+    "sub_003DDE80",
+    "sp0-xact-lower-unlock",
+    "recomp-jcc-sbb-neg"
+   ],
+   "fact": "XACT protects DPC-shared lists by raising IRQL, but a raise does not exclude the DirectSound DPC thread. The fix makes the XACT timer DPC (0x3E8059) and every raise below DISPATCH take the DirectSound API critical section 0x3C4598, and releases it after each KfLowerIrql through ma2_xact_lower_unlock. There is one lock order: XACT CS then DSound CS in DoWork (sub_003DDEDC). A separate XACT lock was tried and deadlocked (run s15a).",
+   "how_to_use": "Count the 'stale: back at passive' branch at the top of sub_003DDE80 to check the lock is released.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "xact",
+    "freeze",
+    "lock"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "recomp-jcc-sbb-neg",
+   "title": "Recompiler bug: je/jne after sbb reg,reg; neg reg tested the wrong value",
+   "subject": {
+    "kind": "concept",
+    "id": "recompiler sbb/neg lowering"
+   },
+   "addresses": [
+    "003A65D0",
+    "003AC7E7",
+    "003DDEAD"
+   ],
+   "related": [
+    "xact-irql-dsound-race"
+   ],
+   "fact": "The recompiler's je/jne after sbb reg,reg; neg reg tested the wrong value. Only three sites were affected: sub_003A65D0 and sub_003AC7E7 (DSound pool free) and sub_003DDEAD (the CIrql raise). All three are fixed in the bots build.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "audio",
+    "recomp",
+    "bug"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "sp0-xact-lower-unlock",
+   "title": "Audit patch SP0: release the XACT lock after the two KfLowerIrql calls in sub_003DEA53",
+   "subject": {
+    "kind": "patch",
+    "id": "patch_sp0_xact_update_lower_unlock.py"
+   },
+   "addresses": [
+    "003DEA53"
+   ],
+   "related": [
+    "xact-irql-dsound-race",
+    "sub_003DEA53"
+   ],
+   "fact": "sub_003DEA53 caches KfLowerIrql (through the thunk at 0x4259DC, kernel ordinal 161) in esi at loc_003DEA76. Its raise at 0x3DEA71 takes the DirectSound API lock, but neither icall at 0x3DEA98 or 0x3DEAB2 releases it, so the game thread can hold that lock at passive level until the next lower site. The patch appends ma2_xact_lower_unlock after both icalls. The notes do not record whether it was applied to recomp_0097.c.",
+   "how_to_use": "Verify by grepping sp-audit in recomp_0097.c and by counting stale-passive hits.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "audio",
+    "xact",
+    "lock",
+    "patch"
+   ],
+   "date": "2026-10-14",
+   "addresses_unverified": [
+    "003DEA71",
+    "003DEA98",
+    "003DEAB2",
+    "004259DC"
+   ]
+  },
+  {
+   "id": "dsound-voice-stop-wait",
+   "title": "DirectSound's voice-stop wait timed out at 0.5 s per voice",
+   "subject": {
+    "kind": "function",
+    "id": "loc_003AD48A (DirectSound voice-stop wait)"
+   },
+   "addresses": [],
+   "related": [
+    "idle-voice-fix",
+    "SE2FE_IDLE_VOICE"
+   ],
+   "fact": "The DirectSound voice-stop wait in recomp_0096.c (loc_003AD48A) times out after 0x4C4B40 x 100 ns, which is 0.5 s. In the 2026-10-11 freeze at the second vehicle gate the timed-out voices already had hwstate 0, so their stop notification was simply never raised. Each affected frame slowed to 0.5 to 1 s.",
+   "how_to_use": "Look for [VOICE-TIMEOUT] in stderr.",
+   "status": "historical",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "freeze",
+    "voice"
+   ],
+   "date": "2026-10-11",
+   "addresses_unverified": [
+    "003AD48A"
+   ]
+  },
+  {
+   "id": "idle-voice-fix",
+   "title": "Idle-voice notification: one per frame, oldest waiting voice",
+   "subject": {
+    "kind": "function",
+    "id": "mcpx_apu_vp_frame idle block / SE2FE_IDLE_VOICE"
+   },
+   "addresses": [],
+   "related": [
+    "SE2FE_IDLE_VOICE",
+    "dsound-voice-stop-wait"
+   ],
+   "fact": "Before the fix, every inactive listed voice raised SE2FE_IDLE_VOICE during one walk, and each overwrote FEDECPARAM before the DirectSound ISR read it, so only the last one counted. The fix sends one notification per VP frame, for the voice that has waited longest, and only when the FE is not trapped or halted. The other voices stay listed and are reported on later frames. Counters idle_sent, idle_deferred and idle_max_wait_frames appear in [APU-MP].",
+   "how_to_use": "Check [APU-MP] idle_max_wait_frames. The verified run showed 2 to 3.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1935
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1950
+    }
+   ],
+   "tags": [
+    "audio",
+    "freeze",
+    "voice"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "SE2FE_IDLE_VOICE",
+   "title": "SE2FE_IDLE_VOICE register bit",
+   "subject": {
+    "kind": "address",
+    "id": "SE2FE_IDLE_VOICE (0x8000) / NV_PAPU_FETFORCE1 bit 15"
+   },
+   "addresses": [],
+   "related": [
+    "idle-voice-fix"
+   ],
+   "fact": "The front-end event SE2FE_IDLE_VOICE has value 0x8000, and NV_PAPU_FETFORCE1 bit 15 is its enable. The VP raises it through fe_method, whose case for it is at line 921.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_regs.h",
+     "line": 53
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_regs.h",
+     "line": 216
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 921
+    }
+   ],
+   "tags": [
+    "audio",
+    "register"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "voice-lock-handshake",
+   "title": "VOICE_LOCK is an interlocked handshake, not the frame lock",
+   "subject": {
+    "kind": "function",
+    "id": "voice_lock / vp_enter"
+   },
+   "addresses": [],
+   "related": [
+    "env-voice-lock"
+   ],
+   "fact": "voice_lock used to take d->lock, which the APU thread held for its whole frame, so each title lock waited for the frame. Laptop runs were at 20 to 25 fps with the GPU 80 percent idle. Now voice_lock sets a bit in voice_locked with interlocked operations, and the VP publishes the voice it is mixing in g_vp_voice. The title waits only while the VP is inside that voice.",
+   "how_to_use": "RECOMP_APU_VOICE_LOCK=frame restores the old frame lock for A/B.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 287
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 291
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 317
+    }
+   ],
+   "tags": [
+    "audio",
+    "performance",
+    "lock"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "apu-time",
+   "title": "APU timing line [APU-TIME] and RECOMP_PERF",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_PERF"
+   },
+   "addresses": [],
+   "related": [
+    "env-audio-stats",
+    "dsp-frame"
+   ],
+   "fact": "With RECOMP_PERF or RECOMP_AUDIO_STATS set, apu_time_frame prints [APU-TIME] every 5 s: frames, percent of real time, VP milliseconds, voices per frame, GP and EP milliseconds, and whether the DSP runs on its own thread.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 559
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 562
+    }
+   ],
+   "tags": [
+    "audio",
+    "env",
+    "telemetry"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "stall-profiler",
+   "title": "RECOMP_STALL_PROFILE sampling profiler",
+   "subject": {
+    "kind": "tool",
+    "id": "RECOMP_STALL_PROFILE"
+   },
+   "addresses": [
+    "004E2420"
+   ],
+   "related": [
+    "env-stall-profile",
+    "nal-closed-socket-hang"
+   ],
+   "fact": "The profiler starts once a thread watches guest 0x4E2420 (the frame counter). When fewer than 10 frame advances occur in 500 ms, it samples every thread's instruction pointer about every 2 ms, unwinds the stacks, and prints the top 16 self and inclusive image RVAs with [STALL]. During a hang it prints [STALL] ongoing every 10 s. It is diagnostic only and does not touch guest state.",
+   "how_to_use": "Map the RVAs with PC Release/mechassault2_recomp.map.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 273
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 275
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 342
+    }
+   ],
+   "tags": [
+    "audio",
+    "tool",
+    "freeze"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "env-stall-profile",
+   "title": "RECOMP_STALL_PROFILE",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_STALL_PROFILE"
+   },
+   "addresses": [],
+   "related": [
+    "stall-profiler"
+   ],
+   "fact": "RECOMP_STALL_PROFILE=1 samples below 10 frame advances per 500 ms. A value N above 1 samples below N, so a large N profiles ordinary frames and reports every 10 s.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 668
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 273
+    }
+   ],
+   "tags": [
+    "env",
+    "tool"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "stall-profiler-finding-cs",
+   "title": "Slow saves and quits came from the critical-section table filling up",
+   "subject": {
+    "kind": "concept",
+    "id": "kernel critical-section table"
+   },
+   "addresses": [],
+   "related": [
+    "stall-profiler"
+   ],
+   "fact": "The stall profiler found 70 percent of the save stall in xbox_cs_shadow under the checkpoint writer. The fixed 4096-slot table of guest lock addresses was never cleared, and once it filled every further lock was unprotected and scanned all slots. The fix in kernel_rtl.c uses chunked slots, a growing guest-address index and host locks. A 200,000-lock, 8-thread stress test had no identity errors.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "freeze",
+    "kernel",
+    "cross-pack"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "nal-closed-socket-hang",
+   "title": "Multiplayer-exit hang: closed-socket receive reached a D3D flip spin",
+   "subject": {
+    "kind": "function",
+    "id": "sub_001ED780 (NAL receive)"
+   },
+   "addresses": [
+    "001ED780",
+    "001D8710",
+    "0040ACB0"
+   ],
+   "related": [
+    "stall-profiler"
+   ],
+   "fact": "After NAL.cpp(1017) 'Attempt to receive datagrams on a closed socket', the Verify handler sub_001D8710 blocked in the D3D flip wait sub_0040ACB0 while the main thread was 100 percent in the spin. The fix in recomp_0051.c returns 0x80072736 (WSAENOTSOCK) with esp += 8 when the receive socket is -1. An earlier version returned 0 and popped the wrong stack, which crashed the game.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "freeze",
+    "network",
+    "cross-pack"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "heap-stack-reclaim",
+   "title": "Heap best-fit and stack reclaim",
+   "subject": {
+    "kind": "setting",
+    "id": "RECOMP_STACK_RECLAIM"
+   },
+   "addresses": [],
+   "related": [
+    "xbox_memory_layout.c"
+   ],
+   "fact": "The port heap (48.5 MB) was fragmented during multiplayer exits. Best-fit carving and RECOMP_STACK_RECLAIM (on by default with HEAP_RECLAIM) seed 0x00980000 to 0x00E80000 (5 MB) into the heap, keeping 1 MB for the main stack, and cap worker stacks at 8.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "memory",
+    "cross-pack"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "cinematic-30fps",
+   "title": "Cinematic-only missions cap at 30 FPS and pillarbox",
+   "subject": {
+    "kind": "setting",
+    "id": "RECOMP_CINEMATIC_MODE"
+   },
+   "addresses": [],
+   "related": [
+    "pc_display_cinematic"
+   ],
+   "fact": "A cinematic level (Cinema_*.mgf) is detected from the partition cache name, a CRC32 of the lowercase archive path. While active, the frontend paces Present to 30 FPS and keeps the original 4:3 aspect. Saved settings are not changed.",
+   "how_to_use": "RECOMP_CINEMATIC_MODE=0 disables it. RECOMP_DISPLAY_TRACE logs [PC-DISPLAY].",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "display",
+    "cross-pack"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tank-physics-default",
+   "title": "Tank physics on by default; RECOMP_TANK_FIXEDSTEP=0 opts out",
+   "subject": {
+    "kind": "setting",
+    "id": "RECOMP_TANK_FIXEDSTEP"
+   },
+   "addresses": [],
+   "related": [
+    "bus-limiter-optin"
+   ],
+   "fact": "Opt out with RECOMP_TANK_FIXEDSTEP=0. HRTF and the bus limiter stay opt-.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "tank",
+    "cross-pack"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "capture-audio-wav",
+   "title": "Game audio recording: game-audio.wav per capture run",
+   "subject": {
+    "kind": "tool",
+    "id": "RECOMP_AUDIO_CAPTURE (playthrough kit)"
+   },
+   "addresses": [],
+   "related": [
+    "headroom-limiter",
+    "env-audio-capture"
+   ],
+   "fact": "The playthrough kit records the final PCM sent to XAudio2 as <run>/game-audio.wav. It is about 11.5 MB per minute and is kept out of the diagnostics ZIP. The analysis scripts count full-scale samples, flat runs and clicks in it.",
+   "how_to_use": "Use the wav for clipping claims.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "tool",
+    "capture"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "env-audio-capture",
+   "title": "RECOMP_AUDIO_CAPTURE=<absolute wav path>",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_AUDIO_CAPTURE"
+   },
+   "addresses": [],
+   "related": [
+    "capture-audio-wav"
+   ],
+   "fact": "Writes the mixed PCM sent to the device to the given wav path. The playthrough kit sets it for each run. A process that sets it outside the kit must give an absolute path.",
+   "how_to_use": "Set RECOMP_AUDIO_CAPTURE=<absolute path> on an explicit launch.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "env",
+    "audio",
+    "capture"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "capture-launcher-env",
+   "title": "Capture launchers strip inherited RECOMP_ variables",
+   "subject": {
+    "kind": "tool",
+    "id": "Start-Playthrough.cmd / Try-*.cmd"
+   },
+   "addresses": [],
+   "related": [
+    "env-gain-trace",
+    "env-mix-trace"
+   ],
+   "fact": "The capture launcher removes inherited RECOMP_ variables, so tracing or A/B settings must be set in the final game process environment. Try-HRTF-Audio.cmd, Try-Audio-Limiter.cmd and Try-Audio-No-Limiter.cmd each resume the same profile with one audio setting changed.",
+   "how_to_use": "Set the variable explicitly in the launcher, then confirm the trace line appears in stderr.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "tool",
+    "env"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "stale-apu-readme",
+   "title": "Stale notes: kit/source/game/src/apu README says GP/EP stubbed and waveOut",
+   "subject": {
+    "kind": "file",
+    "id": "kit/source/game/src/apu/README.md"
+   },
+   "addresses": [],
+   "related": [
+    "audio-pipeline-overview",
+    "dsp-frame"
+   ],
+   "fact": "The kit/source/game/src/apu README (candidate copy and the source tree) says that GP and EP are stubbed and that output is waveOut at 48 kHz. Both statements are out of date: the GP and EP run the DSP56300 interpreter and the output is XAudio2.",
+   "how_to_use": "Trust this page over the README for the live pipeline.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "audio",
+    "docs"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "stale-src-audio-readme",
+   "title": "Stale notes: kit/source/game/src/audio is not on the live path",
+   "subject": {
+    "kind": "file",
+    "id": "kit/source/game/src/audio/README.md (dsound_device.c)"
+   },
+   "addresses": [],
+   "related": [
+    "audio-pipeline-overview"
+   ],
+   "fact": "kit/source/game/src/audio/dsound_device.c and the apu_dsp.c limiter are not on the live audio path. The README describes DirectSound backed by a waveOut mixer, which is not what runs now.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/runtime/src/audio/README.md",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "audio",
+    "docs"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "mixdown-harness",
+   "title": "apu_mixdown harness: GP/EP mixdown bins 2 to 31 were discarded",
+   "subject": {
+    "kind": "tool",
+    "id": "tests/apu_mixdown"
+   },
+   "addresses": [],
+   "related": [
+    "dsp-frame"
+   ],
+   "fact": "The original mcpx_apu_dsp_frame read only mixbins 0 and 1 and discarded bins 2 to 31. On Jet Set Radio Future the 3D effects were lost (lost=377768), while music on bins 0 and 1 was heard. The two CTest cases apu_mixdown_all and apu_mixdown_two_bins cover the fix and its switch.",
+   "how_to_use": "cmake -S tests/apu_mixdown -B build/apu-mixdown; cmake --build build/apu-mixdown; ctest --test-dir build/apu-mixdown",
+   "status": "historical",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "test",
+    "history"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "cue-mapping-pointer",
+   "title": "MAActionSound CueEvent: this pack does not map cue IDs",
+   "subject": {
+    "kind": "class",
+    "id": "MAActionSound"
+   },
+   "addresses": [],
+   "related": [
+    "audio-pipeline-overview"
+   ],
+   "fact": "This pack covers the APU and the XACT engine but not the mapping from MAActionSound CueEvent to sound banks or cue IDs. The catalog entry says MAActionSound uses CueEvent, IsQueued and DelayBeforePlay, that 769 retail placements use it, and that imported clips can play from CueEvent (verified in game on 2026-10-20). Cue ID formats are still undocumented here.",
+   "how_to_use": "Open this gap in the wiki before answering a cue question.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "audio",
+    "cue",
+    "open-question"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "env-hrtf",
+   "title": "RECOMP_APU_HRTF",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_APU_HRTF"
+   },
+   "addresses": [],
+   "related": [
+    "hrtf-default-off"
+   ],
+   "fact": "Enables the HRTF filter for 3D voices when non-zero. Unset and 0 both leave the bypass. Read once per process.",
+   "how_to_use": "RECOMP_APU_HRTF=1 for the comparison build only.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_shim.h",
+     "line": 339
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_shim.h",
+     "line": 343
+    }
+   ],
+   "tags": [
+    "env",
+    "audio",
+    "hrtf"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "env-dsp-headroom",
+   "title": "RECOMP_APU_DSP_HEADROOM",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_APU_DSP_HEADROOM"
+   },
+   "addresses": [],
+   "related": [
+    "dsp-headroom-default-on"
+   ],
+   "fact": "Set to 0 to restore the original GP and EP path with no input scaling or 24-bit read. Default is on.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 89
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 92
+    }
+   ],
+   "tags": [
+    "env",
+    "audio",
+    "clipping"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "env-limiter",
+   "title": "RECOMP_APU_LIMITER",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_APU_LIMITER"
+   },
+   "addresses": [],
+   "related": [
+    "bus-limiter-optin"
+   ],
+   "fact": "Set to a non-zero value to enable the pre-GP bus limiter (0.98 ceiling). Default off. Logs [APU-LIMIT] at start.",
+   "how_to_use": "Try-Audio-Limiter.cmd sets it for an A/B.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 504
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 500
+    }
+   ],
+   "tags": [
+    "env",
+    "audio",
+    "limiter"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "env-gain-trace",
+   "title": "RECOMP_APU_GAIN_TRACE",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_APU_GAIN_TRACE"
+   },
+   "addresses": [],
+   "related": [
+    "hrtf-rollback-default-off",
+    "hrtf-headroom-trace"
+   ],
+   "fact": "Prints at most 96 bounded lines per process: HRTF headroom, submix headroom writes and each completed HRIR entry as raw signed 8-bit taps with ITD. Missing or 0 disables it. It observes only and changes no audio.",
+   "how_to_use": "Set it in the game launch environment, because the launchers strip RECOMP_ variables.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 402
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 407
+    }
+   ],
+   "tags": [
+    "env",
+    "audio",
+    "trace"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "env-mix-trace",
+   "title": "RECOMP_APU_MIX_TRACE",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_APU_MIX_TRACE"
+   },
+   "addresses": [],
+   "related": [
+    "multipass-overload",
+    "multipass-trace-result"
+   ],
+   "fact": "Observes active post-filter voice blocks only. It logs routing signatures (up to 32), distinct HRIR entries (up to 48) and a 5 s summary per watched bin (up to 120), with per-bin contributions, duplicate slots and the largest per-frame sum. Its peak values are upper bounds, not a waveform. Lines are bounded to 1280 bytes and gated so they never block the audio thread.",
+   "how_to_use": "Summary numbers are bounds; do not read them as the played output.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 424
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 432
+    }
+   ],
+   "tags": [
+    "env",
+    "audio",
+    "trace"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "env-mp-trace",
+   "title": "RECOMP_APU_MP_TRACE",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_APU_MP_TRACE"
+   },
+   "addresses": [],
+   "related": [
+    "multipass-trace-result"
+   ],
+   "fact": "Classifies each multipass read of bin 31 as empty, one writer, adjacent pair or several writers. Prints [APU-MP] every 5 s with writer counts per list, tail writes, leftover frames and idle counters.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1575
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1588
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 1618
+    }
+   ],
+   "tags": [
+    "env",
+    "audio",
+    "trace",
+    "3d"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "env-stream",
+   "title": "RECOMP_APU_STREAM_STATS and RECOMP_APU_STREAM_TRACE",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_APU_STREAM_STATS"
+   },
+   "addresses": [],
+   "related": [
+    "owned-tail-design"
+   ],
+   "fact": "RECOMP_APU_STREAM_STATS prints [APU-STREAM] for streamed voices with gaps and missing source samples. RECOMP_APU_STREAM_TRACE=<voice> prints up to 512 [APU-SSL] lines for that voice's segment table.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 196
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 242
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 250
+    }
+   ],
+   "tags": [
+    "env",
+    "audio",
+    "stream"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "env-stack-ba",
+   "title": "RECOMP_APU_STACK_BA",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_APU_STACK_BA"
+   },
+   "addresses": [],
+   "related": [
+    "voice_process"
+   ],
+   "fact": "A hex buffer address. When a voice starts on that buffer, the APU prints the game thread's guest stack, which shows who started the sound.",
+   "how_to_use": "Set it to the buffer address printed by [APU-VOICE].",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 667
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 675
+    }
+   ],
+   "tags": [
+    "env",
+    "audio",
+    "debug"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "env-voice-lock",
+   "title": "RECOMP_APU_VOICE_LOCK",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_APU_VOICE_LOCK"
+   },
+   "addresses": [],
+   "related": [
+    "voice-lock-handshake"
+   ],
+   "fact": "Set to frame to restore the frame-long d->lock wait on voice locks, for A/B against the handshake.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_vp.c",
+     "line": 294
+    }
+   ],
+   "tags": [
+    "env",
+    "audio",
+    "performance"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "env-dsp",
+   "title": "RECOMP_APU_DSP and RECOMP_APU_DSP_THREAD",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_APU_DSP"
+   },
+   "addresses": [],
+   "related": [
+    "dsp-frame"
+   ],
+   "fact": "RECOMP_APU_DSP=0 disables the GP and EP. RECOMP_APU_DSP_THREAD=0 runs the DSP inline instead of on its own thread.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 15
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 652
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 653
+    }
+   ],
+   "tags": [
+    "env",
+    "audio",
+    "dsp"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "env-pipeline-capture",
+   "title": "RECOMP_APU_PIPELINE_CAPTURE, _START and _SECONDS",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_APU_PIPELINE_CAPTURE"
+   },
+   "addresses": [],
+   "related": [
+    "clip-pregp-pipeline-capture"
+   ],
+   "fact": "RECOMP_APU_PIPELINE_CAPTURE=<prefix> writes the mixbin and GP files and a state file. _START is in seconds (default 45), and _SECONDS is the duration (default 30, range 1 to 300). Frames are counted at 1500 per second. Capture forces the DSP to run inline.",
+   "how_to_use": "Then run analyze_pipeline_capture.py on the prefix.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 437
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 443
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 445
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 446
+    }
+   ],
+   "tags": [
+    "env",
+    "audio",
+    "capture"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "env-audio-stats",
+   "title": "RECOMP_AUDIO_STATS",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_AUDIO_STATS"
+   },
+   "addresses": [],
+   "related": [
+    "headroom-limiter",
+    "xa2-output"
+   ],
+   "fact": "Turns on the periodic audio telemetry: [APU-DSP] GP cycles and budgets, [APU-HEADROOM] limiter stats, [AUDIO] peaks and the XA2 line with underruns, backpressure and engine glitches.",
+   "how_to_use": "The capture kit does not set it by default (REPORT says so), so set it explicitly.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 543
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_dsp_runtime.c",
+     "line": 697
+    }
+   ],
+   "tags": [
+    "env",
+    "audio",
+    "telemetry"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "env-audio-isr-stats",
+   "title": "RECOMP_AUDIO_ISR_STATS",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_AUDIO_ISR_STATS"
+   },
+   "addresses": [],
+   "related": [
+    "dsound-voice-stop-wait",
+    "xact-irql-dsound-race"
+   ],
+   "fact": "Enables statistics for the DirectSound ISR and DPC audio path in recomp_manual.c. The notes use it to check the skip ratio after the XACT lock change.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 104
+    }
+   ],
+   "tags": [
+    "env",
+    "audio",
+    "dsound"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "env-audio-stop-assist",
+   "title": "RECOMP_AUDIO_STOP_ASSIST",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_AUDIO_STOP_ASSIST"
+   },
+   "addresses": [],
+   "related": [
+    "dsound-voice-stop-wait"
+   ],
+   "fact": "A stop-assist switch in recomp_manual.c for DirectSound voice stops. It is disabled when set to a value starting with 0.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 133
+    }
+   ],
+   "tags": [
+    "env",
+    "audio",
+    "dsound"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "env-audio-silent",
+   "title": "RECOMP_AUDIO_SILENT",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_AUDIO_SILENT"
+   },
+   "addresses": [],
+   "related": [
+    "audio-pipeline-overview"
+   ],
+   "fact": "Silences only that process's device submissions. It is for scenario tests and does not change the APU state.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario_audio.cpp",
+     "line": 84
+    }
+   ],
+   "tags": [
+    "env",
+    "audio"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "env-audio-volume",
+   "title": "RECOMP_AUDIO_VOLUME",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_AUDIO_VOLUME"
+   },
+   "addresses": [],
+   "related": [
+    "clip-volume-no-help"
+   ],
+   "fact": "The Audio Volume setting (0 to 100, default 100), read from the ini or this variable. It is applied after the EP, so it cannot fix clipping.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 690
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 200
+    }
+   ],
+   "tags": [
+    "env",
+    "audio",
+    "settings"
+   ],
+   "date": "2026-10-11"
+  }
+ ]
+}

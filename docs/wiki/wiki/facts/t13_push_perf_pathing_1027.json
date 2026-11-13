@@ -1,0 +1,1271 @@
+{
+ "pack": "t13_push_perf_pathing_1027",
+ "title": "Bot pathing and performance pass (2026-10-27)",
+ "facts": [
+  {
+   "id": "bot-drive-flags-need-mech-body",
+   "title": "AI-drive flags on an ejected bot write into a non-body object",
+   "subject": {
+    "kind": "concept",
+    "id": "bot-drive-flags-need-mech-body"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The bot controller sets actor+0x1E8 |= 3 (ma2_bot_ctrl.c:219/231/268/301). That is valid only on MAMech/MAMover bodies. On a NeuroHack-ejected bot, +0x1E8 is an embedded object's vtable pointer. Fixed by ma2_bot_body_ok in actor_ai (push-w1 3fb8ed5, RECOMP_BOT_BODY_GUARD).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "stability",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "icall-vptr-shift-by-3-signature",
+   "title": "Signature of a vptr shifted by 3 in [ICALL] lines",
+   "subject": {
+    "kind": "concept",
+    "id": "icall-vptr-shift-by-3-signature"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A vptr shifted by 3 shows up as [ICALL] targets that are code addresses shifted left 8 bits (0x01ECA000 = 0x0001ECA0, 0x0817E000 = 0x000817E0).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "stability",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "crash-after-hijack-is-game-thread-hang",
+   "title": "The [CS] waits on 0x003C4598 in that log are normal contention (all acquired), not the cause.",
+   "subject": {
+    "kind": "concept",
+    "id": "crash-after-hijack-is-game-thread-hang"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The [CS] waits on 0x003C4598 in that log are normal contention (all acquired), not the cause.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "stability",
+    "bots",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "neurohack-qte-win-condition",
+   "title": "NeuroHack QTE: setting +0x18 to +0xA8 wins the round",
+   "subject": {
+    "kind": "concept",
+    "id": "neurohack-qte-win-condition"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "In the NeuroHack QTE, setting the hacker's +0x18 to +0xA8 (target) ends the round as a WIN: the victim is ejected and the 'Mech is left empty. Holding the victim's +0x18 at 0 alone does not win. Test hook RECOMP_TEST_HIJACK (ma2_bots_core.c; hk2/hk3).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "hijack",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bot-code-must-not-write-unit-hp",
+   "title": "Bot code must never write unit HP",
+   "subject": {
+    "kind": "concept",
+    "id": "bot-code-must-not-write-unit-hp"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Writing a unit's HP (+0x260 block +8) from bot code revives units whose death handler already ran. It then crashes later in the deferred-delete walk (B5D60/B5350/B4EF0; hj1-4, hj7). Never write HP, even in test hooks.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "stability",
+    "bots",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "recomp-watchdog-secs-not-hang-detector",
+   "title": "RECOMP_WATCHDOG_SECS is not a hang detector",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_WATCHDOG_SECS"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RECOMP_WATCHDOG_SECS terminates the process after N seconds (hk1 first launch died at load). It is not a hang detector; use RECOMP_BOT_STALL=1 instead.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "stability",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "icall-log-regs-and-stack",
+   "title": "[ICALL] log lines include ret, ecx, tid and stack words",
+   "subject": {
+    "kind": "concept",
+    "id": "icall-log-regs-and-stack"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "[ICALL] log lines now include ret, ecx and tid plus 8 stack words (recomp_manual.c recomp_icall_not_code_log, push-w1 aa31817).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "stability",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "neurohack-victim-holds-plain-corporeal",
+   "title": "NeuroHack victim holds a plain MACorporeal placeholder",
+   "subject": {
+    "kind": "concept",
+    "id": "neurohack-victim-holds-plain-corporeal"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "After a won NeuroHack, the victim's player holds a plain MACorporeal (class CA77C1A6, vtable 00466BA0, 0x1A8 bytes, one child class D8CDB49A) at the 'Mech for about 8-12 s. Deaths +1 at about +9 s, then he respawns about 900 m away as a fresh pilot MAMech. No MAMech/MAMover among the children, so no pilot to drive (w1b-r0.r5). W6b later showed ordinary deaths do not produce it.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "hijack",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "won-neurohack-kills-victim",
+   "title": "A won NeuroHack kills the victim",
+   "subject": {
+    "kind": "concept",
+    "id": "won-neurohack-kills-victim"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A won NeuroHack kills the victim (deaths +1). The bot does not land as a pilot near the 'Mech.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "hijack",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "sub-c8e6a-corporeal-child-is-placeholder",
+   "title": "sub_C8E6A first MACorporeal child is the respawn placeholder",
+   "subject": {
+    "kind": "concept",
+    "id": "sub-c8e6a-corporeal-child-is-placeholder"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "sub_C8E6A's 'first MACorporeal child' is the placeholder during the respawn wait. actor_kind now maps exact MACorporeal to MA2_KIND_NONE (ma2_bots_core.c actor_kind, push-w1 fb892dc; switch RECOMP_BOT_PLAIN_CORP, default 1).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "macorporeal-0x1a8-write-overruns-heap-block",
+   "title": "A write at +0x1E8 on a MACorporeal lands in the next heap block",
+   "subject": {
+    "kind": "concept",
+    "id": "macorporeal-0x1a8-write-overruns-heap-block"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "MACorporeal objects are 0x1A8 bytes (factory 0xD6FE8). Any write at +0x1E8 (MAMover AI flags) on one lands in the next heap block.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "stability",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "battlearmor-q-climbs-out-human-boards-on-foot",
+   "title": "A human must board an emptied 'Mech on foot",
+   "subject": {
+    "kind": "concept",
+    "id": "battlearmor-q-climbs-out-human-boards-on-foot"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "In a BattleArmor, Q climbs out. A human (or test hook) must board an emptied 'Mech on foot.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "hijack",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "four-of-four-hijack-launches-complete",
+   "title": "All 4 RECOMP_TEST_HIJACK launches on w1b5 completed a hijack",
+   "subject": {
+    "kind": "concept",
+    "id": "four-of-four-hijack-launches-complete"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "All 4 RECOMP_TEST_HIJACK launches on w1b5 completed a hijack this time (t=104-179 s). The earlier 'about half' was a W1b hook issue, not a fix issue.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "hijack",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "destroyed-hijacked-mech-human-respawns-as-pilot",
+   "title": "Destroyed hijacked 'Mech respawns the human as a pilot",
+   "subject": {
+    "kind": "concept",
+    "id": "destroyed-hijacked-mech-human-respawns-as-pilot"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A destroyed hijacked 'Mech sends the human to a fresh pilot (kind 1, hp 10/10) without faults (w1c-r3 t=133-148).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "hijack",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "uc-match-start-ensure-nav-1-2s",
+   "title": "UC match start: ensure_nav grid costs 1.1-1.2 s",
+   "subject": {
+    "kind": "concept",
+    "id": "uc-match-start-ensure-nav-1-2s"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "On UC match start, ensure_nav (ma2_bots_core.c) builds the obstacle grid with 566,702 physics rays: 1.1-1.2 s on the game thread (baseline). trav_fine_props adds about 0.4 s.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "perf",
+    "bots",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "first-bot-astar-plans-hitch",
+   "title": "First bot A* plans hitch the first 4 s of a match",
+   "subject": {
+    "kind": "concept",
+    "id": "first-bot-astar-plans-hitch"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "11 bots x 35-48 ms of A* re-planning together, 3 times in the first 4 s (ctrl_plan, ma2_bot_ctrl.c ~1173; [HITCH-BOT] plan=).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "perf",
+    "bots",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "recomp-hitch-tracer",
+   "title": "RECOMP_HITCH=25 tracer lives in nv2a_pb_exec.c",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_HITCH"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RECOMP_HITCH=25 tracer lives in nv2a_pb_exec.c (hitch_flip, hitch_sampler). It prints [HITCH-SUM] and [HITCH-S]; resolve RVAs with the .map via w2-runs\\hs.py.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "perf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "loading-screen-10fps-not-hitching",
+   "title": "Loading screen at 10 fps is not match hitching",
+   "subject": {
+    "kind": "concept",
+    "id": "loading-screen-10fps-not-hitching"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The loading screen runs at about 10 fps (100 ms frames) for about 1.4 s after bots_level_begin. This is not counted as match hitching.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "perf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "kernel-obj-edits-need-lib-replace",
+   "title": "Kernel object edits must be lib-replaced, not just ninja'd",
+   "subject": {
+    "kind": "concept",
+    "id": "kernel-obj-edits-need-lib-replace"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Kernel objects edited (nv2a_pb_exec, nv2a_gpu_d3d11, shader_cache, texture) must be lib-replaced into xbox_kernel.lib (build_w2.cmd). A plain ninja exe does not relink them.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "perf",
+    "stability",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "backslash-n-collapses-in-edit-paths",
+   "title": "Backslash-n collapses in some edit paths",
+   "subject": {
+    "kind": "concept",
+    "id": "backslash-n-collapses-in-edit-paths"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Backslash-n written through some edit paths collapsed in C string escapes. Use the Edit tool for C string escapes.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "perf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "trav-fine-props-zero-budget-runs-whole-pass",
+   "title": "trav_fine_props with budget 0.0 runs the whole pass",
+   "subject": {
+    "kind": "concept",
+    "id": "trav-fine-props-zero-budget-runs-whole-pass"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "trav_fine_props_run(begin=1, budget) ran the whole pass when budget was 0.0 (about 420 ms on UC). A negative budget only sets up (ma2_bots_core.c ~1246/~1470).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "perf",
+    "bots",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "trav-commit-per-turret-batched",
+   "title": "ma2_trav_commit per turret is now batched",
+   "subject": {
+    "kind": "concept",
+    "id": "trav-commit-per-turret-batched"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "ma2_trav_commit (2 chamfer passes plus component labelling over the grid) costs 9-11 ms on UC and about 24 ms on NRC/BD. turret_seen (ma2_bots_core.c ~2740) called it once per new turret (UC: 6 turrets, 58 ms in one scan). Now batched ([C7] turretbatch).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "perf",
+    "bots",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "lanes-update-first-build-largest-hitch",
+   "title": "lanes_update first build is the largest match-start hitch",
+   "subject": {
+    "kind": "concept",
+    "id": "lanes-update-first-build-largest-hitch"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "lanes_update first build (3 ma2_path_plan A* plans, ma2_bots_core.c ~3135) costs UC 41-46 ms, BD 74 ms, NRC 231-236 ms in one step, as soon as ma2_trav_ready. It was the largest match-start hitch at the time.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "perf",
+    "bots",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "match-start-native-212-503ms-frame",
+   "title": "Match-start 212-503 ms frame is native, not bot code",
+   "subject": {
+    "kind": "concept",
+    "id": "match-start-native-212-503ms-frame"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Match start (UC/NRC/BD): a 212-503 ms loading-end frame at +0.11.0.15 s is native (HUD .ggf forms, level start, new GPU programs). Only about 21 ms is the first bot tick. BD also waits about 150 ms on a D3D resource fence (sub_0040F510 -> KeWaitForSingleObject) near +0.9 s.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "perf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "nav-slicing-timeline",
+   "title": "Nav slicing timeline at match start",
+   "subject": {
+    "kind": "concept",
+    "id": "nav-slicing-timeline"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Grid ready about +2.6 s on UC and +4.2 s on NRC/BD. nav_graph_done about +3.4 s UC, +5.4 s NRC, +6.1-6.5 s BD.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "perf",
+    "bots",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "baseline-worst-first-10s-frame",
+   "title": "Baseline worst frame in the first 10 s of a match",
+   "subject": {
+    "kind": "concept",
+    "id": "baseline-worst-first-10s-frame"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Baselines with switches off: worst frame in the first 10 s is 1.4-1.5 s on UC, 3.0 s on NRC, 3.5 s on BD.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "perf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "hitch-s-lines-list-every-thread",
+   "title": "[HITCH-S] lines list every thread",
+   "subject": {
+    "kind": "concept",
+    "id": "hitch-s-lines-list-every-thread"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "[HITCH-S] lines list every thread. The game thread is the one with sub_xxxx / ma2_ frames. hs.py handles module names with spaces.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "perf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "game-launch-slots-machine-wide",
+   "title": "The MCP allows 2 games machine-wide",
+   "subject": {
+    "kind": "concept",
+    "id": "game-launch-slots-machine-wide"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The MCP allows 2 game slots machine-wide.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "perf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "goal-none-hp0-is-dead-bot",
+   "title": "GOAL none with hp=0.00 is a dead bot",
+   "subject": {
+    "kind": "concept",
+    "id": "goal-none-hp0-is-dead-bot"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A [BOT] line with GOAL none and hp=0.00 is a dead bot lying where it died. The brain tick returns early (ma2_bot_brain.c brain_tick_body ~4470 sets G_NONE). Filter hp>0 before analysing goals.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "ctf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "obj-evt-dropped-prints-drop-position",
+   "title": "[OBJ-EVT] 'dropped -> home' prints the drop position",
+   "subject": {
+    "kind": "concept",
+    "id": "obj-evt-dropped-prints-drop-position"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "[OBJ-EVT] 'dropped -> home' prints the DROP position, not the stand (ma2_bot_objective.c:416-418 prints o->pos). Take the stand from the first '- -> home' event. Bogged Down stands: red flag 495,903, blue flag 870,1735. NRC: 805,1423 and 1077,797.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "ctf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "writing-actor-4c0-does-not-teleport",
+   "title": "Writing actor+0x4C0 does not teleport a 'Mech",
+   "subject": {
+    "kind": "concept",
+    "id": "writing-actor-4c0-does-not-teleport"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Writing actor+0x4C0 or scene node+0xF0 does not teleport a 'Mech. The node moves for render, but flag touch and collision use another (physics) position (CTF-STAGE test, push-w3, 2026-10-27).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "ctf",
+    "bots",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bogged-down-ctf-capture-rate",
+   "title": "Bogged Down CTF capture rate and carrier time",
+   "subject": {
+    "kind": "concept",
+    "id": "bogged-down-ctf-capture-rate"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Bogged Down CTF bot matches (5v6, skill 4): 1-3 captures per 300 s. Carriers spend 0.5-6 s inside 25 m of their stand per capture. No orbit above 0.41 turn in 14 carries (w3 runs).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "ctf",
+    "bots",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "grab-attacker-orbits-enemy-stand",
+   "title": "Attacker with obj=grab! orbits an enemy stand",
+   "subject": {
+    "kind": "concept",
+    "id": "grab-attacker-orbits-enemy-stand"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "An attacker with obj=grab! and goal objective can orbit an enemy stand at 6-15 m for 8-16 s (bd-on1 port 9, t=220-233) with ord=travel eng=0. Cause: controller body-avoidance around hulls on the stand, not combat strafing.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "ctf",
+    "bots",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "ctf-cap-grab-commit-switches",
+   "title": "CtfCapCommit and CtfGrabCommit switches",
+   "subject": {
+    "kind": "concept",
+    "id": "ctf-cap-grab-commit-switches"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Switches [Bots] CtfCapCommit and CtfGrabCommit (default 1); env RECOMP_BOT_CTF_CAP_COMMIT / RECOMP_BOT_CTF_GRAB_COMMIT. Counters [C7] ctfcap / ctfgrab (ma2_bot_brain_obj.c).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "ctf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "heap-block-table-holes-grew",
+   "title": "Guest heap block table grew from holes",
+   "subject": {
+    "kind": "concept",
+    "id": "heap-block-table-holes-grew"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "xbox_memory_layout.c guest heap block table (g_heap_blocks[65536], address-ordered) accumulated size-0 holes. In a UC bot match it grew from 909 to 3922 entries in 10 min (about 190 frees/s). push-perf b1b908e compacts holes (heap_maybe_compact) and binary-searches frees (heap_floor_index); the table stays near 800-1000.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "perf",
+    "stability",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "heap-reclaim-default-on",
+   "title": "RECOMP_HEAP_RECLAIM is on by default",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_HEAP_RECLAIM"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "main.c:169 sets RECOMP_HEAP_RECLAIM=1 by default, so the reclaim (best-fit, hole-skipping) allocator is always the live one.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "perf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "heap-check-and-cs-count-env",
+   "title": "RECOMP_HEAP_CHECK cross-checks heap frees",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_HEAP_CHECK"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RECOMP_HEAP_CHECK=1 cross-checks heap free lookups against the linear scan ([HEAP-CHECK] on mismatch). RECOMP_CS_COUNT=1 enables the [CS] enters=/leaves= counters (kernel_rtl.c:435).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "perf",
+    "stability",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "heap-frees-log-line",
+   "title": "[HEAP] frees log line period",
+   "subject": {
+    "kind": "concept",
+    "id": "heap-frees-log-line"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "[HEAP] frees=N matched=N blocks=N prints every 512 matched frees. g_heap_block_count includes holes from before b1b908e.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "perf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "recomp-perf-log-lines",
+   "title": "RECOMP_PERF log lines and healthy UC numbers",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_PERF"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RECOMP_PERF=1 prints every 5 s '[PERF] fps; GPU draws' and '[PERF-PACING] . over 33.3 ms', plus a '[PERF] CPU phases' line with pack_digest, texture_update and texture_evict (nv2a_pb_exec.c ~125-135, ~530). UC 5v6 after minute 1: texture_update 0, evict 0, pack_digest under 6 ms/min.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "perf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "perf-ab-machine-load-caveat",
+   "title": "Back-to-back UC A/B fps is noisy from machine load",
+   "subject": {
+    "kind": "concept",
+    "id": "perf-ab-machine-load-caveat"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Back-to-back UC A/B fps can differ by 15% from machine load alone (other games running). Use the GPU draws_ms line as a quick load check.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "perf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "build-perf-cmd-recipe",
+   "title": "build_perf.cmd recipe for kernel and apu objects",
+   "subject": {
+    "kind": "concept",
+    "id": "build-perf-cmd-recipe"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "build_perf.cmd pattern: ninja the changed kernel/apu objects, lib them into xbox_kernel.lib / xbox_apu.lib, delete the exe, then ninja the exe.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "perf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "carrier-drop-mode-already-zero",
+   "title": "Carrying bots already use the full 60 m drop limit",
+   "subject": {
+    "kind": "concept",
+    "id": "carrier-drop-mode-already-zero"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A carrying bot already has drop_mode 0 in an earlier pass (ma2_bot_brain.c ~4700: drop_mode = !carrying && .), i.e. the full 60 m drop limit for Mech/BA at normal link cost. drop_pref (W5) only adds cost x0.85, marsh landing and chasers.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "ctf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bogged-down-stand-coords",
+   "title": "Bogged Down stand coordinates and marsh paths",
+   "subject": {
+    "kind": "concept",
+    "id": "bogged-down-stand-coords"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Bogged Down (retail ids ED0869FA / user copy A81D8DF7): red stand 495,903 y16; blue stand 870,1735 y23; marsh floor y -20. Stand-to-stand planner paths run 821-924 m via the marsh (PATHTEST, push-w5).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "ctf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "drop-chain-fails-after-first-drop",
+   "title": "Planner drop chain can fail after the first drop",
+   "subject": {
+    "kind": "concept",
+    "id": "drop-chain-fails-after-first-drop"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A planner drop chain can fail after the first drop: '[BOT-DROP] could not step off at 876,1610 -- no drops there for 10 min' after steps 878,11 -> 874,6 -> 875,5 -> 872,4 (w5 on2 t=159-170). dropgiveup gives up after 5 s without losing 2 m.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "same-slot-different-mech-speed-per-run",
+   "title": "Same bot slot gets a different 'Mech speed per run",
+   "subject": {
+    "kind": "concept",
+    "id": "same-slot-different-mech-speed-per-run"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The same bot slot/port gets a different 'Mech speed per run (32 vs 21 m/s on the same 100 m marsh stretch, off2 vs d1 port 9). Compare carrier path length, not seconds, across runs.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "failed-launch-keeps-slot-and-junction",
+   "title": "Failed launch keeps its game slot; game_files junction target",
+   "subject": {
+    "kind": "concept",
+    "id": "failed-launch-keeps-slot-and-junction"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A test folder's game_files junction must point at R\\game_files (the in-game editor folder's game_files lost its xbe).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "stability",
+    "perf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "test-folder-rebuild-recipe",
+   "title": "How to rebuild a push-w5 test folder",
+   "subject": {
+    "kind": "concept",
+    "id": "test-folder-rebuild-recipe"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The test folder 'a test folder' no longer exists and its make_test_folder_w5.ps1 sources are gone. Copy small files from 'a test folder', junction game_files -> R\\game_files, and pc_assets -> in-game editor pc_assets.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "stability",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "vtol-direct-path-straight-two-point",
+   "title": "VTOL travel legs use a straight two-point path",
+   "subject": {
+    "kind": "concept",
+    "id": "vtol-direct-path-straight-two-point"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "vtol_direct_path (ma2_bot_ctrl.c:1112) replaces the ground path with a straight 2-point path when VtolTerrainClimb=1. vtol_prepare (ma2_bot_ctrl.c ~1340) then sets ai+0x20C to 20 m over the highest surface within 220 m ahead (+12 m with a rider).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "vtol",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "vtol-helipad-repair-needs-agl-below-6-5",
+   "title": "VTOL repair at the helipad needs agl below 6.5 m",
+   "subject": {
+    "kind": "concept",
+    "id": "vtol-helipad-repair-needs-agl-below-6-5"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A repairs only at agl < 6.5 m and dd < 12 m (ma2_bot_ctrl.c pad block). A VTOL hovers at about 6.6-7.0 m, so Y must be held until agl < 6.5 or the A press never comes.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "vtol",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "vtol-old-pad-spring-approach",
+   "title": "Old pad approach was a spring; heals took 4-7 s",
+   "subject": {
+    "kind": "concept",
+    "id": "vtol-old-pad-spring-approach"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The old pad approach was a spring (stick = 0.025*d - 0.08*v): equilibrium speed 0.3*d, so 8 m/s at 25 m. Heals took 4-7 s, with outliers of 15-34 s on overshoot.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "vtol",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "vt-ceiling-learned-cap",
+   "title": "vt_ceiling is a learned VTOL height cap",
+   "subject": {
+    "kind": "concept",
+    "id": "vt_ceiling"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "vt_ceiling is a learned absolute VTOL height cap (e.g. 8 m at a marsh spot on Bogged Down while others fly to y 77-96). It expires after 20 s.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "vtol",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "test-hook-vtol-hurt-and-padtrace",
+   "title": "RECOMP_TEST_VTOL_HURT and RECOMP_BOT_PADTRACE hooks",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_TEST_VTOL_HURT"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Test hook RECOMP_TEST_VTOL_HURT (ma2_bots_core.c:4659) and RECOMP_BOT_PADTRACE. [C7] vtpad heal_total_s / healed_n gives the seconds per heal.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "vtol",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "test-folders-lose-junctions",
+   "title": "Test folders lose junction dirs; game reports Cannot open XBE",
+   "subject": {
+    "kind": "concept",
+    "id": "test-folders-lose-junctions"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Test folders occasionally lose their junction dirs (game_files, pc_assets). The game then prints 'Cannot open XBE: game_files\\ma2.xbe'.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "stability",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "on1b-crash-signature-scene-walk",
+   "title": "on1b crash: null ICALL, pure virtual, AV in scene-render walk",
+   "subject": {
+    "kind": "concept",
+    "id": "on1b-crash-signature-scene-walk"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "on1b crash signature: a null [ICALL], then 2x R6025 pure virtual with heap-address [ICALL] targets (0x0248D1A0, 0x024B2020), then an AV at RVA 0x829120 with eax=0x74736E49 ('Inst' bytes where a vptr should be). The guest stack is in the scene-render node walk (sub_8C5B0 family): a freed or overwritten scene object, not bot logic (w6\\).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "stability",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "neurohack-placeholder-rare-in-ctf",
+   "title": "NeuroHack placeholder is rare in CTF; ordinary deaths do not produce it",
+   "subject": {
+    "kind": "concept",
+    "id": "neurohack-placeholder-rare-in-ctf"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "In Bogged Down CTF bot matches the NeuroHack placeholder (plain MACorporeal, [C7] bodyguard plain=) appeared in 1 of 4 runs (on2, plain=828, after 1 hack). None across 19-30 deaths per run in the others, so ordinary deaths do NOT produce it. This corrects W1b's guess (w6b on1-on4).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "ctf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "push-w1-merged-into-push-w6-clean",
+   "title": "push-w1 merged into push-w6 runs stay clean",
+   "subject": {
+    "kind": "concept",
+    "id": "push-w1-merged-into-push-w6-clean"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "With push-w1 merged into push-w6 (6dd9e3e), 4/4 ON runs had 0 [ICALL], 0 faults and 0 bodyguard skips. The guard never fired; the plain= counter is the path that matters.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "stability",
+    "bots",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "vtol-hurt-cannot-revive-dead-units",
+   "title": "RECOMP_TEST_VTOL_HURT cannot revive dead units",
+   "subject": {
+    "kind": "concept",
+    "id": "vtol-hurt-cannot-revive-dead-units"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RECOMP_TEST_VTOL_HURT only lowers HP on live bot VTOLs (skips when hp <= frac*max+1), so it cannot revive a dead unit (ma2_bots_core.c:4862-4878). Its slot table holds 8 VTOL actors with no reuse after that.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "vtol",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bot-t-lines-need-diag",
+   "title": "[BOT] t= lines need RECOMP_BOT_DIAG",
+   "subject": {
+    "kind": "concept",
+    "id": "bot-t-lines-need-diag"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "[BOT] t= lines are not printed without RECOMP_BOT_DIAG. Wait scripts should key on '[C7] c3 . t=N' lines, which come every 30 s.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "path-search-begin-run-finish",
+   "title": "Path search is now begin/run/finish with sliced queues",
+   "subject": {
+    "kind": "concept",
+    "id": "path-search-begin-run-finish"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Path search was one function, ma2_path_plan (ma2_bot_path.c). It is now begin/run/finish (305/:367/:475) plus ma2_pathq_* queues (598-) for sliced plans. ctx0 is sync, ctx1 the sliced job. ma2_bot_path.c has its own QPC clock (pq_now_ms).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "perf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bot-path-slice-switch",
+   "title": "PathSlice switch and lane-build state machine",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_PATH_SLICE"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "[Bots] PathSlice / RECOMP_BOT_PATH_SLICE (default on), RECOMP_BOT_PATH_SLICE_MS (6), C7 pathslice. Bots take their route in ctrl_plan_take (ma2_bot_ctrl.c:1225). Lane build is the lanes_build_run state machine (ma2_bots_core.c:3197); lanes publish only when all plans are done.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "perf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "plan-cost-and-lane-wall-time",
+   "title": "Plan cost and lane build wall time when sliced",
+   "subject": {
+    "kind": "concept",
+    "id": "plan-cost-and-lane-wall-time"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Plan cost as job work: UC 45 ms, NRC 84 ms max per plan. Lane build wall time: UC 162-194 ms, NRC 737 ms when sliced at 6 ms per step.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "perf",
+    "bots",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "pathtest-slice-equivalence",
+   "title": "Sliced plan equals synchronous plan on NRC",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_PATHTEST_SLICE"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RECOMP_BOT_PATHTEST_SLICE=1 with RECOMP_BOT_PATHTEST prints [PATHTEST-SLICE] same=. The sliced plan equals the synchronous plan, 14/14 on NRC.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "nv2a-gpu-shader-header-generated",
+   "title": "nv2a_gpu_d3d11.c needs a generated nv2a_gpu_shader.h",
+   "subject": {
+    "kind": "concept",
+    "id": "nv2a-gpu-shader-header-generated"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "nv2a_gpu_d3d11.c needs the generated nv2a_gpu_shader.h (CMake from nv2a_gpu.hlsl via nv2a_gpu_shader.h. escaping as '.\\n\"').",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "perf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "bot-trapped-stall-definition",
+   "title": "BOT-TRAPPED definition and heavy tail",
+   "subject": {
+    "kind": "concept",
+    "id": "bot-trapped-stall-definition"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "BOT-TRAPPED = c->stalls >= 4 (stall = no 3 m progress for 6 s; 2.5 s on a boarding leg), ma2_bot_ctrl.c ~2026. Heavy-tailed: one bot looping (nrc-s2 23, nrcctf-s2 41, uc-after1 3).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "stability",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  },
+  {
+   "id": "w7-run-logs-location",
+   "title": "Where the W7 pathing runs and scripts are",
+   "subject": {
+    "kind": "concept",
+    "id": "w7-run-logs-location"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "W7 are in push-perf-pathing\\w7\\ (nrc-before1, uc-after1, nrc-pathtest, etc. stalls.py, w7wait.sh, make_test_folder_w7.ps1).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "perf",
+    "push-perf-pathing"
+   ],
+   "date": "2026-10-27"
+  }
+ ]
+}

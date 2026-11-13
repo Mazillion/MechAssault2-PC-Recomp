@@ -1,0 +1,375 @@
+{
+ "pack": "t24_film_review_1108",
+ "title": "Film review + arrival parity (11-08): moment-by-moment bot play judged against human play",
+ "facts": [
+  {
+   "id": "film-review-method",
+   "title": "How bot play is reviewed: play-by-play film of every bot with its surroundings (audit/film.py)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Review standard: each bot is judged at each moment against what a skilled human player would do in its place, not by totals or a checklist. audit/film.py TOOLS REC [--bots] [--t0 --t1 --step] prints one line per bot per step: team, body, hp, speed, goal/role/op/note, target (dist, hp), weapon groups that fired in the last second, heat, defence state, Alpha, the 3 nearest enemies (dist, bearing, hp, what they do: CARRYING / CLAIMING / ->whom), 2 nearest mates, objective state, power-ups within 40 m; events (deaths, kills, body changes, 15 %+ hits) inline. audit/moments.py and audit/qsweep.py only point at moments worth watching. Notes go to",
+   "how_to_use": "python -I film.py <src_parN>/tools --t0 20 --t1 80 --step 4 (use the tools of the build that recorded it: struct layouts change).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "review",
+    "botrec"
+   ]
+  },
+  {
+   "id": "jetup-long-reach",
+   "title": "JetUpLong: jet up-links reach 28 m (PATH_HOP_LONG), not 10 m; capped jet searches get the HopOut pass",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "ma2_bot_path.c F38 up-links scanned PATH_UP_REACH 5 cells, so a 15 m bank 12 cells deep (Ill Wind, under the Snatch It cores, 716,1384 y2 -> 716,1360 y17) was never a jet-up: team 2 jet 'Mechs planned 838 m round vs 705 m with the long reach (team 1 501 m). The long reach widens pass 1 on city maps until it hits the expansion cap before running dry, which stopped the HopOut pass (the only one that lands on a deck): Rush Hour T2 to the y55 core deck ok=1 564 m -> ok=0. Fix: a capped jet search 10 m+ short also gets HopOut, and jet bodies cap pass 1 at 160k (80k for a goal on a built top).",
+   "how_to_use": "RECOMP_BOT_JET_UP_LONG=0 / [Bots] JetUpLong=0 for the old reach. [C7] jetuplong: links, hop_after_cap, capped, capped_deck. PATHTEST 'len=' excludes the first leg (start -> pt[0]).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "pathing",
+    "jets",
+    "parity"
+   ]
+  },
+  {
+   "id": "climb-jet",
+   "title": "MechClimbJet / ClimbProgress: a jet 'Mech or BattleArmor that stops getting nearer a higher route point jets at it",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Jet 'Mechs slid back down 0.41-0.52 slopes for 70 s (Ill Wind y -18 basin exit ramp 762,1414 -> 720,1414) and a BattleArmor circled 25 s under On the Rocks' y78 core plateau: BaUnstick only fires when still. ma2_bot_ctrl.c now jets (body_jump_up, <= 30 m) at the next route point when it is 2 m+ higher and the body has not got 2 m nearer it in 2.5 s (or not moved 0.9 m in 1.2 s). Slope stall share by slope (slp = rise/run x100): 6-41 ~10-20 %, 42-47 21 %, 48-53 30 %.",
+   "how_to_use": "RECOMP_BOT_MECH_CLIMB_JET=0 / [Bots] MechClimbJet. [BOT-CLIMBJET] diag. [C7] mechclimbjet: jets, jets_ba, progress.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "jets",
+    "slope"
+   ]
+  },
+  {
+   "id": "hunt-target-direct",
+   "title": "Objective hunters named no target: 'enemy within 20 m of the looked-at spot' (HuntTarget / CarrierFire)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "obj_order set a hunt's target to obj_enemy_near(obj_pt, 20 m); obj_pt is the F78 look at the carrier, refreshed every 1.5-5 s by skill, so a 20-30 m/s carrier was 20 m+ away and the hunter had NO target (CTF Bogged Down: carriers passed hunters at 17 m and 37 m). The travel order also fired only at the brain's own threat target (Rush Hour: four 'Mechs at 70-150 m let a core carrier pass, 2 shots in 7 s). Fixes: HuntTarget names the visible carrier directly; CarrierFire fires at it in reach; TravelFire fires any order target seen in reach; HeatPush skips the BurstFire vent pause on a carrier or a target under 30 %.",
+   "how_to_use": "Switches RECOMP_BOT_HUNT_TARGET / CARRIER_FIRE / TRAVEL_FIRE / HEAT_PUSH. [BOT-NOFIRE] (RECOMP_BOT_DIAG) names why a target in reach went 1.5 s unshot: order fire=0, heat, no_los, ally_in_line, cadence/aim, range, defended, vtol_nose, blast_hold.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "objective",
+    "fire",
+    "ctf",
+    "snatch"
+   ]
+  },
+  {
+   "id": "jam-defence-unused",
+   "title": "Target jamming (defence type 3) had no use rule: bots never switched it on",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "shield_logic (ma2_bot_brain.c) handled shield / absorber / AMS (heavy fire), camo (retreat/cover) and the anti-BA 'Mech shield, but not MA2_DEFT_JAM. 'Mechs with jamming died under 2-4 attackers with it ready. JamUse: jamming goes on under heavy fire (skill-scaled dps, hit < 1 s ago), and any non-camo defence goes on as a last stand under 35 % hp, hit in the last 1.5 s (Regular+).",
+   "how_to_use": "RECOMP_BOT_JAM_USE=0 / [Bots] JamUse. [C7] jamuse: on, last_stand.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "defence"
+   ]
+  },
+  {
+   "id": "powerup-weapon-class",
+   "title": "Weapon upgrades are class-specific (Energy / Ballistic / Missile); the bot view knew only 'weapon'",
+   "subject": {
+    "kind": "class",
+    "id": "MAPowerUp"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Templates 'Energy Weapon' / 'Ballistic Weapon' / 'Missile Weapon' set PowerupWeaponFireClass0/1/2 = 1; the game gives one only to a body with a weapon of that class below its top level. Ma2PickupView had only armor (0 = weapon), and wpn_room meant 'some class has room', so bots walked onto upgrades of a class they could not raise (BA b9 circled two for 3-5 s each). Interim: PuRefusedKind (2 s on it, then no weapon upgrades for that body). Proper fix in progress: read the class flags (offset being located with RECOMP_BOT_PU_DUMP [PICKUP-DUMP] +0x180.+0x1DC) and match per class.",
+   "how_to_use": "RECOMP_BOT_PU_DUMP=1 with RECOMP_BOT_DIAG prints each pickup's dwords once.",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "bots",
+    "powerup"
+   ]
+  },
+  {
+   "id": "charge-cool-airduel",
+   "title": "ChargeCool and VtolAirDuel: no heat pause when cool; short hover bursts against aircraft",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "ChargeFire paused every heat weapon through each charge-weapon charge even at 5 % heat (a group silent 7-25 s at 44-127 m): now only at heat >= 50 %. VTOL attack phase 1 (stop, face, fire) lasted 1.5-3.5 s; two VTOLs fighting each other sat at ~1 m/s for 10 s+ in three matches: against an aircraft the burst is 0.7-1.3 s, then a new spot.",
+   "how_to_use": "RECOMP_BOT_CHARGE_COOL / RECOMP_BOT_VTOL_AIR_DUEL. [C7] chargecool: fired_through; airduel: bursts.",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "bots",
+    "weapons",
+    "vtol"
+   ]
+  },
+  {
+   "id": "runfocus-deckscreen-tankswerve",
+   "title": "RunFocus, DeckScreen, TankBlastSwerve, SnatchRush, DropShort",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RunFocus: a grab / hunt / carry runner is not pulled off by a target > 120 m unless hurt (< 40 %) or under fire (> 15 dps) - it shoots on the move. DeckScreen: Snatch It bodies that cannot reach a raised core pile screen a third of the way from the pile to the enemy base. TankBlastSwerve: a tank escaping a death blast swerves along its heading / tangent (a point behind it was a pivot on the spot and death). SnatchRush: guards play the opening while their base holds no core. DropShort: a drop leg that lands 4 m+ low, 8 m+ short and still for 2 s replans and forbids that drop 10 min.",
+   "how_to_use": "Switches RECOMP_BOT_RUN_FOCUS / DECK_SCREEN / TANK_BLAST_SWERVE / SNATCH_RUSH / DROP_SHORT.",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "bots",
+    "objective",
+    "snatch"
+   ]
+  },
+  {
+   "id": "open-film-items-1108",
+   "title": "Open items from the 11-08 film review",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "(1) CTF Bogged Down T2 two-rider VTOL crawls 5-15 m/s at y46 out of its base (also rc10_60a). (2) A VTOL carrying the flag-holder BA flies off to repair at 12 % and strands the carrier. (3) 'Mechs queue single-file in streets (choke-follow + yield). (4) Bodies pinned on unseen obstacles at deck corners (Rush Hour 1165,1429). (5) Tanks pivot on the spot 12 s among checkpoint clutter (Check It Deliverance). (6) Ill Wind Snatch It stays ~1.4x map-uneven (sea inlet).",
+   "how_to_use": "Film the named runs to see them.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "open"
+   ]
+  },
+  {
+   "id": "powerup-weapon-fire-class-flags",
+   "title": "Weapon power-ups carry their fire class: entity +0x1B4 / +0x1B8 / +0x1BC = class 0 / 1 / 2 (PowerupWeaponFireClass0-2)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RECOMP_BOT_PU_DUMP run (CTF Deliverance, 11-08): every weapon upgrade sets exactly one of the dwords +0x1B4/+0x1B8/+0x1BC to 1; armour packs have +0x1B0 = armour and none set. Player 00F85DA0 took the +0x1B4 crate then the +0x1B8 crate and its arsenal class 0 then class 1 rose (arsenal +0x7C+4c, 56.6/56.7 s). So crate class c raises arsenal class c. Bots (PuClass, par12): Ma2PickupView.wclass, Ma2PlayerView.wpn_room = bit per class with room; a bot wants only crates whose class it can raise. Arsenal tops seen: 'Mechs c0/c1/c2 2/2/2 or 2/2/0; BattleArmor only c2; kind-3 c0+c2.",
+   "how_to_use": "Read MEM32(e+0x1B4+4c)==1 for the class; armour = MEM32(e+0x1B0).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "film-review"
+   ]
+  },
+  {
+   "id": "checkit-eject-under-fire",
+   "title": "Check It: a pilot that gets out with an enemy combat body within 150 m dies (13 of 14), and the 40 m get-out left a 40 m walk",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Film review A_70a-A_73a (par10): 13 of 14 bots that ejected to work a terminal with an enemy 'Mech/tank/BA/VTOL within 150 m died 2-7 s later without claiming; 30 of 44 ejects came at the 40 m threshold. Fixes (par13): EjectClear (stay in and fight while an enemy combat body is within 150 m of us or the terminal; C7 ejectclear held_s) and EjectClose (get out at 12 m, or inside 40 m once the vehicle gains no 1 m in 2.5 s; C7 ejectclose early/near). Switches RECOMP_BOT_EJECT_CLEAR / _EJECT_CLOSE, [Bots] EjectClear / EjectClose.",
+   "how_to_use": "ma2_bot_brain_obj.c obj_order, before the MA2_ORD_EJECT.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "film-review"
+   ]
+  },
+  {
+   "id": "vtol-headway-watch",
+   "title": "VTOL stall watch counted +-10 m wobble as headway; VtolHeadway measures getting nearer the route goal",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A_64a (CTF map 4, par9): T1 VTOL with a BA rider hung 23 s at its stick ceiling (48.7 m) under a 89 m climb need; the old watch (2.2 m drift = progress) never tripped. VtolHeadway (par14, ctrl.c vtol_prepare): 60 m+ from the route goal, not in a firing hover, no 15 m nearer in 10 s -> airblk_add 30 m ahead + replan. C7 vtheadway shut; RECOMP_BOT_VTOL_HEADWAY / [Bots] VtolHeadway.",
+   "how_to_use": "Diag line [BOT-VTOL] headway:",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "film-review"
+   ]
+  },
+  {
+   "id": "eject-death-blast-late",
+   "title": "A 'Mech that goes down while its pilot ejects blows ~5 s after 0 hp, not 2.2 s (EjectBlast)",
+   "subject": {
+    "kind": "behaviour",
+    "id": "death_blast"
+   },
+   "addresses": [],
+   "related": [
+    "DeathBlastFlee",
+    "BlastWary",
+    "F37",
+    "mech-death-blast-fuse-2-2s-reach-45m"
+   ],
+   "fact": "Film 11-08 (par13-15 sweep): when the hull reaches 0 hp during its pilot's eject (F37 low-hp eject, Check It eject), the death blast comes 4.5-5.0 s after 0 hp (A_90a 48.3 -> 53.4; c13_70a 65.1 -> 70.1 killing three 'Mechs; A_74b, A_85b, c13_72a x2). Plain kills stay at 2.2 s. The ejected pilot shows as an alive pilot 2.7-2.8 m from the hull within ~1 s. EjectBlast (core blasts_update, RECOMP_BOT_EJECT_BLAST / [Bots] EjectBlast, default on, par16): an alive pilot within 8 m of a downed 'Mech in its first 2 s holds that blast's window to 5.8 s (was 2.6 s, after which BlastWary let defenders walk back ). Ejected pilots are locked 2-6 s beside the hull (all 88 F37 ejects); ~75 % die within 10 s, but riding to 0 hp kills the pilot every time, so F37 stays. [C7] ejectblast: late.",
+   "status": "current",
+   "confidence": "inferred",
+   "tags": []
+  },
+  {
+   "id": "slope-stuck-no-turn",
+   "title": "SlopeStuck: a goto that holds a target yaw it never turns to is walked out",
+   "subject": {
+    "kind": "setting",
+    "id": "SlopeStuck"
+   },
+   "addresses": [],
+   "related": [
+    "SlopeTurn",
+    "GotoWalk",
+    "audit-mechai-goto-idle-signature"
+   ],
+   "fact": "After a drop a walker's MechAI goto can stand with comp+0x98 (forward speed) 0, comp+0xB0 (turn rate) 0, ai+0x360 0 and its target yaw comp+0xA0 17 deg off the facing while the carrot is 120 deg off (A_205a TD b6 fell 61 -> 47 m at 71.5, stood 7.5 s). SlopeTurn only treated the target yaw as held within 10 deg (0.17 rad), so GotoWalk's 1 s clock reset every frame. SlopeStuck (RECOMP_BOT_SLOPE_STUCK / [Bots] SlopeStuck, default on, par17 99a7728e, commit 4b8ab9d): off > 25 deg with no turn rate also counts as held. 30 post-drop stands of 3-17 s in the par13-15 sweep. [C7] slopestuck: held_s.",
+   "status": "current",
+   "confidence": "inferred",
+   "tags": []
+  },
+  {
+   "id": "engage-wedge-dead-wedgelive-boxwedge",
+   "title": "The engage 'fight wedged' watchdog never fired (engaged cleared every frame); WedgeLive + BoxWedge",
+   "subject": {
+    "kind": "setting",
+    "id": "WedgeLive"
+   },
+   "addresses": [],
+   "related": [
+    "BoxWedge",
+    "ctrl_do_engage",
+    "ctrl_fight",
+    "engage_wedged"
+   ],
+   "fact": "In ctrl_do_engage's 'Mech/tank branch ctrl_release_attack sets c->engaged = 0 right before 'if (!c->engaged) reset eng_pos/eng_wt', so the 6 s no-headway clock reset every frame: '[BOT-CTRL] fight wedged' fired 0 times in 56 par15 sweep matches and ctrl_engaged counted an engagement per frame (s17_205a b5: 140/s, BOT-SUM engagements in the thousands). WedgeLive (RECOMP_BOT_WEDGE_LIVE / [Bots] WedgeLive, par19 ab85ca09) keeps the flag across the release. BoxWedge (RECOMP_BOT_BOX_WEDGE, par18): a stand that is only ctrl_fight's 'boxed in: stand and shoot' (no ring step passes fight_spot_ok) for 6 s+ no longer counts its shots as headway (s17_205a TD b5 stood boxed 43 s at 1010,28.6,1668 firing at 160-260 m, 96 -> 45 %). engage_wedged makes the brain find a firing spot. [C7] wedgelive: wedged; boxwedge: wedged.",
+   "status": "current",
+   "confidence": "inferred",
+   "tags": []
+  },
+  {
+   "id": "lms-ghost-roam",
+   "title": "LmsGhostRoam: LMS ghosts were still 'investigated' and stomped",
+   "subject": {
+    "kind": "setting",
+    "id": "LmsGhostRoam"
+   },
+   "addresses": [],
+   "related": [
+    "LmsGhost",
+    "LmsOutCount",
+    "LmsSweep",
+    "pick_roam_raw",
+    "SP_STOMP"
+   ],
+   "fact": "In LMS / Team LMS an eliminated player stays in the player list as an alive 10-hp pilot with deaths >= 1, parked at its spawn (A_400a: T2's at 886-920,1449-1458). LmsGhost skipped them as targets and LmsOutCount as opponents, but pick_roam_raw's freshest-memory 'investigate' and the stomp surprise still chose them: b1 sat on the ghosts 140-180 s (stomped one) while the last live T2 pilot was 800 m off. LmsGhostRoam (RECOMP_BOT_LMS_GHOST_ROAM / [Bots] LmsGhostRoam, par20, commit f5edd0e) skips them in both. [C7] lms: ghost_roam_skipped.",
+   "status": "current",
+   "confidence": "inferred",
+   "tags": []
+  },
+  {
+   "id": "heat-jet-hold",
+   "title": "HeatJet: 'Mech travel hops wait while hot near enemies",
+   "subject": {
+    "kind": "setting",
+    "id": "HeatJet"
+   },
+   "addresses": [],
+   "related": [
+    "HeatPush",
+    "ChargeCool",
+    "JetUpLong",
+    "body_jump_fuel_max"
+   ],
+   "fact": "Each 'Mech jet hop adds about 20-35 % heat. On hilly maps with jet-up routing (custom cu1 = Bogged Down base) bots hopped into fights already at 80-119 % and could not fire (cu1_bw b10 / b1: 471 / 107 damage in 150 s). HeatJet (RECOMP_BOT_HEAT_JET / [Bots] HeatJet, par21, commit c41dece; heat_jet_hold in ma2_bot_ctrl.c) holds the cruise hop and route hop while heat >= 65 % with an enemy within 350 m; up-jets, stall and escape hops are unchanged. Mech time at heat >= 100: 15 -> 9 % (cu1 Base War), 6 -> 4 % (Rush Hour Base War). [C7] heatjet: held.",
+   "status": "current",
+   "confidence": "inferred",
+   "tags": []
+  },
+  {
+   "id": "custom-maps-all-modes-1109",
+   "title": "Bots play every mode on editor-made maps; how to launch them",
+   "subject": {
+    "kind": "topic",
+    "id": "CustomMaps"
+   },
+   "addresses": [],
+   "related": [
+    "run_cell.py"
+   ],
+   "fact": "All ten modes armed and played with bots fighting; quick-test closes the game at Game Over, so LMS-type runs end early. Two engine-side faults showed up: the DSOUND 0xFE000268 crash (LMS, 4 s) and a sim-thread freeze (Not It, 30 s).",
+   "status": "current",
+   "confidence": "inferred",
+   "tags": []
+  },
+  {
+   "id": "touch-stall-navigator-parks-short",
+   "title": "Awake MechAI goto parks a 'Mech ~10-15 m short of a touch point; TouchStall walks it in",
+   "subject": {
+    "kind": "topic",
+    "id": "BotTouchOrders"
+   },
+   "addresses": [],
+   "related": [
+    "ctrl_exact_walk",
+    "TouchStride",
+    "TouchStall",
+    "body_steer",
+    "RECOMP_BOT_TOUCH_STALL"
+   ],
+   "fact": "11-09: body_steer (awake MechAI in goto mode 6, drive tag A348) stops a 'Mech 10-15 m short of its point and stands at 0 m/s. TouchStride hands a lined-up 'Mech 8 m+ from a touch point (core, flag, power-up) to that navigator, so near a Snatch It core it stood still, or went stop-go as the bearing drifted past 0.35 rad (B_803 b2: 4 s at 10.4-11.2 m from the core under fire). TouchStall (ma2_bot_ctrl.c ctrl_exact_walk, default on, RECOMP_BOT_TOUCH_STALL): handed off, under 1.5 m/s for 0.5 s within 16 m -> direct walk for the rest of that point. The 16 m limit keeps the start-of-match wait far out from latching the slow direct walk (~7.5 m/s). par23: 6 and 8 fires per Snatch It match; B_803 OBJECTIVE-IGNORED 8 -> 0 in t23_803.",
+   "confidence": "documented",
+   "source": [],
+   "status": "current",
+   "tags": []
+  }
+ ]
+}

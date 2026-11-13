@@ -1,0 +1,3575 @@
+{
+ "pack": "t07_stability",
+ "title": "Runtime, kernel and stability: memory map, threads, freezes and crashes",
+ "facts": [
+  {
+   "id": "mem-ram-file-mapping",
+   "title": "Guest RAM is a page-file mapping mirrored 28 times",
+   "subject": {
+    "kind": "concept",
+    "id": "xbox_MemoryLayoutInit"
+   },
+   "addresses": [
+    "00010000"
+   ],
+   "related": [
+    "xbox_MemoryLayoutInit",
+    "memory-layout.md"
+   ],
+   "fact": "Guest RAM is one page-file-backed CreateFileMapping, sized to the mapped range (64 MB by default). It is mapped at the base view, and 28 mirror views of the same pages sit at base + N x mapped size, so guest addresses wrap as on the Xbox 26-bit bus. A write through one mirror is visible through every other. Plain VirtualAlloc would give separate copies, which is why file mapping is used.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 1772
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2572
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 441
+    }
+   ],
+   "tags": [
+    "memory",
+    "mirror"
+   ]
+  },
+  {
+   "id": "mem-base-address-search",
+   "title": "Base view tries fixed host bases, then lets the OS choose",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_MemoryLayoutInit"
+   },
+   "addresses": [
+    "00010000"
+   ],
+   "related": [
+    "mem-ram-file-mapping"
+   ],
+   "fact": "The base view is mapped at the first free of 0x00010000, 0x00800000, 0x01000000, 0x02000000, 0x10000000, then host-chosen (sentinel 0). The loop now runs the sentinel too; the old condition stopped at the zero, which broke arm64 macOS hosts where all fixed bases fall inside __PAGEZERO. The docs' 0x00010000 'ideal' base is therefore not guaranteed on Windows.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 1793
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 1802
+    }
+   ],
+   "tags": [
+    "memory",
+    "windows"
+   ]
+  },
+  {
+   "id": "mem-windows-no-span-reserve",
+   "title": "Windows does not pre-reserve the mirror span",
+   "subject": {
+    "kind": "concept",
+    "id": "xbox_MemoryLayoutInit"
+   },
+   "addresses": [],
+   "related": [
+    "mem-ram-file-mapping"
+   ],
+   "fact": "On POSIX the whole base-plus-mirror span is reserved first and each view is carved out of it. On Windows that is skipped, because VirtualFree cannot release part of a reservation and the base view then never maps. Mirrors on Windows are placed one at a time at fixed addresses, so some can fail; the docs record about 4 of 33 failing near 0x76000000 on Windows 11.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 1812
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 1821
+    }
+   ],
+   "tags": [
+    "memory",
+    "windows"
+   ]
+  },
+  {
+   "id": "mem-tiled-skip-mirror",
+   "title": "Mirrors that overlap the tiled aperture are skipped",
+   "subject": {
+    "kind": "concept",
+    "id": "xbox_MemoryLayoutInit"
+   },
+   "addresses": [],
+   "related": [
+    "mem-tiled-alias"
+   ],
+   "fact": "When the mapped size is large enough that a wrap mirror would cover 0xF0000000, that mirror is skipped and logged as 'overlaps the tiled aperture'. The specific tiled alias is considered worth more than one generic wrap mirror. Mirror m covers guest (m+1) x mapped size.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2585
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2594
+    }
+   ],
+   "tags": [
+    "memory",
+    "mirror"
+   ],
+   "addresses_unverified": [
+    "F0000000"
+   ]
+  },
+  {
+   "id": "mem-sections-parsed",
+   "title": "Section addresses come from the XBE header at runtime",
+   "subject": {
+    "kind": "concept",
+    "id": "xbox_MemoryLayoutInit"
+   },
+   "addresses": [
+    "00010000"
+   ],
+   "related": [
+    "mem-ram-file-mapping"
+   ],
+   "fact": "Section VAs are parsed from the XBE header at load and are not hard-coded, so the runtime works with any title. The numeric section table in docs/technical/memory-layout.md (.text 0x00011000,rdata 0x0036B7C0,data 0x003B2360) is one Burnout 3 example, not Mechassault 2's layout. The XBE header itself is copied to 0x00010000.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 112
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 1959
+    }
+   ],
+   "tags": [
+    "memory",
+    "xbe"
+   ]
+  },
+  {
+   "id": "mem-tib-main-0x4000",
+   "title": "Main-thread fake TIB sits at 0x00004000, not page zero",
+   "subject": {
+    "kind": "address",
+    "id": "XBOX_TIB_MAIN"
+   },
+   "addresses": [],
+   "related": [
+    "mem-trap-null",
+    "mem-thread-tib"
+   ],
+   "fact": "The fake Thread Information Block for the first thread is at 0x00004000 (XBOX_TIB_MAIN). fs: is based at a per-thread g_fs_base, which starts at that value. The TIB was moved off page zero so that a null dereference faults instead of reading or overwriting the SEH chain head.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 338
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 369
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 1136
+    }
+   ],
+   "tags": [
+    "memory",
+    "tib",
+    "fs"
+   ],
+   "addresses_unverified": [
+    "00004000"
+   ]
+  },
+  {
+   "id": "mem-tib-at-zero-superseded",
+   "title": "Older docs put the TIB at address 0",
+   "subject": {
+    "kind": "address",
+    "id": "docs/technical/memory-layout.md"
+   },
+   "addresses": [],
+   "related": [
+    "mem-tib-main-0x4000"
+   ],
+   "fact": "The memory-layout doc describes a fake TIB at 0x0 with MEM32(0x04), MEM32(0x08), MEM32(0x28) and so on, and says fs: lowers to MEM32(0x28) from low memory. The header now says the TIB is at 0x4000 and fs: resolves through g_fs_base. Treat the doc's 0x0 layout as historical.",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 338
+    }
+   ],
+   "tags": [
+    "memory",
+    "tib"
+   ],
+   "addresses_unverified": [
+    "00000000"
+   ]
+  },
+  {
+   "id": "mem-stack-main",
+   "title": "Main thread stack: 8 MB at 0x00780000 growing down",
+   "subject": {
+    "kind": "address",
+    "id": "XBOX_STACK_BASE"
+   },
+   "addresses": [],
+   "related": [
+    "mem-slices",
+    "mem-stack-reclaim"
+   ],
+   "fact": "The main stack region is XBOX_STACK_BASE 0x00780000 for 8 MB; the initial ESP is base + size - 16 (0x00F7FFF0). The 8 MB size was chosen because failed RECOMP_ICALL indirect calls can leak stdcall arguments onto the stack every frame.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 335
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 373
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 376
+    }
+   ],
+   "tags": [
+    "memory",
+    "stack"
+   ],
+   "addresses_unverified": [
+    "00780000",
+    "00F7FFF0"
+   ]
+  },
+  {
+   "id": "mem-heap-base-top",
+   "title": "Heap runs from 0x00F80000 to the mapped top",
+   "subject": {
+    "kind": "address",
+    "id": "XBOX_HEAP_BASE"
+   },
+   "addresses": [],
+   "related": [
+    "mem-heap-block-table",
+    "mem-stack-reclaim"
+   ],
+   "fact": "The dynamic heap starts at XBOX_HEAP_BASE 0x00F80000, directly above the main stack. XBOX_HEAP_TOP is the mapped size if set, otherwise RAM (64 MB retail). Startup logs 'Heap: N MB at Xbox VA'. The memory-layout doc's code sample with base 0x00880000 is an old illustration and is superseded.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 413
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 432
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2553
+    }
+   ],
+   "tags": [
+    "memory",
+    "heap"
+   ],
+   "addresses_unverified": [
+    "00F80000"
+   ]
+  },
+  {
+   "id": "mem-heap-block-table",
+   "title": "Heap is a block table, bump-only unless reclaim is on",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_HeapAlloc"
+   },
+   "addresses": [],
+   "related": [
+    "mem-heap-reclaim-env",
+    "mem-heap-best-fit"
+   ],
+   "fact": "The heap keeps a table of up to 65536 blocks under one SRW lock (g_heap_lock). By default it behaves as a bump allocator and HeapFree does nothing, so freed memory is not reused. Requests under 16 bytes are rounded up to 16. The docs' 'minimum 4096 bytes' rule belongs to the old bump allocator and is superseded.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2884
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2893
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 3351
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 3407
+    }
+   ],
+   "tags": [
+    "heap"
+   ],
+   "addresses_unverified": [
+    "00F80000"
+   ]
+  },
+  {
+   "id": "mem-heap-reclaim-env",
+   "title": "RECOMP_HEAP_RECLAIM turns on real heap reuse",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_HEAP_RECLAIM"
+   },
+   "addresses": [],
+   "related": [
+    "mem-heap-block-table",
+    "mem-heap-best-fit"
+   ],
+   "fact": "With RECOMP_HEAP_RECLAIM set, freed heap blocks are split and reused, merged with neighbours, and NtFreeVirtualMemory(MEM_RELEASE) returns heap memory. It changes which address later allocations get, so it is off by default. The variable is read once. Covered by the memory_regressions harness in its own mode.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2910
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2902
+    }
+   ],
+   "tags": [
+    "heap",
+    "env"
+   ]
+  },
+  {
+   "id": "mem-heap-best-fit",
+   "title": "Reclaim mode uses best fit to stop heap starvation",
+   "subject": {
+    "kind": "function",
+    "id": "heap_carve_free"
+   },
+   "addresses": [],
+   "related": [
+    "mem-heap-reclaim-env",
+    "mem-stack-reclaim"
+   ],
+   "fact": "Under reclaim, allocation takes the smallest free block that fits instead of the first. First fit had split the lowest hole for every small request.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2986
+    }
+   ],
+   "tags": [
+    "heap",
+    "freeze"
+   ]
+  },
+  {
+   "id": "mem-stack-reclaim",
+   "title": "Unused middle of the 8 MB stack region returned to the heap",
+   "subject": {
+    "kind": "concept",
+    "id": "heap_seed_stack_gap"
+   },
+   "addresses": [],
+   "related": [
+    "mem-stack-main",
+    "mem-heap-reclaim-env"
+   ],
+   "fact": "With reclaim on, the 8 MB stack region keeps 1 MB for the main thread at its top, the worker slices stay at the bottom, and the middle (about 5 MB) goes to the heap. This was needed because MechAssault 2's front end needs about 50 MB after a multiplayer session and the 48.5 MB heap ran out. RECOMP_STACK_RECLAIM=0 disables only this part.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2935
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2943
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2965
+    }
+   ],
+   "tags": [
+    "heap",
+    "stack",
+    "env"
+   ],
+   "addresses_unverified": [
+    "00780000",
+    "00F80000"
+   ]
+  },
+  {
+   "id": "mem-stack-reclaim-env",
+   "title": "RECOMP_STACK_RECLAIM controls stack-to-heap reclaim",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_STACK_RECLAIM"
+   },
+   "addresses": [],
+   "related": [
+    "mem-stack-reclaim"
+   ],
+   "fact": "Stack reclaim is on whenever RECOMP_HEAP_RECLAIM is on. Setting RECOMP_STACK_RECLAIM=0 keeps heap reclaim but leaves the stack region reserved. The limit drops from 16 to 8 when reclaim is on.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2949
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2958
+    }
+   ],
+   "tags": [
+    "env",
+    "stack"
+   ]
+  },
+  {
+   "id": "mem-slices",
+   "title": "16 host worker stack slices of 256 KB from 0x00780000",
+   "subject": {
+    "kind": "address",
+    "id": "XBOX_WORKER_STACK_BASE"
+   },
+   "addresses": [],
+   "related": [
+    "mem-stack-main",
+    "mem-thread-mode"
+   ],
+   "fact": "Host-tick-driven titles can use worker stack slices: 16 slices of 256 KB starting at 0x00780000, with the top of slice n at base + 256K x (n+1) - 16. Default-model titles never call xbox_worker_stack_alloc, so the slices are unused for them. The timer thread keeps one slice, and APU and OHCI interrupts borrow one while they run.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 398
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 405
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2949
+    }
+   ],
+   "tags": [
+    "stack",
+    "thread"
+   ],
+   "addresses_unverified": [
+    "00780000"
+   ]
+  },
+  {
+   "id": "mem-thread-stack-heap",
+   "title": "Spawned guest threads take 512 KB stacks from the heap",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_AllocThreadStack"
+   },
+   "addresses": [],
+   "related": [
+    "mem-thread-stack-free",
+    "mem-stack-main"
+   ],
+   "fact": "xbox_AllocThreadStack takes XBOX_THREAD_STACK_SIZE (512 KB) from the heap, not from 0x00780000, and returns the top minus 16. The change was needed because a title's image can extend past 0x00780000; a worker stack there overwrote the game's own .rdata .data without faulting. At most XBOX_MAX_THREAD_STACKS (8) are live at once.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 3041
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 3094
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 3110
+    }
+   ],
+   "tags": [
+    "thread",
+    "heap"
+   ],
+   "addresses_unverified": [
+    "00F80000"
+   ]
+  },
+  {
+   "id": "mem-thread-stack-free",
+   "title": "Thread stacks are returned, or the pool runs dry and deadlocks",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_FreeThreadStack"
+   },
+   "addresses": [],
+   "related": [
+    "mem-thread-stack-heap",
+    "kernel-thread-create"
+   ],
+   "fact": "The counter used to count every thread ever created. A title that cycles threads, such as the Dashboard spawning one worker per ambient WAV, exhausted the pool.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 3139
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 496
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 3125
+    }
+   ],
+   "tags": [
+    "thread",
+    "freeze",
+    "deadlock"
+   ]
+  },
+  {
+   "id": "mem-thread-tib",
+   "title": "Each spawned thread gets its own TIB and TLS block",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_AllocThreadTib"
+   },
+   "addresses": [],
+   "related": [
+    "mem-tib-main-0x4000",
+    "kernel-cs-shadow"
+   ],
+   "fact": "xbox_AllocThreadTib builds a TIB and TLS block for a new guest thread from the template the loader made: it copies the main TIB, sets its own SEH chain to 0xFFFFFFFF, and points slot 0 at a per-thread data block. Before this, every guest thread shared one TIB and one CRT per-thread block, which deadlocked Half-Life 2 in _lock.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 3063
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 363
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 368
+    }
+   ],
+   "tags": [
+    "thread",
+    "tib"
+   ],
+   "addresses_unverified": [
+    "00004000"
+   ]
+  },
+  {
+   "id": "mem-contig-window",
+   "title": "Contiguous window at 0x80000000 for physical DMA memory",
+   "subject": {
+    "kind": "address",
+    "id": "XBOX_CONTIG_BASE"
+   },
+   "addresses": [],
+   "related": [
+    "mem-contig-alloc",
+    "mem-tiled-alias"
+   ],
+   "fact": "The contiguous window starts at 0x80000000, and physical page P is visible at 0x80000000 + P. It has its own file-mapping storage, not a view of RAM, because the XBE image sits in RAM and aliasing would put pinned physical pools over the title's own code. The size constant is in kernel.h, which is not in this pack, so it is not recorded here.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2290
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2305
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2322
+    }
+   ],
+   "tags": [
+    "memory",
+    "contiguous"
+   ],
+   "addresses_unverified": [
+    "80000000"
+   ]
+  },
+  {
+   "id": "mem-contig-alloc",
+   "title": "MmAllocateContiguousMemory is a bump arena over the window",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_ContiguousAlloc"
+   },
+   "addresses": [],
+   "related": [
+    "mem-contig-window",
+    "kernel-data-exports"
+   ],
+   "fact": "The arena grows up from one page into the window and is never freed unless RECOMP_HEAP_RECLAIM is set. It is needed for D3D: the Xbox driver writes the pushbuffer position as VA & 0x0FFFFFFF and reads GET | 0x80000000, and this only round-trips inside the window. A general-heap address breaks the comparison, which hung Half-Life 2 forever.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 3159
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 3170
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 3203
+    }
+   ],
+   "tags": [
+    "contiguous",
+    "dma",
+    "hang"
+   ],
+   "addresses_unverified": [
+    "80000000"
+   ]
+  },
+  {
+   "id": "mem-kernel-pe-page",
+   "title": "Fake kernel PE header page at 0x80010000",
+   "subject": {
+    "kind": "address",
+    "id": "XBOX_KERNEL_BASE"
+   },
+   "addresses": [],
+   "related": [
+    "mem-contig-window",
+    "docs-renderware-cache"
+   ],
+   "fact": "A 4 KB page at 0x80010000 holds a zeroed PE header with e_lfanew = 0x80 and no sections. RenderWare reads MEM32(0x8001003C) to find the kernel INIT section for cache-line sizing, and an empty header lets it skip. The page is inside the contiguous window when that is mapped, otherwise it is allocated separately.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2527
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2541
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2542
+    }
+   ],
+   "tags": [
+    "renderware",
+    "kernel"
+   ],
+   "addresses_unverified": [
+    "80010000"
+   ]
+  },
+  {
+   "id": "mem-tiled-alias",
+   "title": "Tiled aperture at 0xF0000000 aliases the contiguous window",
+   "subject": {
+    "kind": "address",
+    "id": "XBOX_TILED_BASE"
+   },
+   "addresses": [],
+   "related": [
+    "mem-contig-window",
+    "mem-mirror-skip-tiled"
+   ],
+   "fact": "The tiled/write-combined aperture at 0xF0000000 is a view of the contiguous window, not of RAM, so tiled writes and the physical address read back the same bytes. The size is capped by 0xFD000000 (the NV2A aperture) and by the contiguous size. A startup check writes through one address and reads the other. Before this change Half-Life 2 wrote decoded video through 0xF1C63000 and D3D sampled 0x81C63000, which read zeros.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2630
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2646
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2665
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 447
+    }
+   ],
+   "tags": [
+    "memory",
+    "gpu",
+    "tiled"
+   ],
+   "addresses_unverified": [
+    "F0000000"
+   ]
+  },
+  {
+   "id": "mem-nv2a-aperture",
+   "title": "NV2A register aperture: 16 MB of plain zeroed RAM",
+   "subject": {
+    "kind": "address",
+    "id": "XBOX_NV2A_BASE"
+   },
+   "addresses": [],
+   "related": [
+    "nv2a-busy-ack",
+    "nv2a-idle-wait"
+   ],
+   "fact": "The NV2A register range at 0xFD000000 (16 MB) is backed by ordinary zeroed memory, so D3D8 register pokes do not fault. Plain memory has no register semantics. A spin on a bit that the GPU would clear hangs instead, which is why a table-driven acknowledgement thread exists.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 91
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2350
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2362
+    }
+   ],
+   "tags": [
+    "nv2a",
+    "gpu"
+   ],
+   "addresses_unverified": [
+    "FD000000"
+   ]
+  },
+  {
+   "id": "mem-mcpx-aperture",
+   "title": "MCPX southbridge aperture 0xFE800000 is plain RAM",
+   "subject": {
+    "kind": "address",
+    "id": "XBOX_MCPX_BASE"
+   },
+   "addresses": [],
+   "related": [
+    "mem-ac97-ready"
+   ],
+   "fact": "The MCPX device span (8 MB) at 0xFE800000 covers APU at 0xFE800000, AC97 at 0xFEC00000, USB at 0xFED00000 and NIC at 0xFEF00000, all as zeroed RAM so XDK code can touch them without faulting. The code says to extend the NV2A ack table, not to emulate a device, if a register spin appears.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 96
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2373
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2394
+    }
+   ],
+   "tags": [
+    "mcpx",
+    "usb",
+    "audio"
+   ],
+   "addresses_unverified": [
+    "FE800000"
+   ]
+  },
+  {
+   "id": "mem-ac97-ready",
+   "title": "AC97 codec-ready bit is forced for DirectSound",
+   "subject": {
+    "kind": "address",
+    "id": "RECOMP_AC97_READY"
+   },
+   "addresses": [],
+   "related": [
+    "mem-mcpx-aperture",
+    "kernel-dsound-locks"
+   ],
+   "fact": "DirectSound resets the codec by setting a bit at 0xFEC0012C and then polls 0xFEC00130 for bit 8 about a thousand times. Zeroed registers never set the bit, so DirectSoundCreate returns DSERR_NODRIVER and the title skips audio. RECOMP_AC97_READY sets the bit so the codec appears ready.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2404
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2435
+    }
+   ],
+   "tags": [
+    "audio",
+    "env"
+   ],
+   "addresses_unverified": [
+    "FEC0012C",
+    "FEC00130"
+   ]
+  },
+  {
+   "id": "mem-flash-aperture",
+   "title": "Flash ROM aperture at 0xFF000000 is 1 MB of zeros",
+   "subject": {
+    "kind": "address",
+    "id": "XBOX_FLASH_BASE"
+   },
+   "addresses": [],
+   "related": [
+    "mem-mcpx-aperture"
+   ],
+   "fact": "A 1 MB aperture at 0xFF000000 is plain zeroed memory. The Dashboard hashes 64 KB from 0xFF000000 and writes 0xFF000040, and both were hard faults before. Zeros are not the console BIOS, so a digest over this will not match real flash, but the access no longer faults.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 100
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 115
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2496
+    }
+   ],
+   "tags": [
+    "flash",
+    "dashboard"
+   ],
+   "addresses_unverified": [
+    "FF000000",
+    "FF000040"
+   ]
+  },
+  {
+   "id": "mem-fake-rwdata-tls",
+   "title": "Fake RW data and TLS areas at 0x00700000 and 0x00760000",
+   "subject": {
+    "kind": "address",
+    "id": "FAKE_RWDATA_VA"
+   },
+   "addresses": [],
+   "related": [
+    "mem-kdata-offsets"
+   ],
+   "fact": "The loader builds a RenderWare engine data area at 0x00700000 and a fake TLS structure at 0x00760000, both inside BSS. These are fixed offsets in the layout code and are referenced by the RenderWare runtime; the kernel-replacement README gives the same range as 256 KB and 64 KB areas.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2208
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2209
+    },
+    {
+     "file": "kit/source/runtime/src/kernel/README.md",
+     "line": 40
+    },
+    {
+     "file": "kit/source/runtime/src/kernel/README.md",
+     "line": 42
+    }
+   ],
+   "tags": [
+    "renderware",
+    "tls"
+   ],
+   "addresses_unverified": [
+    "00700000",
+    "00760000"
+   ]
+  },
+  {
+   "id": "mem-kdata-area",
+   "title": "Kernel data export area at 0x00740000 (4 KB)",
+   "subject": {
+    "kind": "address",
+    "id": "XBOX_KERNEL_DATA_BASE"
+   },
+   "addresses": [],
+   "related": [
+    "mem-kdata-offsets",
+    "kernel-data-exports"
+   ],
+   "fact": "Kernel data exports (hardware info, krnl version, KeTickCount, object types, keys) live in a 4 KB area at 0x00740000. Each export has a fixed offset in xbox_memory_layout.h. The title reads the thunk entry and dereferences it to reach the data.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 250
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 251
+    }
+   ],
+   "tags": [
+    "kernel",
+    "data-export"
+   ],
+   "addresses_unverified": [
+    "00740000"
+   ]
+  },
+  {
+   "id": "mem-kdata-offsets",
+   "title": "Current kernel data offsets; README table is stale",
+   "subject": {
+    "kind": "concept",
+    "id": "KDATA_*"
+   },
+   "addresses": [],
+   "related": [
+    "mem-kdata-area"
+   ],
+   "fact": "Current offsets in the header: KDATA_HARDWARE_INFO 0x000, KRNL_VERSION 0x010, TICK_COUNT 0x020, LAUNCH_DATA_PAGE 0x030, HD_KEY 0x100, SIGNATURE_KEY 0x110, LAN_KEY 0x120, XE_PUBLIC_KEY 0x300, DISK strings 0x420-0x4A0, XeImageFileName buffer 0x4B0. The kernel-replacement README table still lists HD key at 0x030 and EEPROM key at 0x050, which are superseded.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 254
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 272
+    },
+    {
+     "file": "kit/source/runtime/src/kernel/README.md",
+     "line": 136
+    },
+    {
+     "file": "kit/source/runtime/src/kernel/README.md",
+     "line": 139
+    }
+   ],
+   "tags": [
+    "kernel",
+    "data-export"
+   ],
+   "addresses_unverified": [
+    "00740000"
+   ]
+  },
+  {
+   "id": "mem-trap-null",
+   "title": "RECOMP_TRAP_NULL makes guest page zero fault",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_TRAP_NULL"
+   },
+   "addresses": [],
+   "related": [
+    "mem-tib-main-0x4000"
+   ],
+   "fact": "With RECOMP_TRAP_NULL set, guest page zero is made inaccessible at init, so a null dereference becomes an access violation at the faulting instruction. The guard works at host page granularity (16 KB on Apple Silicon), which is why the TIB moved to 0x4000: otherwise the guard would cover the TIB and silently disable itself. The posix test checks that the TIB survives the guard.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 1869
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 1893
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 343
+    }
+   ],
+   "tags": [
+    "debug",
+    "null",
+    "env"
+   ],
+   "addresses_unverified": [
+    "00000000",
+    "00004000"
+   ]
+  },
+  {
+   "id": "mem-map-size-vs-ram",
+   "title": "Mapped size is separate from RAM size",
+   "subject": {
+    "kind": "concept",
+    "id": "xbox_SetMapSize"
+   },
+   "addresses": [],
+   "related": [
+    "mem-ext-vma",
+    "mem-heap-base-top"
+   ],
+   "fact": "xbox_SetMapSize sets how much guest address space is backed; xbox_SetTotalRam sets the RAM the title is told about. Mirrors use the mapped size, so growing the map stops above-RAM allocations aliasing low memory. Growing RAM instead changes the heap top and what the title sees, and broke CRT init in Half-Life 2. A devkit build can call SetTotalRam(128 MB) before init.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 43
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 84
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 1759
+    }
+   ],
+   "tags": [
+    "memory",
+    "config"
+   ],
+   "addresses_unverified": [
+    "04000000"
+   ]
+  },
+  {
+   "id": "mem-dma-main-base",
+   "title": "Second 64 MB DMA aperture identifies main RAM",
+   "subject": {
+    "kind": "address",
+    "id": "XBOX_DMA_MAIN_BASE"
+   },
+   "addresses": [],
+   "related": [
+    "mem-contig-window"
+   ],
+   "fact": "Ordinary RAM is also reachable through a second 64 MB aperture at 0x04000000 so that bus-master DMA can tell ordinary allocations apart from the contiguous window. xbox_DmaIsMain tests that range. The guest's own pointers do not change.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 48
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 53
+    }
+   ],
+   "tags": [
+    "dma"
+   ],
+   "addresses_unverified": [
+    "04000000"
+   ]
+  },
+  {
+   "id": "mem-ext-vma",
+   "title": "RECOMP_EXT_VMA: reserve addresses above the mirrors",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_EXT_VMA"
+   },
+   "addresses": [],
+   "related": [
+    "mem-map-size-vs-ram"
+   ],
+   "fact": "With RECOMP_EXT_VMA set, guest address space above the RAM mirrors is tracked, so a title that reserves a specific high address gets it back. Without it the request is served from the heap at another address, and touching the requested address faults. Reservations inside the mirror range are refused. Tracking stops at the first host address already in use.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2627
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2628
+    }
+   ],
+   "tags": [
+    "env",
+    "memory"
+   ],
+   "addresses_unverified": [
+    "74000000",
+    "76000000"
+   ]
+  },
+  {
+   "id": "mem-nv2a-ack-table",
+   "title": "NV2A busy-bit ack thread clears GPU handshakes",
+   "subject": {
+    "kind": "function",
+    "id": "nv2a_ack_thread"
+   },
+   "addresses": [
+    "001EF930",
+    "00100410"
+   ],
+   "related": [
+    "mem-nv2a-aperture",
+    "nv2a-idle-wait"
+   ],
+   "fact": "A background thread clears busy bits that D3D8 sets and waits on. The table covers PFB flush kick at 0x100410 (mask 0x10000, found in the Halo title at 0x001EF930), and holds the PMC/PBUS/PFIFO/PGRAPH/PCRTC interrupt registers at zero, because those are write-1-to-clear on hardware. Holding them at zero stops an ISR from re-entering until the stack overflows.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 159
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 183
+    }
+   ],
+   "tags": [
+    "nv2a",
+    "gpu",
+    "hang"
+   ]
+  },
+  {
+   "id": "nv2a-idle-wait",
+   "title": "Ack thread idles on a 250 us timer instead of spinning",
+   "subject": {
+    "kind": "function",
+    "id": "nv2a_idle_wait"
+   },
+   "addresses": [],
+   "related": [
+    "nv2a-busy-ack"
+   ],
+   "fact": "The ack thread spins with Sleep(0) only while GPU traffic is moving and for 2 ms after it. Then it polls every 250 us on a high-resolution waitable timer. Before this it spun a full core while the title was busy on the CPU, which cost laptops power shared with the iGPU. RECOMP_NV2A_SPIN=1 restores the old always-spin behaviour.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 877
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 883
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 915
+    }
+   ],
+   "tags": [
+    "nv2a",
+    "perf",
+    "env"
+   ]
+  },
+  {
+   "id": "nv2a-busy-ack",
+   "title": "NV2A ack design: acknowledge handshakes instead of stubbing",
+   "subject": {
+    "kind": "concept",
+    "id": "xbox_memory_layout.c NV2A_ACK"
+   },
+   "addresses": [
+    "001EF930"
+   ],
+   "related": [
+    "mem-nv2a-ack-table",
+    "docs-kernel-replacement"
+   ],
+   "fact": "Clearing a busy bit is the handshake itself, because the GPU clears it asynchronously on hardware, and the D3D11 layer does the work that would have been submitted. The code notes only listed registers are touched, since blanket-zeroing the aperture would wipe state. Any unlisted spin still hangs and the watchdog names the register.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 159
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 175
+    }
+   ],
+   "tags": [
+    "nv2a",
+    "design"
+   ]
+  },
+  {
+   "id": "nv2a-frame-counter",
+   "title": "60 Hz fallback advances the swap counter until a flip is seen",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_Nv2aFrameCounter"
+   },
+   "addresses": [],
+   "related": [
+    "nv2a-busy-ack"
+   ],
+   "fact": "xbox_Nv2aFrameCounter advances a frame or swap counter inside the D3D device at about 60 Hz, because a title waiting a frame spins until the count moves and nothing presents. xbox_Nv2aFrameCounterFlip advances it on a real FLIP_STALL, and while flips arrive the 60 Hz fallback stands down.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 168
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 185
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 186
+    }
+   ],
+   "tags": [
+    "nv2a",
+    "frame"
+   ]
+  },
+  {
+   "id": "nv2a-fence-mirror",
+   "title": "Fence mirror follows device pointers for a GPU completion counter",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_Nv2aMirrorFence"
+   },
+   "addresses": [
+    "000FE920"
+   ],
+   "related": [
+    "nv2a-frame-counter"
+   ],
+   "fact": "Some titles spin on a semaphore the GPU writes into contiguous memory. xbox_Nv2aMirrorFence registers a chain of indirections (device pointer, then get offset, then the fence address) and copies the put value into the fence on every poll. Every step is bounds-checked, so an uninitialised chain is harmless. Wreckless uses this at 0x000FE920.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 142
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 156
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 202
+    }
+   ],
+   "tags": [
+    "nv2a",
+    "fence"
+   ]
+  },
+  {
+   "id": "kernel-thunk-dispatch",
+   "title": "How a kernel import call is serviced",
+   "subject": {
+    "kind": "concept",
+    "id": "kernel_thunk_dispatch"
+   },
+   "addresses": [
+    "0036B7C0"
+   ],
+   "related": [
+    "kernel-thunk-synthetic",
+    "kernel-data-exports"
+   ],
+   "fact": "The XBE thunk slot holds 0x80000000 | ordinal. Initialisation rewrites each slot to a synthetic VA 0xFE000000 + 4 x slot. A recompiled indirect call to that VA reaches recomp_lookup_kernel, which picks the slot, and kernel_thunk_dispatch pops the dummy return, reads stdcall arguments from the simulated stack at g_esp, calls the bridge, and leaves the result in g_eax. The slot is per thread, so a lookup on another thread cannot pick the wrong service.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "kernel",
+    "dispatch"
+   ],
+   "addresses_unverified": [
+    "FE000000"
+   ]
+  },
+  {
+   "id": "kernel-thunk-synthetic",
+   "title": "Thunk slots become synthetic VAs at 0xFE000000",
+   "subject": {
+    "kind": "concept",
+    "id": "xbox_kernel_bridge_init"
+   },
+   "addresses": [
+    "0036B7C0"
+   ],
+   "related": [
+    "kernel-thunk-dispatch"
+   ],
+   "fact": "Each slot i is rewritten to 0xFE000000 + 4i for function exports. Data exports get the data's VA instead, so the title dereferences them. The thunk table lives .rdata; the Burnout 3 example places it at 0x0036B7C0 with 147 entries.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "kernel"
+   ],
+   "addresses_unverified": [
+    "FE000000"
+   ]
+  },
+  {
+   "id": "kernel-data-exports",
+   "title": "Data exports return memory, not function pointers",
+   "subject": {
+    "kind": "concept",
+    "id": "kernel data exports"
+   },
+   "addresses": [],
+   "related": [
+    "mem-kdata-area"
+   ],
+   "fact": "Ordinals 156 (KeTickCount), 322 (XboxHardwareInfo), 324 (XboxKrnlVersion), 17 (ExEventObjectType) and others export data. The title reads the thunk entry and dereferences it. KeTickCount is written from GetTickCount by the timer side. The kernel-replacement doc says a background thread updates it, while the README attributes the timer to the single kernel timer thread.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/runtime/src/kernel/README.md",
+     "line": 138
+    }
+   ],
+   "tags": [
+    "kernel",
+    "data-export",
+    "timer"
+   ],
+   "addresses_unverified": [
+    "00740000"
+   ]
+  },
+  {
+   "id": "kernel-export-count",
+   "title": "Export counts differ across docs",
+   "subject": {
+    "kind": "concept",
+    "id": "kernel exports"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-thunk-dispatch"
+   ],
+   "fact": "The kit/source/game/src/kernel README says all 371 ordinals are routed (347 functions and 24 data exports), checked by tools/kernel_audit/test_bridge_ordinals.py. kernel-exports.md says up to 366. kernel-replacement.md counts 147 imports for Burnout 3. These are different scopes, not a conflict, but the README is the current figure.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/runtime/src/kernel/README.md",
+     "line": 3
+    }
+   ],
+   "tags": [
+    "kernel",
+    "docs"
+   ]
+  },
+  {
+   "id": "kernel-export-ordinals",
+   "title": "Key kernel ordinals used in these notes",
+   "subject": {
+    "kind": "concept",
+    "id": "kernel exports"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-thunk-dispatch"
+   ],
+   "fact": "Ordinals used by the runtime: 190 NtCreateFile, 219 NtReadFile, 255 PsCreateSystemThreadEx, 99 KeDelayExecutionThread, 128 KeQuerySystemTime, 126/127 KeQueryPerformanceCounter/Frequency, 165 MmAllocateContiguousMemory, 177 MmMapIoSpace, 207 NtQueryDirectoryFile, 301 RtlNtStatusToDosError, 173 MmGetPhysicalAddress, 156 KeTickCount, 161 KfLowerIrql, 8 DbgPrint (also listed as unknown; see notes).",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "kernel",
+    "ordinals"
+   ]
+  },
+  {
+   "id": "kernel-ordinal-8-conflict",
+   "title": "Ordinal 8 is listed as both DbgPrint and unknown",
+   "subject": {
+    "kind": "concept",
+    "id": "ordinal 8"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-export-ordinals"
+   ],
+   "fact": "kernel-exports.md lists ordinal 8 as DbgPrint , in the Debug table, as an unknown ordinal that some thunk tables use and should be stubbed as a no-op. One of the two entries is wrong; the doc does not say which. Check the current export table before relying on either.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "kernel",
+    "docs"
+   ]
+  },
+  {
+   "id": "kernel-ntstatus-487",
+   "title": "STATUS_CONFLICTING_ADDRESSES maps to ERROR_INVALID_ADDRESS (487)",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_RtlNtStatusToDosError"
+   },
+   "addresses": [],
+   "related": [
+    "heap-growth-487",
+    "kernel-regressions"
+   ],
+   "fact": "NtAllocateVirtualMemory answers STATUS_CONFLICTING_ADDRESSES (0xC0000018) when a requested base is taken. RtlNtStatusToDosError maps that to ERROR_INVALID_ADDRESS (487), the only error the MSVC CRT heap retries on when growing. Before the mapping the generic 317 was returned and the heap stopped growing. Both status tables, this one and the bridge's, carry the mapping.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 637
+    }
+   ],
+   "tags": [
+    "heap",
+    "crt",
+    "status"
+   ],
+   "addresses_unverified": [
+    "00000000"
+   ]
+  },
+  {
+   "id": "kernel-ntstatus-unmapped",
+   "title": "Unmapped NTSTATUS values return 317 and log a warning",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_RtlNtStatusToDosError"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-ntstatus-487"
+   ],
+   "fact": "Any status without a mapping logs 'RtlNtStatusToDosError: unmapped status' and returns ERROR_MR_MID_NOT_FOUND (317). The comment says it should fall back to ntdll, but the code only logs and returns 317.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 664
+    }
+   ],
+   "tags": [
+    "status"
+   ]
+  },
+  {
+   "id": "kernel-pseudo-handle",
+   "title": "Pseudo-handles stay negative, or the CRT retries forever",
+   "subject": {
+    "kind": "concept",
+    "id": "NtCurrentThread"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-regressions",
+    "kernel-ntstatus-487"
+   ],
+   "fact": "NtCurrentThread is (HANDLE)-2, i.e. 0xFFFFFFFE. Zero-extended on a 64-bit host it is not Windows' -2, so DuplicateHandle fails, NtDuplicateObject returns 0xC0000001, and the CRT, which duplicates the current thread handle, retries forever. Tokens at 0xFFFFFFF0 and above are sign-extended in bridge_resolve_handle.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "handles",
+    "hang"
+   ],
+   "addresses_unverified": [
+    "FFFFFFFE"
+   ]
+  },
+  {
+   "id": "kernel-counter-64bit",
+   "title": "Kernel call counter is 64-bit so logging stays budgeted",
+   "subject": {
+    "kind": "concept",
+    "id": "KERNEL_LOG_ON"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-regressions"
+   ],
+   "fact": "The kernel call counter was an int. A title polling KeQuerySystemTime hundreds of millions of times a minute wrapped it negative after 2^31 calls, and KERNEL_LOG_ON (count <= budget) then logged every call. The frame rate fell to about 1 FPS with every thread queued on the stderr lock. The counter is now long long.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "kernel",
+    "log",
+    "perf"
+   ]
+  },
+  {
+   "id": "kernel-thread-create",
+   "title": "PsCreateSystemThreadEx creates real Win32 threads",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_PsCreateSystemThreadEx"
+   },
+   "addresses": [],
+   "related": [
+    "mem-thread-tib",
+    "kernel-thread-mode"
+   ],
+   "fact": "PsCreateSystemThreadEx wraps the Xbox start routine in a Win32 thread (CreateThread) and uses a 64 KB stack when the caller gives 0. Threads run concurrently with the main game thread, so locks must work. The kernel-replacement doc still says spawned threads run synchronously, which was true only for the old model and is superseded.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/kernel_thread.c",
+     "line": 30
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_thread.c",
+     "line": 69
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_thread.c",
+     "line": 105
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_thread.c",
+     "line": 108
+    }
+   ],
+   "tags": [
+    "thread"
+   ]
+  },
+  {
+   "id": "kernel-threads-sync-superseded",
+   "title": "Old doc said threads run inline and waits return at once",
+   "subject": {
+    "kind": "concept",
+    "id": "docs/technical/kernel-replacement.md"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-thread-create",
+    "kernel-cs-shadow"
+   ],
+   "fact": "kernel-replacement.md says PsCreateSystemThreadEx runs the first thread synchronously, later threads are deferred, KeWaitForSingleObject returns at once, and critical sections are no-ops. The current source makes real threads, and the README reports full event, semaphore and critical-section implementations. Treat those doc sections as superseded.",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/runtime/src/kernel/README.md",
+     "line": 187
+    }
+   ],
+   "tags": [
+    "thread",
+    "docs"
+   ]
+  },
+  {
+   "id": "kernel-thread-mode",
+   "title": "XBOX_THREAD_MODE_INLINE is the default; SPAWN makes every call real",
+   "subject": {
+    "kind": "concept",
+    "id": "xbox_SetThreadMode"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-thread-create"
+   ],
+   "fact": "The header says INLINE (default) runs the first PsCreateSystemThreadEx as the game inline, as Halo and Crimson Skies do, and SPAWN makes every call a real thread so a host-tick title's entry can return. kernel_thread.c calls CreateThread unconditionally, so the inline branch must live in the bridge code, which is not in this pack.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 512
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 517
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 519
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_thread.c",
+     "line": 108
+    }
+   ],
+   "tags": [
+    "thread",
+    "mode"
+   ]
+  },
+  {
+   "id": "kernel-delay-sleep",
+   "title": "KeDelayExecutionThread converts to Sleep milliseconds",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_KeDelayExecutionThread"
+   },
+   "addresses": [],
+   "related": [
+    "timer-sleep-granularity"
+   ],
+   "fact": "A relative 100 ns interval is divided into milliseconds with a minimum of 1 ms and passed to Sleep (SleepEx when alertable). Zero means SwitchToThread. Positive absolute times wait for the difference from now, and return at once if already past. The 1 ms floor is the platform granularity that the timer note below measures.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/kernel_thread.c",
+     "line": 158
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_thread.c",
+     "line": 170
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_thread.c",
+     "line": 176
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_thread.c",
+     "line": 194
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_thread.c",
+     "line": 198
+    }
+   ],
+   "tags": [
+    "thread",
+    "timer"
+   ]
+  },
+  {
+   "id": "timer-sleep-granularity",
+   "title": "Windows Sleep(1) averages about 15.5 ms here",
+   "subject": {
+    "kind": "concept",
+    "id": "Sleep granularity"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-delay-sleep",
+    "kernel-timer-thread"
+   ],
+   "fact": "No timeBeginPeriod call exists in the source, and Windows 10 2004 and later do not let a process inherit another's timer resolution. Measured in a bare process, Sleep(1) averaged 15.45 to 15.48 ms (min 6.8, max 16.1). Guest sleeps of 1 to 5 ms therefore last about 15.6 ms. The measurement was a bare process, not in the running game, so the in-game resolution is not confirmed.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "timer",
+    "audio",
+    "perf"
+   ]
+  },
+  {
+   "id": "timer-sleep-fix-proposed",
+   "title": "Proposed fix: timeBeginPeriod(1) in main.c, or a waitable timer",
+   "subject": {
+    "kind": "concept",
+    "id": "main.c"
+   },
+   "addresses": [],
+   "related": [
+    "timer-sleep-granularity"
+   ],
+   "fact": "The fidelity review proposes one line at startup calling timeBeginPeriod(1) with timeEndPeriod(1) at exit, or a high-resolution waitable timer for the kernel timer thread, which the APU and OHCI threads already use. This was not applied in any build in this pack. It would also be the test for the stuck-rumble symptom.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "timer",
+    "fix-proposal"
+   ]
+  },
+  {
+   "id": "kernel-timer-thread",
+   "title": "One kernel timer thread drains guest DPCs, vblank and timers",
+   "subject": {
+    "kind": "function",
+    "id": "kernel timer thread"
+   },
+   "addresses": [],
+   "related": [
+    "timer-sleep-granularity",
+    "kernel-dsound-locks"
+   ],
+   "fact": "A single kernel timer thread runs every guest deferred procedure call, including DirectSound's interrupt-driven DPC, along with the 60 Hz vblank and guest timers, and sleeps Sleep(1) between passes. A DPC can wait up to about 15.6 ms behind vblank and other DPCs. The loop is in kernel_bridge.c around lines 2851 to 2856, which is not in this pack.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "timer",
+    "dpc",
+    "audio"
+   ]
+  },
+  {
+   "id": "timer-tsc-scaled",
+   "title": "Guest timestamp counter is scaled to the Xbox rate",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_ReadTimeStampCounter"
+   },
+   "addresses": [],
+   "related": [
+    "checkpoint-hitch"
+   ],
+   "fact": "xbox_ReadTimeStampCounter is scaled to the Xbox TSC rate (kernel_hal.c line 1204), so guest time-based logic is not running fast or slow. This was used to rule out a timing cause for the checkpoint pause.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "timer"
+   ]
+  },
+  {
+   "id": "timer-fix-candidate",
+   "title": "Timer fix candidate: kernel_bridge.c and xinput_device.c",
+   "subject": {
+    "kind": "function",
+    "id": "timer candidate"
+   },
+   "addresses": [],
+   "related": [
+    "timer-sleep-fix-proposed",
+    "rumble-stuck-on"
+   ],
+   "fact": "50 timer checks pass and the old code reproduces 5 expected signalling failures. The trace keeps 256 records; the corrected trace reports the last request at 9400 ms with a 116 ms gap. The cpu-install README says the reviewed timer, prompt and settings corrections were integrated, but native timing and controller feedback still need a playthrough.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "timer",
+    "rumble"
+   ]
+  },
+  {
+   "id": "kernel-cs-shadow",
+   "title": "Critical sections are shadowed onto host locks",
+   "subject": {
+    "kind": "concept",
+    "id": "xbox_RtlEnterCriticalSection"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-cs-index-growth",
+    "kernel-threads-sync-superseded"
+   ],
+   "fact": "Guest critical sections used to be no-ops. Once threads became real, they are shadowed onto Win32 recursive CRITICAL_SECTIONs keyed by the guest pointer. The guest's 20-byte RTL_CRITICAL_SECTION cannot back a 40-byte host lock, so the guest's bytes are left alone. Half-Life 2's intermittent level-load fault was a lock that did nothing. Locks are created lazily, so a title can use a zeroed one it never initialised.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 164
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 180
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 189
+    }
+   ],
+   "tags": [
+    "lock",
+    "thread"
+   ]
+  },
+  {
+   "id": "kernel-cs-index-growth",
+   "title": "Lock index used to fill and slow everything after 7 minutes",
+   "subject": {
+    "kind": "concept",
+    "id": "g_cs_index"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-cs-shadow",
+    "freeze-saves-slow"
+   ],
+   "fact": "The shadow index was a fixed 4096-slot table. MechAssault 2 creates locks for transient objects and filled it about seven minutes into a mission. From then every lock that did not fit scanned all 4096 slots, saves took 5 s instead of 0.2 s, menu returns took up to 19 s, and the unplaced locks were left unprotected. The index now doubles at half full, with 4096-slot chunks up to 4096 chunks (16 M locks).",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 190
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 198
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 205
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 206
+    }
+   ],
+   "tags": [
+    "lock",
+    "perf",
+    "freeze"
+   ]
+  },
+  {
+   "id": "kernel-cs-single-mode",
+   "title": "RECOMP_CS_MODE=single puts every guest lock behind one lock",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_CS_MODE"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-cs-shadow"
+   ],
+   "fact": "RECOMP_CS_MODE=single makes every guest critical section share one recursive host lock. It is deadlock-free by construction and is deliberately not the default: it is a diagnostic. If the title makes progress with it, a lock cycle was the blocker; if not, it was something else.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 239
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 253
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 343
+    }
+   ],
+   "tags": [
+    "lock",
+    "debug",
+    "env"
+   ]
+  },
+  {
+   "id": "kernel-cs-contention-report",
+   "title": "Contended guest locks print the lock and a guest backtrace",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_RtlEnterCriticalSection"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-cs-shadow"
+   ],
+   "fact": "When a lock is contended, the runtime tries first and then prints the guest address and a backtrace. The backtrace scans the guest stack for words in the code range, so it is approximate. The report exists because a deadlock otherwise looks like a hang with no output.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 386
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 392
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 410
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 418
+    }
+   ],
+   "tags": [
+    "lock",
+    "debug"
+   ]
+  },
+  {
+   "id": "kernel-crt-lock-trace",
+   "title": "RECOMP_CS_TRACE_CRT logs CRT lock order",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_CS_TRACE_CRT"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-cs-contention-report"
+   ],
+   "fact": "The CRT's lock table is supplied by xbox_SetCrtLockTable. Index 1 is the stdio scan lock, 4 the heap, and 16 and up the per-stream locks. Gated on RECOMP_CS_TRACE_CRT, every acquire and release is logged in order, so a missing release can be told apart from two real lock orders.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 431
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 447
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 462
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 481
+    }
+   ],
+   "tags": [
+    "lock",
+    "debug",
+    "env"
+   ]
+  },
+  {
+   "id": "kernel-cs-try-shadow",
+   "title": "Non-blocking TryEnter for runtime code that must not wait",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_RtlTryEnterCriticalSectionShadow"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-dsound-locks"
+   ],
+   "fact": "xbox_RtlTryEnterCriticalSectionShadow takes the shadow lock without waiting. Runtime code that runs in an interrupt must skip its work if the lock is held, and the DirectSound ISR/DPC try-lock (recomp_0095) uses this path. The matching leave is xbox_RtlLeaveCriticalSection.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 605
+    }
+   ],
+   "tags": [
+    "lock",
+    "dsound"
+   ]
+  },
+  {
+   "id": "kernel-file-paths",
+   "title": "Xbox device paths map to game and save directories",
+   "subject": {
+    "kind": "concept",
+    "id": "kernel_path.c"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-object-counted-path"
+   ],
+   "fact": "Xbox paths are translated: \\Device\\CdRom0\\ and D:\\ go to the game data directory, T:\\ to a save directory, U:\\ to a user directory, and Z:\\ to a cache directory. xbox_path_init(title, saves) sets the names. Names are ANSI, and the manifest's UTF-8 code page makes the *A APIs UTF-8. The fidelity review found no defect there.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/runtime/src/kernel/README.md",
+     "line": 149
+    },
+    {
+     "file": "kit/source/runtime/src/kernel/README.md",
+     "line": 161
+    }
+   ],
+   "tags": [
+    "files",
+    "paths"
+   ]
+  },
+  {
+   "id": "kernel-object-counted-path",
+   "title": "Counted object paths with trailing wildcard bytes",
+   "subject": {
+    "kind": "function",
+    "id": "NtQueryDirectoryFile"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-file-paths",
+    "kernel-directory-query"
+   ],
+   "fact": "A regression reproduces a directory-search counted prefix with trailing wildcard bytes, then opens and deletes a save relative to the returned directory handle. The test checks guest stack cleanup and file results, using synthetic guest memory.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "files",
+    "test"
+   ]
+  },
+  {
+   "id": "kernel-directory-query",
+   "title": "NtQueryDirectoryFile ABI: ten arguments, restart, close",
+   "subject": {
+    "kind": "function",
+    "id": "NtQueryDirectoryFile"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-object-counted-path"
+   ],
+   "fact": "Ordinal 207 pops ten stdcall arguments, translates ANSI search masks, continues across calls, restarts when asked, skips dot directories and rejects unsupported information classes. Search state lives in a table of 64 slots, freed by NtClose or ordinal 187. The test cycles 144 open and close pairs to exceed the table.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "files",
+    "test"
+   ]
+  },
+  {
+   "id": "kernel-events-title",
+   "title": "KEVENTs written by the title need RECOMP_TITLE_KEVENTS",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_TITLE_KEVENTS"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-dispatch"
+   ],
+   "fact": "With RECOMP_TITLE_KEVENTS=1, an event the title builds by writing the header itself (no KeInitializeEvent) works: SignalState is read as set, a synchronisation wait consumes it, and KeResetEvent clears it. Without the switch the guest address goes to Win32 as a HANDLE, so the wait fails.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "events",
+    "env"
+   ]
+  },
+  {
+   "id": "kernel-dispatch-thread",
+   "title": "Per-thread dispatch slot prevents wrong-service calls",
+   "subject": {
+    "kind": "function",
+    "id": "kernel_thunk_dispatch"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-thunk-dispatch"
+   ],
+   "fact": "A regression forces a lookup on a second thread between a thread's lookup and its call. A shared dispatch slot selects the wrong service and pops an extra argument; per-thread storage passes. The check uses KeGetCurrentIrql and KeStallExecutionProcessor.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "dispatch",
+    "thread",
+    "test"
+   ]
+  },
+  {
+   "id": "env-watchdog-secs",
+   "title": "RECOMP_WATCHDOG_SECS dumps the guest stack and aborts",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_WATCHDOG_SECS"
+   },
+   "addresses": [],
+   "related": [
+    "env-peek-watch"
+   ],
+   "fact": "If the title has not exited within RECOMP_WATCHDOG_SECS seconds, the watchdog dumps the guest call stack and aborts. It is started on the guest thread and costs a getenv otherwise. It is the first tool to use on a hang.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 1296
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 1691
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 1693
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.h",
+     "line": 229
+    }
+   ],
+   "tags": [
+    "debug",
+    "hang",
+    "env"
+   ]
+  },
+  {
+   "id": "env-peek-watch",
+   "title": "RECOMP_PEEK and RECOMP_WATCH inspect globals and writers",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_PEEK"
+   },
+   "addresses": [],
+   "related": [
+    "env-watchdog-secs"
+   ],
+   "fact": "RECOMP_PEEK=ADDR[:size], prints the named globals at the hang and early-exit moments. RECOMP_WATCH names the guest code that changes a guest dword, by faulting on writes to that page. RECOMP_WATCH_RAW also prints the unfiltered frame. Both are off unless set.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 1562
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 1567
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 1346
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 1402
+    }
+   ],
+   "tags": [
+    "debug",
+    "env"
+   ]
+  },
+  {
+   "id": "env-alloc-trace",
+   "title": "RECOMP_ALLOC_TRACE logs contiguous allocations",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_ALLOC_TRACE"
+   },
+   "addresses": [],
+   "related": [
+    "mem-contig-alloc"
+   ],
+   "fact": "RECOMP_ALLOC_TRACE prints each contiguous allocation as it is made, which is how the window's use by a title can be followed.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 3273
+    }
+   ],
+   "tags": [
+    "debug",
+    "env",
+    "memory"
+   ]
+  },
+  {
+   "id": "env-nv2a-trace",
+   "title": "RECOMP_NV2A_TRACE and RECOMP_PB_SCAN print pushbuffer activity",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_NV2A_TRACE"
+   },
+   "addresses": [],
+   "related": [
+    "nv2a-idle-wait"
+   ],
+   "fact": "RECOMP_NV2A_TRACE or RECOMP_PB_SCAN turns on the diagnostic print for each submitted pushbuffer. RECOMP_PB_EXEC executes the pushbuffer, and RECOMP_PB_REPORT_MS shortens the report interval.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 952
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 1029
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2360
+    }
+   ],
+   "tags": [
+    "debug",
+    "nv2a",
+    "env"
+   ]
+  },
+  {
+   "id": "env-trap-force-return",
+   "title": "RECOMP_FORCE_RETURN is read at init",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_FORCE_RETURN"
+   },
+   "addresses": [],
+   "related": [
+    "env-watchdog-secs"
+   ],
+   "fact": "RECOMP_FORCE_RETURN is read once at the start of memory layout init into g_force_return. The layout code does not say what the flag forces; the consumer is outside this pack.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 1739
+    }
+   ],
+   "tags": [
+    "debug",
+    "env"
+   ]
+  },
+  {
+   "id": "freeze-trig-cos-sin-fmod",
+   "title": "CRT cos, sin and fmod spin on a stale compare after x87 NaN",
+   "subject": {
+    "kind": "function",
+    "id": "sub_0030C659"
+   },
+   "addresses": [
+    "0030C659",
+    "0030C709",
+    "0031DF5C"
+   ],
+   "related": [
+    "fpu-c2-root-cause",
+    "fpu-c2-fix-state"
+   ],
+   "fact": "The game thread spun in CRT cos (sub_0030C659), with the same pattern in sin (0030C709) and fmod (0031DF5C). The recompiler translated fnstsw ax; sahf; jp after fcos, fsin and fprem1 as a test of g_fp_cmp == 2, which is the last compare result (2 means unordered), not x87 C2. After any NaN compare the fprem1 reduction never exits. The freeze hid from logs: ordinal 128 KeQuerySystemTime stopped counting while the BOT-STALL stack topped at sub_0030C659.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "fpu",
+    "freeze",
+    "crt"
+   ]
+  },
+  {
+   "id": "fpu-c2-root-cause",
+   "title": "Root cause: sahf after fprem reads the last compare, not C2",
+   "subject": {
+    "kind": "concept",
+    "id": "fnstsw/sahf translation"
+   },
+   "addresses": [
+    "0030C659",
+    "0030C709",
+    "0031DF5C"
+   ],
+   "related": [
+    "freeze-trig-cos-sin-fmod"
+   ],
+   "fact": "The generated code for fnstsw ax; sahf; jp after fcos, fsin or fprem1 tests g_fp_cmp == 2 instead of the C2 status bit. Scanning all 1074 x87 status reads found only these five sites reading an unmodelled C2. The compare-branch audit in the fidelity review (440 jbe, 103 jb, 94 ja, 21 jae, 14 sahf sites) found all other compare translations correct.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "fpu"
+   ]
+  },
+  {
+   "id": "fpu-c2-fix-state",
+   "title": "C2 freeze fix: five sites patched to if (0), build 786d78b8",
+   "subject": {
+    "kind": "patch",
+    "id": "recomp_0077.c / recomp_0079.c"
+   },
+   "addresses": [
+    "0030C659",
+    "0030C709",
+    "0031DF5C"
+   ],
+   "related": [
+    "freeze-trig-cos-sin-fmod",
+    "sp-exposure"
+   ],
+   "fact": "The five sites are patched to if (0) in the game source tree's gen tree, with ninja rules added; the first build with the fix is 786d78b8. The fix is in the bots tree. The 2026-10-14 single-player audit said the main tree generated recomp code (made at install time, not in the repository) was still unpatched and that PC Release 57702bc3 did not yet have it, so it reaches players only through publish.py.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "fpu",
+    "fix",
+    "shipping"
+   ]
+  },
+  {
+   "id": "fpu-m80-load-store",
+   "title": "Extended-precision fld and fstp are repaired by patch_x87_memory.py",
+   "subject": {
+    "kind": "patch",
+    "id": "recomp_fp_load80 / recomp_fp_store80"
+   },
+   "addresses": [],
+   "related": [
+    "freeze-trig-cos-sin-fmod"
+   ],
+   "fact": "patch_x87_memory.py rewrites generated fld m80 sites (fp_push(MEMF(.)) /* fld */) to recomp_fp_load80 and fstp xword sites to recomp_fp_store80, across every recomp_*.c, and adds the helpers to recomp_types.h. It was run after the reusable lifter's unsized fld fallback was fixed, The docstring says the ten-byte sites were checked with Capstone before the patch; the script does not re-check them.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/bringup/patch_x87_memory.py",
+     "line": 1
+    },
+    {
+     "file": "kit/source/game/bringup/patch_x87_memory.py",
+     "line": 24
+    },
+    {
+     "file": "kit/source/game/bringup/patch_x87_memory.py",
+     "line": 27
+    }
+   ],
+   "tags": [
+    "fpu",
+    "patch"
+   ]
+  },
+  {
+   "id": "xact-list-walk-freeze",
+   "title": "Explosion freeze: XACT list walk spins in the per-frame update",
+   "subject": {
+    "kind": "function",
+    "id": "sub_003DEA53"
+   },
+   "addresses": [
+    "003DEA53",
+    "003E4A20"
+   ],
+   "related": [
+    "xact-list-guard",
+    "xact-root-cause-open"
+   ],
+   "fact": "The 2026-10-11 campaign freeze during a truck explosion was a spin in XACT list walks: the per-frame update sub_003DEA53 (lists at +0x44, +0x64, +0x5C) and the bank cue list sub_003E4A20 (+0x14). A walk that never returns to the head spins the game thread.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "xact",
+    "freeze",
+    "explosion"
+   ]
+  },
+  {
+   "id": "xact-list-guard",
+   "title": "ma2_xact_list_repair caps the walk at 4096 steps and relinks",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_xact_list_repair"
+   },
+   "addresses": [
+    "003DEA53",
+    "003E4A20"
+   ],
+   "related": [
+    "xact-list-walk-freeze",
+    "xact-selflink-patch",
+    "xact-update-crash-delete-null-via-engine-5c-list-loop-unguar"
+   ],
+   "fact": "ma2_xact_list_repair keeps every node reachable from the head and relinks a circular LIST_ENTRY once a walk runs past 4096 steps. It logs '[XACT-LIST]'. In real runs it has only fired in injected tests, and the sweep logs show no list lines. See xact-update-crash-delete-null-via-engine-5c-list-loop-unguarded-notit-nrc-crash1.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "xact",
+    "guard"
+   ]
+  },
+  {
+   "id": "xact-root-cause-open",
+   "title": "Root cause of the campaign XACT list corruption is open",
+   "subject": {
+    "kind": "concept",
+    "id": "XACT list corruption"
+   },
+   "addresses": [],
+   "related": [
+    "xact-list-walk-freeze",
+    "xact-update-crash-delete-null-via-engine-5c-list-loop-unguar",
+    "xact-notit-4-crash-setmode5-stop-null-body-2ad5c0",
+    "xact-objects-freed-by-game-xmemfree-alloc-id-0x84-not-xbox-h"
+   ],
+   "fact": "The single-player audit says the root cause of the original campaign list corruption is open, along with the s13t4 deferred-deletion crash and the 0.5 s VOICE-TIMEOUT waits behind the In Your Face hitch. The guard and locking fixes stop the spin but do not identify the source of the bad link. See xact-update-crash-delete-null-via-engine-5c-list-loop-unguarded-notit-nrc-crash1. A second Not It crash (174273e, t=253.7) is NOT XACT (AI setmode(5) stop handler, garbage body pointer; XACT guard never ran), see xact-notit-4-crash-setmode5-stop-null-body-2ad5c0.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "xact",
+    "open"
+   ]
+  },
+  {
+   "id": "xact-dpc-lock-leak",
+   "title": "XACT update leaked the DirectSound DPC lock (sp0, applied)",
+   "subject": {
+    "kind": "patch",
+    "id": "sub_003DEA53 (recomp_0097.c)"
+   },
+   "addresses": [
+    "003DEA53"
+   ],
+   "related": [
+    "xact-heap-guard-locked",
+    "kernel-dsound-locks"
+   ],
+   "fact": "After the per-frame XACT update, two KfLowerIrql calls made through esi missed the unlock, so the game thread kept the DirectSound lock. That stalled the DirectSound DPC and the single DPC/timer thread behind it, and the APU interrupt skipped voice releases. patch_sp0 releases the XACT DPC lock after both lowers. Applied 2026-10-14 to recomp_0097.c; not in PC Release 57702bc3 at that date.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "xact",
+    "lock",
+    "dsound",
+    "fix"
+   ],
+   "addresses_unverified": [
+    "003DEA71"
+   ]
+  },
+  {
+   "id": "xact-heap-guard-locked",
+   "title": "XACT heap guard moved under the lock in the remove path (sp1, applied)",
+   "subject": {
+    "kind": "patch",
+    "id": "sub_003E7249 (recomp_0098.c)"
+   },
+   "addresses": [
+    "003E7249",
+    "003E716F",
+    "003E71F5",
+    "003E133C",
+    "003DDEAD"
+   ],
+   "related": [
+    "xact-dpc-lock-leak",
+    "kernel-dsound-locks"
+   ],
+   "fact": "The timer-heap guard sanitises the heap on push, pop and remove. The remove path is called after its caller sub_003E133C lowers IRQL, which releases the lock, so the guard ran unlocked against the XACT timer DPC. patch_sp1 drops the entry guard and runs it after the function's own sub_003DDEAD raise (label loc_003E725F), under the lock. Push and pop keep their guard. Applied 2026-10-14.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "xact",
+    "heap",
+    "fix"
+   ],
+   "how_to_use": "grep -n xact_heap_sanitize recomp_0098.c should show calls at loc_003E716F, loc_003E71F5 and after loc_003E725F, with none at loc_003E7249.",
+   "addresses_unverified": [
+    "003E725F"
+   ]
+  },
+  {
+   "id": "xact-selflink-patch",
+   "title": "Optional list-repair patch sp2 (not applied)",
+   "subject": {
+    "kind": "patch",
+    "id": "patch_sp2_list_repair_selflink_locked.py"
+   },
+   "addresses": [
+    "003DEA53",
+    "003E4A20"
+   ],
+   "related": [
+    "xact-list-guard"
+   ],
+   "fact": "patch_sp2 makes the repair drop a self-linked removed node and close the list before it, and wraps the relink in ma2_audio_work_enter/leave (the DirectSound CS 0x3C4598). The reason: XACT removes nodes and leaves them self-linked, and the repair could keep one and then close the list through a freed node. The guard has never fired in a real run, so the patch is not applied.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "xact",
+    "patch"
+   ]
+  },
+  {
+   "id": "kernel-dsound-locks",
+   "title": "XACT and DirectSound share one API lock at 0x003C4598",
+   "subject": {
+    "kind": "address",
+    "id": "DirectSound API CS"
+   },
+   "addresses": [
+    "003E8059"
+   ],
+   "related": [
+    "xact-dpc-lock-leak",
+    "xact-heap-guard-locked",
+    "kernel-cs-try-shadow"
+   ],
+   "fact": "The DirectSound API lock is at 0x003C4598. Since build 5f67deca every XACT raised section and the XACT timer DPC (0x003E8059) take it, so heap writers exclude each other. The XACT critical section is 0x003E869C; the timer object's vtable is 0x00493704, whose slot 2 is sub_003E7814. Lock order is XACT CS, then DirectSound CS.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "lock",
+    "dsound",
+    "xact"
+   ],
+   "addresses_unverified": [
+    "003C4598",
+    "003E869C",
+    "00493704"
+   ]
+  },
+  {
+   "id": "dsound-isr-try-lock",
+   "title": "DirectSound ISR/DPC uses a try-lock (recomp_0095)",
+   "subject": {
+    "kind": "function",
+    "id": "recomp_0095.c"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-cs-try-shadow",
+    "sp-exposure"
+   ],
+   "fact": "The DirectSound ISR and DPC take the API lock with a try-lock and skip work when it is busy. The try-lock is in 57702bc3, so it reaches single player as well as bots.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "dsound",
+    "lock"
+   ]
+  },
+  {
+   "id": "sp-exposure",
+   "title": "Which fixes reach single player",
+   "subject": {
+    "kind": "concept",
+    "id": "single-player exposure"
+   },
+   "addresses": [],
+   "related": [
+    "fpu-c2-fix-state",
+    "xact-list-guard",
+    "dsound-isr-try-lock"
+   ],
+   "fact": "A 2026-10-14 audit: single player and bot matches share one exe, so fixes in shared code reach the campaign. Reach single player: the CRT trig freeze (cos and sin are called from engine code), the XACT list guard, the XACT heap guard, the DirectSound ISR try-lock, and the XACT DPC lock. The APU ratio cap is possible. The bot ray-probe fix is bot-only. The recomp_0051 network freeze and the recomp_0020 count clamp are shared and already shipped.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "exposure",
+    "shipping"
+   ]
+  },
+  {
+   "id": "apu-ratio-cap",
+   "title": "APU resampler ratio cap is a possible single-player fix (not shipped)",
+   "subject": {
+    "kind": "concept",
+    "id": "APU resampler"
+   },
+   "addresses": [],
+   "related": [
+    "sp-exposure"
+   ],
+   "fact": "Any voice pitched more than three octaves up could trigger the APU ratio cap, which is not in 57702bc3. No [APU-RATE] line has been seen in any log, and which sound pitched below 1/8 is an open question.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "audio",
+    "open"
+   ]
+  },
+  {
+   "id": "nal-closed-socket-freeze",
+   "title": "Network update freezes on a closed socket",
+   "subject": {
+    "kind": "function",
+    "id": "sub_001ED390"
+   },
+   "addresses": [
+    "001ED390",
+    "0040ACB0"
+   ],
+   "related": [
+    "nal-freeze-fix-v1",
+    "nal-freeze-fix-v2"
+   ],
+   "fact": "After leaving multiplayer, the network update sub_001ED390 runs once more with its receive socket (+0x94) already -1. NAL.cpp line 1017 asserts 'receive datagrams on a closed socket'. The Verify handler (sub_0040ACB0) then draws its message and waits in D3D for a flip slot forever, freezing the game.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "network",
+    "freeze",
+    "multiplayer"
+   ]
+  },
+  {
+   "id": "nal-freeze-fix-v1",
+   "title": "First NAL closed-socket early-out returned 0 (superseded)",
+   "subject": {
+    "kind": "patch",
+    "id": "patch_nal.py"
+   },
+   "addresses": [
+    "001ED390"
+   ],
+   "related": [
+    "nal-closed-socket-freeze"
+   ],
+   "fact": "patch_nal.py added an early-out in recomp_0051.c that returned 0 and popped 4 bytes when the receive socket is -1, and logged '[NAL] receive on closed socket skipped' once. Returning 0 is treated as an empty socket, but the function is stdcall with ret 4, so the cleanup was wrong.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "network",
+    "patch"
+   ]
+  },
+  {
+   "id": "nal-freeze-fix-v2",
+   "title": "NAL early-out corrected: returns WSAENOTSOCK and pops 8 bytes",
+   "subject": {
+    "kind": "patch",
+    "id": "patch_nal2.py"
+   },
+   "addresses": [
+    "001ED390"
+   ],
+   "related": [
+    "nal-closed-socket-freeze"
+   ],
+   "fact": "patch_nal2.py replaces the early-out: it returns the value the function returns when recvfrom fails on a closed socket (WSAENOTSOCK as HRESULT 0x80072736, from loc_001EE3F0), and pops the return address and the argument (esp += 8). Live sockets are unaffected.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "network",
+    "patch",
+    "fix"
+   ]
+  },
+  {
+   "id": "usb-td-crash",
+   "title": "PC Release hard crash in XUSB transfer-descriptor pop",
+   "subject": {
+    "kind": "function",
+    "id": "sub_0042532E"
+   },
+   "addresses": [
+    "0042532E",
+    "00425264"
+   ],
+   "related": [
+    "usb-td-crash-chain",
+    "usb-td-race-hypothesis"
+   ],
+   "fact": "The function pops a transfer descriptor from the free list (head at 0x00534D0C, next at +0x14) with no empty or validity check. A popped 0xFFFFFFFF means the free list was corrupt. The crash came about 1.5 minutes into a resumed session.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "usb",
+    "crash",
+    "xusb"
+   ],
+   "addresses_unverified": [
+    "00534D0C"
+   ]
+  },
+  {
+   "id": "usb-td-crash-chain",
+   "title": "Call chain to the XUSB transfer-descriptor crash",
+   "subject": {
+    "kind": "function",
+    "id": "sub_0002B990"
+   },
+   "addresses": [
+    "0002B990",
+    "0041EE16",
+    "004210EF",
+    "0042061C",
+    "00423E7A",
+    "004257C4",
+    "004256CC",
+    "0042532E"
+   ],
+   "related": [
+    "usb-td-crash"
+   ],
+   "fact": "The guest chain is sub_0002B990 (game, recomp_0003.c), sub_0041EE16, sub_004210EF, sub_0042061C, sub_00423E7A, sub_004257C4, sub_004256CC, then sub_0042532E. Everything from 0x0041EE16 down is in the XAPI/XUSB range that main.c serialises with xbox_SetDispatchSerializationRange(0x0041D000, 0x0042584C). bridge_KeRaiseIrqlToDpcLevel is the innermost native return address.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "usb",
+    "crash",
+    "dispatch"
+   ]
+  },
+  {
+   "id": "usb-td-race-hypothesis",
+   "title": "USB free-list corruption is a suspected cross-thread race",
+   "subject": {
+    "kind": "concept",
+    "id": "XUSB TD pool"
+   },
+   "addresses": [],
+   "related": [
+    "usb-td-crash"
+   ],
+   "fact": "On Xbox the TD pool is protected by single-CPU execution at raised IRQL. Here the game thread (through XInput) and the OHCI interrupt and DPC threads run in parallel. Candidates: a hardware-interrupt path, since dispatch_acquire skips the lock when hardware_interrupt is set and next is not DISPATCH_LEVEL; or an XUSB entry that does not raise IRQL. The crash correlates with input reports and rumble output.",
+   "status": "open-question",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "usb",
+    "race",
+    "open"
+   ],
+   "addresses_unverified": [
+    "00534D0C"
+   ]
+  },
+  {
+   "id": "usb-td-workaround",
+   "title": "Turning off vibration may reduce the USB output that triggers it",
+   "subject": {
+    "kind": "concept",
+    "id": "controller vibration"
+   },
+   "addresses": [],
+   "related": [
+    "usb-td-crash",
+    "rumble-stuck-on"
+   ],
+   "fact": "The interim workaround is turning off controller vibration, which may reduce the guest USB output transfers. It is unverified. Before the crash the guest issued rumble requests 0/22414, 0/0 and 0/23120 that were not sent physically.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "usb",
+    "workaround"
+   ]
+  },
+  {
+   "id": "checkpoint-hitch",
+   "title": "Checkpoint save freezes the game for about 146 ms in v28",
+   "subject": {
+    "kind": "function",
+    "id": "sub_0015EFF2"
+   },
+   "addresses": [
+    "0015EFF2",
+    "000B9400"
+   ],
+   "related": [
+    "checkpoint-cpu-writer",
+    "checkpoint-disk-ruled-out",
+    "checkpoint-audio-pump-refuted"
+   ],
+   "fact": "In v28 on the desktop, the checkpoint (sub_0015EFF2) took 146.1 ms, and the graph writer sub_000B9400 took 144.9 ms of that. The frame window containing it had a max of 154 ms. The earlier v27 report of about 1 s did not reproduce in v28, and the save came out correctly. The laptop is likely two to three times slower.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "save",
+    "freeze",
+    "perf"
+   ]
+  },
+  {
+   "id": "checkpoint-cpu-writer",
+   "title": "About 140 ms of the checkpoint is translated guest CPU in the writer",
+   "subject": {
+    "kind": "function",
+    "id": "sub_000B9400"
+   },
+   "addresses": [
+    "000B9400",
+    "000B53E0"
+   ],
+   "related": [
+    "checkpoint-hitch"
+   ],
+   "fact": "Of the 144.9 ms writer time, native I/O was 3.1 ms (769 writes, 3,145,856 bytes, no flushes) and progress callbacks 1.55 ms. The other roughly 140.2 ms is guest CPU walking and serialising the world. The next step is a sampling profile: the PDB names generated functions sub_XXXXXXXX, so the hot routine can be found. The fix must keep the save synchronous.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "save",
+    "perf"
+   ]
+  },
+  {
+   "id": "checkpoint-disk-ruled-out",
+   "title": "Disk and native I/O ruled out for the checkpoint pause",
+   "subject": {
+    "kind": "concept",
+    "id": "checkpoint I/O"
+   },
+   "addresses": [],
+   "related": [
+    "checkpoint-hitch"
+   ],
+   "fact": "Native I/O for the whole 3 MB graph costs single-digit milliseconds. NtFlushBuffersFile (kernel_file.c line 645) exists but was never called in the trace. The 0x0001E000, 0x0001E040 and 0x0001E070 checkpoint markers are RDTSC stopwatches, not waits.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "save",
+    "disk"
+   ]
+  },
+  {
+   "id": "checkpoint-writes-z-missions",
+   "title": "Checkpoint writes z:\\Missions and sets a flag around it",
+   "subject": {
+    "kind": "function",
+    "id": "sub_0015EFF2"
+   },
+   "addresses": [
+    "0015EFF2"
+   ],
+   "related": [
+    "checkpoint-hitch"
+   ],
+   "fact": "sub_0015EFF2 writes to the string z:\\Missions at 0x00475F6C, which is the Xbox cache partition. It sets the byte at 0x0050BACD to 0 for the duration and back to 1 afterwards, and runs synchronously on the guest thread.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "save",
+    "flag"
+   ],
+   "addresses_unverified": [
+    "00475F6C",
+    "0050BACD"
+   ]
+  },
+  {
+   "id": "checkpoint-audio-pump-refuted",
+   "title": "Audio pump in the save callback is not the cost (refuted)",
+   "subject": {
+    "kind": "function",
+    "id": "sub_000BCAD0"
+   },
+   "addresses": [
+    "000BCAD0",
+    "0015CED6"
+   ],
+   "related": [
+    "checkpoint-hitch"
+   ],
+   "fact": "The progress callback 0x0015CED6 calls the audio-system update sub_000BCAD0 to keep audio alive during the save. Earlier it was the suspect for the hitch, but in v28 the callbacks cost 1.55 ms in total, so it is refuted.",
+   "status": "superseded",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "save",
+    "audio"
+   ]
+  },
+  {
+   "id": "rumble-stuck-on",
+   "title": "Controller rumble stays on after walking stops",
+   "subject": {
+    "kind": "concept",
+    "id": "rumble output"
+   },
+   "addresses": [],
+   "related": [
+    "rumble-staleness-proposal",
+    "timer-sleep-granularity"
+   ],
+   "fact": "The game never sent a stop. The motor only stopped at 107.422 s when the policy stopped it on a switch to keyboard. Output resumed at 111.3 s, so the USB path was not jammed; one off transition was lost.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "rumble",
+    "controller"
+   ]
+  },
+  {
+   "id": "rumble-stuck-cause",
+   "title": "Likely cause of stuck rumble: pending completion and timer granularity",
+   "subject": {
+    "kind": "concept",
+    "id": "rumble OUT completion"
+   },
+   "addresses": [],
+   "related": [
+    "rumble-stuck-on",
+    "timer-sleep-granularity"
+   ],
+   "fact": "The likely cause is that a one-shot off request is skipped while a previous feedback is still pending. Completion arrives through OHCI, the ISR and a DPC drained by the timer thread on Sleep(1), which is about 15.5 ms here versus about 1 ms on Xbox. The stuck rate should drop after the timeBeginPeriod fix. The alternate cause, that the original also omits the off, is less likely and unverified.",
+   "status": "open-question",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "rumble",
+    "timer"
+   ]
+  },
+  {
+   "id": "rumble-staleness-proposal",
+   "title": "Proposed: send 0/0 after 500 ms with no request",
+   "subject": {
+    "kind": "patch",
+    "id": "xinput_device.c / xinput_feedback.h"
+   },
+   "addresses": [],
+   "related": [
+    "rumble-stuck-on"
+   ],
+   "fact": "Proposed mitigation: if a non-zero motor value has had no guest request for more than 500 ms during gameplay, send 0/0 and log source=staleness_stop. Every sustained effect in v28 is re-sent about every 50 ms (dup 20 to 25 across 1 to 2 s), so silence longer than 500 ms means the effect ended.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "rumble",
+    "fix-proposal"
+   ]
+  },
+  {
+   "id": "explosion-hitch-measured",
+   "title": "First explosions stall on shader and texture first use",
+   "subject": {
+    "kind": "concept",
+    "id": "first-explosion hitch"
+   },
+   "addresses": [],
+   "related": [
+    "explosion-hitch-cause-open",
+    "explosion-hitch-ruled-out"
+   ],
+   "fact": "Program misses cost 286 ms (about 4.3 ms each) and pixel misses 80 ms; texture-pack first use cost about 225 ms across pack_digest, pack_read and texture_prepare. Repeats in the same process, and a relaunch, showed no hitch.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "explosion",
+    "shader",
+    "perf"
+   ]
+  },
+  {
+   "id": "explosion-hitch-cause-open",
+   "title": "Cause of the explosion hitch is narrowed, not proven",
+   "subject": {
+    "kind": "concept",
+    "id": "first-explosion hitch"
+   },
+   "addresses": [],
+   "related": [
+    "explosion-hitch-measured",
+    "explosion-hitch-decision"
+   ],
+   "fact": "Shader misses were about 60% of the cost and texture first use about 30%. A reboot followed by a repeat test would decide it.",
+   "status": "open-question",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "explosion",
+    "open"
+   ]
+  },
+  {
+   "id": "explosion-hitch-ruled-out",
+   "title": "CPU measurements that do not explain the explosion hitch",
+   "subject": {
+    "kind": "concept",
+    "id": "first-explosion hitch"
+   },
+   "addresses": [],
+   "related": [
+    "explosion-hitch-cause-open"
+   ],
+   "fact": "Measured on CPU and ruled out as the per-miss cost: the disk-cache hit path on 300 real files (0.14 ms), the FNV key hash (0.02 ms), HLSL generation (microseconds), driver creation (0.07 ms per call), and program-table eviction (none, with 270 to 334 programs against 512 slots).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "explosion",
+    "shader"
+   ]
+  },
+  {
+   "id": "explosion-miss-split",
+   "title": "Miss-split instrumentation (superseded by firstuse trace)",
+   "subject": {
+    "kind": "tool",
+    "id": "miss-split-instrumentation.patch"
+   },
+   "addresses": [],
+   "related": [
+    "explosion-firstuse-trace"
+   ],
+   "fact": "Its create_ms reads 0 for a finished background job, so it was replaced.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "explosion",
+    "tool"
+   ]
+  },
+  {
+   "id": "explosion-firstuse-trace",
+   "title": "Event-correlated first-use trace candidate",
+   "subject": {
+    "kind": "tool",
+    "id": "RECOMP_FIRSTUSE_TRACE"
+   },
+   "addresses": [],
+   "related": [
+    "explosion-hitch-decision"
+   ],
+   "fact": "Only calls of at least 1 ms print, up to 512 records per thread. It checked 90 items with no failures. No explosion capture has been run.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "explosion",
+    "tool"
+   ]
+  },
+  {
+   "id": "explosion-hitch-decision",
+   "title": "Decision table for the explosion hitch once the trace runs",
+   "subject": {
+    "kind": "concept",
+    "id": "first-explosion hitch"
+   },
+   "addresses": [],
+   "related": [
+    "explosion-firstuse-trace",
+    "explosion-hitch-cause-open"
+   ],
+   "fact": "If compile_call_ms is about 4 ms cold and 0.1 ms warm, the cost is first-open file reads: preload only the entries used last session. If it is high cold and warm, with background compile lines interleaved, it is compiler lock contention. If create_ms dominates, it is the driver. A Textures=Original A/B test should shrink the hitch about 30% if texture first use is the secondary cost.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "explosion",
+    "plan"
+   ]
+  },
+  {
+   "id": "explosion-deferred-bugs",
+   "title": "Other explosion hitch notes: laser, battleship, audio excluded",
+   "subject": {
+    "kind": "concept",
+    "id": "explosions"
+   },
+   "addresses": [],
+   "related": [
+    "explosion-hitch-measured"
+   ],
+   "fact": "Battleship explosions are assumed to share the first-use mechanism, but that is unverified. The stall windows carry no SAVE-LATENCY or APU events, so audio is not implicated by the existing evidence.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "explosion",
+    "audio"
+   ]
+  },
+  {
+   "id": "term-exit-markers",
+   "title": "EXIT markers record how the game ends",
+   "subject": {
+    "kind": "tool",
+    "id": "[EXIT] markers"
+   },
+   "addresses": [],
+   "related": [
+    "unexpected-close-open"
+   ],
+   "fact": "The termination-origin change adds one [EXIT] log line (pid, tid, QPC, message, phase, exit code) at each exit: WM_CLOSE in fb_present.c, the WM_QUIT branches in d3d8_device.c, and the quit posts in pc_native_settings.cpp. The recorder keeps [EXIT] lines as timestamped game events. The change does not alter exit codes; 130 CPU checks pass.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "exit",
+    "debug"
+   ]
+  },
+  {
+   "id": "unexpected-close-open",
+   "title": "Unexpected desktop close has no assigned cause",
+   "subject": {
+    "kind": "concept",
+    "id": "unexpected desktop close"
+   },
+   "addresses": [],
+   "related": [
+    "term-exit-markers"
+   ],
+   "fact": "It adds evidence for the next occurrence. The marker build was not in the v25 EXE of that time.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "exit",
+    "open"
+   ]
+  },
+  {
+   "id": "termination-quit-paths",
+   "title": "ExitProcess and PostMessage exit points",
+   "subject": {
+    "kind": "function",
+    "id": "WM_CLOSE"
+   },
+   "addresses": [],
+   "related": [
+    "term-exit-markers"
+   ],
+   "fact": "WM_CLOSE in fb_present.c ends with ExitProcess(0). d3d8_PresentFrame, dev_Present and dev_Swap each handle WM_QUIT by ExitProcess(0), ignoring wParam. In pc_native_settings.cpp, ma2_pc_menu_pulse and window_message post WM_CLOSE on an accepted quit or a terminal renderer error.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "exit",
+    "window"
+   ]
+  },
+  {
+   "id": "lineage-verify",
+   "title": "Verify which source tree an installed object came from",
+   "subject": {
+    "kind": "tool",
+    "id": "build lineage"
+   },
+   "addresses": [],
+   "related": [
+    "lineage-pc-release"
+   ],
+   "fact": "The installed build is assembled from many worker objects, so a fresh source may not be the one that built a file.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "build",
+    "lineage"
+   ]
+  },
+  {
+   "id": "lineage-pc-release",
+   "title": "PC Release moved to the bots tree on 2026-10-14 (57702bc3)",
+   "subject": {
+    "kind": "concept",
+    "id": "PC Release"
+   },
+   "addresses": [],
+   "related": [
+    "lineage-verify",
+    "sp-exposure"
+   ],
+   "fact": "On 2026-10-14 PC Release became 57702bc3, built from the game source tree, which merged the changes. The bots fork now feeds PC Release, so its fixes reach players through publish.py. The earlier rule that forks stay separate is superseded.",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "build",
+    "shipping"
+   ]
+  },
+  {
+   "id": "lineage-launcher",
+   "title": "Launcher blocks only the PC Release package",
+   "subject": {
+    "kind": "tool",
+    "id": "Start-Playthrough.ps1"
+   },
+   "addresses": [],
+   "related": [
+    "lineage-pc-release"
+   ],
+   "fact": "Start-Playthrough refused to run whenever any process named MechAssault 2 was running, which blocked bots test builds. It now blocks only a game running from the PC Release package. Direct EXE launches use %LOCALAPPDATA%\\MechAssault2\\Saved Games, and Start-Playthrough uses the kit profile.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "launcher",
+    "saves"
+   ]
+  },
+  {
+   "id": "disk-cleanup-rule",
+   "title": "Disk cleanup keeps folders that feed a publish or installer",
+   "subject": {
+    "kind": "tool",
+    "id": "cleanup_logs.py"
+   },
+   "addresses": [],
+   "related": [
+    "disk-junctions"
+   ],
+   "fact": "cleanup_logs.py runs with --binaries --delete after each publish and prunes release folders older than the latest two. A folder that feeds a publish or the installer must be in KEEP_WHOLE. On 2026-10-20 and were missing, so --binaries deleted the installer stub, kit .bin files, member objects and the editor's out exe; both were then added.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "disk",
+    "tool"
+   ]
+  },
+  {
+   "id": "disk-runs-gc",
+   "title": "runs_gc limits: screenshots 3 GB, saves 3 h, runs 4 days, EXE copies 24 h",
+   "subject": {
+    "kind": "tool",
+    "id": "runs_gc.collect"
+   },
+   "addresses": [],
+   "related": [
+    "disk-cleanup-rule"
+   ],
+   "fact": "Every replay test calls runs_gc.collect in replay.py. It enforces at most 3 GB of screenshots, deletes per-test _saves after 3 hours, deletes run folders after 4 days, and deletes old test EXE copies after 24 hours. Tests should use the shared folder rather than copying saves per test.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "disk",
+    "tool"
+   ]
+  },
+  {
+   "id": "disk-junctions",
+   "title": "Never follow junctions into the game folders",
+   "subject": {
+    "kind": "concept",
+    "id": "junctions"
+   },
+   "addresses": [],
+   "related": [
+    "disk-cleanup-rule"
+   ],
+   "fact": "Many game_files, pc_assets and PC Test Kit folders in logs are junctions into PC Release, PC Release Bots or game folders. Get-ChildItem -Recurse follows them and inflates size counts, and deletions through them can reach the real game.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "disk",
+    "safety"
+   ]
+  },
+  {
+   "id": "disk-saves-keep-list",
+   "title": "Keep-folder names must not match the *_saves delete rule",
+   "subject": {
+    "kind": "tool",
+    "id": "cleanup_logs.py protected"
+   },
+   "addresses": [],
+   "related": [
+    "disk-cleanup-rule"
+   ],
+   "fact": "Any new keep-folder name must be checked against SAVE_DIR.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "disk",
+    "tool"
+   ]
+  },
+  {
+   "id": "sandbox-game-lock",
+   "title": "Launch every game through the machine-wide slot lock",
+   "subject": {
+    "kind": "tool",
+    "id": "game_lock.py"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Every match must start through game_lock.py, which allows at most two games at once. Four to six game instances blue-screened the PC twice. Never start the exe outside the lock, and avoid needless back-to-back builds, which are heavy too.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "process",
+    "crash"
+   ]
+  },
+  {
+   "id": "sandbox-replay-env",
+   "title": "Replay runs drive the menus hidden and log to <run>/stderr.txt",
+   "subject": {
+    "kind": "tool",
+    "id": "replay.py"
+   },
+   "addresses": [],
+   "related": [
+    "sandbox-game-lock"
+   ],
+   "fact": "Keep runs to 150 s or less. RECOMP_BOT_STALL=1 must always be set through REPLAY_EXTRA, which lets the bot stall detector name freezes ([BOT-STALL], [CRASH]).",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "test",
+    "tool"
+   ]
+  },
+  {
+   "id": "unattended-prompt",
+   "title": "Any blocker that needs a human answer must be routed around at once.",
+   "subject": {
+    "kind": "concept",
+    "id": "unattended-prompt"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Any blocker that needs a human answer must be routed around at once.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "process",
+    "unattended"
+   ]
+  },
+  {
+   "id": "unattended-rule",
+   "title": "Use shutil.rmtree on explicit paths or fresh folder names.",
+   "subject": {
+    "kind": "tool",
+    "id": "unattended-rule"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Use shutil.rmtree on explicit paths or fresh folder names.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "process",
+    "unattended"
+   ]
+  },
+  {
+   "id": "heap-growth-487",
+   "title": "MSVC CRT heap grows only on error 487",
+   "subject": {
+    "kind": "concept",
+    "id": "heap growth"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-ntstatus-487"
+   ],
+   "fact": "When NtAllocateVirtualMemory refuses a base with STATUS_CONFLICTING_ADDRESSES, the CRT heap tries another address only if the error is 487. Before the mapping, 317 was returned and the heap stopped growing. This is why the status mapping is a stability fix, not a cosmetic one.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "heap",
+    "crt"
+   ]
+  },
+  {
+   "id": "kernel-regressions",
+   "title": "Kernel regression harness covers three fixed bugs",
+   "subject": {
+    "kind": "tool",
+    "id": "tests/kernel_regressions"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-ntstatus-487",
+    "kernel-pseudo-handle",
+    "kernel-counter-64bit"
+   ],
+   "fact": "tests/kernel_regressions checks each fix against the bug it fixed: 487 for the heap, NtCurrentThread pseudo-handle duplication, and no logging-gate failure after 2^31 calls. It is Windows only and is built with cmake -A x64. The 2^31 check is opt-in with -DXBOX_SLOW_TESTS=ON.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "test",
+    "kernel"
+   ]
+  },
+  {
+   "id": "memory-harness",
+   "title": "Memory harnesses run the real layout on a synthetic XBE",
+   "subject": {
+    "kind": "tool",
+    "id": "tests/memory_regressions"
+   },
+   "addresses": [],
+   "related": [
+    "mem-ram-file-mapping",
+    "mem-heap-reclaim-env",
+    "mem-ext-vma"
+   ],
+   "fact": "tests/memory_regressions has one test per mode (default, heap reclaim, ext VMA, 128 MB map) and runs the real layout on the synthetic XBE from tools/conformance. The default test pins today's behaviour, so a change to the default fails it. tests/memory_layout_posix checks mapping, host page alignment, mirrors and null-trap, and prints the thunk count on a real XBE.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "test",
+    "memory"
+   ]
+  },
+  {
+   "id": "memory-layout-posix-thunks",
+   "title": "A real XBE must show nonzero thunk entries",
+   "subject": {
+    "kind": "tool",
+    "id": "tests/memory_layout_posix"
+   },
+   "addresses": [],
+   "related": [
+    "memory-harness"
+   ],
+   "fact": "Running memory_layout_posix_test on a real XBE should print 'Kernel thunks: N entries'. Zero means the image did not arrive intact, whatever the section count says.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "test",
+    "xbe"
+   ]
+  },
+  {
+   "id": "kernel-bridge-harness",
+   "title": "Kernel bridge harness calls through the thunk dispatcher",
+   "subject": {
+    "kind": "tool",
+    "id": "tests/kernel_bridge"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-thunk-dispatch"
+   ],
+   "fact": "tests/kernel_bridge calls ordinal 173 through the dispatcher with a plain buffer as guest memory. It checks that the thunk entry rewrites to a bridge VA, that the contiguous window translates, and that the stdcall argument is popped. It runs on Windows and POSIX, and the first check fails if the VirtualProtect rewrite did not happen.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "test",
+    "kernel"
+   ]
+  },
+  {
+   "id": "kernel-events-harness",
+   "title": "Event regression covers the title-KEVENT switch",
+   "subject": {
+    "kind": "tool",
+    "id": "tests/kernel_events"
+   },
+   "addresses": [],
+   "related": [
+    "kernel-events-title"
+   ],
+   "fact": "tests/kernel_events has one test for the default (a wait on a title-built event fails) and one for RECOMP_TITLE_KEVENTS=1, which checks timeouts, set, consume, notification events and reset.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "test",
+    "events"
+   ]
+  },
+  {
+   "id": "kernel-mem-posix-harness",
+   "title": "Kernel memory harness checks allocation and VirtualQuery",
+   "subject": {
+    "kind": "tool",
+    "id": "tests/kernel_memory_posix"
+   },
+   "addresses": [],
+   "related": [
+    "memory-harness"
+   ],
+   "fact": "tests/kernel_memory_posix runs 15 checks on Mm* and Nt* memory calls: contiguous allocation and free pair up, VirtualQuery matches real regions, unknown addresses report free, and MmGetPhysicalAddress translates inside the contiguous window. The first check runs in a forked child to catch an allocator abort.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "test",
+    "memory"
+   ]
+  }
+ ]
+}

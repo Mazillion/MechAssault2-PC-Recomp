@@ -1,0 +1,83 @@
+MechAssault 2 PC recompilation - first run and settings (version {{VERSION}})
+============================================================================
+
+WHERE THINGS ARE
+----------------
+  %LOCALAPPDATA%\MechAssault2\pc_settings.ini   your settings
+  %LOCALAPPDATA%\MechAssault2\Saved Games       saves (back up UserData and
+                                                TitleData only)
+  %LOCALAPPDATA%\MechAssault2\Logs              logs, crash/hang reports, bot
+                                                match recordings
+  %LOCALAPPDATA%\MechAssault2\ShaderCache       graphics shader cache
+  %LOCALAPPDATA%\MechAssault2\NavCache          bots' route cache (up to
+                                                about 300 MB)
+  Documents\MechAssault 2\Scenarios             your custom scenarios
+
+Type %LOCALAPPDATA%\MechAssault2 into the Explorer address bar to open it.
+The caches and Logs can be deleted at any time.
+
+
+THE FIRST LAUNCH
+----------------
+On the first launch the game copies the pc_settings.ini beside the exe to
+%LOCALAPPDATA%\MechAssault2 and then picks a few settings from your hardware:
+- borderless fullscreen at your desktop resolution (on integrated graphics at
+  most 1080 lines high);
+- the best enhanced texture pack that is installed, if your graphics card has
+  enough memory, else Original;
+- the frame limit and shader pre-loading;
+- the audio thread plan from the number of processor cores.
+Everything can be changed afterwards in Player Options.
+
+
+VIDEO SETTINGS (defaults in brackets)
+-------------------------------------
+- Window mode (borderless fullscreen on first launch). F11 or Alt+Enter
+  switches.
+- Resolution: the size the game renders at.
+- Textures (Original, or the best installed pack): Original, 2x Enhanced,
+  4x Enhanced.
+- VSync (off).
+- Frame limit (144): 30 to 360 FPS.
+- Aspect ratio (Automatic): Automatic widens the view on wide screens;
+  Original 4:3 adds side bars.
+- Smooth scaling (on).
+- Draw distance (50 = original): 0 to 100.
+- Show FPS (off).
+- Cutscene videos (Original): 2x Enhanced if installed.
+- Pre-load shaders on loading screens (on).
+
+
+VOLUME
+------
+Master, effects, speech and music (all full). Changes are heard at once.
+
+
+CONTROLS
+--------
+Mouse sensitivity, invert mouse, invert flight controls, keyboard and mouse
+on or off, the keyboard and mouse bindings, and for a controller: invert right
+stick Y and vibration. See Controls.txt.
+
+
+SETTINGS ONLY IN THE FILE
+-------------------------
+Close the game before editing %LOCALAPPDATA%\MechAssault2\pc_settings.ini.
+  [Display] CinematicView=2    story cutscenes: 2 fill the screen, 1 fill up
+                               to 16:9, 0 original 4:3 with side bars,
+                               3 wide (fill needs Aspect ratio Automatic)
+  [Display] CinematicFrameCap=60  cutscene frame rate (0 = the frame limit)
+  [Input] PauseOnFocusLoss=1   pause play when another window has focus
+  [Audio] MuteInBackground=1   silence the game when another window has focus
+  [Bots]  BotRecorder=0        1 = record each bot match to the Logs folder
+                               (newest 4 kept, at most 150 MB each); only
+                               when a maintainer asks for a recording
+To reset everything, delete the file; it is made again from the defaults.
+
+
+A SLOW PC
+---------
+Try, in this order: Textures Original; a lower resolution; Draw distance 50
+or lower; Frame limit 60. Keep "Pre-load shaders on loading screens" on: it
+avoids stutter the first time an effect appears. The first visit to a level
+is slower while the shader cache fills.

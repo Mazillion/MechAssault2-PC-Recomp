@@ -1,0 +1,1 @@
+[[8,0,["\r\n","extern int xbox_save_probe_begin_kind(int kind,uint32_t entry);\r\n","extern void xbox_save_probe_end(int token,uint32_t result);\r\n","\r\n"]],[22974,0,["    int save_probe_token=xbox_save_probe_begin_kind(1,0x0015EFF2u);\r\n"]],[23211,1,["    esp += 4; xbox_save_probe_end(save_probe_token,g_eax); return; /* ret */\r\n"]]]

@@ -1,0 +1,8 @@
+out/
+obj/
+samples/
+usability-shots/
+*.pdb
+*.obj
+*.exe
+ux_build.log

@@ -1,0 +1,5627 @@
+{
+ "pack": "t01a_bots_docs",
+ "title": "Bots: design, behaviours and tuning",
+ "facts": [
+  {
+   "id": "bots-native-player-model",
+   "title": "Bots are native non-human players with their own controller",
+   "subject": {
+    "kind": "concept",
+    "id": "bots-native-player"
+   },
+   "addresses": [],
+   "related": [
+    "MAPlayer",
+    "MAInput",
+    "ma2_bot_player.c"
+   ],
+   "fact": "In the native build a bot is a non-human MAPlayer that is simulated locally, with its own BotController. A local match creates N bot players instead of lobby records, virtual pads or cameras. Bots are listed, scored and respawned by the game's own player code, and the human's view, input and HUD are not touched.",
+   "how_to_use": "Run a Bots match with RECOMP_BOT_DIAG=1 and check the [BOT] lines for each bot index.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "architecture",
+    "bots"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-five-layer-architecture",
+   "title": "Bot AI is split into five layers",
+   "subject": {
+    "kind": "concept",
+    "id": "bot-ai-layers"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_percept.c",
+    "ma2_bot_know.c",
+    "ma2_bot_decide.c",
+    "ma2_bot_tactics.c",
+    "ma2_bot_path.c",
+    "ma2_bot_ctrl.c"
+   ],
+   "fact": "The design splits bot AI into perception, knowledge, decision, tactics, navigation and locomotion/actions. Each layer has one job and a fixed rate, so the decision layer never reads live enemy positions. Source modules map to ma2_bot_*.c files in source/src/bots, with ma2_bots_core.c as the wiring layer.",
+   "how_to_use": "Read section 1 before changing a layer.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "architecture",
+    "design"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-lobby-record-design-superseded",
+   "title": "Rev 2 design added bots as lobby records",
+   "subject": {
+    "kind": "concept",
+    "id": "bots-lobby-records"
+   },
+   "addresses": [
+    "001D49F0"
+   ],
+   "related": [
+    "recomp_0049.c",
+    "recomp_0050.c",
+    "patch_bots.py"
+   ],
+   "fact": "The rev 2 guide (2026-10-11) created bots as lobby records. It appended them in the local-loop exit of the lobby iterator sub_1D3E20 (loc_001D3F44) and routed session setters for controller ids of 4 or more into a bot table. Native BotPlayers replace this path, so these hooks are not needed for spawning.",
+   "how_to_use": "Do not extend the lobby-record hooks. Lobby listing is only needed for the Briefing Room counts and launch checks.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/bringup/staging/bots/core/patch_bots.py",
+     "line": 70
+    },
+    {
+     "file": "kit/source/game/bringup/staging/bots/core/patch_bots.py",
+     "line": 87
+    },
+    {
+     "file": "kit/source/game/bringup/staging/bots/core/patch_bots.py",
+     "line": 100
+    }
+   ],
+   "tags": [
+    "lobby",
+    "superseded"
+   ],
+   "date": "2026-10-11",
+   "addresses_unverified": [
+    "001D3F44",
+    "001D4CAB",
+    "001D4DAB",
+    "001D4B95"
+   ]
+  },
+  {
+   "id": "bots-player-creation-chain",
+   "title": "Player creation chain for a bot",
+   "subject": {
+    "kind": "function",
+    "id": "sub_1DAE30"
+   },
+   "addresses": [
+    "001DAE30",
+    "001668D8",
+    "00166C0C"
+   ],
+   "related": [
+    "recomp_0050.c",
+    "recomp_0037.c"
+   ],
+   "fact": "It calls sub_1668D8 (CreatePlayer, clones the Player template and sets bit 2 for humans), then sub_166C0C (vehicle plus MAInput for humans), then SetNation through vt+0xAC. The non-human tail is at loc_001DB093.",
+   "how_to_use": "Native build: ma2_bots_level_spawn creates BotPlayers after the lobby iterator, reusing this constructor without lobby records.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "player",
+    "spawn"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-native-spawn-hook",
+   "title": "Native bot spawn hook after the lobby iterator",
+   "subject": {
+    "kind": "address",
+    "id": "loc_001DB1E8"
+   },
+   "addresses": [],
+   "related": [
+    "recomp_0050.c",
+    "patch_native.py"
+   ],
+   "fact": "patch_native.py inserts ma2_bots_level_spawn(ebx) at label loc_001DB1E8 of recomp_0050.c, just before the original read of MEM32(0x524A60). It runs after the lobby iterator, so bots are created as ordinary players at level start.",
+   "how_to_use": "Run patch_native.py once on a tree already patched by the earlier patch_*.py scripts. It is idempotent.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "spawn",
+    "hook"
+   ],
+   "date": "2026-10-13",
+   "addresses_unverified": [
+    "001DB1E8"
+   ]
+  },
+  {
+   "id": "bots-player-flags-proxy",
+   "title": "Non-human players get a network-proxy vehicle flag",
+   "subject": {
+    "kind": "property",
+    "id": "player+0x244 / vehicle+0x1C"
+   },
+   "addresses": [
+    "001DB0BC",
+    "000CA144"
+   ],
+   "related": [
+    "sub_CA004",
+    "sub_1DAE30"
+   ],
+   "fact": "Player+0x244 bit 2 marks a human. For a non-human the original code sets 0x30000 in the vehicle entity flags at +0x1C, so the vehicle is simulated as a remote network proxy. sub_CA004 applies the same proxy flag to every new vehicle of a non-human, through the CA144 branch.",
+   "how_to_use": "The native build clears the proxy bits in ma2_bot_player.c, after the constructor has run.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "proxy",
+    "flags"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-is-local-ai-authority",
+   "title": "Authority gates test is_local_ai, not port or human bit",
+   "subject": {
+    "kind": "concept",
+    "id": "is_local_ai"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_player.c",
+    "ma2_bots_core.c"
+   ],
+   "fact": "Design rule: gates that decide local authority key on a host-side is_local_ai(player) set filled at creation. The game has no third player kind, so the human bit alone is wrong for bots. Presentation gates (viewport, HUD, rumble, listener, camera manager) are removed for bots.",
+   "how_to_use": "Check the is_local_ai registry in ma2_bots_core.c when a bot-only branch misbehaves.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "authority",
+    "design"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-removed-gates-native",
+   "title": "Gates removed from the native build",
+   "subject": {
+    "kind": "patch",
+    "id": "patch_native.py"
+   },
+   "addresses": [
+    "001665DE",
+    "00166C0C",
+    "0016B2F1",
+    "0016B73E",
+    "0016B7B8",
+    "0017244F",
+    "001AB7D8",
+    "0008C050"
+   ],
+   "related": [
+    "recomp_0000.c",
+    "recomp_0014.c",
+    "recomp_0037.c",
+    "recomp_0038.c",
+    "recomp_0045.c",
+    "recomp_0050.c"
+   ],
+   "fact": "patch_native.py reverts the emulation hooks: the audio listener filter (recomp_0000), the bot view skip (recomp_0014), the MAInput send (recomp_0027), the camera ctor diagnostic (recomp_0028), the 1665DE placement gate and 166EC9 MAInput gate, the 16B2F1/16B73E/16B7B8 camera manager gates, the 17244F POV gate, the 1AB7D8 third-camera gate and the 1DB0BC proxy skip (recomp_0050).",
+   "how_to_use": "Expect bot_cams=0 and bot_views=0 in [BOT-CAMS]/[BOT-VIEWS] output for the native build.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "native",
+    "patch"
+   ],
+   "date": "2026-10-13",
+   "addresses_unverified": [
+    "000164AB"
+   ]
+  },
+  {
+   "id": "bots-kept-authority-gates",
+   "title": "Authority gates kept in the native build",
+   "subject": {
+    "kind": "patch",
+    "id": "patch_native.py kept list"
+   },
+   "addresses": [
+    "000C8576",
+    "000C86EC",
+    "001837B3",
+    "00189462",
+    "000C6FF3"
+   ],
+   "related": [
+    "recomp_0020.c",
+    "recomp_0021.c",
+    "recomp_0023.c",
+    "recomp_0024.c",
+    "recomp_0025.c",
+    "recomp_0026.c",
+    "recomp_0030.c",
+    "recomp_0031.c",
+    "recomp_0039.c",
+    "recomp_0040.c"
+   ],
+   "fact": "These sites stay in the build and are keyed on is_local_ai: the entry-zone candidate (C8576/C86EC), the proxy flag on a new vehicle (CA144), the AI enable (E6C8E), the destroy effect (E9C8A), the QTE and owner test (F8DF5), KickIt (10CD12), power-up pickup (131AE9), Snatch-It core (13561E), the piloted flyer move (177297), the AI target choice (1837B3) and player removal (C6FF3).",
+   "how_to_use": "Use these when adding a new gameplay branch that checks the human bit.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "authority",
+    "patch"
+   ],
+   "date": "2026-10-13",
+   "addresses_unverified": [
+    "000CA144",
+    "000E6C8E",
+    "000E9C8A",
+    "000F8DF5",
+    "0010CD12",
+    "00131AE9",
+    "0013561E",
+    "00177297"
+   ]
+  },
+  {
+   "id": "bots-local-flags-predicate",
+   "title": "ma2_bot_local_flags adds the human bit for bots",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_local_flags"
+   },
+   "addresses": [],
+   "related": [
+    "patch_bots.py",
+    "recomp_0037.c"
+   ],
+   "fact": "ma2_bot_local_flags(player) returns MEM32(player+0x244) with bit 2 set for bot players and the original value otherwise. patch_bots.py substitutes it at nine human tests, including the MAInput creation (0x166ECC), start spot (0x166655) and vehicle transition (0xCA146). This was the lobby-era approach.",
+   "how_to_use": "Superseded in native: the native build keys these gates on is_local_ai instead.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/bringup/staging/bots/core/patch_bots.py",
+     "line": 139
+    },
+    {
+     "file": "kit/source/game/bringup/staging/bots/core/patch_bots.py",
+     "line": 141
+    },
+    {
+     "file": "kit/source/game/bringup/staging/bots/core/patch_bots.py",
+     "line": 146
+    }
+   ],
+   "tags": [
+    "authority",
+    "superseded"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-rumble-port-guard",
+   "title": "Rumble ignores bot ports to stop a crash",
+   "subject": {
+    "kind": "function",
+    "id": "sub_2B990"
+   },
+   "addresses": [
+    "0002B990"
+   ],
+   "related": [
+    "recomp_0003.c",
+    "patch_round6.py"
+   ],
+   "fact": "sub_2B990 indexes a four-entry rumble table by controller port with no bounds check. Bot ports (4 and up) read past the table and crashed in sub_4210EF. patch_round6.py returns early for ecx >= 4, and the native build keeps this guard.",
+   "how_to_use": "Any bot match exercises it. Without the guard, rumble events for bots crashed the game (run n7).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "rumble",
+    "crash"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-session-register-skip",
+   "title": "Session+4 vehicle registration skipped for bots",
+   "subject": {
+    "kind": "function",
+    "id": "loc_001DB09A"
+   },
+   "addresses": [
+    "001DB09A"
+   ],
+   "related": [
+    "recomp_0050.c",
+    "patch_bots.py"
+   ],
+   "fact": "In the lobby-era build, non-human vehicles skipped the session+4 registration (vtable 0x480198, adds and removes a 0xF8-byte record in session+0x300). RECOMP_BOT_SESSION_REGISTER=1 forced the human branch if bots went missing from end-of-match stats. The native patch removes this skip.",
+   "how_to_use": "If bots are missing from end-of-match stats on the lobby-era build, try RECOMP_BOT_SESSION_REGISTER=1.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/bringup/staging/bots/core/patch_bots.py",
+     "line": 117
+    },
+    {
+     "file": "kit/source/game/bringup/staging/bots/core/patch_bots.py",
+     "line": 122
+    }
+   ],
+   "tags": [
+    "session",
+    "superseded"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-session-setters-guard",
+   "title": "The Briefing Room reads per-controller fields through the getters sub_1D4760, 1D4790 and 1D47C0",
+   "subject": {
+    "kind": "function",
+    "id": "sub_1D4760/sub_1D4790/sub_1D47C0"
+   },
+   "addresses": [
+    "001D4766",
+    "001D49FB",
+    "001D4CAB",
+    "001D4DAB",
+    "001D4B95"
+   ],
+   "related": [
+    "recomp_0049.c"
+   ],
+   "fact": "The Briefing Room reads per-controller fields through the getters sub_1D4760, 1D4790 and 1D47C0. For bot ids (4 and up) these would read past the 4-entry arrays, so the patch returns an override value for esi >= 4. Setters route writes for ids 4 to 15 into a per-bot table and ignore ids 16 and up.",
+   "how_to_use": "Lobby-era design. Consumers are the Briefing Room list builders and launch checks.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/bringup/staging/bots/core/patch_bots.py",
+     "line": 87
+    },
+    {
+     "file": "kit/source/game/bringup/staging/bots/core/patch_bots.py",
+     "line": 103
+    }
+   ],
+   "tags": [
+    "lobby",
+    "session"
+   ],
+   "date": "2026-10-11",
+   "addresses_unverified": [
+    "001D4796",
+    "001D47C6"
+   ]
+  },
+  {
+   "id": "bots-lobby-fixture-zero-bot-identity",
+   "title": "Lobby patch leaves the zero-bot case identical",
+   "subject": {
+    "kind": "tool",
+    "id": "bots_lobby_fixture.c"
+   },
+   "addresses": [],
+   "related": [
+    "bots_lobby_verify.py"
+   ],
+   "fact": "With zero bots the patched and baseline builds gave identical record bytes, results, registers and a hash of the full 6 MB guest memory. The patched build passed 1816 checks and the baseline 1032.",
+   "how_to_use": "Run bots_lobby_verify.py (VS vcvars64 needed); --dry-run only checks the sources exist.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "test",
+    "lobby"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-lobby-all-ready-rule",
+   "title": "Launch checks count bots as ready",
+   "subject": {
+    "kind": "function",
+    "id": "sub_1D4710"
+   },
+   "addresses": [
+    "001D4710",
+    "001D4670",
+    "001D4550",
+    "001D4F20"
+   ],
+   "related": [
+    "sub_1F9015",
+    "sub_1F4990"
+   ],
+   "fact": "Launch checks read the lobby through sub_1D4F20 (count), sub_1D4550 (team spread), sub_1D4670 (Red == Blue, text 0xBC5) and sub_1D4710 (all ready, text 0xAF9). sub_1D4710 counts only records with ready != 0 and option 0. Bot records meet this, because they are written ready with option 0.",
+   "how_to_use": "A roster with zero humans and bots passes the model's launch check, but that is not reachable in practice.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "lobby",
+    "launch"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-level-begin-hook",
+   "title": "Level begin resets bot runtime",
+   "subject": {
+    "kind": "address",
+    "id": "sub_1DB150"
+   },
+   "addresses": [
+    "001DB150"
+   ],
+   "related": [
+    "ma2_bots_level_begin",
+    "recomp_0050.c"
+   ],
+   "fact": "It recomputes the roster, takes one 0xF0 pad block per bot from a 12-block pool, creates brains and defers navigation to the first bot tick. The native build uses ma2_bots_level_spawn after the iterator instead.",
+   "how_to_use": "Map identity and nav load happen on the first bot tick, not here.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/bringup/staging/bots/core/patch_bots.py",
+     "line": 116
+    }
+   ],
+   "tags": [
+    "level",
+    "hook"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-player-teardown-hook",
+   "title": "Player removal frees bot state",
+   "subject": {
+    "kind": "address",
+    "id": "sub_C6FF3"
+   },
+   "addresses": [
+    "000C6FF3"
+   ],
+   "related": [
+    "ma2_bot_player_removed",
+    "recomp_0020.c"
+   ],
+   "fact": "ma2_bot_player_removed(player) runs at the start of Player:OnDeactivate sub_C6FF3. It unbinds the bot, and when every bot player is gone it frees the brains and nav. A bot re-activated later gets a fresh brain lazily.",
+   "how_to_use": "Crash fixed 2026-10-14: g_probe.actor was freed mid-frame when a bot pilot boarded a VTOL. probe_live now checks vtable and physics back-links.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/bringup/staging/bots/core/patch_bots.py",
+     "line": 128
+    }
+   ],
+   "tags": [
+    "teardown",
+    "crash"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-player-tick-hook",
+   "title": "Per-step BotController hook",
+   "subject": {
+    "kind": "address",
+    "id": "loc_000C8130"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_player_tick",
+    "recomp_0020.c",
+    "patch_native.py"
+   ],
+   "fact": "patch_native.py calls ma2_bot_player_tick(esi) at loc_000C8130 of recomp_0020.c, once per simulation step per player. The native BotController sends its command frame from this call.",
+   "how_to_use": "Frames sent from the bot's own player tick work for command 39 (boarding).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "controller",
+    "hook"
+   ],
+   "date": "2026-10-13",
+   "addresses_unverified": [
+    "000C8130"
+   ]
+  },
+  {
+   "id": "bots-input-hook-old",
+   "title": "Pad-era MAInput send hook",
+   "subject": {
+    "kind": "address",
+    "id": "sub_11AD8B"
+   },
+   "addresses": [
+    "0011AD8B"
+   ],
+   "related": [
+    "recomp_0027.c",
+    "patch_bots.py"
+   ],
+   "fact": "The lobby-era design hooked the MAInput send sub_11AD8B to call ma2_bot_input(eax, edx) each step. That routed bot input into a virtual 20-entry pad block. The native build removes this hook.",
+   "how_to_use": "Superseded. Do not add pad writes for bots.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/bringup/staging/bots/core/patch_bots.py",
+     "line": 130
+    },
+    {
+     "file": "kit/source/game/bringup/staging/bots/core/patch_bots.py",
+     "line": 131
+    }
+   ],
+   "tags": [
+    "input",
+    "superseded"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-pad-rebase-old",
+   "title": "Pad-era rebasing and default layout",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_input"
+   },
+   "addresses": [
+    "0011AD8B",
+    "00195AFE"
+   ],
+   "related": [
+    "ma2_bots_core.c",
+    "sub_195AFE"
+   ],
+   "fact": "The pad-era input rebased every binding pointer in [0x4E3248, 0x4E3248+17*0xF0) into the bot pad block, and rebuilt the default layout by rerunning the builders sub_194D86, 194E09, 1950C5 and 195218 after writing +4/+8 to zero. Writing +4/+8 before a build has no effect.",
+   "how_to_use": "Superseded by native command frames. Kept as RE reference for the input mapping.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "input",
+    "superseded"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-input-pipeline-re",
+   "title": "Human input pipeline from XInput to the mapping",
+   "subject": {
+    "kind": "concept",
+    "id": "input pipeline"
+   },
+   "addresses": [
+    "0002B320",
+    "0001F340",
+    "0001F3F0",
+    "00195B46"
+   ],
+   "related": [
+    "sub_195B46",
+    "sub_11AD8B"
+   ],
+   "fact": "XInput is polled by sub_2B320 into a staging pad block at 0x4E36F8 and copied to the live block at 0x4E3248 by sub_1F3F0. The mapping has 60 slots of 0x44 bytes. It is built by sub_195AFE, refreshed by sub_195B46 and sent by sub_11AD8B. Entries 0 to 19 are D-pad, Start, Back, stick clicks, A/B/X/Y, Black/White, triggers and sticks.",
+   "how_to_use": "Useful as reference when a native behaviour action id is decoded.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "input",
+    "re"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-mech-input-actions",
+   "title": "Command ids for each vehicle action",
+   "subject": {
+    "kind": "concept",
+    "id": "command ids"
+   },
+   "addresses": [
+    "000C8012",
+    "000C7F8F",
+    "001AFE3B"
+   ],
+   "related": [
+    "recomp_0020.c",
+    "recomp_0027.c"
+   ],
+   "fact": "Command ids are: 4 forward or back, 8 strafe or turn, 9 yaw, 5 pitch, 3 jumpjet, 39 enter or exit, 44 to 47 weapons, 49 to 55 QTE answers, 60 end of frame. A type 0x67 frame is built by sub_11AD8B and queued. sub_C8012 dispatches its commands, and sub_1AFE3B runs the handler table at 0x1B00F8 when id 60 arrives.",
+   "how_to_use": "Command 12 is the defensive system, not 52 (see the defence facts).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "input",
+    "commands"
+   ],
+   "date": "2026-10-13",
+   "addresses_unverified": [
+    "001B00F8"
+   ]
+  },
+  {
+   "id": "bots-command-record-layout",
+   "title": "Command record layout (0x1C bytes)",
+   "subject": {
+    "kind": "concept",
+    "id": "command record"
+   },
+   "addresses": [
+    "0016F08C",
+    "000C6A17"
+   ],
+   "related": [
+    "sub_C6A17"
+   ],
+   "fact": "Each command record is 0x1C bytes: +0 id, +4 value, +8 held seconds, +0xC released seconds, +0x10 previous value, +0x14 delta and +0x18 step of the last edge. Presses are edges where value != 0 and previous == 0 (sub_C6A17). sub_16F08C updates a record from the frame counter at 0x4E2430.",
+   "how_to_use": "Use the edge rule when building taps for bots.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "input",
+    "commands"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-behaviour-dispatch",
+   "title": "Player input goes to the control behaviour",
+   "subject": {
+    "kind": "concept",
+    "id": "control behaviour"
+   },
+   "addresses": [
+    "000C8F91",
+    "000C9084",
+    "000C950E",
+    "000C7F65"
+   ],
+   "related": [
+    "sub_C9084",
+    "sub_C950E"
+   ],
+   "fact": "MAInput activation sets player+0x244 bit 0. The player tick creates the control behaviour once bit 0 is set and bit 1 is clear (sub_C8F91, factory sub_C9084 by actor class), then rebinds it every tick (sub_C950E). Commands are dropped unless the behaviour's actor matches the player's controlled actor.",
+   "how_to_use": "The bot's controlled actor is player+0x2F0 +0xC. Check bit 0 when a bot does not respond.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "input",
+    "player"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-respawn-path",
+   "title": "Respawn path for players",
+   "subject": {
+    "kind": "function",
+    "id": "sub_CA573"
+   },
+   "addresses": [
+    "000CA573",
+    "000DD174",
+    "0015E335",
+    "000CA3D2"
+   ],
+   "related": [
+    "sub_CA3D2",
+    "sub_C9F32"
+   ],
+   "fact": "On death sub_DD174 calls sub_CA573, which sets player+0x244 bit 6 and sets the respawn time to now + 4 s. The player tick then picks a team spot with sub_15E335 and a vehicle with sub_CA3D2. The spawn request is posted through game+0x4C, which is non-null in local play.",
+   "how_to_use": "Calling sub_CA573 on a test player respawns it on a team spot about 4 s later (verified).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "respawn",
+    "player"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-spawn-placement",
+   "title": "Start placement and team nation",
+   "subject": {
+    "kind": "function",
+    "id": "sub_1665DE"
+   },
+   "addresses": [
+    "001665DE",
+    "00166655"
+   ],
+   "related": [
+    "sub_166AD4",
+    "sub_1DAE30"
+   ],
+   "fact": "sub_1665DE(arg, 0) places all players on team spots at level start, and the human-bit test only applies for the split-screen join. Spots sit at 0x50E4D8.0x50E4DC with spot+0x90 = team+1. Nation is set through vt+0xAC from the table 0x4AE8B4 = {1,2,3,4,7,8,9,10,12,13,14,15} in FFA, or team 0 to 1 and 1 to 2.",
+   "how_to_use": "Placement uses the same rules for bots as for humans in the native build.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "spawn",
+    "placement"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-game-type-team-modes",
+   "title": "Game type and team modes",
+   "subject": {
+    "kind": "setting",
+    "id": "session+0x44"
+   },
+   "addresses": [
+    "0016616C",
+    "00226C10",
+    "001D2210"
+   ],
+   "related": [
+    "sub_226587",
+    "sub_1D2210"
+   ],
+   "fact": "session+0x44 holds the game type. Team modes are types 1 to 3 and 11 to 17, decided by sub_16616C. In Local Xbox mode the New Game screen maps Game Type value 1 to 0xA before calling sub_16616C (at 0x226C10), and sub_1D2210 then stores the value in session+0x44.",
+   "how_to_use": "Use the mapped value when reproducing a team mode on the launch path.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "game-type",
+    "teams"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-grinder-one-bot",
+   "title": "Grinder allows one bot",
+   "subject": {
+    "kind": "setting",
+    "id": "game type 6"
+   },
+   "addresses": [],
+   "related": [
+    "MATCH",
+    "MERGE"
+   ],
+   "fact": "Grinder (game type 6) is a two-player co-op wave mode where all players are nation 1. The roster is capped at one bot, and the bot swaps to a Mech early. The match ends when the human dies, and the bots then idle on the holding platform, which is expected.",
+   "how_to_use": "Set REPLAY_FFA > 0 or Grinder spawns no bots.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "game-type",
+    "grinder"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-world-pause-ok",
+   "title": "Pause freezes the world only in bot matches",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_world_pause_ok"
+   },
+   "addresses": [
+    "000C97D1",
+    "004D382A",
+    "00017ED0",
+    "0001DE70"
+   ],
+   "related": [
+    "recomp_0000.c"
+   ],
+   "fact": "The multiplayer pause flag 0x4EAED4 (sub_C97D1) freezes only local players, so the world kept running. The campaign world freeze byte 0x4D382A is set per frame by sub_17ED0 and passed to the clock step sub_1DE70. recomp_0000.c now asks ma2_bot_world_pause_ok in its four copies of the check, so a bot match freezes the world. RECOMP_BOT_WORLD_PAUSE=0 restores the MP rule.",
+   "how_to_use": "Verified: true freeze in pause, and match end leads to results, briefing and a new match.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pause",
+    "env"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-ai-vtables-per-body",
+   "title": "Campaign AI class per body",
+   "subject": {
+    "kind": "vtable",
+    "id": "MechAI / TankAI / FlyerAI"
+   },
+   "addresses": [
+    "0046AE48",
+    "00469CD0"
+   ],
+   "related": [
+    "sub_18A38E",
+    "sub_18F4FE",
+    "sub_191175"
+   ],
+   "fact": "The actor vtable and AI vtable depend on the body. Pilot on foot, 'Mech and BattleArmor use actor vtable 0x469CD0 and MechAI 0x478FAC with MoveTo sub_18A38E. Tank uses 0x46AE48 with TankAI 0x4793AC and MoveTo sub_18F4FE. VTOL and flyer use 0x46BC38 with FlyerAI 0x479530 and MoveTo sub_191175.",
+   "how_to_use": "Read the AI through actor vtable slot +0x200 (GetAI).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "ai",
+    "vtable"
+   ],
+   "date": "2026-10-13",
+   "addresses_unverified": [
+    "00478FAC",
+    "004793AC",
+    "00479530",
+    "0046BC38"
+   ]
+  },
+  {
+   "id": "bots-ai-awake-gate",
+   "title": "AI only runs when awake and its comp bit is set",
+   "subject": {
+    "kind": "address",
+    "id": "ai+0x90"
+   },
+   "addresses": [
+    "00183345"
+   ],
+   "related": [
+    "sub_183345",
+    "sub_2AC940"
+   ],
+   "fact": "The AI tick sub_183345 runs the state machine only when ai+0x90 (awake) is set. It runs at all only when comp+0x144 bit 0 is set. ai+0x130 is the current destination read by every MoveTo mode, so writing it re-targets at once. ai+0xB4 holds the target actor, and a dead target there is a dangling pointer that must be cleared.",
+   "how_to_use": "Clear ai+0xB4 and ai+0xB8 when a target dies (run l7 crashed on a stale pointer).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "ai",
+    "locomotion"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-ai-mode-table",
+   "title": "AI modes at ai+0x12C",
+   "subject": {
+    "kind": "concept",
+    "id": "ai mode"
+   },
+   "addresses": [
+    "00183B9D",
+    "001843C1",
+    "00183FF7"
+   ],
+   "related": [
+    "sub_183B9D",
+    "sub_183FF7"
+   ],
+   "fact": "setmode sub_183B9D sets ai+0x12C. 0 wanders the path network, 1 patrols waypoints, 2 follows an entity, 3 returns to a path node, 4 attacks, 5 holds (flyers only), 6 goes to ai+0x130 and stops, and 7 idles. Mode 6 calls MoveTo with run=1 from sub_1843C1.",
+   "how_to_use": "setmode(6) also arms the navigator, so call it before MoveTo.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "ai",
+    "modes"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-ai-no-general-astar",
+   "title": "The AI has no general A* path search",
+   "subject": {
+    "kind": "concept",
+    "id": "AI movement"
+   },
+   "addresses": [
+    "002B29F0"
+   ],
+   "related": [
+    "sub_2B3080"
+   ],
+   "fact": "The campaign AI does not reach the PathMap A* (sub_2B29F0). Mode 6 steers straight at the point with only local steering in the navigator, so a body can circle an obstacle for 40 s. The bot controller must supply its own waypoints.",
+   "how_to_use": "Bot nav and the planner in ma2_bot_path.c provide the routes.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "ai",
+    "nav"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-moveto-signature",
+   "title": "MoveTo call and arrival",
+   "subject": {
+    "kind": "function",
+    "id": "ai vt+0x38 (MoveTo)"
+   },
+   "addresses": [
+    "0018A38E",
+    "0018F4FE",
+    "00191175"
+   ],
+   "related": [
+    "sub_18AD06",
+    "sub_2AD5C0"
+   ],
+   "fact": "MoveTo is ai vtable slot +0x38, thiscall with a point, run flag, speed and a flag, and it returns al = arrived. speed 0 means the default, which is 100 percent when run is set and 30 percent otherwise. MoveTo stops 5 to 10 m short of its point, so the final leg needs a direct walk or an overshoot.",
+   "how_to_use": "Use MoveTo for long legs and a direct walk for the final approach.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "ai",
+    "locomotion"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-drive-recipe",
+   "title": "Recipe that drives a body from the bot tick",
+   "subject": {
+    "kind": "function",
+    "id": "bot drive recipe"
+   },
+   "addresses": [
+    "002AC940",
+    "002AD5C0",
+    "002AE360"
+   ],
+   "related": [
+    "MoveTo",
+    "setmode"
+   ],
+   "fact": "Verified recipe for walkers and tanks: set comp+0x144 bit 0 (sub_2AC940) so the human control tick leaves the body alone, set actor+0x1E8 |= 3, set ai+0x90 = 0 and clear ai+0xB4/+0xB8, write ai+0x130, call setmode(6) if needed, then call MoveTo each step. Stop with sub_2AD5C0(0) or setmode(7). Face a heading with sub_2AE360.",
+   "how_to_use": "Method 2 in the loco test (RECOMP_LOCO_TEST=2). Method 1 (awake FSM) fails for tanks.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "ai",
+    "recipe"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-loco-per-kind-results",
+   "title": "Per-body result of the locomotion methods",
+   "subject": {
+    "kind": "concept",
+    "id": "loco per-kind results"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_LOCO_TEST"
+   ],
+   "fact": "Measured on Bogged Down with a 100 m goal: pilots and 'Mechs arrive at 90 to 95 m in 8 to 15 s with method 1 or 2, and tanks arrive with method 2 only. Method 1 fails for TankAI because its FSM never picks a state. BattleArmor turns to the goal but does not translate. A VTOL's altitude works through ai+0x20C, but its yaw needs the yaw-hold fix.",
+   "how_to_use": "RECOMP_LOCO_TEST=1|2|3 selects the method. RECOMP_LOCO_BOTS=bot:kind uses kind 1 pilot, 2 mech, 3 BA, 4 tank, 5 VTOL.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "ai",
+    "results"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-empty-vehicle-not-simulated",
+   "title": "Empty parked vehicles are not simulated",
+   "subject": {
+    "kind": "concept",
+    "id": "comp+0x144 stop bits"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Driving an unoccupied, parked vehicle does nothing, because its body is not simulated and comp+0x144 stop bits 0x60 stay set. Bots must board a vehicle before the AI moves it.",
+   "how_to_use": "Do not expect a parked tank to move from the AI recipe alone.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "ai",
+    "vehicles"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-mech-tiny-steps-root-cause",
+   "title": "Asleep MechAI made 'Mechs walk at a third of speed",
+   "subject": {
+    "kind": "concept",
+    "id": "MechAI sleep"
+   },
+   "addresses": [
+    "00183345",
+    "002AC940"
+   ],
+   "related": [
+    "sub_183345"
+   ],
+   "fact": "An asleep MechAI makes its AI tick OR comp+0x144 with 0x60 every frame, so a 'Mech pushed by MoveTo moves at about one third of its speed (6.6 of 18.8 m/s). The fix keeps the MechAI awake in goto mode 6, sets EngageRadius (+0x200, +0x20C) to 0 and clears the target slot, which restores 16 to 21 m/s. Clearing comp+0x144 bit 0 also gave full speed but froze some player-controlled bodies.",
+   "how_to_use": "Measured with RECOMP_BOT_TRACE=<s> and",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "ai",
+    "mech",
+    "fix"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-mech-steering-lead-limit",
+   "title": "'Mech steering lead is limited to 12 degrees",
+   "subject": {
+    "kind": "concept",
+    "id": "MechAI goto"
+   },
+   "addresses": [],
+   "related": [
+    "body_steer"
+   ],
+   "fact": "While moving, a 'Mech's steering lead is limited to 12 degrees. The MechAI goto stops and turns on the spot (anim 18) when its point is more than about 15 to 20 degrees off course.",
+   "how_to_use": "Watch for 'Mechs stalling in place when a waypoint is off to the side.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "ai",
+    "mech"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-campaign-attack-shuffle",
+   "title": "Campaign attack state shuffles 'Mechs",
+   "subject": {
+    "kind": "concept",
+    "id": "MechAI Attack"
+   },
+   "addresses": [
+    "001B42E5"
+   ],
+   "related": [
+    "sub_1B42E5"
+   ],
+   "fact": "The campaign Attack state makes 'Mechs shuffle with a median speed of 0 m/s in fights. Bots therefore strafe with their own movement and fire natively, instead of relying on the campaign Attack state.",
+   "how_to_use": "Bots' own strafing is in ma2_bot_ctrl.c.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "ai",
+    "mech",
+    "combat"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-mid-air-stop-keeps-awake",
+   "title": "Mid-air stop keeps a 'Mech or BattleArmor awake",
+   "subject": {
+    "kind": "concept",
+    "id": "body_stop"
+   },
+   "addresses": [],
+   "related": [
+    "body_stop"
+   ],
+   "fact": "A mid-air body_stop of a 'Mech or BattleArmor keeps its AI awake. An asleep body is barely simulated while airborne, and one such body hung for 26 s and could not eject.",
+   "how_to_use": "Keep the AI awake in any mid-air stop.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "ai",
+    "jump"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-crowd-steering",
+   "title": "Crowd steering uses teammates' intended courses",
+   "subject": {
+    "kind": "concept",
+    "id": "crowd steering"
+   },
+   "addresses": [],
+   "related": [
+    "path_carrot"
+   ],
+   "fact": "Crowd steering samples the heading of teammates' intended courses and uses a time-to-touch test to pick a heading. path_carrot uses the full plan radius.",
+   "how_to_use": "Check teammate collisions in long matches.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "nav",
+    "crowd"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-startjump",
+   "title": "StartJump sub_18ABB5 starts a jumpjet hop",
+   "subject": {
+    "kind": "function",
+    "id": "sub_18ABB5"
+   },
+   "addresses": [
+    "0018ABB5",
+    "0018AD06"
+   ],
+   "related": [
+    "sub_18AD06"
+   ],
+   "fact": "StartJump(ai, str, dur, dir) returns al = 1 when it starts. It needs actor+0x49C > 1.0 and an animation other than 0x16 or 0x17. It sets ai+0x240 and records the direction and end time. MoveTo (sub_18AD06) then flies the jet each tick, so MoveTo keeps running and StartJump is called once. Verified: 'Mechs covered 95 m, 85 m and 57 m in 8 s, with peaks of 22 to 36 m.",
+   "how_to_use": "Used for BattleArmor hops (about 45 to 55 m every 4 s) and for 'Mech jumps.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "jumpjet",
+    "ba"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-raw-jet",
+   "title": "Raw jet sub_104D55",
+   "subject": {
+    "kind": "function",
+    "id": "sub_104D55"
+   },
+   "addresses": [
+    "00104D55"
+   ],
+   "related": [
+    "sub_18AD06"
+   ],
+   "fact": "The raw jet call sub_104D55 sets the jet direction (+0x4E8 and +0x4E4). With MoveTo running, sub_18AD06 turns the jet off every tick unless ai+0x240 is set. Verified: a BattleArmor with direction (1, 0, 0) for 2 s rose 22 m straight up with no horizontal motion.",
+   "how_to_use": "Use StartJump when MoveTo is driving; use the raw call only in tests.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "jumpjet"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-jumpjet-fields",
+   "title": "Jumpjet fields on the actor",
+   "subject": {
+    "kind": "property",
+    "id": "actor+0x49C.+0x4BC"
+   },
+   "addresses": [],
+   "related": [
+    "sub_104D55"
+   ],
+   "fact": "The jumpjet fields on the actor are +0x49C charge in seconds, +0x4A0 charge rate, +0x4A4 duration (max charge), +0x4A8 force and +0x4BC limiter. BattleArmor jet fuel is 0 to 2, draining to about 0 in 2 s and refilling at about 1 per second.",
+   "how_to_use": "A 'Mech with +0x49C = 0 cannot jump; StartJump returns 0.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "jumpjet",
+    "property"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-actor-flag-bits",
+   "title": "Actor flag bits for BattleArmor, jumpjet, clamp and VTOL",
+   "subject": {
+    "kind": "property",
+    "id": "actor+0x268 / +0x26C / +0x260"
+   },
+   "addresses": [],
+   "related": [
+    "sub_11CA06"
+   ],
+   "fact": "Actor flags at +0x268 are bit 18 IsBattleArmor, bit 15 jumpjet on, bit 19 clamped or attached and bit 20 claw attack. At +0x26C, bit 17 is IsPersonMech and bit 10 is FreeTorsoRotation. Flyer flags at +0x260 are bit 2 VTOL, bit 1 Plane and bit 0 DropShip.",
+   "how_to_use": "The core kind test used +0x248 bit 18 for BattleArmor, which the later note corrects to +0x268 bit 18.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "property",
+    "flags"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-ba-locomotion-anim-driven",
+   "title": "BattleArmor walking is animation driven",
+   "subject": {
+    "kind": "concept",
+    "id": "BA walk speed"
+   },
+   "addresses": [
+    "0018B6F4",
+    "000FF68A",
+    "000FF679"
+   ],
+   "related": [
+    "sub_FF68A",
+    "sub_1075ED"
+   ],
+   "fact": "BattleArmor MoveTo turns the body and sets forward speed to 16 (max), yet it moves 0 m/s, because walker speed is scaled by the current animation speed factor (sub_18B6F4 is zero for anims 0x12 to 0x14), and the AI never picks a BA run animation. The working recipe is MoveTo to face the goal, then StartJump toward it when fuel is at least about 1.9.",
+   "how_to_use": "Use hops, not walks, to move BattleArmor.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "ba",
+    "locomotion"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-clamp-path",
+   "title": "BattleArmor clamp path",
+   "subject": {
+    "kind": "function",
+    "id": "sub_10239A / sub_1019EB"
+   },
+   "addresses": [
+    "0010239A",
+    "001019EB",
+    "00102AC9",
+    "00102DF6",
+    "000FE09B",
+    "0017305C"
+   ],
+   "related": [
+    "sub_10165B",
+    "sub_E9F90",
+    "ba-wall-climb-latch-is-sub-1025f5-ray-probe-fe09b-is-claw-at"
+   ],
+   "fact": "The human claw button path (0x17305C) calls sub_10239A to test whether the BA can clamp now, then sub_1019EB to attach. The candidate search sub_102AC9 takes an enemy MAMech within 11 m that passes the geometric test sub_E9F90. The attach is MAMech vt+0x22C = sub_10165B, which sets 0x268 bit 19 and the target UID.",
+   "how_to_use": "Test with the BA clamp test in the game source tree and check the [BOT-HACKED] lines.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "ba",
+    "clamp"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-clamp-first-try",
+   "title": "A BA clamp at 12 m succeeded on the first try",
+   "subject": {
+    "kind": "concept",
+    "id": "clamp success"
+   },
+   "addresses": [],
+   "related": [
+    "ba_clamp test"
+   ],
+   "fact": "A test BattleArmor hopping toward a moving enemy 'Mech clamped at 12 m on the first try with sub_10239A then sub_1019EB, and the NeuroHack completed on its own about 21 s later without any answers from the bot.",
+   "how_to_use": "Re-clamping works from about 2.5 m after the victim re-boards.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "ba",
+    "neurohack"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-qte-object-layout",
+   "title": "NeuroHack QTE object layout",
+   "subject": {
+    "kind": "struct",
+    "id": "actor+0x274 QTE object"
+   },
+   "addresses": [
+    "00101E9D",
+    "00103C74",
+    "00103CC2",
+    "00103EF3",
+    "001B08AF",
+    "001B0909",
+    "001B07FC",
+    "0018EBFA",
+    "000C6A62",
+    "00103C58"
+   ],
+   "related": [
+    "sub_C6A62",
+    "bots3-surprise-spec-lookups-building-hp-class-mabuilding-no"
+   ],
+   "fact": "Starting a NeuroHack (sub_101E9D) creates a QTE object on both the target and the BattleArmor. The 0xC8-byte object has +0 required-button mask (bits 0 to 6), +1 result flags, +4 response window, +8 time to next cue, +0xC stage, +0x18 progress, +0x20 pressed mask, +0xA8 progress target, +0xAC gain on correct, +0xB0 loss on wrong and +0xB4 loss on a missed window.",
+   "how_to_use": "Read required and window from actor+0x274 when answering a hack.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "neurohack",
+    "qte"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-qte-answer-own-actor",
+   "title": "Bots answer the QTE on their own controlled actor",
+   "subject": {
+    "kind": "concept",
+    "id": "QTE answer rule"
+   },
+   "addresses": [],
+   "related": [
+    "qte_control"
+   ],
+   "fact": "A bot answers the QTE on its own controlled actor (+0x274). That covers the hacking BattleArmor and a defending 'Mech in the same way. The brain waits a skill-based reaction, taps the mapped entries for the required bits and never presses a wrong button, so bots do not cause lockouts.",
+   "how_to_use": "RECOMP_BOT_QTE_MISS_BA and RECOMP_BOT_QTE_MISS_MECH tune the miss chance.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "neurohack",
+    "qte"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-qte-core-read",
+   "title": "QTE state read by the bot core",
+   "subject": {
+    "kind": "property",
+    "id": "actor+0x274 fields"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bots_core.c"
+   ],
+   "fact": "The core reads the QTE state from the own actor: required is q+0, window q+4, pressed q+0x20, and progress q+0x18 or q+0xA8, where q = actor+0x274. The NeuroHack is active when actor+0x26C bit 25 (state bit 0x39) or clamped_to is set. Bit k of the mask is action 0x31+k.",
+   "how_to_use": "The core reports qte_window; a window of 0 falls back to a 0.8 s window in the brain.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "neurohack",
+    "qte"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-qte-bit-map",
+   "title": "QTE bit map to pad entries",
+   "subject": {
+    "kind": "concept",
+    "id": "QTE map"
+   },
+   "addresses": [],
+   "related": [
+    "Ma2QteMap"
+   ],
+   "fact": "The QTE bits 0 to 6 are actions 49 to 55. With the default layout they map to X, Y, A, RS-click, LT, RT and B. This is an assumption in the brain (A11). The core learns the map from the first binding that points into the bot pad.",
+   "how_to_use": "The core should log the discovered map once to confirm the order.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "neurohack",
+    "qte"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-ba-clamp-cooldown",
+   "title": "Clamp is rate limited",
+   "subject": {
+    "kind": "concept",
+    "id": "clamp rate limit"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c"
+   ],
+   "fact": "Clamps are rate limited to one per 20 s, with no re-hack of the same 'Mech within 30 s. Before this limit, a 'Mech was re-hacked 37 times in one run and the game then crashed in the AI path-network code (0x2B1xxx).",
+   "how_to_use": "A crash at t=298 in long1 preceded the limit. Not re-verified after the fix.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "neurohack",
+    "crash"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-ba-wall-climb",
+   "title": "BattleArmor wall climb works mechanically",
+   "subject": {
+    "kind": "concept",
+    "id": "BA wall climb"
+   },
+   "addresses": [
+    "0010239A"
+   ],
+   "related": [
+    "RECOMP_BOT_CLIMB_TEST"
+   ],
+   "fact": "A BattleArmor climbs a vertical wall by latching the A claw onto the face and holding the stick up. The test lets go at the roof or after 40 m. The map edge wall let a BA climb to y=690, so the climb stays in a test-only path behind RECOMP_BOT_CLIMB_TEST.",
+   "how_to_use": "Use RECOMP_BOT_CLIMB_TEST=1 to test climbing. Other BA hops use StartJump.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "ba",
+    "climb",
+    "test"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-ba-wall-climb-brain-heuristic",
+   "title": "Brain wall-climb heuristic",
+   "subject": {
+    "kind": "concept",
+    "id": "wall climb heuristic"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c"
+   ],
+   "fact": "The pad-era brain climbed a wall with a probe 4 m ahead that finds ground more than 5 m above, then used the jumpjet and A 0.3 s later. This was heuristic and untested in game. The native build uses the test path instead.",
+   "how_to_use": "Superseded by the native test-only climb.",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "ba",
+    "climb",
+    "superseded"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-jet-sound-root-cause",
+   "title": "Jetpack sound stutter root cause",
+   "subject": {
+    "kind": "concept",
+    "id": "jet cue restart"
+   },
+   "addresses": [
+    "00104DA1",
+    "0012B2CD"
+   ],
+   "related": [
+    "sub_104DA1",
+    "sub_12B2CD",
+    "sub_1B0409"
+   ],
+   "fact": "The 'Mech thrust update sub_104DA1 ran twice per frame, once with held=1 from the AI jet path and once with held=0 from the behaviour tick sub_1B0409. The start and stop events fired every frame, so the jet sound restarted each frame (834 voice starts for 15 burns). The fix holds jump action 3 while ai+0x240 is set, giving 38 starts for 45 burns.",
+   "how_to_use": "Trace with RECOMP_JET_TRACE=2, RECOMP_SND_TRACE and RECOMP_APU_STREAM_STATS.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "jumpjet",
+    "audio",
+    "fix"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-jet-fuel-end",
+   "title": "Jump burn is capped by fuel",
+   "subject": {
+    "kind": "concept",
+    "id": "jet burn"
+   },
+   "addresses": [],
+   "related": [
+    "StartJump",
+    "ai+0x240"
+   ],
+   "fact": "StartJump's burn could outlast the jetpack fuel. The jet then cut out every frame on the recharge trickle and the cue restarted each frame. The fix sets burn to fuel minus 0.15 and ends the jump (ai+0x240 = 0) when fuel is below 0.1.",
+   "how_to_use": "Watch the jet cue count with RECOMP_JET_TRACE=2.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "jumpjet",
+    "audio"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-hack-cue-sound-gate",
+   "title": "NeuroHack cue sounds only for the local human",
+   "subject": {
+    "kind": "function",
+    "id": "sub_18EB44"
+   },
+   "addresses": [
+    "0018EB44",
+    "0018E996"
+   ],
+   "related": [
+    "recomp_0041.c"
+   ],
+   "fact": "Each side of a hack gets a minigame object whose cue-sound flag (+0xC4) is copied from the owning actor's +0x80 bit 0. Bots had this bit set, so every bot hack was audible to everyone. patch_round9.py clears +0xC4 for bot-owned actors (ma2_bot_actor_owned).",
+   "how_to_use": "Verified in the playtest round that followed.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "neurohack",
+    "audio"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-defense-command-12",
+   "title": "The defence command is 12, not 52",
+   "subject": {
+    "kind": "concept",
+    "id": "command 12"
+   },
+   "addresses": [
+    "00175952",
+    "0010665B",
+    "00189462"
+   ],
+   "related": [
+    "DEFENSE_SPEC"
+   ],
+   "fact": "The RS-click defence is command 12, sent through behaviour vt+0xA4 sub_175952 to actor vt+0x204(1,0). Command 52 is QTE bit 4, the NeuroHack answer through sub_1B07FC(0x34, 4). With command 12, 55 of 264 tap edges activated and the rest were refused because the system was recharging, already active or absent.",
+   "how_to_use": "Use def_own_ready(me, now) and ctrl_tap(c, 12, 3) to raise the defence.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "defence",
+    "command"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-defense-type-enum",
+   "title": "DefenseType values on MAMover actors",
+   "subject": {
+    "kind": "property",
+    "id": "actor+0x21C"
+   },
+   "addresses": [
+    "000E6ED1",
+    "000E694C",
+    "000E9E95"
+   ],
+   "related": [
+    "sub_E6ED1",
+    "sub_E826B"
+   ],
+   "fact": "DefenseType at actor+0x21C is 0 none, 1 shield bubble, 3 weapon-class-4 defence (none in multiplayer templates), 4 target jamming, 5 camouflage or null signature (2 is remapped to 5 at load), 6 absorber (Reflective, Reactive or EAS) and 7 active AMS. The defence object is at actor+0x220, created by sub_E6ED1.",
+   "how_to_use": "Pilots keep their defence data at +0x220 differently.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "defence",
+    "property"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-defense-object-flags",
+   "title": "Defence object flags and timing",
+   "subject": {
+    "kind": "property",
+    "id": "defence object +0x4 / +0x8 / +0xC / +0x10"
+   },
+   "addresses": [],
+   "related": [
+    "sub_E694C",
+    "sub_1895F9"
+   ],
+   "fact": "The defence object byte +4 holds flags: 1 recharging, 2 active, 4 down-cue played, 8 and 0x10 disabled by a non-enemy or enemy rider, 0x20 and 0x40 prevent non-enemy and enemy attachment, and 0x80 enabled by a friendly rider. Duration is +8, recharge is +0xC (seconds), and +0x10 is the end time in game time. While active, +0x10 is the end of the active phase.",
+   "how_to_use": "sub_E694C returns obj and (obj[4] & 2). The HUD meter uses sub_1897AA.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "defence",
+    "property"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-defense-activation",
+   "title": "Defence activation path",
+   "subject": {
+    "kind": "function",
+    "id": "sub_E9CB6 / sub_189462"
+   },
+   "addresses": [
+    "000E9CB6",
+    "00189462",
+    "001895F9",
+    "0010665B",
+    "00175952"
+   ],
+   "related": [
+    "sub_1893F5"
+   ],
+   "fact": "Command 12 goes to sub_175952, then actor vt+0x204, then sub_10665B and sub_E9CB6. sub_E9CB6 refuses while recharging, already active or blocked by rider rules (sub_1893F5). Otherwise it calls SetActive sub_189462. Expiry goes through sub_1895F9 and the recharge then starts. Verified in runs d1 to d9.",
+   "how_to_use": "Use RECOMP_DEFENSE_PROBE=1 to log [DEF-ACT] and [DEF-SET].",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "defence"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-defense-spawn-recharge",
+   "title": "Defences start recharging on spawn",
+   "subject": {
+    "kind": "concept",
+    "id": "defence recharge"
+   },
+   "addresses": [
+    "001AC04B",
+    "000E9D78"
+   ],
+   "related": [
+    "sub_1AC04B",
+    "sub_E9D78"
+   ],
+   "fact": "Every spawn starts a defence in recharge, and boarding restarts the recharge (sub_1AC04B calls sub_E9D78). This was seen once in play and is code-confirmed.",
+   "how_to_use": "Wait for the recharge before counting a defence as available.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "defence"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-absorber-energy-passes",
+   "title": "Energy absorbers pass 25 to 29 percent of direct energy hits",
+   "subject": {
+    "kind": "concept",
+    "id": "absorber"
+   },
+   "addresses": [
+    "000E9A10",
+    "001872A0"
+   ],
+   "related": [
+    "sub_1872A0"
+   ],
+   "fact": "Absorb sub_E9A10 calls sub_1872A0 only while the absorber is up and for the hit kinds its flags cover. It computes dmg minus dmg times DamageAbsorbed[type]. Energy direct hits on a Reflective unit passed 25 to 29 percent in 350 of 350 hits. Ballistic and explosive hits passed in full while the absorber was off.",
+   "how_to_use": "Damage types: 0 standard, 1 energy, 2 ballistic, 3 explosive, 4 flame.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "defence",
+    "absorber"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-splash-no-los",
+   "title": "Splash damage is explosive and ignores line of sight",
+   "subject": {
+    "kind": "concept",
+    "id": "splash"
+   },
+   "addresses": [
+    "00182160"
+   ],
+   "related": [
+    "sub_182160"
+   ],
+   "fact": "Splash damage (sub_182160) is always explosive, type 3, and has no line-of-sight test. This was measured on 139 of 139 hits.",
+   "how_to_use": "Splash weapons are a way round a shield bubble, but that is an unproven hypothesis.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "defence",
+    "weapons"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-defense-reflective",
+   "title": "Reflective armour absorbs energy",
+   "subject": {
+    "kind": "concept",
+    "id": "Reflective absorber"
+   },
+   "addresses": [],
+   "related": [
+    "6A7D",
+    "6A93",
+    "1E215",
+    "6A79"
+   ],
+   "fact": "Reflective armour is an absorber of type 6 that stops 75 percent of direct energy and flame damage for 10 s, then recharges for 20 s. Catalogue units: 6A7D, 6A93, 1E215 and 6A79. Verified in the catalogue and at runtime, where pulse hits fell from 15 to 4.",
+   "how_to_use": "A BattleArmor cannot clamp a unit while its defence has flag 0x40 or 0x20.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "defence",
+    "absorber"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-defense-reactive",
+   "title": "Reactive armour absorbs ballistic",
+   "subject": {
+    "kind": "concept",
+    "id": "Reactive absorber"
+   },
+   "addresses": [],
+   "related": [
+    "6A89",
+    "1E6D2",
+    "1E713",
+    "6C9A",
+    "6A8B"
+   ],
+   "fact": "Reactive armour absorbs 75 percent of direct ballistic damage for 10 s, with a 20 s recharge. Units 6A89, 1E6D2, 1E713, 6C9A and 6A8B. The campaign code path is the same as Reflective. No hits on these units were logged.",
+   "how_to_use": "Respond with energy weapons and missiles.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "defence",
+    "absorber"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-defense-ams",
+   "title": "Active AMS destroys missiles crossing its volume",
+   "subject": {
+    "kind": "concept",
+    "id": "AMS"
+   },
+   "addresses": [
+    "00197E12"
+   ],
+   "related": [
+    "sub_197E12"
+   ],
+   "fact": "Active AMS spawns an anti-projectile effect about 11 m from its owner (measured 10.4 to 11.7 m). It destroys an enemy projectile with bit 17 that touches the volume. Crossbow, javelin and warhammer are AMS-vulnerable, while mortar, POV and BA mortar are not. Missile hits per laser hit fell from 0.077 to 0.021 when an AMS was up.",
+   "how_to_use": "The AMS volume size is model geometry and was not read.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "defence",
+    "ams"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-defense-jammer",
+   "title": "Target jamming denies lock and homing",
+   "subject": {
+    "kind": "concept",
+    "id": "jammer"
+   },
+   "addresses": [
+    "0017B222",
+    "00184B1A",
+    "0018482E"
+   ],
+   "related": [
+    "sub_1705BC",
+    "sub_1AEE9A"
+   ],
+   "fact": "Target jamming (type 4) stops the player's lock and auto-target, and the AI skips the unit. AI fire uses sub_17B222 to aim at a point with no target lead and passes no lock target, so seeker projectiles do not home. Damage is unchanged. Weapons that lose homing are those with seek=1, including crossbow, javelin, PPC, gauss and BA pulse laser.",
+   "how_to_use": "Prefer fast direct weapons and close in against a jammer.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "defence",
+    "jammer"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-defense-cloak-ai-range",
+   "title": "Campaign AI ignores cloaked units beyond 50 m",
+   "subject": {
+    "kind": "function",
+    "id": "sub_17B81E"
+   },
+   "addresses": [
+    "0017B81E",
+    "0018482E"
+   ],
+   "related": [
+    "sub_184E6D"
+   ],
+   "fact": "The campaign AI drops a cloaked target unless it is within 50 m (65 m in one caller mode), and drops a strictly cloaked target at any range (sub_17B81E). The target picker sub_184E6D does not check cloak. A hit reveals a cloaked unit to visibility 0.65 for about 1 s.",
+   "how_to_use": "Null signature drain is not faster when moving, which contradicts the wiki claim.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "defence",
+    "cloak"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-defense-shield-tank",
+   "title": "Shield bubble exists only on tank 1E542",
+   "subject": {
+    "kind": "concept",
+    "id": "shield bubble"
+   },
+   "addresses": [
+    "001867B9"
+   ],
+   "related": [
+    "sub_1867B9",
+    "MAEffectShield"
+   ],
+   "fact": "The shield bubble (type 1) appears only on tank 1E542, with a 7 s duration and 7 s recharge. sub_1867B9 spawns MAEffectShield, and it was never raised in logged matches. Projectiles that hit it are stopped.",
+   "how_to_use": "Use splash weapons that land beside the bubble, an untested hypothesis.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "defence",
+    "shield"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-defense-decision-table",
+   "title": "Bot response to each defence",
+   "subject": {
+    "kind": "concept",
+    "id": "defence response table"
+   },
+   "addresses": [],
+   "related": [
+    "def_kind",
+    "wpn_value_vs"
+   ],
+   "fact": "Bots read a target's defence with def_kind and choose a weapon group with wpn_value_vs. Energy weapons are avoided against an up Reflective, ballistic against Reactive, missiles against AMS and seekers against jammers. Groups below about 0.4 value are not fired while a better group exists.",
+   "how_to_use": "Raise your own defence when the attacker's best group is energy, a BattleArmor is within 30 m, or AMS-vulnerable missiles are coming.",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "defence",
+    "bot-logic"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-defense-helper-api",
+   "title": "Defence and weapon helper API",
+   "subject": {
+    "kind": "tool",
+    "id": "ma2_bot_defense.c"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_defense.c"
+   ],
+   "fact": "ma2_bot_defense.c exports def_kind, def_read, def_own_ready, def_weapon_stopped, wpn_value_vs, wpn_props, wpn_class, alpha_ready, arsenal_max_level, mech_heat_pct and def_group_wpn. Fire classes are 0 to 2 for primary, 5 for lava, 6 for claw and 7 for Alpha Strike.",
+   "how_to_use": "Read the helper names before writing a new weapon rule.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "defence",
+    "tool"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-defense-probe-env",
+   "title": "Defence probe environment variables",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_DEFENSE_PROBE"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_DEFENSE_TEST",
+    "RECOMP_DEFENSE_CATALOG"
+   ],
+   "fact": "RECOMP_DEFENSE_PROBE=1 logs [DEF], [DEF-EDGE], [DEF-WPN], [DEF-VS], [DEF-HIT] and [DEF-ACT]. RECOMP_DEFENSE_TEST=<s> makes bots tap command 12 every s seconds. RECOMP_DEFENSE_CATALOG=1 logs [CAT-VEH], [CAT-WPN] and [CAT-GRP] from the template world. RECOMP_DEFENSE_TEST_ALPHA=<bot|99>:<t> forces class 7 fire.",
+   "how_to_use": "Set RECOMP_DEFENSE_TEST=10 to make defences raise far more often.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "env",
+    "defence"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-defense-probe-hooks",
+   "title": "Probe hooks in generated code",
+   "subject": {
+    "kind": "patch",
+    "id": "patch_defense_probe.py"
+   },
+   "addresses": [
+    "00100A52",
+    "000E9A10",
+    "000E9CB6",
+    "0010665B",
+    "00175952",
+    "00189462"
+   ],
+   "related": [
+    "recomp_0023.c",
+    "recomp_0024.c",
+    "recomp_0025.c",
+    "recomp_0026.c",
+    "recomp_0039.c",
+    "recomp_0041.c"
+   ],
+   "fact": "patch_defense_probe.py adds read-only hooks: ma2_def_hit_hook at MAMech TakeDamage (sub_100A52), absorb pre and post at sub_E9A10, a set hook at sub_E9CB6 and sub_10665B, a command hook at sub_175952 and an act hook at sub_189462. Each returns at once unless RECOMP_DEFENSE_PROBE is set.",
+   "how_to_use": "Run python patch_defense_probe.py. It is idempotent.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "defence",
+    "patch"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-defense-vehicle-catalog",
+   "title": "Vehicle template catalogue for defences and weapons",
+   "subject": {
+    "kind": "asset",
+    "id": "vehicle template uids"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Each vehicle template uid is the same on every map. Examples: 6A95 (Mech, alpha strike, pulse laser), 6C43 (laser and gauss), 1E27D (plasma PPC), 8C9D (Rhommel tank with camo 60 s / 20 s recharge), 1E542 (tank with shield bubble), 80BC and 8D24 (BattleArmor), 815F (VTOL with crossbow). Defences are listed as duration and recharge in seconds.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "asset",
+    "catalogue"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-vehicle-uid-equals-template",
+   "title": "Vehicle template uid is actor+0x30",
+   "subject": {
+    "kind": "property",
+    "id": "actor+0x30"
+   },
+   "addresses": [],
+   "related": [
+    "sub_166C0C"
+   ],
+   "fact": "A vehicle's template uid is actor+0x30. It equals the creating player's p+0x3BC, and session+0x388 holds the per-slot vehicle uids. The instance uid is +0x2C, which sub_166C0C does not accept.",
+   "how_to_use": "Pass the template uid, not the instance uid, to sub_166C0C.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "vehicles",
+    "uid"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-spawn-into-vehicle-recipe",
+   "title": "Test recipe to spawn a player straight into a vehicle",
+   "subject": {
+    "kind": "function",
+    "id": "RECOMP_BAVT_SPAWN"
+   },
+   "addresses": [
+    "001668D8",
+    "00166C0C",
+    "000B2B70"
+   ],
+   "related": [
+    "sub_B2B70"
+   ],
+   "fact": "Create a player with sub_1668D8, call sub_166C0C with a template uid, set nation, set p+0x244 |= 8, call sub_B2B70(p, 0, 0xB4080, 0) to activate, then set p+0x244 |= 0x40 and p+0x2D0 = now. The respawn path places the player on a spot within about 1 s. Env: RECOMP_BAVT_SPAWN=1, RECOMP_BAVT_SPAWN_UID=815F or 80BC, and RECOMP_BAVT_SPAWN_TEAM.",
+   "how_to_use": "RECOMP_BAVT_SPAWN_DRY=1 logs the uids only.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "test",
+    "spawn"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-spawned-vehicle-proxy",
+   "title": "Spawned vehicles come back as proxies",
+   "subject": {
+    "kind": "property",
+    "id": "actor+0x1E"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BAVT_SPAWN"
+   ],
+   "fact": "A vehicle that a test player boards comes back as a network proxy (actor+0x1E bits 0 and 1, via the CA144 branch). The bot hook clears the proxy flag every tick through the is_local_ai gate.",
+   "how_to_use": "Check the proxy bit if a spawned vehicle does not move.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "proxy",
+    "vehicles"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-weapon-types",
+   "title": "Weapon type numbering",
+   "subject": {
+    "kind": "concept",
+    "id": "weapon type b+0x17C"
+   },
+   "addresses": [],
+   "related": [
+    "wpn_props"
+   ],
+   "fact": "Weapon type is barrel+0x17C, numbered 0 to 17 in HUD icon order: 0 autocannon, 1 crossbow, 2 gauss rifle, 3 javelin, 4 laser, 5 machine gun, 6 PPC, 7 pulse laser, 8 warhammer, 9 lava gun, 10 flamer, 11 flamethrower, 12 mortar, 13 gravity cannon (magrail), 14 plasma PPC, 15 alpha strike, 16 POV missile and 17 laser cannon. This matched all 100 distinct weapon templates.",
+   "how_to_use": "Use WTYPE_NAME(t) for printable names.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "weapons"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-weapon-group-fields",
+   "title": "Weapon group, barrel and projectile fields",
+   "subject": {
+    "kind": "struct",
+    "id": "MAWpnGrp / barrel / projectile"
+   },
+   "addresses": [],
+   "related": [
+    "sub_12B234",
+    "sub_18482E"
+   ],
+   "fact": "A fire group MAWpnGrp keeps its fire class at +0x80 and upgrade level at +0x98 (zero-based). Barrel+0x128 is BarrelRange, used for AI engagement and reticle range. The barrel's direct damage is +0x148 and splash +0x14C. The projectile template's time limit is +0x26C, which is 15 s for every weapon. The arsenal's per-class level is at arsenal+0x7C+4c.",
+   "how_to_use": "Weapons fire through sub_18482E, which fires every selected weapon in the group.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "weapons",
+    "struct"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-weapon-ranges",
+   "title": "Engagement ranges per weapon",
+   "subject": {
+    "kind": "concept",
+    "id": "weapon ranges"
+   },
+   "addresses": [],
+   "related": [
+    "wpn_props"
+   ],
+   "fact": "Barrel ranges: pulse laser 450 m, laser 450 m, PPC 450 m, gravity cannon 505 m, autocannon 450 m, gauss 450 m, machine gun 100 m, crossbow 250 m, javelin 490 m, warhammer 450 m, flamethrower 45 m and alpha strike 505 m. These are the ranges the brain uses for weapon band choice.",
+   "how_to_use": "Machine gun is the close-range weapon; flamethrower is point blank only.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "weapons"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-ppc-ai-fire-open",
+   "title": "PPC fire from the AI is not working",
+   "subject": {
+    "kind": "concept",
+    "id": "PPC charge"
+   },
+   "addresses": [],
+   "related": [
+    "sub_18482E"
+   ],
+   "fact": "PPC charges at 45 percent per second and fires at 50 percent, but ai_fire landed only three PPC hits across 13 runs. The bot needs a hold-charge controller, which is not implemented.",
+   "how_to_use": "Open question.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "weapons",
+    "open"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-heat-model",
+   "title": "'Mech heat model",
+   "subject": {
+    "kind": "property",
+    "id": "actor+0x85C.+0x864"
+   },
+   "addresses": [],
+   "related": [
+    "sub_12BBEB"
+   ],
+   "fact": "A 'Mech's heat is +0x85C current, +0x850 HeatMax (107 to 200) and +0x858 cool rate (10 to 26 per s). +0x864 is the heat percentage, and at 100 or more the arsenal fire sub_12B234 is told the 'Mech is overheated. Tanks have no heat model.",
+   "how_to_use": "Hold a group below 40 percent value when heat is high.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "heat",
+    "property"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-alpha-strike-weapon",
+   "title": "Alpha Strike weapon and readiness",
+   "subject": {
+    "kind": "function",
+    "id": "class 7 alphastrike"
+   },
+   "addresses": [
+    "0012AE8E",
+    "0012B71A",
+    "000DF238"
+   ],
+   "related": [
+    "sub_DF238",
+    "sub_12AD89"
+   ],
+   "fact": "Alpha Strike is fire class 7 with 1200 standard damage, a charge of 20 percent per second with a 100 percent minimum (5 s), 300 heat against HeatMax 200. It is ready when classes 0 to 2 are each at their highest level (sub_12AE8E, sub_12B71A). The game then selects class 7 itself through sub_DF238, which sets actor+0xF8 to 7 and cues Mech.AlphaEnabled.",
+   "how_to_use": "A hit lowers each reloaded class one level, so the charge fails under fire.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "alpha-strike",
+    "weapons"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-alpha-player-trigger",
+   "title": "Player trigger path for Alpha Strike",
+   "subject": {
+    "kind": "function",
+    "id": "sub_CC06A / sub_DE453 / sub_D3806"
+   },
+   "addresses": [
+    "000CC06A",
+    "000CC083",
+    "000DE453",
+    "000D3806",
+    "000D1BFF",
+    "000CC46B",
+    "00174A48"
+   ],
+   "related": [
+    "sub_174A48"
+   ],
+   "fact": "The player's fire input goes through the behaviour fire handler sub_174A48, which calls sub_CC06A to copy the trigger record (action 18, beh+0x210) into player+0x3C4. sub_CC083 then runs sub_DE453 on that record. sub_D3806 is the trigger state machine, and sub_D1BFF builds the charge. Release at 100 percent fires, heat goes to 120 percent and class levels reset to 0.",
+   "how_to_use": "Read this path before changing how bots hold the trigger.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "alpha-strike",
+    "input"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-alpha-bot-copy-fix",
+   "title": "Bots' Alpha Strike charge fixed by copying the trigger record each frame",
+   "subject": {
+    "kind": "function",
+    "id": "ctrl_player_trigger"
+   },
+   "addresses": [
+    "000DE453"
+   ],
+   "related": [
+    "ma2_bot_ctrl.c"
+   ],
+   "fact": "For bots the copy into player+0x3C4 never happened, so the trigger read released every frame and the charge restarted. ctrl_player_trigger in ma2_bot_ctrl.c copies the sent record there every frame while trig_act is set. A second call to sub_DE453 does not work.",
+   "how_to_use": "Bots fire Alpha Strike from round 9 onward (verified in test runs).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "alpha-strike",
+    "fix"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-alpha-tactics",
+   "title": "Alpha Strike tactics for bots",
+   "subject": {
+    "kind": "concept",
+    "id": "alpha_logic"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c"
+   ],
+   "fact": "The brain's alpha_logic charges only when safe, the target is worth it and in reach. It cancels the charge under heavy fire at Veteran and above, and stays in cover while heat is above 60 percent. When an enemy charges, a bot rushes the charger if healthy and close, or breaks line of sight. A charger that has fired and is overheated is punished.",
+   "how_to_use": "Test hook: RECOMP_DEFENSE_PROBE=1;RECOMP_DEFENSE_TEST_ALPHA=99:20;RECOMP_DEFENSE_TEST_ALPHA_BRAIN=1.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "alpha-strike",
+    "bot-logic"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-alpha-forced-levels-failed",
+   "title": "Forcing levels to max did not select class 7",
+   "subject": {
+    "kind": "concept",
+    "id": "alpha test (early)"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_DEFENSE_TEST_ALPHA"
+   ],
+   "fact": "An early test forced class levels to max with RECOMP_DEFENSE_TEST_ALPHA and RECOMP_DEFENSE_PROBE=1, but the game never selected class 7, and holding RT fired nothing. The later fix, the trigger-record copy, made Alpha Strike work for bots.",
+   "how_to_use": "Superseded by the round 9 trigger-record fix.",
+   "status": "superseded",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "alpha-strike",
+    "superseded"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-button-to-action-map",
+   "title": "Pad buttons light several behaviour actions",
+   "subject": {
+    "kind": "concept",
+    "id": "pad button actions"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_HUMAN_ACT"
+   ],
+   "fact": "Measured with RECOMP_HUMAN_ACT, one button lights several actions, one for each context: A = 19, 37, 51; B = 17, 38, 55, 58, 59; X = 15, 44, 49, 56; Y = 36, 39, 45, 50; LS click = 3, 20, 48; RS click = 12, 18, 52; RT = 21, 34, 47, 54. ctrl_button(c, BTN_*) presses a whole button, which pressing a single action does not.",
+   "how_to_use": "Use ctrl_button for VTOL exit and prompts.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "input",
+    "actions"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-command-39-boarding",
+   "title": "Boarding uses command 39 and the entry offer",
+   "subject": {
+    "kind": "concept",
+    "id": "command 39"
+   },
+   "addresses": [
+    "000CA736",
+    "000CA975",
+    "000C86EC",
+    "000C8576",
+    "000CADEE",
+    "00175DBF"
+   ],
+   "related": [
+    "sub_175DBF",
+    "sub_C86EC"
+   ],
+   "fact": "Command 39 enters or exits a vehicle, dispatched to behaviour vt+0x11C (sub_175DBF, then sub_CA736). It needs an edge on the record at beh+0x45C. Boarding uses the player's enter target at +0x424 to +0x444: an entry zone offers a candidate via sub_C86EC, and sub_C8576 promotes it. Only frames with +0x428 set can board (sub_CADEE).",
+   "how_to_use": "Tap 39 only after p+0x428 equals the vehicle's UID.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "boarding",
+    "command"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-boarding-time",
+   "title": "Boarding takes about path length over 9 m per second plus 2.5 s",
+   "subject": {
+    "kind": "concept",
+    "id": "boarding time"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c GetVehicle"
+   ],
+   "fact": "Measured boarding time is about path length divided by 9 m/s, plus about 2.5 s: 26 m took 4.8 s, 42 m took 6.6 s and 59 m took 10.6 s. Across the sweep, 236 boardings had a mean of 7.0 s.",
+   "how_to_use": "Use these times as the acceptance check for the 60 s boarding criterion.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "boarding",
+    "metrics"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-vehicle-entry-zones",
+   "title": "Vehicle entry zones and the entry radius",
+   "subject": {
+    "kind": "concept",
+    "id": "entry zone"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_entry.c",
+    "ma2_vehicle_entry_zones"
+   ],
+   "fact": "Entry zones are circles around each vehicle, given live by ma2_vehicle_entry_zones from MACrateGenerator or MATriggerPoint. The brain walks until inside radius minus 0.8 m. Zone positions in local frame (x right, z forward): mech about (+-1.2, -2), tank (-4.7, +1.5), VTOL (2.3, -4.2), BattleArmor (-4.4, -1) and (1.1, 7). A zone that belongs to the enemy nation refuses the bot.",
+   "how_to_use": "Use the live zone, not a fixed offset.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "boarding",
+    "zones"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-vtol-yaw-hold",
+   "title": "VTOL yaw-hold bit blocks AI yaw",
+   "subject": {
+    "kind": "property",
+    "id": "comp+0x144 bit 15"
+   },
+   "addresses": [
+    "0010E40E",
+    "002AE860",
+    "00113964"
+   ],
+   "related": [
+    "sub_113964",
+    "sub_2AE860"
+   ],
+   "fact": "MAFlyer vt+0x1C sub_113964 sets comp+0x144 bit 15 (byte comp+0x145 bit 7) for a VTOL, a yaw hold. The take-off code sub_10E40E clears it at 0x10E839 before the turn. The AI angular step sub_2AE860 skips the yaw turn controller while the bit is set. Clearing it lets MoveTo steer a VTOL: the yaw changed 51.9 and 70.3 degrees in two runs, and it flew 59 m toward the goal in 8 s.",
+   "how_to_use": "Recipe: after take-off (ai+0x21F == 0), write comp+0x145 &= 0x7F once, then use the locomotion recipe with ai+0x20C as altitude.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "vtol",
+    "yaw"
+   ],
+   "date": "2026-10-13",
+   "addresses_unverified": [
+    "0010E839"
+   ]
+  },
+  {
+   "id": "bots-vtol-altitude-ai",
+   "title": "VTOL altitude is set through ai+0x20C",
+   "subject": {
+    "kind": "property",
+    "id": "ai+0x20C"
+   },
+   "addresses": [
+    "00191D4E",
+    "00191785"
+   ],
+   "related": [
+    "sub_191785"
+   ],
+   "fact": "FlyerAI wanted altitude is ai+0x20C, an absolute height. The flag +0x21D means climbing, and horizontal flight is skipped until the height is within 2.5 m. Altitude works natively: a VTOL climbed from -10 to 59 m for a target of 61 m. MoveTo sets only vertical velocity, clamped to 2 to 30 m/s.",
+   "how_to_use": "Set the altitude before MoveTo; MoveTo handles the horizontal part.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "vtol",
+    "altitude"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-vtol-hybrid-flight",
+   "title": "VTOL flight is a hybrid of MoveTo and the awake drive",
+   "subject": {
+    "kind": "concept",
+    "id": "VTOL flight"
+   },
+   "addresses": [],
+   "related": [
+    "vt_climb"
+   ],
+   "fact": "FlyerAI holds its altitude, so the awake drive parks a VTOL at the first taller building. The hybrid uses MoveTo while climbing more than 5 m (vt_climb hysteresis) and the awake drive at cruise height. A VTOL carrot is 100 m ahead with a 45 m minimum and skips the ground corridor checks. Descent is limited to 3 m per 0.5 s.",
+   "how_to_use": "RECOMP_BOT_VTOL_TRACE=1 writes [BOT-VTRACE].",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "vtol",
+    "flight"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-vtol-ground-route",
+   "title": "VTOL follows the Mech ground route with a 60 m look-ahead",
+   "subject": {
+    "kind": "concept",
+    "id": "VTOL route"
+   },
+   "addresses": [],
+   "related": [
+    "vt route"
+   ],
+   "fact": "The VTOL flies the 'Mech ground route with a 60 m look-ahead, and falls back to MoveTo after 4 s without progress. Its LOS filter excludes terrain, effects, power-ups, projectiles and trees, so rays miss some invisible barriers.",
+   "how_to_use": "Check the fallback in [BOT-VTRACE] traces.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "vtol",
+    "nav"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-vtol-no-fly-learning",
+   "title": "VTOL no-fly learning marks 30 m discs",
+   "subject": {
+    "kind": "concept",
+    "id": "g_airblk"
+   },
+   "addresses": [],
+   "related": [
+    "g_airblk"
+   ],
+   "fact": "A no-headway stall followed by a second stall within the MoveTo fallback marks a 30 m no-fly disc (g_airblk). The disc is shared, reset per map, avoided by the planner and skipped for ferry targets.",
+   "how_to_use": "Log with RECOMP_BOT_VTOL_TRACE.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "vtol",
+    "nav"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-vtol-cannot-pick-up",
+   "title": "VTOLs cannot collect power-ups",
+   "subject": {
+    "kind": "concept",
+    "id": "VTOL ferry"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c VTOL"
+   ],
+   "fact": "VTOLs cannot collect power-ups. A VTOL hooks a power-up on a tether with A (command 37) and drops it to teammates with B (command 38). Pickups within 15 m of the grid edge are ignored, because taken power-ups wait out their respawn parked at the map edge.",
+   "how_to_use": "Measured in the VTOL flight traces.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "vtol",
+    "powerups"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-vtol-hold-y-lowers",
+   "title": "Holding Y lowers a VTOL and gets the pilot out",
+   "subject": {
+    "kind": "concept",
+    "id": "VTOL Y"
+   },
+   "addresses": [],
+   "related": [
+    "ctrl_button"
+   ],
+   "fact": "confirmed in play: holding Y alone lowers a VTOL, and at the bottom (about 2 m) gets the pilot out. Ctrl and RS are not needed. Stick and descend alone stop at a hover floor of 9 to 14 m, or 33 m for an Elite over a pad. Holding Y too long on a heal run makes the pilot exit, so bots hold Y only while more than 6.5 m above the ground and then press A.",
+   "how_to_use": "Y is held continuously, not paced, for VTOL exit.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "vtol",
+    "input"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-vtol-helipad-repair",
+   "title": "Helipad repair at 5.6 to 6 m",
+   "subject": {
+    "kind": "concept",
+    "id": "helipad"
+   },
+   "addresses": [],
+   "related": [
+    "MABuilding",
+    "MACollectionArea"
+   ],
+   "fact": "A base helipad is an MABuilding with an MACollectionArea child of radius 14. It sits flat at ground level on New River City. A press of A at 5.6 to 6.0 m over the pad repairs the VTOL fully and instantly. Flying low through a health pack also heals, and a missile upgrade upgrades the craft.",
+   "how_to_use": "Bots approach at 70 m, settle inside 12 m, descend to 6.5 m and press A.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "vtol",
+    "repair"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-vtol-cargo-brain",
+   "title": "VTOL cargo brain logic (pad era)",
+   "subject": {
+    "kind": "concept",
+    "id": "VTOL cargo"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c"
+   ],
+   "fact": "The pad-era brain had a VTOL pick up an allied BattleArmor clamped to it, or cargo on the ground within 120 m, and drop it over an enemy 'Mech. The VTOL also ran strafing runs with approach, fire, overfly and turn. This cargo state machine was superseded by the native ferry work.",
+   "how_to_use": "Use the native ferry and frun paths instead.",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "vtol",
+    "superseded"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-vtol-calibration-superseded",
+   "title": "Pad-era VTOL vertical calibration",
+   "subject": {
+    "kind": "concept",
+    "id": "VTOL RY calibration"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c"
+   ],
+   "fact": "The pad-era brain self-calibrated the sign of RY for VTOL altitude in the first second of flight, with a 0.25 s neutral baseline and a 0.5 s probe. Native flight uses ai+0x20C, so the calibration is no longer used.",
+   "how_to_use": "Superseded.",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "vtol",
+    "superseded"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-vtol-carrier-cargo-run",
+   "title": "CTF VTOL flag run",
+   "subject": {
+    "kind": "concept",
+    "id": "g_frun"
+   },
+   "addresses": [],
+   "related": [
+    "g_frun",
+    "frun_eval"
+   ],
+   "fact": "In CTF each nation can pact a VTOL and a BattleArmor for a flag run. The phases are pickup, inbound, grab (circling 55 to 95 m while firing), and extract, where the carrier rides home. A roll every 30 s picks it by VTOL skill. RECOMP_BOT_FLAGRUN_TEST=1 always rolls the run and RECOMP_BOT_FLAGRUN=0 turns it off.",
+   "how_to_use": "Logs [BOT-FLAGRUN].",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "vtol",
+    "ctf"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-aerial-ba-ride",
+   "title": "BattleArmor rides on VTOLs",
+   "subject": {
+    "kind": "concept",
+    "id": "vt_rider"
+   },
+   "addresses": [],
+   "related": [
+    "ctrl vt_rider"
+   ],
+   "fact": "A BattleArmor on a VTOL claw hangs 7 to 8 m under the skids, so the VTOL carries it 12 m higher. The VTOL climbs toward a point 25 m ahead, because a point overhead counts as arrived. The BattleArmor releases only when within 14 m horizontally and 10 m above the flag.",
+   "how_to_use": "Used by the CTF flag run.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "vtol",
+    "ba"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-ba-lift",
+   "title": "BattleArmor lifts on VTOLs",
+   "subject": {
+    "kind": "concept",
+    "id": "g_lift"
+   },
+   "addresses": [],
+   "related": [
+    "g_lift",
+    "ma2_bot_brain.c lift"
+   ],
+   "fact": "BattleArmor lifts on VTOLs use the g_lift table with ride and lift goals. Detaching is a jump with command 3. The code exists but is untested in game.",
+   "how_to_use": "Open.",
+   "status": "open-question",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "ba",
+    "vtol",
+    "open"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-vtol-camera-hijack",
+   "title": "VTOL camera hijack and its fix",
+   "subject": {
+    "kind": "function",
+    "id": "vehicle camera block"
+   },
+   "addresses": [
+    "0016B2F1",
+    "0016B73E",
+    "000C92DA",
+    "000C9084",
+    "000C9113"
+   ],
+   "related": [
+    "recomp_0021.c",
+    "ma2_bot_cam_set"
+   ],
+   "fact": "A bot in a fixed gun that starts an attack was given a MACameraFirst by the player vehicle-camera block (caller 0xC92DA). The camera went into the screen slot through sub_16B2F1 and sub_16B73E, which turned the human's camera off. The fix skips bot players in that block (recomp_0021.c), and ma2_bot_cam_set refuses bot-owned cameras at sub_16B2F1 (recomp_0037.c). Class ids are 7ECA8E3B for third-person and C8894008 for first-person.",
+   "how_to_use": "Repro: RECOMP_TEST_TURRET_PICK=1 and RECOMP_TEST_TURRET_DRIVE=1 on Bogged Down. [CAM-SET] logs every slot install under RECOMP_BOT_DIAG.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "camera",
+    "fix"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-fixed-gun-tanks",
+   "title": "Fixed guns are turrets and are never ridden",
+   "subject": {
+    "kind": "concept",
+    "id": "MA2_KIND_TURRET"
+   },
+   "addresses": [],
+   "related": [
+    "tank_fixed",
+    "ma2_bots_core.c"
+   ],
+   "fact": "A MATank whose physics +0xBC and +0xC0 are both zero is a fixed gun, classed as MA2_KIND_TURRET and never ridden. Bogged Down has 850 HP fixed guns at (348, 1686) and (861, 909), and Ill Wind, On The Rocks and Go Commando have them too. Bots that end up in one get out.",
+   "how_to_use": "tank_repair was removed, because it made bots drive these guns across the map.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "vehicles",
+    "tank"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-tank-hull-turn",
+   "title": "Tank in-place hull turn",
+   "subject": {
+    "kind": "function",
+    "id": "sub_2AE360 with comp+0xD4"
+   },
+   "addresses": [
+    "002AE360",
+    "002AE700"
+   ],
+   "related": [
+    "sub_2AE700",
+    "sub_2AE860"
+   ],
+   "fact": "The navigator sets comp+0xD4 (turn radius) to 5 during MoveTo, which limits yaw rate to speed over radius, so a stopped tank cannot turn. The fix writes comp+0xD4 = 0, then calls sub_2AE360 each tick. Result: a 90 degree turn with 0.0 degree error in four of four runs.",
+   "how_to_use": "Use the turret at actor+0x488 for aiming a tank.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "tank",
+    "locomotion"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-tank-aim",
+   "title": "Tank aim through sub_18F874",
+   "subject": {
+    "kind": "function",
+    "id": "sub_18F874"
+   },
+   "addresses": [
+    "0018F874"
+   ],
+   "related": [
+    "sub_2ADDE0"
+   ],
+   "fact": "Tank aim sub_18F874 turns the turret at actor+0x488 for yaw and the barrel at actor+0x808 for pitch through sub_2ADDE0. The hull turns instead when the target is outside the turret arc. Residual turret error of 5 to 35 degrees after 8 s appeared in four cases, and this is unresolved.",
+   "how_to_use": "Open: an arc or rate limit (actor+0x800) is one possible cause.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "tank",
+    "aim"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-joint-embedding",
+   "title": "Joints are embedded objects, not pointers",
+   "subject": {
+    "kind": "property",
+    "id": "actor+0x2B8 / +0x488 / +0x808"
+   },
+   "addresses": [],
+   "related": [
+    "sub_18AFDB",
+    "sub_18F874"
+   ],
+   "fact": "The torso is at actor+0x2B8, the tank turret at actor+0x488 and the barrel at actor+0x808. They are embedded objects accessed with lea, so writing MEM32(actor+0x488) turns nothing.",
+   "how_to_use": "Use the embedded address when aiming.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "property",
+    "joints"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-mech-torso-aim",
+   "title": "'Mech torso aim sub_18AFDB",
+   "subject": {
+    "kind": "function",
+    "id": "sub_18AFDB"
+   },
+   "addresses": [
+    "0018AFDB"
+   ],
+   "related": [
+    "sub_18AD06",
+    "mech-torso-yaw-lives-in-rotation-controller-at-actor-2b8-cur"
+   ],
+   "fact": "sub_18AFDB(ai, target) turns the 'Mech torso yaw toward the target. Measured torso error against the target bearing was 0.0 to 1.1 degrees on four 'Mechs. Pitch is open loop, because the view has no aim pitch.",
+   "how_to_use": "Pitch is open loop: there is no aim pitch in the view.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "mech",
+    "aim"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-native-fire",
+   "title": "Native fire through sub_18482E",
+   "subject": {
+    "kind": "function",
+    "id": "sub_18482E"
+   },
+   "addresses": [
+    "0018482E",
+    "0012B234",
+    "0012BBEB",
+    "001858EF"
+   ],
+   "related": [
+    "sub_12B384"
+   ],
+   "fact": "sub_18482E(target, weapon, aimPoint, ai) applies AI inaccuracy and the fire gate sub_1858EF, then fires every selected weapon of the weapon's group through sub_12B234. The projectile goes from the muzzle to the aim point, so the body or turret need not face the target. Tanks fired 3 to 12 shots per 8 s. Heat gate sub_12BBEB may block fire at heat 100 or more.",
+   "how_to_use": "arsenal = actor+0xA4, and its weapon children have class id [0x4EAF4C].",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "weapons",
+    "fire"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-weapon-group-selection",
+   "title": "Weapon group selection",
+   "subject": {
+    "kind": "property",
+    "id": "weapon +0x80 / arsenal +0x7C"
+   },
+   "addresses": [],
+   "related": [
+    "sub_12B384",
+    "sub_12B39C"
+   ],
+   "fact": "Each weapon child of the arsenal (actor+0xA4) has its fire group at +0x80 (0 primary, 1 secondary, 2 third) and id at +0x98. The selected id for a group is arsenal+0x7C+4*group. Range is MEM32(weapon+0xC)+0x128. The arsenal's cached current weapon at +0x78 is zero on many bodies, so select by group.",
+   "how_to_use": "VTOLs carry weapons only in group 2, at 250 m.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "weapons"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-native-aim-no-cameras",
+   "title": "Native aim needs no camera",
+   "subject": {
+    "kind": "concept",
+    "id": "aim without camera"
+   },
+   "addresses": [],
+   "related": [
+    "sub_2AE360"
+   ],
+   "fact": "Bots aim natively: they face the body with sub_2AE360, keep the body stopped and call sub_18482E. No camera or viewport is needed for aim or fire in the native build.",
+   "how_to_use": "A VTOL with the body stopped fires in its own facing.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "aim"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-camera-free-control",
+   "title": "Player control needs a camera only for heading",
+   "subject": {
+    "kind": "concept",
+    "id": "heading camera"
+   },
+   "addresses": [
+    "0016B788",
+    "00172E96"
+   ],
+   "related": [
+    "sub_172E96",
+    "sub_120F06"
+   ],
+   "fact": "A 'Mech's control tick sub_172E96 exits unless its behaviour links a camera with a view. Planar movement rotates by the view matrix. The plife work showed that a camera-less AI-driven bot never moves under human control, and that a borrowed camera drives correctly. The native design drives vehicles with the AI, so no camera is needed for vehicles.",
+   "how_to_use": "Keep camera registration (sub_16B788) out of bot paths.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "camera",
+    "control"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-camera-handling-old",
+   "title": "Pre-native bot POV cameras and their gates",
+   "subject": {
+    "kind": "concept",
+    "id": "bot cameras (pre-native)"
+   },
+   "addresses": [
+    "0017244F",
+    "001AB7D8",
+    "0016B7B8",
+    "0008C050"
+   ],
+   "related": [
+    "patch_round3.py",
+    "patch_round4.py",
+    "patch_bot_view_skip.py"
+   ],
+   "fact": "The earlier builds gave each bot a POV camera (sub_C89FD, gate sub_17244F) in a private camera-manager slot (sub_16B7B8 to 5.12), and skipped drawing bot views (sub_8C050). Bot cameras also enabled their render view, so every bot view was drawn full screen over the human's. The native build removes all of these gates.",
+   "how_to_use": "Superseded by the native removal in patch_native.py.",
+   "status": "superseded",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "camera",
+    "superseded"
+   ],
+   "date": "2026-10-12"
+  },
+  {
+   "id": "bots-listener-cap",
+   "title": "Audio listener rebuild capped for bot cameras",
+   "subject": {
+    "kind": "function",
+    "id": "sub_16380"
+   },
+   "addresses": [
+    "00016380",
+    "0050C88C",
+    "000BFED0"
+   ],
+   "related": [
+    "sub_BFED0",
+    "ma2_bot_listener_filter"
+   ],
+   "fact": "The audio listener rebuild sub_16380 writes one listener per camera node into a four-slot singleton at 0x50C88C. Bot cameras overflowed it, the count at +0x224 went to garbage, and sub_BFED0 spun forever. patch_round7.py filters the bot camera nodes out of the rebuild and caps the loop at four.",
+   "how_to_use": "A diagnostic guard in sub_BFED0 treats a count above 4096 as empty and logs [BOT-TRACE].",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "freeze",
+    "fix"
+   ],
+   "date": "2026-10-12"
+  },
+  {
+   "id": "bots-audio-ap-deadlock-fix",
+   "title": "XACT audio freeze fix: try-lock in the APU interrupt",
+   "subject": {
+    "kind": "function",
+    "id": "ISR 0x3AAEE1"
+   },
+   "addresses": [
+    "003AAEE1",
+    "003AB500",
+    "003C4598",
+    "003AB320"
+   ],
+   "related": [
+    "xbox_RtlTryEnterCriticalSectionShadow",
+    "ma2_audio_isr_try_enter"
+   ],
+   "fact": "The APU interrupt unlinks finished voices from the DPC's active lists and appends them to a deferred list. On the Xbox this is atomic. Here it ran on the APU thread concurrently with the DPC, so two unlinks could leave a self-linked node and the DPC walk spun forever holding the API lock 0x3C4598. The fix: 0x3AAEE1 try-locks 0x3C4598 and skips when it is held. About 20 percent of voice releases are skipped, and the DPC poll releases them later.",
+   "how_to_use": "RECOMP_AUDIO_ISR_STATS prints tries, skips and list lengths.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "freeze",
+    "fix"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-xact-list-guard",
+   "title": "XACT timer heap guard",
+   "subject": {
+    "kind": "patch",
+    "id": "patch_xact_heap_guard.py"
+   },
+   "addresses": [
+    "003E716F",
+    "003E71F5",
+    "003E7249",
+    "003E708C"
+   ],
+   "related": [
+    "recomp_0098.c"
+   ],
+   "fact": "patch_xact_heap_guard.py guards XACT's timer heap (recomp_0098.c). On push, pop and remove, it drops entries that are not plausible guest pointers, rebuilds heap order and logs [XACT-HEAP]. The cause of the corruption, which crashed in sub_003E708C on a pointer of 0xCBCEB981, is still open.",
+   "how_to_use": "Run python patch_xact_heap_guard.py. It is idempotent.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "audio",
+    "guard"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-audio-open-freezes",
+   "title": "Audio freezes still open",
+   "subject": {
+    "kind": "concept",
+    "id": "XACT open freezes"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_AUDIO_ISR_STATS"
+   ],
+   "fact": "The audio deadlock recurs about once every 20 to 25 matches, and in In Your Face a 3 s hitch appears about once every 30 matches. Polling 0x3AAEE1 from the stalled game-thread loop made the timeouts worse (74 to 80 per match against 1 to 4), so it was reverted.",
+   "how_to_use": "Open question.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "open"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-stall-monitor",
+   "title": "Stall monitor samples all threads",
+   "subject": {
+    "kind": "tool",
+    "id": "stall sampler"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_STALL",
+    "RECOMP_BOT_TRACE"
+   ],
+   "fact": "The stall monitor samples all threads and writes with WriteFile, so a freeze leaves a stack. It found the audio freeze chain at 0x3C4C70 and 0x3AB348. Run with RECOMP_BOT_STALL=1 in a bot match.",
+   "how_to_use": "Stacks in runs g4 and pu3 were the evidence for the audio freeze.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "tool",
+    "freeze"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-listener-freeze-fix-status",
+   "title": "Listener freeze fix in recomp_0000 and its supersession",
+   "subject": {
+    "kind": "patch",
+    "id": "patch_round7.py"
+   },
+   "addresses": [],
+   "related": [
+    "recomp_0000.c"
+   ],
+   "fact": "patch_round7.py narrows the listener vector to the human camera nodes for the rebuild (ma2_bot_listener_filter at loc_000164AB) and restores it afterwards (ma2_bot_listener_restore at loc_000165C3). It also caps the loop back-edge at four entries as a backstop.",
+   "how_to_use": "Superseded in the native build, which removes the listener filter (patch_native.py).",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "audio",
+    "superseded"
+   ],
+   "date": "2026-10-12",
+   "addresses_unverified": [
+    "000164AB",
+    "000165C3"
+   ]
+  },
+  {
+   "id": "bots-plife-spawn-recipe",
+   "title": "Direct creation of an extra local player",
+   "subject": {
+    "kind": "function",
+    "id": "player spawn recipe"
+   },
+   "addresses": [
+    "001668D8",
+    "00166C0C",
+    "000B2B70"
+   ],
+   "related": [
+    "sub_1DB4F0"
+   ],
+   "fact": "Verified sequence: sub_1668D8 creates the player, set its port and id, sub_166C0C makes its vehicle, SetNation through vt+0xAC, set p+0x23C = port and flags 8 and 1, call sub_B2B70 to activate the subtree, then set bit 0x40 and the respawn time. The player enters the vector and gets a Mech behaviour when bit 0 is set. No lobby record, MAInput or pad is involved.",
+   "how_to_use": "Without sub_B2B70 the player has no physics body.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "player",
+    "spawn",
+    "test"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-plife-ai-drive-p6",
+   "title": "Campaign AI drives a camera-less bot Mech",
+   "subject": {
+    "kind": "concept",
+    "id": "plife p6"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_PLIFE"
+   ],
+   "fact": "Campaign AI can drive a camera-less bot Mech: veh+0x1E8 |= 3, comp+0x144 bit 0, target and mode 4 through sub_183B9D. The Mech moved about 80 units in 60 s with no camera, commands or MAInput. The 'Mech tick exits on comp+0x144 bit 0, so the two controllers never fight.",
+   "how_to_use": "Test hook RECOMP_PLIFE, with the run table values 11, 107, 243, 229, 99 and 483.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "ai",
+    "test"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-mech-control-tick-relation",
+   "title": "Human control tick and the AI do not fight",
+   "subject": {
+    "kind": "concept",
+    "id": "comp+0x144 bit 0"
+   },
+   "addresses": [
+    "002AC940"
+   ],
+   "related": [
+    "sub_172E96"
+   ],
+   "fact": "The 'Mech's human control tick exits when body comp+0x144 bit 0 is set, so the campaign AI and the human path do not both drive one body. sub_2AC940(comp, al=1) sets the bit.",
+   "how_to_use": "Set bit 0 before any AI or native drive.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "ai",
+    "control"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-nav-shipped-maps",
+   "title": "Shipped nav graphs exist for four maps",
+   "subject": {
+    "kind": "file",
+    "id": "PATHFINDING/<Map>_Mech.map"
+   },
+   "addresses": [
+    "002B1560",
+    "002B1D60"
+   ],
+   "related": [
+    "PathMap",
+    "recomp_0070.c"
+   ],
+   "fact": "PATHFINDING/<Map>_Mech.map exists only for inyourface, newrivercity, rushhour and witchcauldron. It is text, with [Params] Nodes: = N, and each node as = id 4 0 x y z neighbourCount 0 followed by neighbour lines, on a 20 unit grid. The game's loader is PathMap (ctor sub_2B1560, parse sub_2B1D60). The other ten multiplayer maps ship no graph.",
+   "how_to_use": "Map files are read straight from game_files\\<archive>.mgf.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "nav",
+    "maps"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-nav-astar-singleton",
+   "title": "The game's A* singleton",
+   "subject": {
+    "kind": "function",
+    "id": "sub_2B2B10"
+   },
+   "addresses": [
+    "002B2B10",
+    "002B3080",
+    "002B3540",
+    "00524B94",
+    "001640B3"
+   ],
+   "related": [
+    "sub_1640B3"
+   ],
+   "fact": "The game's A* search is a singleton at 0x524B94 with getter sub_1640B3. The search is slot 1 sub_2B2B10 (map, goal, outPath, maxCost, costFn, heuristicFn), with default callbacks sub_2B3080. Path requests are initialised by sub_2B3540, which the campaign AI base uses.",
+   "how_to_use": "The bot planner ma2_bot_path.c replaces this for bot routes.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "nav",
+    "astar"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-nav-module-measured",
+   "title": "Nav module measured on shipped graphs",
+   "subject": {
+    "kind": "tool",
+    "id": "ma2_bot_nav.c"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_nav_test.c"
+   ],
+   "fact": "The nav module loads the four shipped graphs with 878, 1975, 556 and 984 nodes. A* averages 0.03 to 0.08 ms and worst case 0.42 ms over 1000 random pairs, and 3 to 4 percent of random pairs are disconnected in the shipped data. The round trip is byte identical, and the test covers LOS, penalties and generated maps.",
+   "how_to_use": "Build with cl /O2 /std:c11 ma2_bot_nav.c ma2_bot_nav_test.c and run from the nav folder.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "nav",
+    "test"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-nav-api-behaviour",
+   "title": "Nav module behaviour",
+   "subject": {
+    "kind": "tool",
+    "id": "ma2_nav API"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_nav.c"
+   ],
+   "fact": "The loader tolerates CRLF, tabs, comments and unknown sections, and ignores self and duplicate links. The generator grids the bounds at a given cell size and links 8 neighbours whose height change is within max_step. Penalize adds cost to every edge a segment crosses, and it is cumulative with no decay. ma2_los probes from max(eye, target) + 200 m and treats the segment as hidden when the ground is more than 0.5 m above it.",
+   "how_to_use": "Pass eye or chest height to ma2_los, not foot height.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "nav",
+    "api"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-nav-chunked-generation-proposal",
+   "title": "Chunked nav generation proposal",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_nav_gen_begin"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_nav_generate"
+   ],
+   "fact": "The nav reader proposed splitting generation into begin, step and finish calls, because one generation runs about 2600 probes on a 1 km map, which is over the per-frame budget. The core notes agreed.",
+   "how_to_use": "Not implemented in the notes. Each probe is a guest call.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "nav",
+    "proposal"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-nav-generated-cache",
+   "title": "Generated nav graphs are cached by terrain hash",
+   "subject": {
+    "kind": "file",
+    "id": "BotNav cache"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_nav_generate",
+    "RECOMP_BOT_NAV_MAP"
+   ],
+   "fact": "Shipped graphs are read from game_files\\<archive>.mgf. When no shipped graph fits, the nav generates one over the terrain bounds with a 20 m cell and saves it to %LOCALAPPDATA%\\MechAssault2\\BotNav\\gen_<terrain fnv32>.map. Override with RECOMP_BOT_NAV_FILE (explicit file), RECOMP_BOT_NAV_MAP=<archive> or RECOMP_BOT_NAV_STEP.",
+   "how_to_use": "RECOMP_BOT_DIAG_NAV=1 dumps the graph. RECOMP_BOT_NAV_REGION=\"x0,z0,x1,z1\" prints heights and blocks.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "nav",
+    "cache",
+    "env"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-map-identity-cache-crc",
+   "title": "Level identity from the cache file name",
+   "subject": {
+    "kind": "function",
+    "id": "map identity"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_mapid.c"
+   ],
+   "fact": "Every level load opens \\Device\\Harddisk0\\Partition5\\XXXXXXXX.cache, where the name is CRC32 of the lower-case d:\\<archive>.mgf. ma2_bot_mapid.c maps the 14 multiplayer caches to their archive and shipped nav path. Verified against cinema_2_1 (52EDEEE3), mission_04 (1EEF6E28) and the 3D lobby (46229B6E). A level not in the list clears the current map.",
+   "how_to_use": "Unidentified maps fall back to a terrain-match scan.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "nav",
+    "map"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-nav-surface-grid",
+   "title": "Nav grid is a walkable surface map",
+   "subject": {
+    "kind": "concept",
+    "id": "walkable surface grid"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_trav_reprobe",
+    "ma2_bot_path.c"
+   ],
+   "fact": "The nav grid stores the top of the highest collider in each cell, or the terrain if none. A cell is blocked where the step to a neighbour is more than 1.6 m. Regions are labelled and a goal in another region is re-snapped to its own. Bridges and ramps are walkable, and roofs are jet-only islands.",
+   "how_to_use": "Live map changes re-probe the area (ma2_trav_reprobe) and invalidate plans by epoch.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "nav",
+    "grid"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-nav-stationary-turret-solid",
+   "title": "Stationary turrets are solid scenery",
+   "subject": {
+    "kind": "concept",
+    "id": "MATurret in nav"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_trav_probe"
+   ],
+   "fact": "A stationary MATurret is an MAMover subclass and counts as solid scenery. Earlier probes skipped all movers, so turrets were invisible to the planner. Turrets and vehicles are placed after the grid is built, so they are stamped in on first sight.",
+   "how_to_use": "Log with RECOMP_BOT_NAV_REGION.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "nav",
+    "turrets"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-nav-thin-walls",
+   "title": "Thin walls need extra probes",
+   "subject": {
+    "kind": "concept",
+    "id": "wall_sweep"
+   },
+   "addresses": [],
+   "related": [
+    "wall_sweep",
+    "trav_fine_props"
+   ],
+   "fact": "Thin static props, such as base pylons, slip between the 2 m obstacle rays, so trav_fine_props adds a 0.5 m ray pass around each static MACorporeal. A thin red-base wall 6 to 10 m tall was missed by the 2 m probe, so a stall triggers wall_sweep: 13 chest-high rays, with blocked cells kept and forgotten when the wall is wrecked.",
+   "how_to_use": "Fences thinner than the 2 m cells are caught by the 0.5 m re-probe on a stall.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "nav",
+    "walls"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-nav-surface-height",
+   "title": "Surface height from a downward ray",
+   "subject": {
+    "kind": "function",
+    "id": "surface height"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_trav_probe"
+   ],
+   "fact": "Surface height is a downward ray cast from terrain plus 60 m. Pilots and BattleArmor use this height when they plan a roof or ground route.",
+   "how_to_use": "Used with the 2 m probes.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "nav",
+    "height"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-nav-cliff-drops",
+   "title": "One-way cliff drops in the planner",
+   "subject": {
+    "kind": "concept",
+    "id": "PATH_DROP_REACH"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_path.c",
+    "drop_mode"
+   ],
+   "fact": "The planner adds one-way drop links (PATH_DROP_REACH 10 cells) over step-blocked cells to lower free ground, on natural terrain only (never into water, and not onto base structures). Drop mode 0 is used for trips (any drop: mech and BattleArmor 60 m, tank 6 m, pilot 10 m). Mode 1 is tactical and drops only when the jets can climb back. Failed drops ban 15 m for 3 min.",
+   "how_to_use": "Trips drop freely; fights do not. [BOT-JETGAIN] and [BOT-DROP] logs show the learning.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "nav",
+    "drops"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-nav-blue-base-exit",
+   "title": "Blue base north exit on Bogged Down",
+   "subject": {
+    "kind": "concept",
+    "id": "Bogged Down blue base"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_path.c"
+   ],
+   "fact": "On Bogged Down the blue base's north exit is a bottleneck for tanks. The plateau is 14 to 18 m high, the cliff band is at z 984 to 1008, and the real way down is the west slope at x 420 to 445. Tanks dropped 15 m onto a ledge got stuck, so tank drops are limited to 6 m.",
+   "how_to_use": "Use RECOMP_BOT_PATHTEST=\"ax,az,bx,bz,r,crush,drop|.\" to test paths (the separator is |, not).",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "nav",
+    "maps"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-nav-hop-rule",
+   "title": "Hops are allowed only over open ground",
+   "subject": {
+    "kind": "concept",
+    "id": "ctrl hop_ok"
+   },
+   "addresses": [],
+   "related": [
+    "hop_ok"
+   ],
+   "fact": "Travel hops (Mech 7 s, BattleArmor 2.5 s) landed carriers on base roofs, so a hop is taken only when no structure is more than 3 m above the path every 8 m along the hop (ctrl hop_ok).",
+   "how_to_use": "Hop checks use the surface height.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "nav",
+    "hops"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-nav-stuck-memory",
+   "title": "Persistent stuck memory is off by default",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_STUCK_MEMORY"
+   },
+   "addresses": [],
+   "related": [
+    "Bot Nav/<map>.stuck"
+   ],
+   "fact": "Enable it with RECOMP_BOT_STUCK_MEMORY=1. Stuck handling otherwise uses breadcrumb backtrack and per-bot stuck spots as plan obstacles, which are never persisted.",
+   "how_to_use": "Test profile stuck with REPLAY_STUCK.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "nav",
+    "stuck",
+    "env"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-nav-pilot-hull-wedge",
+   "title": "Pilots wedge against parked Mech hulls",
+   "subject": {
+    "kind": "concept",
+    "id": "pilot wedge"
+   },
+   "addresses": [],
+   "related": [
+    "walk_direct"
+   ],
+   "fact": "Pilots wedge permanently when walked straight into a parked 'Mech hull. MoveTo avoidance does not move a body touching a hull, so the escape is walk_direct straight away from it. Real 'Mech hulls reach 4 to 6 m from their centre, with gaps between the legs, and the planner measures each parked vehicle with 8 horizontal rays (Ma2VehicleView.ext).",
+   "how_to_use": "Pilots also walk the final 25 m themselves, because MoveTo stops about 9 m short beside a hull.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "nav",
+    "pilots"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-nav-steep-slope",
+   "title": "'Mech slope limit",
+   "subject": {
+    "kind": "concept",
+    "id": "TG_STEP_HEAVY"
+   },
+   "addresses": [],
+   "related": [
+    "TG_STEP_HEAVY"
+   ],
+   "fact": "The 'Mech slope limit is TG_STEP_HEAVY 1.1 m per 2 m cell. It fixed the New River City red-base hill trap, so 'Mechs no longer walk into the surrounding hills.",
+   "how_to_use": "Change only with a New River City sweep.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "nav",
+    "mech"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-nav-los-ai-ray",
+   "title": "Line of sight uses the AI's own ray",
+   "subject": {
+    "kind": "function",
+    "id": "sub_17AD5C"
+   },
+   "addresses": [
+    "0017AD5C",
+    "0017A008"
+   ],
+   "related": [
+    "sub_184E6D",
+    "sub_191785"
+   ],
+   "fact": "sub_17AD5C(self, target, int 3, Entity **hitOut) returns al = 1 when the ray from one point to another is clear. It casts through the collision space with a filter that ignores self and target. Terrain, buildings, props and parked vehicles all block it. It is used for target validity (sub_184E6D) and fire decisions, and passing the shooter as self and the victim as target gives the true answer.",
+   "how_to_use": "Use loco_los or ai_los before firing.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "los",
+    "ai"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-ground-probe-terrain",
+   "title": "Terrain height port",
+   "subject": {
+    "kind": "function",
+    "id": "sub_2AAA30 / sub_F70A9"
+   },
+   "addresses": [
+    "002AAA30",
+    "000F70A9",
+    "004EAF64"
+   ],
+   "related": [
+    "Ma2GroundFn"
+   ],
+   "fact": "The ground height is a native port of sub_2AAA30 (through sub_F70A9). The terrain object is MEM32(0x4EAF64), valid only when the sign bit of [t] is set, with its cell at +0x814, size at +4 and +8, row table at +0x834 and a 256-entry palette at +0x14. It matched actor y in the capture to 1e-5.",
+   "how_to_use": "The module is pure, with no guest call.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "probe",
+    "terrain"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-object-probe-abi",
+   "title": "Object probe ABI for sub_1760E1",
+   "subject": {
+    "kind": "function",
+    "id": "sub_1760E1"
+   },
+   "addresses": [
+    "001760E1"
+   ],
+   "related": [
+    "Ma2GroundFn"
+   ],
+   "fact": "sub_1760E1 takes ecx = physics component, a hit byte pointer, an apply flag of 0 and a float3 point, with ret 0xC and the result in ST0. With apply = 0 it writes nothing to the component. The result is max(hit + 0.001, terrain + actor+0xD8), so the caller subtracts actor+0xD8. Using apply = 1 resets contact state.",
+   "how_to_use": "replay_ground_query.py passes apply=1 and must not be copied.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "probe",
+    "abi"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-world-snapshot-vehicles",
+   "title": "Vehicle scan for the world snapshot",
+   "subject": {
+    "kind": "function",
+    "id": "world snapshot"
+   },
+   "addresses": [
+    "0050C958"
+   ],
+   "related": [
+    "ma2_bots_core.c",
+    "sub_B3C50"
+   ],
+   "fact": "The vehicle scan walks the entity tree depth first from MEM32(MEM32(game+0xA4)+4), where game = MEM32(0x50C958), with child +0xC and sibling +0x8, with an 8192 node budget. It keeps kind-of MAMover, excluding MAProjectile, MASpider and MATurret, that are controllable (+0x1C bit 11) with HP above zero. Unoccupied vehicles come first.",
+   "how_to_use": "The core snapshot runs players every step and vehicles at 10 Hz.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "world",
+    "vehicles"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-yaw-from-scene-node",
+   "title": "Actor yaw comes from the scene node",
+   "subject": {
+    "kind": "property",
+    "id": "actor+0x94 node"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bots_core.c",
+    "Ma2WorldPlayer"
+   ],
+   "fact": "The core reads yaw as atan2(fwd.x, fwd.z) from the scene node (actor+0x94), using rows +0xC0, +0xD0 and +0xE0 with position +0xF0, and falls back to velocity heading. The flyer position is also in the scene node (+0xF0), not at +0x4C0.",
+   "how_to_use": "Yaw was validated on one 'Mech only. Check node+0xE0 against +0xC0 if a bot turns the wrong way.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "world",
+    "yaw"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-hp-getters",
+   "title": "HP and nation getters",
+   "subject": {
+    "kind": "function",
+    "id": "vt+0x6C/+0x74/+0xA8"
+   },
+   "addresses": [
+    "000C9476",
+    "000C8C2A"
+   ],
+   "related": [
+    "Ma2PlayerView"
+   ],
+   "fact": "Actor HP is read through vt+0x6C (max) and vt+0x74 (current), both thiscall with an int result in eax, not a float. Nation is vt+0xA8 and is set through vt+0xAC. Verified at 0xC9476 and 0xC8C2A.",
+   "how_to_use": "Use the int results when reading HP.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "vtable",
+    "getters"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-riders-and-clamp-state",
+   "title": "Riders and BattleArmor clamp state",
+   "subject": {
+    "kind": "property",
+    "id": "actor+0x1A8 riders"
+   },
+   "addresses": [
+    "000EB12B",
+    "000EB475",
+    "000EB837"
+   ],
+   "related": [
+    "sub_EB475",
+    "sub_EB837"
+   ],
+   "fact": "Riders are 12-byte entries at actor+0x1A8 to +0x1AC, with the uid at +8 resolved through the world uid table. The first rider of another nation sets enemy_rider. A BattleArmor is clamped when IsAttached (+0x1A0) and RideMoverUID (+0x194) say so, with a fallback to +0x1B4. An absorber with flag 0x40 blocks clamping (sub_EB837).",
+   "how_to_use": "Test a clamp target with DefKind.no_clamp.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "riders",
+    "ba"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-ai-target-select",
+   "title": "Bot vehicles pick their AI target",
+   "subject": {
+    "kind": "function",
+    "id": "sub_1837B3"
+   },
+   "addresses": [
+    "001837B3"
+   ],
+   "related": [
+    "ma2_bot_ai_select"
+   ],
+   "fact": "sub_1837B3 is the AI target selector (vtable +0x2C). For bot vehicles, a hook at loc_001837B3 returns the bot brain's threat-based choice through ma2_bot_ai_select. Trace sites in sub_1837B3 log the candidates.",
+   "how_to_use": "Enabled by patch_ai4 and the tracing patches patch_ai2.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "ai",
+    "target"
+   ],
+   "date": "2026-10-12",
+   "addresses_unverified": [
+    "00183AA3",
+    "00183AD1"
+   ]
+  },
+  {
+   "id": "bots-ai-tracing",
+   "title": "AI gate trace in sub_183345",
+   "subject": {
+    "kind": "function",
+    "id": "sub_183345 trace sites"
+   },
+   "addresses": [
+    "00183345"
+   ],
+   "related": [
+    "ma2_ai_trace"
+   ],
+   "fact": "Patch round 1 traces how far the per-tick AI update sub_183345 gets for bot AIs, at ten gate stages. The trace counts stages per AI and was used to find the asleep-AI stall.",
+   "how_to_use": "Diagnostic only.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "ai",
+    "diagnostic"
+   ],
+   "date": "2026-10-12"
+  },
+  {
+   "id": "bots-ai-tuning-props",
+   "title": "MAMover campaign AI tuning properties",
+   "subject": {
+    "kind": "property",
+    "id": "actor+0x1E8.+0x218"
+   },
+   "addresses": [],
+   "related": [
+    "Bot.skill",
+    "skill_tune_mover",
+    "bots-review-2026-10-26-how-bots-work-findings-perception-hun",
+    "bots-skill-tuning-correction-accuracyradius-not-on-fire-path"
+   ],
+   "fact": "The campaign AI tuning fields for MAMover are: +0x1E8 flags (AIEnabled bit 0, AttackPilot 0x80), +0x1EC BaseAccuracy (20), +0x1F0 AccuracyBonus, +0x1F4 AccuracyTimeout, +0x1F8 AccuracyRadius (random miss offset, 5 m), +0x200 EngageRadius (400), +0x204 Disengage, +0x208 PreferredRange, +0x20C EngageRadiusPilot (50), +0x210 EngageView, +0x214 FireTime and +0x218 FireDelay (1.5). Bot skill scales the radius and delay, and Elite is about twice as damaging as Green. CORRECTION (bots review row t4-A2): the claim 'Elite is about twice as damaging as Green' is WRONG for the current build: 124 runs give dmg/min Green 1209, Regular 789, Veteran 882, Elite 1230 and flat dmg/shot. skill_tune_mover scales only +0x1F8 AccuracyRadius and +0x218 FireDelay; the fire path sub_18482E does not read +0x1F8 (it rolls rand[0,100) < 25), +0x1F8/+0x1F0 are read only in sub_151E48/sub_151F2C off the fire path (reads code-confirmed, mapping inferred). Every MP vehicle is authored 5.00 / 1.50.",
+   "how_to_use": "skill_tune_mover sets these per bot.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "ai",
+    "tuning"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-ai-vehicle-gate-round10",
+   "title": "Bot vehicles keep campaign AI enabled",
+   "subject": {
+    "kind": "function",
+    "id": "sub_E6C8E / ma2_bot_vehicle_ai"
+   },
+   "addresses": [
+    "000E6C55"
+   ],
+   "related": [
+    "ma2_bot_vehicle_ai"
+   ],
+   "fact": "sub_E6C55 clears AI-enabled (+0x1E8 bit 0) whenever the vehicle's parent is an MAPlayer, and puts the AI to sleep (sub_185BF6). patch_round10 replaces that with ma2_bot_vehicle_ai, which returns bits 0 and 1 set for a vehicle a bot is , so the game's own campaign AI drives bot vehicles.",
+   "how_to_use": "The on-foot pilot body is not affected.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "ai",
+    "patch"
+   ],
+   "date": "2026-10-13",
+   "addresses_unverified": [
+    "000E6C8E"
+   ]
+  },
+  {
+   "id": "bots-scoreboard-widescreen",
+   "title": "Widescreen scoreboard columns for bots",
+   "subject": {
+    "kind": "function",
+    "id": "sub_2138DD"
+   },
+   "addresses": [
+    "002138DD",
+    "000382C0"
+   ],
+   "related": [
+    "recomp_0005.c"
+   ],
+   "fact": "The score list widget draws rows in sub_2138DD, which scales each column by 640 over the screen width. The row drawer's call from 0x2139D4 received 640, so the Kills and Deaths columns stayed 4:3 while the panel widened. patch_scoreboard_ws.py adds that caller so the widened width is reported.",
+   "how_to_use": "No change at 4:3.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "ui",
+    "scoreboard",
+    "patch"
+   ],
+   "date": "2026-10-13",
+   "addresses_unverified": [
+    "002139D4"
+   ]
+  },
+  {
+   "id": "bots-mouse-primary-decision",
+   "title": "Mouse primary is decided from the player",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_object_primary"
+   },
+   "addresses": [],
+   "related": [
+    "recomp_manual.c"
+   ],
+   "fact": "Bots' input component runs last, so the mouse used to lose the primary context and never attached to the human. ma2_object_primary decides the primary from the local human player whose MAInput (class 0x4EAFA4) is primary, and bots never qualify. patch_round2.py also applies this in recomp_manual.c.",
+   "how_to_use": "Verified for the human's mouse look in the playtest round.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "input",
+    "mouse",
+    "fix"
+   ],
+   "date": "2026-10-12",
+   "addresses_unverified": [
+    "004EAFA4"
+   ]
+  },
+  {
+   "id": "bots-round2-f8df5",
+   "title": "sub_F8DE3 says yes for bot-owned actors",
+   "subject": {
+    "kind": "function",
+    "id": "sub_F8DE3"
+   },
+   "addresses": [
+    "000F8DE3"
+   ],
+   "related": [
+    "sub_F8DE3"
+   ],
+   "fact": "sub_F8DE3 asks whether a vehicle's owner is a local human, and 11 callers use it for hack, QTE and clamp authority. Bots answer no, so a bot-owned 'Mech gets a remote-proxy bit and never moves. patch_round2.py makes it test the local-flags predicate for bots too.",
+   "how_to_use": "Superseded in native by is_local_ai at that site.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "authority",
+    "superseded"
+   ],
+   "date": "2026-10-12",
+   "addresses_unverified": [
+    "000F8DF5"
+   ]
+  },
+  {
+   "id": "bots-round5-boarding-gates",
+   "title": "Round 5 boarding gates for bots",
+   "subject": {
+    "kind": "function",
+    "id": "sub_C8576 / sub_C86EC"
+   },
+   "addresses": [
+    "000C8576",
+    "000C86EC"
+   ],
+   "related": [
+    "ma2_bot_local_flags"
+   ],
+   "fact": "The Y-to-board path only accepted human players at two gates: sub_C8576 promotes the candidate to the enter target and sub_C86EC offers a candidate from an entry zone. patch_round5 lets both accept bots through the local-flags predicate.",
+   "how_to_use": "The native build keeps C8576 and C86EC keyed on is_local_ai.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "boarding",
+    "patch"
+   ],
+   "date": "2026-10-12"
+  },
+  {
+   "id": "bots-round3-camera-gate",
+   "title": "Round 3 camera gate",
+   "subject": {
+    "kind": "function",
+    "id": "sub_1AB7D8"
+   },
+   "addresses": [
+    "001AB7D8"
+   ],
+   "related": [
+    "recomp_0045.c"
+   ],
+   "fact": "sub_1AB7D8 creates the MACameraThird for the player. It accepted humans only, so patch_round3 lets it accept bots through the local-flags predicate. This is superseded by the native removal of the camera gates.",
+   "how_to_use": "Superseded.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "camera",
+    "superseded"
+   ],
+   "date": "2026-10-12"
+  },
+  {
+   "id": "bots-round4-camera-gate",
+   "title": "Round 4 camera creation and slots",
+   "subject": {
+    "kind": "function",
+    "id": "sub_17244F / sub_16B7B8"
+   },
+   "addresses": [
+    "0017244F",
+    "0016B7B8"
+   ],
+   "related": [
+    "recomp_0038.c",
+    "recomp_0037.c"
+   ],
+   "fact": "sub_17244F is the POV camera gate, which bots pass through the local-flags predicate. sub_16B7B8 picks the camera-manager slot per player: humans use 1 to 4, and bots get private slots 5 to 12 so they do not overwrite the human slot. Superseded by the native removal.",
+   "how_to_use": "Superseded.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "camera",
+    "superseded"
+   ],
+   "date": "2026-10-12"
+  },
+  {
+   "id": "bots-round8-camera-owned",
+   "title": "Round 8 bot-owned camera guard",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_camera_owned"
+   },
+   "addresses": [
+    "0016B2F1",
+    "0016B73E"
+   ],
+   "related": [
+    "recomp_0037.c"
+   ],
+   "fact": "Cameras owned by a bot player are ignored by sub_16B2F1 (set current camera) and sub_16B73E (activate and register). The bot gets its camera link from a camera-attached message instead. Round 8b lets ma2_bots_core activate a bot camera into its own slot with ma2_bot_camera_activating.",
+   "how_to_use": "Part of the VTOL camera hijack fix.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "camera",
+    "patch"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-round9-hack-cue",
+   "title": "Round 9 hack cue gate",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_actor_owned"
+   },
+   "addresses": [
+    "0018EB44"
+   ],
+   "related": [
+    "recomp_0041.c"
+   ],
+   "fact": "patch_round9.py clears the minigame cue-sound flag for bot-owned actors, so NeuroHack cues are heard only for the local human. The gate uses ma2_bot_actor_owned at the two writes of +0xC4.",
+   "how_to_use": "Verified in the playtest.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "patch"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-diagnostic-patches",
+   "title": "Diagnostic patches for camera, gate and player messages",
+   "subject": {
+    "kind": "patch",
+    "id": "patch_diag_*"
+   },
+   "addresses": [
+    "0017244F",
+    "001AB55B",
+    "000C8062"
+   ],
+   "related": [
+    "ma2_bot_trace",
+    "ma2_bot_stack",
+    "ma2_bot_gate_mark"
+   ],
+   "fact": "The diag_* patches add trace calls that only log: a guest call stack when a MACameraThird is built (ctor), 'Mech control gate marks (sub_172EB4 to 172F11), the POV trace (sub_17244F to 172549), the camera chain (sub_1AB55B to 1AB82C) and player message 0x67 and 0x68 handling (sub_C8062).",
+   "how_to_use": "Use with RECOMP_BOT_DIAG. Each patch is idempotent.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "diagnostic",
+    "patch"
+   ],
+   "date": "2026-10-12",
+   "addresses_unverified": [
+    "0011E607",
+    "0017246D",
+    "00172490",
+    "00172549",
+    "001AB56A",
+    "001AB7A7",
+    "001AB7CA",
+    "001AB7F6",
+    "001AB82C",
+    "001AB7EF"
+   ]
+  },
+  {
+   "id": "bots-ffa-nation-table",
+   "title": "Free-for-all nation table",
+   "subject": {
+    "kind": "concept",
+    "id": "FFA nation table"
+   },
+   "addresses": [
+    "004AE8B4"
+   ],
+   "related": [
+    "0x4AE8B4"
+   ],
+   "fact": "In FFA each bot's nation comes from the 12-entry nation table at 0x4AE8B4 = {1, 2, 3, 4, 7, 8, 9, 10, 12, 13, 14, 15}, indexed by the bot's slot. Bots 9 to 12 exist only with RECOMP_BOTS_MAX=12.",
+   "how_to_use": "Nations stay unique for FFA.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "ffa",
+    "nation"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-team-rules-2026-10-20",
+   "title": "Bot match team rules",
+   "subject": {
+    "kind": "setting",
+    "id": "team counts"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bots_core.c compute_roster",
+    "ma2_bots_ui.c place_humans"
+   ],
+   "fact": "At most six players per side, humans included. Setting the counts places the player on the short side, and ties keep the current side. The player's own side clamps to five bots. In FFA all bots face the player.",
+   "how_to_use": "Verified: sweep rv3 gave 18 of 18 clean runs, every team match 6v6.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "teams",
+    "rules"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bots-team-rules-auto-balance-superseded",
+   "title": "AutoBalance split superseded",
+   "subject": {
+    "kind": "setting",
+    "id": "AutoBalance"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The rev 2 design and the core notes used AutoBalance, which fills the short side until Red equals Blue, so 1 Red and 4 Blue came out 3 versus 3. a player rejected that on 2026-10-20 and set literal counts instead.",
+   "how_to_use": "Use the literal counts from [Bots] Red and Blue.",
+   "status": "superseded",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "teams",
+    "superseded"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bots-team-placement-hold",
+   "title": "Player placement on the short side",
+   "subject": {
+    "kind": "function",
+    "id": "place_humans / place_hold"
+   },
+   "addresses": [
+    "00482240"
+   ],
+   "related": [
+    "ma2_bots_ui.c place_humans",
+    "ma2_menu_policy_pulse"
+   ],
+   "fact": "ma2_bots_ui.c place_humans writes the team word at session+0x3A8+ctrl*4 (0 Red, 1 Blue). The game resets every side to Red while it builds the lobby (00482240), so place_hold re-applies the team for the lobby's first 30 frames through ma2_menu_policy_pulse. Diagnostics are [BOT-ROSTER], [BOT-TEAMS] and [BOT-UI].",
+   "how_to_use": "Not verified: whether the View or Remove Players screen lets the human switch teams later.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "teams",
+    "ui"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bots-team-mixed-skill-opponents",
+   "title": "Mixed skill buffs the side facing the player",
+   "subject": {
+    "kind": "setting",
+    "id": "Bot Skill Mixed"
+   },
+   "addresses": [],
+   "related": [
+    "MA2_SKILL_MIXED",
+    "compute_roster mixed_skills"
+   ],
+   "fact": "Mixed skill (config value 4) gives each side n/3 Elite, n/3 Recruit and the rest Veteran then Regular, with humans counted as Elite, placements shuffled per match, and per-bot skill held in Bot.skill and BotCtrl.skill. The later rule gives the side facing the player its weakest place one level up: 6v6 becomes E E V R R Rc. In FFA every bot faces the player.",
+   "how_to_use": "The earlier Mixed rule in the bot match note is superseded in part by this buff.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "teams",
+    "skill"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bots-team-cap",
+   "title": "Bot total cap",
+   "subject": {
+    "kind": "setting",
+    "id": "total_cap"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOTS_MAX"
+   ],
+   "fact": "The total bot and human cap default is 12, set in both core and UI, after the 2026-10-13 round 7 test with 6v6 and 11 bots. The earlier default of 8 is superseded. RECOMP_BOTS_MAX takes 2 to 12. Bots past slot 11 use spare controller ids 0, 1 and 3.",
+   "how_to_use": "Human plus 11 bots verified.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "teams",
+    "cap"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-team-skill-table",
+   "title": "Bot skill tables",
+   "subject": {
+    "kind": "setting",
+    "id": "k_skill"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c k_skill",
+    "patch_ui2 k_skill_ai",
+    "bots-review-2026-10-26-how-bots-work-findings-perception-hun",
+    "bots3-skill-reaction-times-0-90-0-55-0-30-0-12-supersede-tea",
+    "bots-skill-table-correction-reaction-0-90-0-12-aim-not-in-br"
+   ],
+   "fact": "The brain's skill table gives reaction 0.60, 0.44, 0.28 and 0.12 s for Recruit, Regular, Veteran and Elite. Aim error is 9, 6.5, 4 and 1.5 degrees. QTE reaction fraction is 0.70, 0.55, 0.40 and 0.25. Patch ui2's campaign-AI skill sets reaction delay of 1.6, 0.8, 0.35 and 0.1 s, engage range multipliers 0.6, 0.8, 1.0 and 1.2, and a human threat bias of -30, 0, 25 and 60. CORRECTION: the review quotes reaction Recruit 0.90 s . Elite 0.12 s (this fact says 0.60 for Recruit), and finds reaction only delays committing to Attack and switching targets, not the first shot (out->fire uses mem_engageable; ctrl fires on its own 4 Hz ray). Skill has little effect on results (row t4-B5: kills/bot 1.0/1.0/1.2/1.3x; Elites spend 32% of time in a 'Mech and 16% in VTOLs).",
+   "how_to_use": "Each brain value gets 15 percent personal variance from the seed.",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "skill",
+    "tuning"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-targeting-leader-focus",
+   "title": "Targeting favours weak enemies and the scoreboard leader",
+   "subject": {
+    "kind": "function",
+    "id": "choose_target"
+   },
+   "addresses": [],
+   "related": [
+    "choose_target",
+    "RECOMP_BOT_LEADER_FOCUS"
+   ],
+   "fact": "choose_target finishes weak enemies with weight (1 - hp) squared times 0.3 to 1.5 by skill, piles onto a teammate's target, punishes enemies busy shooting others, and weighs the scoreboard leader by kills, deaths and menace. Menace = (kills - field average - 2) / 5, capped at 1.5. RECOMP_BOT_LEADER_FOCUS=0 turns it off.",
+   "how_to_use": "Objective bots now fire on the move instead of holding fire.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "combat",
+    "targeting"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-threat-kill-value",
+   "title": "Kill value is the basis of the native targeting",
+   "subject": {
+    "kind": "concept",
+    "id": "kill value"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_percept.c"
+   ],
+   "fact": "Kill value is the threat removed per second of fire: an enemy's DPS on the bot divided by the bot's time to kill it. Nearly dead attackers are finished first, and skilled bots commit to them.",
+   "how_to_use": "Groups of allies compare force ratio within about 120 m.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "combat",
+    "design"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-perception-rules",
+   "title": "Perception rules",
+   "subject": {
+    "kind": "concept",
+    "id": "perception"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_percept.c"
+   ],
+   "fact": "Sight needs an enemy inside the field of view (about 120 degrees for vehicles, 140 on foot, wider for Elite), within sight range, and clear on the AI ray. Memory is per enemy, with confidence decaying over 10 to 20 s, and the live position of an unseen enemy is never used. Team blackboards share sightings and claims, and the radar shows only what the HUD radar would show.",
+   "how_to_use": "See the open question.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "perception",
+    "design"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-radar-range-question",
+   "title": "Radar range used by bots",
+   "subject": {
+    "kind": "setting",
+    "id": "RadarDist / radar_range"
+   },
+   "addresses": [
+    "002057F5"
+   ],
+   "related": [
+    "RECOMP_BOT_RADAR",
+    "hud-local-object-radar-range-is-400-m-on-new-river-city-and"
+   ],
+   "fact": "The core reads radar range as 300 m, or RECOMP_BOT_RADAR, and says RadarDist is a HUD radar property stored by sub_2057F5 at +0x18C that was not read. The brain defaults to 200 m if radar_range is 1 or less. The two defaults disagree and nothing settles which one is in use. CORRECTION 2026-10-24: effective PC value is 300 (RECOMP_BOT_RADAR); retail default 30.0 (radar-range-retail-vs-pc). See hud-local-object-radar-range-is-400-m-on-new-river-city-and-render-camera-chain.",
+   "how_to_use": "Open: read the HUD radar property to decide.",
+   "status": "superseded",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "perception",
+    "open"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-brain-goals",
+   "title": "Brain goals and their scores",
+   "subject": {
+    "kind": "concept",
+    "id": "brain goals"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c"
+   ],
+   "fact": "The pad-era brain had these goals: GetVehicle (0.8 on foot), Attack (0.6 plus 0.3 times aggression when a target is acquired), NeuroHack (0.9 plus 0.2 times aggression, forced at 2.0 while clamped), BA Aggression (0.7 with an enemy, else 0.3), Retreat (1.0 for a BattleArmor under 25 percent HP), Defend vs hack (2.0), Eject (1.5 under 12 percent HP), VTOL (0.5) and Roam (0.15). The utility re-scores every 0.25 s with a hysteresis bonus of 0.15. The native rewrite keeps the goal names, hysteresis and claims, without the pad controller.",
+   "how_to_use": "Goal names are current; pad mechanics are not.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "bot-logic",
+    "goals"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-vehicle-value",
+   "title": "Vehicle preference in GetVehicle",
+   "subject": {
+    "kind": "concept",
+    "id": "vehicle_value"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c GetVehicle",
+    "bots-review-2026-10-26-how-bots-work-findings-perception-hun",
+    "bots3-vehicle-pref-actual-values-supersede-bots-vehicle-valu",
+    "bots-vehicle-pref-correction-mech-1-0-tank-0-80-vtol-ba-skil"
+   ],
+   "fact": "A bot values vehicles by kind: Mech 1.0, tank 0.75, BattleArmor 0.70 plus 0.08 times skill, mover 0.5 and VTOL 0.45 plus 0.08 times skill. It subtracts for distance, damage, enemy armour within 40 m (-0.5) and an on-foot ally who is closer (-0.6). A vehicle is blacklisted for 20 s after three failed entries. CORRECTION (bots review rows t3B-01, t4-B5, code): vehicle_pref MECH = 1.0 for every 'Mech (the game's m_nBattleScore, vtable +0x90, is unused, so a bot takes the nearest free 'Mech even beside an Atlas); VTOL = 0.55 + 0.05 x skill and BattleArmor = 0.30 + 0.05 x skill per the review's read of vehicle_pref (this fact's 0.45/0.70 + 0.08 x skill is stale); swap only when HP <= 35% and a usable vehicle is within 70 m with no enemy within 50 m (pick_swap 1240-1270).",
+   "how_to_use": "Refused vehicle lists are shared and reset per map.",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "bot-logic",
+    "vehicles"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-eject-rule",
+   "title": "Eject at 12 percent HP",
+   "subject": {
+    "kind": "concept",
+    "id": "eject"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c",
+    "bots-eject-removed-bots-ride-vehicles-to-death-swap-is-the-o",
+    "bots-review-2026-10-26-how-bots-work-findings-perception-hun",
+    "bots3-bots-never-eject-vehicle-death-kills-pilot-supersedes"
+   ],
+   "fact": "A bot ejects when its vehicle is below 12 percent HP and an acquired enemy is within 80 m, by tapping Y. It never ejects during a QTE and retries after 2 s. The new pilot then gets a new vehicle with the wreck blacklisted. SUPERSEDED by bots-eject-removed-bots-ride-vehicles-to-death-swap-is-the-only-planned-exit (the eject rule is no longer in the code; review row t3B-02).",
+   "how_to_use": "Use the S6 eject test in the brain harness.",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "bot-logic",
+    "eject"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-ba-hack-goal",
+   "title": "BattleArmor NeuroHack goal",
+   "subject": {
+    "kind": "concept",
+    "id": "NeuroHack goal"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c NeuroHack"
+   ],
+   "fact": "A BattleArmor goes for an acquired enemy 'Mech within 40 m that is not defence-active, has no enemy rider and is not in a QTE. It paths to a point 4 m behind the target, jets inside 15 m and taps A inside 7 m every 0.4 s. It gives up after 8 s and blacklists the target for 10 s.",
+   "how_to_use": "Clamp confirmation shows as [BOT-HACKED].",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "bot-logic",
+    "neurohack"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-ba-aggression",
+   "title": "BattleArmor aggression",
+   "subject": {
+    "kind": "concept",
+    "id": "BA aggression"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c BA"
+   ],
+   "fact": "A BattleArmor with no target roams aggressively. With an enemy it circles a 'Mech at about 12 m or holds 25 to 45 m from others, mortars with RT depth clamp(d/110 m, 0.15, 1), claws enemy pilots within 4.5 m with A, and hops when under fire.",
+   "how_to_use": "Mortar depth scales with distance.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "bot-logic",
+    "ba"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-pilot-retreat",
+   "title": "Pilot retreat",
+   "subject": {
+    "kind": "concept",
+    "id": "retreat"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c Retreat"
+   ],
+   "fact": "A pilot with an enemy 'Mech within 30 m and no vehicle retreats (0.9) toward a power-up that is farther from the enemy. Otherwise it moves 40 m directly away. A retreating BattleArmor hops.",
+   "how_to_use": "Watch for pilots that stop near a parked vehicle.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "bot-logic",
+    "retreat"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-defend-hack",
+   "title": "Defend against a hack",
+   "subject": {
+    "kind": "concept",
+    "id": "defend vs hack"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c Defend"
+   ],
+   "fact": "A mech or tank with qte_active or enemy_rider answers its own QTE, turns hard (RX +-1 flipping every 0.7 to 1.1 s), drives forward, jumps every 1.2 to 2 s, and taps RS-click before the minigame starts.",
+   "how_to_use": "Defence command 12 is the defence tap.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "bot-logic",
+    "neurohack"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-grinder-ba-swap",
+   "title": "Grinder BattleArmor swap to a Mech",
+   "subject": {
+    "kind": "concept",
+    "id": "G_SWAP"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c G_SWAP"
+   ],
+   "fact": "In Grinder both players spawn in BattleArmor. The bot commits to a swap to a free 'Mech (weight 1.25 near a free 'Mech) and gets its first 'Mech at about 15 s. RECOMP_BOT_NO_SWAP turns the swap off.",
+   "how_to_use": "Grinder roster is one bot.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "grinder",
+    "ba"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-in-your-face-refusal",
+   "title": "In Your Face parked BattleArmor refused pilots",
+   "subject": {
+    "kind": "concept",
+    "id": "g_refused"
+   },
+   "addresses": [],
+   "related": [
+    "g_refused",
+    "ma2_bot_brain_reset"
+   ],
+   "fact": "On In Your Face (LMS) a parked BattleArmor refused every pilot (0 of 17, 'no-prompt'). A shared g_refused list stops the roster from retrying, for 90 s, or 240 s after two refusals. ma2_bot_brain_reset clears it on each map load. A pilot sent to a raised tactical spot near 1066, 3.5, 1084 was still boxed in for 70 s, and that is open.",
+   "how_to_use": "Known older issue on In Your Face.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "vehicles",
+    "ba"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-peek-and-hide",
+   "title": "Peek and hide searches rings",
+   "subject": {
+    "kind": "concept",
+    "id": "peek-and-hide"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c"
+   ],
+   "fact": "Peek-and-hide searches rings of 30, 55 and 80 m for a cover point. Low flight is 8 m above local surfaces, by skill.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "combat",
+    "cover"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-test-jump-hook",
+   "title": "Match-end test clock jump",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_TEST_JUMP"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_TEST_JUMP"
+   ],
+   "fact": "RECOMP_BOT_TEST_JUMP=at:add advances the game clock once after a given time, to exercise the match-end flow. Match end leads to results, then briefing, then a new match. Verified in the me2 run.",
+   "how_to_use": "Test-only hook.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "test",
+    "pause"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-diag-bot-line",
+   "title": "BOT diagnostic line",
+   "subject": {
+    "kind": "tool",
+    "id": "[BOT] line"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_DIAG"
+   ],
+   "fact": "With RECOMP_BOT_DIAG=1 the core writes one [BOT] line per bot per second: t, bot, port, team, veh, pos, hp, qte, clamp and kills, followed by the brain's goal, target and stuck. The probe parses these lines. Keys t, bot, goal, veh, pos, tgt, hp, stuck and qte are required.",
+   "how_to_use": "Read with python probe_bots.py --dry-run.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "diagnostic",
+    "env"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-probe-script",
+   "title": "probe_bots.py pass criteria",
+   "subject": {
+    "kind": "tool",
+    "id": "probe_bots.py"
+   },
+   "addresses": [],
+   "related": [
+    "probe_bots.py",
+    "run_probe.py"
+   ],
+   "fact": "probe_bots.py runs a bot match and checks: the process stays alive and exits 0, the expected bot indices report, every bot has samples, each bot boards within 60 game seconds, no bot is stuck over 10 s, over half the bots score, NeuroHack attempts occur on BattleArmor maps, the scoreboard lists all bots, and every bot moves. Exit 0 pass, 1 criterion failed, 2 setup or navigation failure.",
+   "how_to_use": "python probe_bots.py <name> --game-type <n> --red N --blue N --dry-run. Navigation after the Multiplayer hub is unverified.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "test",
+    "probe"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-loco-test-env",
+   "title": "Locomotion test environment",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_LOCO_TEST"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_LOCO_TEST",
+    "RECOMP_LOCO_BOTS",
+    "RECOMP_LOCO_DIST",
+    "RECOMP_LOCO_ALT",
+    "RECOMP_LOCO_TIME"
+   ],
+   "fact": "RECOMP_LOCO_TEST=1|2|3 selects the method. RECOMP_LOCO_BOTS=bot:kind, with kind 0 any, 1 pilot, 2 Mech, 3 BattleArmor, 4 tank and 5 VTOL. RECOMP_LOCO_DIST (100 m), RECOMP_LOCO_ALT (VTOL +40), RECOMP_LOCO_SPEED, RECOMP_LOCO_RUN, RECOMP_LOCO_TIME (40 s) and RECOMP_LOCO_DELAY (settle time). Phase 1 goes to a node about 100 m away, and phase 2 faces a point 90 degrees right.",
+   "how_to_use": "REPLAY_EXTRA=\"RECOMP_BOT_STALL=1;RECOMP_LOCO_TEST=2;RECOMP_LOCO_BOTS=0:1,1:2\" python game_lock.py python replay.py l6 110",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "test",
+    "env"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-bavt-test-env",
+   "title": "BattleArmor, VTOL and tank test phases",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BAVT_TEST"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BAVT_TEST",
+    "RECOMP_BAVT_SCRIPT",
+    "RECOMP_BAVT_PT"
+   ],
+   "fact": "RECOMP_BAVT_TEST=1 with RECOMP_LOCO_TEST=2 runs phase scripts. RECOMP_BAVT_SCRIPT letters: m MoveTo, t turn rate, w actor+0x248, k and u set and clear the VTOL yaw-hold bit, v and n velocity drive, j raw jet, a StartJump plus MoveTo, o, x and z face in place, g close on the target, r native aim, f aim and fire, c BattleArmor clamp. RECOMP_BAVT_PT sets the phase length (8 s).",
+   "how_to_use": "Defaults: BattleArmor mvnjac, VTOL mwgf, tank momzgrf, Mech or pilot amgrf.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "test",
+    "env"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-env-test-list",
+   "title": "Bot environment variables for tests",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_* list"
+   },
+   "addresses": [],
+   "related": [
+    "envvars.json"
+   ],
+   "fact": "Bot test hooks include RECOMP_BOT_TRACE, RECOMP_BOT_STALL, RECOMP_BOT_PATHTEST, RECOMP_BOT_NAV_REGION, RECOMP_BOT_FLAGRUN_TEST, RECOMP_BOT_VTOL_TRACE, RECOMP_BOT_WORLD_PAUSE, RECOMP_BOT_JET_SHOW, RECOMP_BOT_CLIMB_TEST, RECOMP_BOT_STUCK_MEMORY, RECOMP_BOT_TEST_JUMP, RECOMP_BOT_TEST_LOWHP, RECOMP_BOT_TEST_PARK, RECOMP_TEST_TURRET_PICK, RECOMP_TEST_TURRET_DRIVE, RECOMP_TEST_PREFER_TANK, RECOMP_HUMAN_ACT and RECOMP_AUDIO_ISR_STATS. The envvars index lists about 100 related names.",
+   "how_to_use": "Check the envvars.json lookup for the current read sites.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "env",
+    "index"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-env-settings",
+   "title": "Bot settings and their env overrides",
+   "subject": {
+    "kind": "setting",
+    "id": "[Bots] pc_settings"
+   },
+   "addresses": [],
+   "related": [
+    "pc_settings.ini",
+    "RECOMP_BOTS_*"
+   ],
+   "fact": "The [Bots] section holds Red, Blue, FFA, Skill and AutoBalance. Env overrides are RECOMP_BOTS_RED, RECOMP_BOTS_BLUE, RECOMP_BOTS_FFA, RECOMP_BOTS_SKILL, RECOMP_BOTS_AUTOBALANCE and RECOMP_BOTS_MAX. Defaults are 0, 0, 0, 1 and 1 in the ini. The UI writes the section only when a value changes.",
+   "how_to_use": "AutoBalance is kept but the literal counts supersede it.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "settings",
+    "env"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-env-language",
+   "title": "Bot text language override",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_LANGUAGE"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_content.c"
+   ],
+   "fact": "Bot text is chosen from XC_LANGUAGE (7) through the kernel. The kernel currently always answers English. RECOMP_BOT_LANGUAGE=0 to 5 forces a language for testing.",
+   "how_to_use": "Test-only.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "env",
+    "text"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-newgame-rows",
+   "title": "New Game bot rows",
+   "subject": {
+    "kind": "menu",
+    "id": "multi_newgame.ggf (Bots rows)"
+   },
+   "addresses": [],
+   "related": [
+    "build_pc_assets_bots.py",
+    "ma2_bots_newgame_update"
+   ],
+   "fact": "The Bots rows are three cloned Time Limit barrels with action ids 910 (Red Bots, or Bots in FFA), 920 (Blue Bots, hidden in FFA) and 930 (Bot Skill). They use widget ids 101 to 118 and sit in the root sibling chain after Kill/Scores. Local Xbox mode shows only Game Type and Mission, so the rows lie under Mission at y 212, 241 and 270.",
+   "how_to_use": "Run staging/bots/ui/build_pc_assets_bots.py instead of build_pc_assets.py.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "ui",
+    "menu"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-newgame-hook",
+   "title": "New Game update hook",
+   "subject": {
+    "kind": "address",
+    "id": "sub_226587"
+   },
+   "addresses": [
+    "00226587",
+    "00226C10"
+   ],
+   "related": [
+    "ma2_bots_newgame_update"
+   ],
+   "fact": "A hook at the start of the New Game per-frame update sub_226587 calls ma2_bots_newgame_update(menu). It populates the barrels once per screen with Off and 1 to N for Red and Blue, and Green, Regular, Veteran and Elite for Skill. It only runs when session+0x4C == 2. The game-type mapping of value 1 to 0xA happens at 0x226C10.",
+   "how_to_use": "The hook is byte-identical in patch_bots.py and apply_ui_patches.py, so either can run first.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/bringup/staging/bots/core/patch_bots.py",
+     "line": 135
+    }
+   ],
+   "tags": [
+    "ui",
+    "hook"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-newgame-layout",
+   "title": "Bot row layout",
+   "subject": {
+    "kind": "concept",
+    "id": "bot row layout"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bots_ui.c"
+   ],
+   "fact": "Bot rows start 29 px below the lowest visible original row, so with Game Type at y 154 and Mission at 183 they sit at Red 212, Blue 241 and Skill 270. In FFA the Bots row is at 212 and Skill at 241. The description field moves down only when the last row would reach it. Widescreen y is 2 px lower.",
+   "how_to_use": "Expected layout only: no screenshots were taken.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "ui",
+    "layout"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-barrel-abi",
+   "title": "Barrel widget ABI",
+   "subject": {
+    "kind": "function",
+    "id": "sub_208C45 / sub_208BF9"
+   },
+   "addresses": [
+    "00208C45",
+    "00208C9E",
+    "00208BF9",
+    "00208BD0",
+    "0001B7F0",
+    "001CAA80",
+    "001639DA",
+    "001FF864"
+   ],
+   "related": [
+    "ma2_gui_find",
+    "ma2_gui_text"
+   ],
+   "fact": "Barrel items are kept in a vector at +0xAC and +0xB0, each 0x1C bytes with the value at +0xC. The selected index is +0x154 and the listener is +0xA8. sub_208C45 adds an item with a wide string, value, a second value and a flag. sub_208BF9 selects by value. sub_1CAA80 finds a child by action, and sub_1639DA resolves a text id to a wide string.",
+   "how_to_use": "Use the wide string forms; sub_208C9E uses the shared narrow buffer.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "ui",
+    "abi"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-newgame-menu-offsets",
+   "title": "New Game menu object offsets",
+   "subject": {
+    "kind": "struct",
+    "id": "menu +0x9C.+0x94"
+   },
+   "addresses": [],
+   "related": [
+    "sub_225A63"
+   ],
+   "fact": "The New Game menu keeps its form at menu+0x9C. The widgets are Game Type at +0x74, Mission at +0x70, Public at +0x84, Private at +0x80, Time Limit at +0x7C, Kill/Scores at +0x78, Location at +0x88 and the description at +0x94. The original sets a listener only on 100, 300, 400, 500 and 800.",
+   "how_to_use": "The bot barrels are clones of Time Limit, so they have no listener.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "ui",
+    "struct"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-ui-text-ids",
+   "title": "Bot text resolved through the localisation hook",
+   "subject": {
+    "kind": "concept",
+    "id": "text ids 0x70020001-4"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bots_localized",
+    "ma2_pc_localized"
+   ],
+   "fact": "Bot captions use text ids 0x70020001 (Bots), 0x70020002 (Red Bots), 0x70020003 (Blue Bots) and 0x70020004 (Bot Skill). ma2_pc_localized routes ids 0x7002xxxx to ma2_bots_localized. The skill names Green, Regular, Veteran and Elite and the Off label reuse shipped strings at 0x3AC to 0x3AF and 0xBB8.",
+   "how_to_use": "Captions that fall back to English mean the hook was not reached.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "ui",
+    "text"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-callsigns",
+   "title": "Bot callsigns",
+   "subject": {
+    "kind": "concept",
+    "id": "callsigns"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_callsign"
+   ],
+   "fact": "Bots use 28 ASCII callsigns of at most 9 characters, starting from a per-process base and wrapping. Callsigns that match a human's profile name are skipped (session+0x264 holds the wide profile name).",
+   "how_to_use": "Names never duplicate the human's profile name.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "text",
+    "names"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-strings-localised",
+   "title": "Bot strings in six languages",
+   "subject": {
+    "kind": "concept",
+    "id": "bot strings"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_content.c"
+   ],
+   "fact": "Bot strings are in English, French, German, Italian, Japanese and Spanish. Only the four row captions use new ids, and the skill names come from the shipped text manager. French, Italian and Spanish 'Off' and skill words are best-effort and were not checked against the game's own strings.",
+   "how_to_use": "Compare with the retail string table before shipping exact wording.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "text",
+    "localisation"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-asset-overlay-patch",
+   "title": "Asset overlay patch for common.mgf",
+   "subject": {
+    "kind": "patch",
+    "id": "patch_assets.py"
+   },
+   "addresses": [],
+   "related": [
+    "common.mgf",
+    "cache.version",
+    "build_pc_assets_bots.py"
+   ],
+   "fact": "patch_assets.py replaces interface/menus/multi/multi_newgame.ggf inside pc_assets/common.mgf, using the bots transform, and rewrites its directory record with a new CRC, size and offset. It then writes cache.version. The launcher hash-checks both files through Test-Build.json, so a publish must carry common.mgf and cache.version.",
+   "how_to_use": "python patch_assets.py <package>/pc_assets/common.mgf. It refuses to run when the transform changes nothing.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "asset",
+    "patch"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-merge-publish-target",
+   "title": "Publish target is PC Release only",
+   "subject": {
+    "kind": "tool",
+    "id": "publish.py"
+   },
+   "addresses": [],
+   "related": [
+    "publish.py"
+   ],
+   "fact": "From the 2026-10-15 tenth pass on, bots builds publish to PC Release only. PC Release Bots was abandoned with the 2026-10-14 merge. Publish with (--freeze, --stage, --install) and verify_staged.py, with rollback in releaseN/replaced-files-backup.",
+   "how_to_use": "The current game exe is 15159121 (release20); the release21 editor publish follows that hash.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "publish",
+    "release"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bots-merge-recipe-2026-10-13",
+   "title": "Merge recipe for PC Release and bots",
+   "subject": {
+    "kind": "tool",
+    "id": "merge recipe"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The 2026-10-13 merge recipe is based on the game source tree It ports PC Release-only hunks: the InvertFlight row, the mouse-look split and the VTOL InvertFlight flip. It keeps the bots versions of apu_vp.c, recomp_0020.c, recomp_0005.c and pc_settings.h. recomp_0094, 0095 and 0097 are identical in both.",
+   "how_to_use": "Historical: the merge was done on 2026-10-14 (57702bc3).",
+   "status": "historical",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "merge",
+    "historical"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-merge-installed-2026-10-14",
+   "title": "First bots merge into PC Release",
+   "subject": {
+    "kind": "historical",
+    "id": "57702bc3"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "On 2026-10-14 PC Release changed from c13a0259 to 57702bc3 (map 22055205 to c0210867), built from the game source tree The 11 replaced files are in replaced-files-backup with a receipt. PC Release Bots had the same exe at the time.",
+   "how_to_use": "Rollback by copying replaced-files-backup over the install.",
+   "status": "historical",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "merge",
+    "historical"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-merge-pass-history",
+   "title": "Release pass history (selected)",
+   "subject": {
+    "kind": "historical",
+    "id": "release passes"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Release passes went from 57702bc3 (2026-10-14) through 5ae8a563, d3b15831, 79f2286a, 344eaf20, 9d210d29, 22ddd9d4, 91a816a0, b8d4b61c, e4309cdd, dc5ce799, 33c1d29e, 049ccc70 and the editor pass 4c8f1884. Each pass has a sweep with 0 faults.",
+   "how_to_use": "Use the newest publish folder for the current state.",
+   "status": "historical",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "release",
+    "historical"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bots-capture-kit",
+   "title": "Playthrough capture kit",
+   "subject": {
+    "kind": "tool",
+    "id": "Start-Playthrough.cmd"
+   },
+   "addresses": [],
+   "related": [
+    "Start-Playthrough.cmd",
+    "Start-Bounded-Capture.cmd"
+   ],
+   "fact": "The playthrough capture kit runs PC Release with automatic diagnostics. Resume copies the latest v28 playthrough into a private profile, and Continue runs inside the game. Exit in game and keep the console open to finish the diagnostics ZIP. The Try-HRTF-Audio, Try-Tank-Physics and Try-Audio-Limiter launchers are experimental trials that keep the saves.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "tool",
+    "capture"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-game-lock",
+   "title": "game_lock.py limits concurrent runs",
+   "subject": {
+    "kind": "tool",
+    "id": "game_lock.py"
+   },
+   "addresses": [],
+   "related": [
+    "game_lock.py",
+    "replay.py"
+   ],
+   "fact": "Every game launch goes through game_lock.py, which allows at most two game instances at once. The PC blue-screened twice on 2026-10-12 when four to six instances ran together. Use python game_lock.py python replay.py <run> <seconds> for replays.",
+   "how_to_use": "Separate REPLAY_EXTRA entries with semicolons.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "tool",
+    "safety"
+   ],
+   "date": "2026-10-12"
+  },
+  {
+   "id": "bots-replay-env",
+   "title": "Replay environment variables",
+   "subject": {
+    "kind": "env_var",
+    "id": "REPLAY_*"
+   },
+   "addresses": [],
+   "related": [
+    "REPLAY_EXTRA",
+    "REPLAY_FFA",
+    "REPLAY_GAMETYPE",
+    "REPLAY_USERENV",
+    "REPLAY_WIDTH",
+    "REPLAY_HEIGHT",
+    "REPLAY_MENUKEYS",
+    "REPLAY_SHOTS"
+   ],
+   "fact": "replay.py sets REPLAY_GAMETYPE, REPLAY_FFA (more than 0 for FFA types), REPLAY_EXTRA (split on semicolons), REPLAY_USERENV=1 with REPLAY_WIDTH=3840 and REPLAY_HEIGHT=1600 for a player's environment, REPLAY_SHOTS=1000 for per-second screenshots and REPLAY_MENUKEYS for the map menu. Map menu order is alphabetical, so 1 is Deliverance and 4 is In Your Face.",
+   "how_to_use": "Measure camera problems with per-second screenshots of the first 30 s.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "tool",
+    "replay"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-release-readiness",
+   "title": "Release readiness decision",
+   "subject": {
+    "kind": "historical",
+    "id": "2026-10-13 release"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "On 2026-10-13 the bot build was declared release-ready for all nine game modes after 10-minute matches ran clean. The later passes add objectives, air and VTOL work and friendly-fire guards.",
+   "how_to_use": "Historical.",
+   "status": "historical",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "release",
+    "historical"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-patch-scripts-idempotent",
+   "title": "Patch scripts are idempotent and anchor-checked",
+   "subject": {
+    "kind": "concept",
+    "id": "patch convention"
+   },
+   "addresses": [],
+   "related": [
+    "patch_bots.py",
+    "patch_native.py"
+   ],
+   "fact": "Every bot patch script anchors on exact text, asserts the anchor occurs once, and skips when the replacement is already present, so it can run twice. patch_bots.py takes --check to verify anchors and --generated DIR to patch a copy. Hook edits go into generated files under source/src/recomp/gen.",
+   "how_to_use": "Run patch_bots.py after patch_pc_frontend.py.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/bringup/staging/bots/core/patch_bots.py",
+     "line": 1
+    },
+    {
+     "file": "kit/source/game/bringup/staging/bots/core/patch_bots.py",
+     "line": 3
+    },
+    {
+     "file": "kit/source/game/bringup/staging/bots/core/patch_bots.py",
+     "line": 10
+    },
+    {
+     "file": "kit/source/game/bringup/staging/bots/core/patch_bots.py",
+     "line": 30
+    },
+    {
+     "file": "kit/source/game/bringup/staging/bots/core/patch_bots.py",
+     "line": 41
+    }
+   ],
+   "tags": [
+    "patch",
+    "convention"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-ui-patch-script",
+   "title": "UI apply script",
+   "subject": {
+    "kind": "patch",
+    "id": "apply_ui_patches.py"
+   },
+   "addresses": [],
+   "related": [
+    "apply_ui_patches.py",
+    "pc_native_settings.cpp"
+   ],
+   "fact": "apply_ui_patches.py adds ma2_pc_ini_get_int and ma2_pc_ini_set_int beside write_int in pc_native_settings.cpp, declares them in pc_settings.h, routes ids 0x70020000 to 0x70030000 through ma2_bots_localized in pc_prompts.cpp, adds the [Bots] keys to pc_settings.ini and inserts the New Game update call in recomp_0058.c. It is anchored and idempotent.",
+   "how_to_use": "Run with --check for a dry run, or --print-frontend-entry for the patch_pc_frontend tuple.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "ui",
+    "patch"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "bots-ui2-skill-and-names",
+   "title": "Bot names and skill knobs (ui2)",
+   "subject": {
+    "kind": "patch",
+    "id": "patch_ui2.py"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bots_core.c bot_name",
+    "ma2_bot_ai_select"
+   ],
+   "fact": "patch_ui2.py makes callsigns skip names equal to the human profile name, and applies the Bot Skill knobs to the campaign-AI engagement: a reaction delay before a new engagement, an engage range multiplier and a human threat bias. It adds two test hooks: RECOMP_BOT_TEST_JUMP and RECOMP_BOT_SCOREDUMP=1, which dumps per-player dwords every 10 s.",
+   "how_to_use": "Run python patch_ui2.py <path to ma2_bots_core.c>.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "ui",
+    "skill",
+    "patch"
+   ],
+   "date": "2026-10-12"
+  },
+  {
+   "id": "bots-ai-round3-trace",
+   "title": "Spatial candidate query trace",
+   "subject": {
+    "kind": "function",
+    "id": "sub_18507C"
+   },
+   "addresses": [
+    "0018507C"
+   ],
+   "related": [
+    "ma2_ai_val",
+    "ma2_ai_trace"
+   ],
+   "fact": "patch_ai3.py traces the spatial candidate query sub_18507C. It records the owning actor as the key, and the bots code matches AI.owner.",
+   "how_to_use": "Diagnostic.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "ai",
+    "diagnostic"
+   ],
+   "date": "2026-10-12"
+  },
+  {
+   "id": "bots-entry-integration",
+   "title": "Exact entry zones integrated",
+   "subject": {
+    "kind": "patch",
+    "id": "patch_entry_integration.py"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_entry.c",
+    "Ma2VehicleView"
+   ],
+   "fact": "patch_entry_integration.py adds the exact entry zone (has_entry, entry and entry_r) to Ma2VehicleView, gives each vehicle its live zone, and lets the brain walk to the zone's circle. A vehicle without an active zone, or of an enemy nation in team modes, is not usable.",
+   "how_to_use": "Run after the game source tree is installed.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "boarding",
+    "patch"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-defense-catalog-probe",
+   "title": "Catalogue dumps and projectile speeds",
+   "subject": {
+    "kind": "tool",
+    "id": "RECOMP_DEFENSE_CATALOG"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_defense.c"
+   ],
+   "fact": "RECOMP_DEFENSE_CATALOG=1 walks the template world and each vehicle's WeaponLoadout (actor+0xA0), logging [CAT-VEH], [CAT-WPN], [CAT-GRP] and [DEF-PSPD] projectile speeds.",
+   "how_to_use": "Use the output to refresh the catalogue.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "tool",
+    "catalogue"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-defense-probe-crash",
+   "title": "Defence probe run crash on the audio thread",
+   "subject": {
+    "kind": "concept",
+    "id": "d8 crash"
+   },
+   "addresses": [
+    "003A89C5"
+   ],
+   "related": [
+    "sub_3A89C5"
+   ],
+   "fact": "The defence probe run d8 crashed once at t = 96.8 s on the audio thread, when DSOUND sub_3A89C5 read APU MMIO 0xFE000268. This is outside the defence code and was seen once in 14 runs.",
+   "how_to_use": "Related to the XACT freeze work.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "crash"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-player-killed-human-scores",
+   "title": "Targeting and the scoreboard leader",
+   "subject": {
+    "kind": "concept",
+    "id": "scoring"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c"
+   ],
+   "fact": "Bot targeting now weighs the scoreboard leader. The 2026-10-14 CTF Mixed case had a player at 17 kills against a best bot of 7, and the leader weighting was added in response. a player rejected a flat human bias in favour of this approach.",
+   "how_to_use": "Leader focus can be turned off with RECOMP_BOT_LEADER_FOCUS=0.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "combat",
+    "targeting"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-merge-plan-mode-req",
+   "title": "Requirements from 2026-10-13: Grinder limited to exactly one bot; every other mode supports 6v6 (12 players); ",
+   "subject": {
+    "kind": "concept",
+    "id": "mode requirements"
+   },
+   "addresses": [],
+   "related": [
+    "MERGE"
+   ],
+   "fact": "Requirements from 2026-10-13: Grinder limited to exactly one bot; every other mode supports 6v6 (12 players); VTOLs hook and drop power-ups with A and B; BattleArmor can latch onto a VTOL for a ride and must detach when the VTOL takes critical damage; the New River City red-base pass is the only exit from the spawn pocket and Mechs must not walk into the hills.",
+   "how_to_use": "A requirements list, not an implementation status.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "requirements"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-vtol-fetch-idle",
+   "title": "VTOL idle fix",
+   "subject": {
+    "kind": "concept",
+    "id": "fetch idle"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c"
+   ],
+   "fact": "A VTOL carrying a power-up with no mate in reach no longer holds the fetch goal. Lift ride hysteresis was also fixed: the ride goal had flapped every 0.3 s.",
+   "how_to_use": "Fixed in round 9.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "vtol",
+    "fix"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-watchdog-flag",
+   "title": "Watchdog bug with negative time",
+   "subject": {
+    "kind": "concept",
+    "id": "watchdog"
+   },
+   "addresses": [],
+   "related": [
+    "prog_t"
+   ],
+   "fact": "The forced-stall trick used prog_t = now - 100, which is negative before t = 100 and read as unset. Use a flag instead.",
+   "how_to_use": "Fixed.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "bug",
+    "watchdog"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-wedge-detector",
+   "title": "Wedge detector resets only on own shots or movement",
+   "subject": {
+    "kind": "concept",
+    "id": "wedge detector"
+   },
+   "addresses": [],
+   "related": [
+    "wedge detector"
+   ],
+   "fact": "The wedge detector resets only when the bot fires or moves itself. A Mech had stood 50 s holding fire behind a teammate while the others hurt its target, so the fix stops that reset.",
+   "how_to_use": "Friendly-fire guard is RECOMP_BOT_FF_GUARD.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "combat",
+    "fix"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-ff-guard",
+   "title": "Friendly-fire guard",
+   "subject": {
+    "kind": "concept",
+    "id": "ff guard"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_FF_GUARD"
+   ],
+   "fact": "The friendly-fire guard stops bots firing through a teammate's line of fire. ctrl_fight strafes away from a teammate in the line, and tac_firing penalises spots with a teammate in the line.",
+   "how_to_use": "RECOMP_BOT_FF_GUARD gates it.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "combat",
+    "ff"
+   ],
+   "date": "2026-10-13"
+  },
+  {
+   "id": "bots-crash-probe-actor",
+   "title": "Probe actor freed mid-frame",
+   "subject": {
+    "kind": "concept",
+    "id": "g_probe.actor"
+   },
+   "addresses": [],
+   "related": [
+    "probe_live"
+   ],
+   "fact": "g_probe.actor, the first bot, was freed mid-frame when a bot pilot finished boarding a VTOL. ray_cast's filter ran IsKindOf on the freed actor. probe_live now checks the vtable and physics back-links.",
+   "how_to_use": "Fixed 2026-10-14.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "crash",
+    "fix"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-game-thread-deletion-crash",
+   "title": "Open game-thread crash in deferred deletion",
+   "subject": {
+    "kind": "concept",
+    "id": "deferred entity deletion"
+   },
+   "addresses": [
+    "0015D741",
+    "000B5D60",
+    "000B5350",
+    "000B4EF0",
+    "000B6700"
+   ],
+   "related": [
+    "sub_15D741"
+   ],
+   "fact": "A game-thread crash in Rush Hour FFA at t=51 walked a tree whose node was freed memory: sub_15D741 calls sub_B5D60, sub_B5350, sub_B4EF0 and sub_B6700. It was not reproduced in four reruns. The cause is open.",
+   "how_to_use": "Watch in long runs.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "crash",
+    "open"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bots-bfed0-guard",
+   "title": "BFED0 nearest-point guard",
+   "subject": {
+    "kind": "function",
+    "id": "sub_BFED0"
+   },
+   "addresses": [
+    "000BFED0"
+   ],
+   "related": [
+    "ma2_bot_trace"
+   ],
+   "fact": "sub_BFED0 finds the nearest point in a list, and it spun when the count was corrupt. A guard in recomp_0020.c treats a count above 4096 as empty and logs the owner and count as [BOT-TRACE] lines 40 and 41.",
+   "how_to_use": "The root cause is the listener overflow fixed in patch_round7.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "audio",
+    "guard"
+   ],
+   "date": "2026-10-12"
+  }
+ ]
+}

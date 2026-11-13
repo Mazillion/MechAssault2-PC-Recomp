@@ -1,0 +1,2135 @@
+{
+ "pack": "t12_first_pass_research",
+ "title": "Code research, first pass: editor and render details",
+ "facts": [
+  {
+   "id": "m03-burning-barrel-model-and-particle-file",
+   "title": "The Mission_03 burning barrel is the model Env_BarrelDrumFire, whose effect chunk uses the particle file Env_Fire_SM_Loop_01",
+   "subject": {
+    "kind": "asset",
+    "id": "Env_BarrelDrumFire"
+   },
+   "addresses": [],
+   "related": [
+    "Env_BarrelDrumFire",
+    "Env_Fire_SM_Loop_01"
+   ],
+   "fact": "mission_03.mgf lists the model Env_BarrelDrum_Fire.MGMODEL (sub-meshes embers, rubbish, barrel_farm, sign1). Its .mtb references SpecialEffects/Environment/Env_Fire_SM_Loop_01.mgparticle, whose emitters are fire 1-3, smoke (bd_smoke_sm.tif) and sparks. No MAEffect is placed on Mission_03, so the flame and dark smoke column come from the model's own effect chunk. The placed object that uses this model was not decoded.",
+   "how_to_use": "Open: which placed instance uses Env_BarrelDrumFire on Mission_03 (scene data not decoded). In-game trace or decoded object list needed.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "effects",
+    "mission_03",
+    "barrel",
+    "fire"
+   ],
+   "date": "2026-10-24"
+  },
+  {
+   "id": "m01b-highway-lamp-bulb-drawn-at-night-in-game",
+   "title": "The game draws the Env_Highway_Light lightbulb mesh at night on Mission_01b, so the .mtb hide rule does not remove it at run time",
+   "subject": {
+    "kind": "asset",
+    "id": "Env_Highway_Light"
+   },
+   "addresses": [],
+   "related": [
+    "Env_Highway_Light",
+    "Misc_168_LightPost"
+   ],
+   "fact": "On Mission_01b at night (IsNightTime=1, LightsOn=1) the running game draws the lightbulb mesh once per lamp: an opaque material_color_shift draw (texture Misc_168_LightPost, 81043000; 43 vertices; colour C0 255,255,228; writes alpha 0x34), which renders white. So the .mtb MAModSubObjectShow rule (Enable=0, EnableTree=1) does not hide the bulb in the running game under those flags. An Ill Wind 'post only' trace conflicts with this and is unexplained.",
+   "how_to_use": "Open: why the Ill Wind trace shows post only. Check LightsOn and LightsDisabled on that lamp (flag bits are in the wiki).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "lights",
+    "lamp",
+    "mission_01b",
+    "trace"
+   ],
+   "date": "2026-10-24"
+  },
+  {
+   "id": "m03-sky-is-alpha-layer-over-cleared-black-frame",
+   "title": "On Mission_03 the sky is the sky_main alpha layer over a cleared black frame, with no opaque dome drawn",
+   "subject": {
+    "kind": "asset",
+    "id": "sky_main"
+   },
+   "addresses": [],
+   "related": [
+    "Env_Sky_CityNight"
+   ],
+   "fact": "On Mission_03 the game draws the sky_main alpha layer over a cleared black frame; no opaque sky dome is drawn. The sample pixel at game 640,60 of 1280x960 reads 29,27,25.",
+   "how_to_use": "Open: single-pixel sample. Confirm on a second pixel before relying on it. The additive star layer (Sky_034_Stars) on the same map is a separate open question. Caveat: MCP/tracetools runs render at 640x480, so this reference pixel and any thin-detail reading may understate detail at a 3840x1600; confirm at that resolution.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "sky",
+    "mission_03",
+    "trace"
+   ],
+   "date": "2026-10-24"
+  },
+  {
+   "id": "m04-pad-floor-draw-readout-two-detail-textures-trilinear-no",
+   "title": "The Mission_04 pad floor draw uses two detail textures (808D1000 and 80E99000), both trilinear with no anisotropy, mixed by stage constant 7F7F7F7F",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [
+    "Details_010_cracked",
+    "MissionXX_Detail01"
+   ],
+   "fact": "Game trace of the M04 pad floor (block draw 3104941, prog 00021, 3 stages, pixel 480,400 of the 640x480 frame): t0 = 808D1000 128x128 DXT1 (Details_010_cracked), t1 = 80E99000 256x256 DXT1 (Terrain MissionXX_Detail01.tif). Both have filter word 02062000 (min trilinear, mag linear, mip bias 0) and control0 4003FFC0 (aniso 1x, full mip chain 6/7, wrap). Stage constant C0 = 7F7F7F7F (0.5). UV of vertex 0: tex0 15.4844, tex1 1.49805. The colour map is not in this draw.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "terrain",
+    "detail",
+    "mission_04",
+    "trace"
+   ],
+   "date": "2026-10-25"
+  },
+  {
+   "id": "node-light-lightmap-min-color-equals-ground-pool-splat-colou",
+   "title": "A node_light lightmap min_color equals the ground-pool splat colour (M02 trace matches a retail point light exactly)",
+   "subject": {
+    "kind": "property",
+    "id": "node_light lightmap min_color"
+   },
+   "addresses": [],
+   "related": [
+    "gocommando.mgf"
+   ],
+   "fact": "On M02 the traced ground-pool splat colour C0 = 557F7A69 equals the min_color 127, 122, 105 of the 255,245,211 point light in gocommando.mgf exactly. So the lightmap min_color of a node_light is the splat colour C0.rgb. Only one instance was compared, and min equals max in every retail lamp seen, so the lerp between min and max is untested.",
+   "how_to_use": "Open: test a lamp whose min_color differs from max_color before relying on the lerp.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "lights",
+    "lightmap",
+    "mission_02"
+   ],
+   "date": "2026-10-25"
+  },
+  {
+   "id": "m01b-road-complex-slab-two-pass-decode",
+   "title": "The Mission_01b pavement pixel is a MARoad complex road slab drawn in two passes (programs 0A624 and 08C21)",
+   "subject": {
+    "kind": "asset",
+    "id": "MARoad 131795"
+   },
+   "addresses": [],
+   "related": [
+    "MARoad",
+    "80A61000"
+   ],
+   "fact": "Pixel 150,320 of the Mission_01b frame is MARoad 131795, a complex road slab. Pass 1 (program 0A624: t0 PASSTHRU, t1 DOT_PRODUCT, t2 DOT_ST, t3 2D = 512 ground map 80A61000) gives R0 = ((2T0-1).(2V0-1)) x T3.a x C0 (sun 4E3F34) + T3.rgb, then x V1. Pass 2 (program 08C21: t2 CUBE, t3 = framebuffer) gives 2x(T3 x lerp(cube, base, base.a) + multi.g x (.18,18,1) + multi.b x (1,97,31)) + multi.r x T3.a x 0.698. Decoded with rcdec.",
+   "how_to_use": "Open: the sun constant and the ground-map sampling are from one pixel; check on a second road pixel.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "road",
+    "pavement",
+    "mission_01b",
+    "decode"
+   ],
+   "date": "2026-10-25"
+  },
+  {
+   "id": "m04-pad-floor-editor-negatives-not-owned-by-ground-mix",
+   "title": "Three editor paths do not draw the Mission_04 pad floor: ground_mix final lerp, its tile uv scale and the stage-19 detail line",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [
+    "ground_mix"
+   ],
+   "fact": "In the editor, forcing ground_mix final lerp to a constant 0.5, scaling the tile uv by 0.0484 (game uv ratio 10.3) in ground_mix and in the stage-19 line, all give bit-identical M04 pad-shot images. So none of these draws the pad floor. The editor pad shot shows detail0 x colour x light (mean 36,34,35) with colour-map alpha about 1 at the pad. The stage-19 detail1 tile alone is smeared streaks (mean 70,73,68), not the crisp game grid. The owner of the pad floor draw in the editor is unknown.",
+   "how_to_use": "Open: candidates are the layer-array path ginfo.x>1.5, or a different shader or dpar branch. Or trace a game prog-00021 floor on another map. Status: M04 floor OPEN.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "terrain",
+    "editor",
+    "mission_04",
+    "open"
+   ],
+   "date": "2026-10-25"
+  },
+  {
+   "id": "maplight-census-m03-m01b-lightmap-flag-counts",
+   "title": "MAPointLight census of retail Mission_03 and Mission_01b: 18 of 21 M03 lights have LightMap=1 and all 5 M01b lights have LightMap=0",
+   "subject": {
+    "kind": "class",
+    "id": "MAPointLight"
+   },
+   "addresses": [],
+   "related": [
+    "pointlight-ground-splat"
+   ],
+   "fact": "Editor dump of retail data. Mission_03: 18 of 21 MAPointLights have LightMap=1 (LightRadius 60-80 object reach, LightMapRadius 20 ground disc, LightMapColor equal to LightColor); 3 have LightMap=0. Mission_01b: 5 of 5 have LightMap=0 (LightRadius 5-10), one of them LightOn=0. Consistent with the existing pointlight-ground-splat fact. The alpha 0x60 ground disc in the game is not yet re-verified in-game.",
+   "how_to_use": "Open: in-game check of the alpha 0x60 disc on a LightMap=1 lamp (needs a g1 grant).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "lights",
+    "pointlight",
+    "census",
+    "mission_03",
+    "mission_01b"
+   ],
+   "date": "2026-10-25"
+  },
+  {
+   "id": "tracetools-exe-flags-verified-on-m04-and-m09b",
+   "title": "tracetools.exe adds texstate, vertex-csv (with d0 columns) and ctxwrite trace flags; RECOMP_CAM_SET does not yet move the view",
+   "subject": {
+    "kind": "tool",
+    "id": "tracetools.exe"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_FRAME_TRACE",
+    "RECOMP_FRAME_TRACE_PIXEL",
+    "RECOMP_CAM_SET"
+   ],
+   "fact": "The tracetools build (the game source tree pkg, MechAssault 2 tracetools.exe) keeps the texdump4 flags and adds: RECOMP_FRAME_TRACE_TEXSTATE=1 (needs _PIXEL; prints texstate filter, ctl0, levels and uv per covering draw), RECOMP_FRAME_TRACE_VERTICES=prefix with RECOMP_FRAME_TRACE_TEXTURE=tex0 address (per-draw csv with d0r.d0a columns; x,y,z,w are screen-space oPos), and RECOMP_FRAME_TRACE_CTXWRITE=1 (also dumps constant-writing vertex programs). Verified on M04 and M09b (Env_Grass 80DC6000 gave 1056 files). RECOMP_CAM_SET moves the eye field but the 3D scene goes black, so the M05 pose is not yet unblocked.",
+   "how_to_use": "Superseded in part: the pose override (RECOMP_CAM_SET) now WORKS (verified 10-25 on M04, see recomp-cam-set-pose-override-works-m04-verified). The earlier 'scene goes black' statement is out of date. The texstate/vertex/ctxwrite flags stand.",
+   "status": "superseded",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "tools",
+    "trace"
+   ],
+   "date": "2026-10-25"
+  },
+  {
+   "id": "maplight-lightmap-flag-controls-ground-disc-in-game-ab",
+   "title": "In-game A/B on a Mission_03 copy: MAPointLight LightMap=1 paints a bright ground disc plus object light; LightMap=0 gives object light only",
+   "subject": {
+    "kind": "property",
+    "id": "MAPointLight.LightMap"
+   },
+   "addresses": [],
+   "related": [
+    "pointlight-ground-splat",
+    "maplight-census-m03-m01b-lightmap-flag-counts"
+   ],
+   "fact": "In-game A/B on a Mission_03 copy with one authored MAPointLight. LightMap=1 gives a bright ground disc plus object light. LightMap=0 gives object light only. This confirms the ground disc is controlled by the LightMap flag.",
+   "how_to_use": "Open: the disc alpha 0x60 value is still unverified in-game (see the census fact).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "lights",
+    "pointlight",
+    "in-game",
+    "mission_03"
+   ],
+   "date": "2026-10-25"
+  },
+  {
+   "id": "recomp-cam-set-pose-override-works-m04-verified",
+   "title": "RECOMP_CAM_SET=ex,ey,ez,tx,ty,tz[,hfov] forces the human camera pose and the 3D world renders normally from it (M04 verified)",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_CAM_SET"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_CAM_POSE",
+    "RECOMP_CAM_DUMP",
+    "tracetools.exe"
+   ],
+   "fact": "Forces the human camera pose each frame (ma2_cam_build_hook phase 0). The human view (camera+0x200) points at its builder via MEM32(view+0x154) (vtable 0045DDD0, = camera+0x390). The builder state S sits at builder+0x14 (S+0 eye, S+0x10 look vector, S+0x1C up, rows right/up/forward at S+0x28/0x38/0x48, w=0); the camera keeps a copy at camera+0x238. Writing S+0x88. (the derived block) caused the earlier black or garbled scenes, so the fix writes only S and the camera+0x238 copy. Test: eye 1085,70,950 -> 1105.022,37.836,902.622 hfov 60 shows the pad from higher up. Bisect flags: RECOMP_CAM_SET_NO238, RECOMP_CAM_SET_NOCAMFIELDS, RECOMP_CAM_SET_LEGACY (broken). Custom-scenario campaign levels (e.g. M05) have no camera object behind the human view, so [CAM-POSE] falls back to the newest view's builder.",
+   "how_to_use": "Gameplay pose starts at game time ~23-30 s; do not press Enter; the pose does not apply during cinemas.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "camera",
+    "pose",
+    "trace",
+    "tools"
+   ],
+   "date": "2026-10-25"
+  },
+  {
+   "id": "m05-exact-pair-game-vs-editor-measured-regions",
+   "title": "Mission_05 exact pose pair: editor water and foliage are darker than the game, far hills brighter, hex patch matches",
+   "subject": {
+    "kind": "topic",
+    "id": "Mission_05"
+   },
+   "addresses": [],
+   "related": [
+    "Mission_05_layers"
+   ],
+   "fact": "Exact pose recovered in game: eye 1837.115,23.734,238.756, look -0.9647,-0.2249,0.1357, hfov 44 (editor arg 1837.1150,23.7340,238.7560,-0.9647,-0.2249,0.1357,39.20). The game side is the Mission_05_layers scenario (P4 layered copy), so ground may differ by the layers. Measured RGB means, game vs editor: water mid 101,97,103 vs 93,91,96; water right 101,100,104 vs 86,84,85 (editor 8-15% darker); foliage low-left 54,61,59 vs 42,47,29 (editor ~25% darker, yellow-green; game neutral/bluish); far hills 73,72,70 vs 82,81,79 (editor brighter at distance); hex patch 53,53,48 vs 55,55,47 (match). The game also shows ground mist over water and rippled water; the right-edge pylon is visible in the game but cut in the editor (FOV mapping: editor 39.20 for game hfov 44). Refinement: editor retail vs editor-with-P4-layers water boxes are identical (80.5/80.6 mid, 66.5/66.3 right), so P4 is NOT the cause of the water difference. Real water difference vs game: mid 0.92x (game 99,95.5,100 vs editor 90.8,88.6,93.3); right about 1.0 luma but the editor is greener (B/R 0.88 vs 0.94).",
+   "how_to_use": "Open: check the FOV mapping (39.20 vs 44) and the blue/haze term near the ground before judging the foliage gap. Sheet: (game left, editor right).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "m05",
+    "render",
+    "parity",
+    "trace"
+   ],
+   "date": "2026-10-25"
+  },
+  {
+   "id": "p4-layered-ground-exact-pose-quadrant-pair-matches-game",
+   "title": "P4 layered ground matches the game at the exact pose: quadrant seam and layer assignment are identical, region luma within about 15% on slopes",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [
+    "tracetools-exe-flags-verified-on-m04-and-m09b",
+    "recomp-cam-set-pose-override-works-m04-verified"
+   ],
+   "fact": "Same-pose quadrant pair with tracetools-p4.exe and RECOMP_CAM_SET at the exact pose. Program 1 matched; the quadrant seam and the layer assignment are identical between editor and game. Region luma is within about 15% on slopes.",
+   "how_to_use": "Open: the foreground lighting gap (up to 1.4x) is not explained by layers; it belongs to the lighting or fog terms.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "p4",
+    "terrain",
+    "layers",
+    "exact-pose",
+    "trace"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "terrain-lod-band-on-flat-map-fixed-by-micro-fade-bug-b8b3937",
+   "title": "The terrain LOD band on a flat map is gone in master; its cause was the micro-fade bug fixed in b8b3937",
+   "subject": {
+    "kind": "commit",
+    "id": "b8b3937"
+   },
+   "addresses": [],
+   "related": [
+    "terrain-micro-fade"
+   ],
+   "fact": "A band of terrain LOD pop on a flat new map (M03 retail and an UnderCover copy at a player's zoom) no longer appears on master. The cause was the micro-fade bug, fixed in b8b3937.",
+   "how_to_use": "Open: check a player's own zoom on a second map before calling it closed for all maps.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "terrain",
+    "lod",
+    "micro-fade",
+    "focus-p2"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "m05-water-final-pass-decoded-prog-00421-refraction-cube-ligh",
+   "title": "The Mission_05 final water pass (program 00421) mixes tinted refraction with a lit cube reflection, then fog",
+   "subject": {
+    "kind": "topic",
+    "id": "Water"
+   },
+   "addresses": [],
+   "related": [
+    "m05-exact-pair-game-vs-editor-measured-regions"
+   ],
+   "fact": "Decoded from the M05 trace (program 00421): out = fog(lerp(tint x refraction320x240, 2 x cube x light, F x sat(4a))). F = lerp(1.0, 0.769, N.V) (stage constant C0 C4FFFFFF). light = V0 x G.a + G.rgb. V0 = 0.5 x file sun x N.L (0.288 = 0.5 x 0.577, same in all channels). tint = lerp(shallow 137,137,97, deep 100,122,101, T1.a). This is the last of the water's four passes (alpha mask, bump/env reflection, scene-copy refraction, fogged lightmap pass).",
+   "how_to_use": "Open: compare the editor water to these terms (tint ends, F falloff, V0 sun term) to find the 0.92x mid-water gap. The 4a factor and G values are as decoded; check them at a typical resolution.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "water",
+    "m05",
+    "shader",
+    "decode",
+    "focus-p2"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-side-choice-writes-unit-nation-6-5-0-mission-1-2-0-mp",
+   "title": "The editor's Side control writes the unit .Nation property: mission 6 player, 5 enemy, 0 neutral; multiplayer 1 Red, 2 Blue, 0 neutral",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Mission inspector Side (Player's side / Enemy / Neutral) and the Units tab 'Placing for' write .Nation = 6, 5 or 0 on the unit or on units placed next. In multiplayer the Placing-for list is Red team / Blue team / Neutral and writes .Nation = 1, 2 or 0 on turrets and soldiers; the MP inspector Side combo (0/1/2) maps to Nation 1/2/0. The trigger action 'Change a unit's side' writes MAActionNation.Nation (6/5/0, default 5).",
+   "how_to_use": "Open: what apply_unit_side sets beyond Nation (crew and empty flags) is unread. The UX audit wants the mission label 'Player' where the code says Player's side.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 1973
+    },
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 1032
+    },
+    {
+     "file": "editor/src/app/app_tools.cpp",
+     "line": 189
+    },
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 1957
+    },
+    {
+     "file": "editor/src/core/triggers.cpp",
+     "line": 801
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "sides",
+    "nation"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-players-tab-writes-malevelstart-teamindex-0-ffa-1-red",
+   "title": "The Players tab writes MALevelStart.TeamIndex (0 free-for-all, 1 Red, 2 Blue); adding a spawn clones a MALevelStart named Start Point with a new UID",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Players tab Free-for-all / Red / Blue write MALevelStart.TeamIndex = 0 / 1 / 2. 'Add spawn' (multiplayer) clones a new MALevelStart named 'Start Point' with a new UID and the chosen TeamIndex, so a side can have several starts. Mission-mode 'Move player start' changes the position of the one mission start (count in mission mode not verified).",
+   "how_to_use": "Open: the retail count of starts per side is 12 per the wiki while the editor minimum is 6; reconcile in the UX spec.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 608
+    },
+    {
+     "file": "editor/src/core/players.cpp",
+     "line": 200
+    },
+    {
+     "file": "editor/src/core/players.cpp",
+     "line": 217
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "starts",
+    "teamindex"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-game-types-checkboxes-write-mamissiontypegroup-flags",
+   "title": "The Map tab game-type checkboxes write one MAMissionTypeGroup flag per game type (ticked = 1, else 0); with none ticked the editor warns on save",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The Map tab 'Game types' checkboxes save as a flag on the matching MAMissionTypeGroup per type: 1 if ticked, 0 if not. Team types: Team Destruction, Capture the Flag, Base War, Snatch It, Check It, Team Last Man Standing. Free-for-all types: Destruction, Last Man Standing, Not It, Grinder. If no game type is ticked the editor shows a save warning. The editor writes no default-game-type line (the wiki says a missing GameType means TeamDestruction).",
+   "how_to_use": "Open: the game-side reader of the per-type flags is not traced; the ini key for game types was not found.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 172
+    },
+    {
+     "file": "editor/src/core/scenario.cpp",
+     "line": 116
+    },
+    {
+     "file": "editor/src/core/scenario.cpp",
+     "line": 1541
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "game-types",
+    "mp"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-give-orders-writes-maaigroup-maevent-patrol-follow-at",
+   "title": "'Give a unit orders' writes an MAAIGroup named [ed] AI Orders per unit, an MAEvent, and an MAPatrol, MADefend, MAFollow or MAAttack order",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Order Patrol (default): MAAIGroup '[ed] AI Orders' per unit, then MAEvent (TriggerID = the trigger, Priority 2), then MAPatrol plus MAWaypointGroup (WaypointID = first point) and an MAWaypoint ObjPosition per point; needs 2 or more points. Patrol on an existing map path reparents that MAWaypointGroup under the MAEvent. Defend: MADefend.DefendUID (marker or point), radius write unread. Follow: MAFollow.FollowUID, FollowRadius and FollowDefenseRadius = Radius (default 30). Attack: MAAttack.AttackUID plus AttackPlayer (1 unit, 2 player), AttackSet 0. Labels: Patrol along a path, Defend a point, Follow. Attack.",
+   "how_to_use": "Open: the [ed] name prefix conflicts with the north star of no parallel [ed] objects; check whether the game needs it or retail uses plain names.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/core/triggers.cpp",
+     "line": 816
+    },
+    {
+     "file": "editor/src/core/triggers.cpp",
+     "line": 841
+    },
+    {
+     "file": "editor/src/core/triggers.cpp",
+     "line": 885
+    },
+    {
+     "file": "editor/src/core/triggers.cpp",
+     "line": 892
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "orders",
+    "patrol",
+    "ai"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-switch-unit-or-spawner-on-off-writes-maactionai-enabl",
+   "title": "The trigger action 'Switch a unit or spawner on or off' writes MAActionAI.ActionEntity = target, AISet = 0 and EnableAI = 1 or 0; it writes no spawner-specific field",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The action's 'Switch on' checkbox sets MAActionAI.EnableAI (1 or 0) on the picked unit or spawner (ActionEntity = target, AISet = 0). The editor writes no spawner field. The 'Bring in reinforcements' action is not spawner-based (units are placed hidden and asleep).",
+   "how_to_use": "Open: whether EnableAI on a MASpawner sets its Enabled bit needs an in-game trace; which editor path creates a MASpawner (generic Add part?) is not traced.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/core/triggers.cpp",
+     "line": 54
+    },
+    {
+     "file": "editor/src/core/triggers.cpp",
+     "line": 782
+    },
+    {
+     "file": "editor/src/app/app_triggers.cpp",
+     "line": 50
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "spawner",
+    "trigger",
+    "ai"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-road-tool-writes-maroad-roaddefinition-position-rotat",
+   "title": "The road tool writes MARoad.RoadDefinition, RoadPosition (terrain + 0.15 m) and RoadRotation (yaw) into one Placed Roads MARoadGroup under MATerrain; chaining snaps within 30 m",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A palette road piece plus a click writes MARoad.RoadDefinition (the .road path with backslashes, e.g. roads/country/90turn.road), RoadPosition (piece origin; y = terrain height + 0.15 m) and RoadRotation (first float = yaw radians, others 0). All editor-placed pieces go into one MARoadGroup 'Placed Roads' under MATerrain. Chaining joins the next piece to the open end of the previous one (yaw from atan2 difference): 30 m snap radius, 90 m for the last piece. Q/E when snapped picks which end of the new piece joins; unsnapped Q/E turns the heading by 15 degrees. The game reads RoadDefinition at VA 0xD5A19 (documented) and MARoadGroup children in laying order.",
+   "how_to_use": "Open: says one group per road while the code uses one group for all pieces; check the game does not need separate groups for separate roads.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/core/roads.cpp",
+     "line": 89
+    },
+    {
+     "file": "editor/src/core/roads.cpp",
+     "line": 67
+    },
+    {
+     "file": "editor/src/app/palette_search.cpp",
+     "line": 483
+    },
+    {
+     "file": "editor/src/app/app.cpp",
+     "line": 2766
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "roads",
+    "maroad"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-palette-template-click-clones-retail-instance-and-str",
+   "title": "A palette template click clones the retail instance (minus AI, path, objective, event and kill-reference children) under Placed Objects; categories and search aliases only filter the list",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Picking a palette template and clicking clones the retail instance into 'Placed Objects' with its AI, path, objective, event and kill-reference children stripped (full property list not checked). Palette categories (for example Roads and pavement) and the search aliases (pavement, intersection and road-piece terms; country roads sorted first) write nothing to the map; they only filter and sort the list.",
+   "how_to_use": "Open: the UX audit proposes a Roads category and plain piece names; the code still says Roads and pavement.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/core/players.cpp",
+     "line": 262
+    },
+    {
+     "file": "editor/src/app/app_tools.cpp",
+     "line": 186
+    },
+    {
+     "file": "editor/src/app/palette_search.cpp",
+     "line": 133
+    },
+    {
+     "file": "editor/src/app/palette_search.cpp",
+     "line": 201
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "palette",
+    "search"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-object-list-groups-and-helpers-display-only",
+   "title": "The editor's object list (Everything in this map) is display only: objects are grouped by kind, and helpers (triggers, AI paths, markers, lights, cameras, other logic) are listed last",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The section 'Everything in this map' lists every placed object except parts under a root, with a Find box and a count 'N things (M helpers)'. Groups are headed 'Kind (count)', sorted with Water first; groups of 8 or fewer open by default and the list caps at 400 rows. Helpers go last under 'Helpers (not shown in the game)': Trigger areas, AI paths (waypoints), Markers (MADummyObj), Lights (MAPointLight), Cameras and camera paths (MAFreeCamera, MACinema), Other logic (other non-model classes). Roads, water, spawns, crates, effects and flags are drawn by the game and are not helpers. Listing and grouping write nothing to the map file.",
+   "how_to_use": "Open: the 'Show helpers' toggles (key H, one checkbox per group) hide the drawing only; the list still shows helper rows when a group is off.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/water_ux.cpp",
+     "line": 260
+    },
+    {
+     "file": "editor/src/app/app.cpp",
+     "line": 1757
+    },
+    {
+     "file": "editor/src/app/app.cpp",
+     "line": 3215
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "object-list",
+    "helpers"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-object-list-row-click-and-menu-rename-writes-descript",
+   "title": "In the object list a row click selects (Ctrl adds), double-click frames the object, and Rename (F2) writes the object's Description",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Row click selects an object (Ctrl adds to the selection); double-click or 'Show on the map' frames it; neither writes to the map. The right-click menu offers Show on the map, Rename (F2), Duplicate (Ctrl+D) and Delete (Del). Rename writes the Description property when committed; Duplicate and Delete change the map as ordinary edits.",
+   "how_to_use": "Open: the duplicate and delete handlers were not read. The UX audit R7 wants eye, lock and side-colour toggles on rows; none were found.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/water_ux.cpp",
+     "line": 335
+    },
+    {
+     "file": "editor/src/app/water_ux.cpp",
+     "line": 341
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "object-list",
+    "rename"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-side-ring-is-view-only-red-5-blue-6-mission-red-1-blu",
+   "title": "The editor's side ring (two circles under each unit, hidden by H) is view only: Nation 5 red, 6 blue in missions; 1 red, 2 blue in multiplayer; anything else grey",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Two concentric 32-segment circles are drawn on the terrain under each MECH, TANK, VEHICLE, FLYER, TURRET and PERSON that has a Nation field. Radius is max(2, 0.6 x footprint), at least 2.5 x marker scale. Mission colours: Nation 5 (Enemy) red (255,90,90), 6 (Player's side) blue (110,160,255), other grey (200,200,200). Multiplayer: 1 (Red team) red, 2 (Blue team) blue, other grey. The object list shows the same colour as a dot before each unit row. The Nation value is saved (set_nation writes it); the ring and the dot are not saved. The ring answers the audit item that sides were not visible.",
+   "how_to_use": "Open: there is no text label for the ring or a separate toggle other than the helpers key H.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/app.cpp",
+     "line": 2127
+    },
+    {
+     "file": "editor/src/app/app.cpp",
+     "line": 1983
+    },
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 1322
+    },
+    {
+     "file": "editor/src/app/water_ux.cpp",
+     "line": 268
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "sides",
+    "ring",
+    "view-only"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "retail-maaigroup-names-are-plain-ai-orders-and-ai-event-no-e",
+   "title": "Retail MAAIGroup objects are named plain 'AI Orders' (events 'AI Event', numeric suffix for duplicates); no retail name has an [ed] prefix",
+   "subject": {
+    "kind": "class",
+    "id": "MAAIGroup"
+   },
+   "addresses": [],
+   "related": [
+    "MAEvent",
+    "editor-give-orders-writes-maaigroup-maevent-patrol-follow-at"
+   ],
+   "fact": "A dump of every MAAIGroup in 19 mission files plus SPDemoMission found 207 instances. Their name is stored in the Description key 1487300E (editor label Name). Retail uses plain names: 'AI Orders' (118 instances, e.g. Mission_01b), 'AI Orders_00000', 'AI Orders_00001'; events are 'AI Event', 'AI Event_00000'. Duplicates get numeric suffixes. No retail name has an [ed] prefix. No code was found that looks up an MAAIGroup, MAEvent or MAPatrol by name; the catalog describes the name as the label shown in the editor object list. The editor writes the name '[ed] AI Orders'.",
+   "how_to_use": "Recommendation: write the plain name AI Orders (and AI Event) for one-to-one retail parity. Open: whether any generic lookup compares the Description CRC 1487300E at runtime is unchecked in the recompiled code.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/core/triggers.cpp",
+     "line": 817
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "ai",
+    "parity"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-starts-hidden-checkbox-writes-matriggertimer-hidden-a",
+   "title": "The Starts hidden checkbox (commit 50600b8) writes a MATriggerTimer named Hidden at start and a child MAActionShow (ActionEntity = unit, Enable = 0)",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "In the Units inspector, for MAMech, MATank, MAVehicle, MAFlyer, MATurret and MAPerson, ticking 'Starts hidden' reuses or creates a MATriggerTimer 'Hidden at start' and adds a child MAActionShow 'Hide <unit>' with ActionEntity = the unit's uid and Enable = 0. The timer duration is not set by the commit (it relies on the add_trigger_object default). Unticking pushes undo 'starts hidden' and removes every hide action pointing at the unit; the timer stays. The box shows ticked when any MAActionShow with Enable 0 hangs off a MATriggerTimer with TrgTimerDurationSeconds <= 0.01 and targets the unit, so hand-made hiders count too. Ticking also turns on View > Objects the mission shows later so the unit stays visible while editing. The game side follows the retail Mission_05 pattern (a 0-second start timer hides the unit; a later trigger with MAActionShow Enable 1 shows it); that is documented, not runtime-tested here.",
+   "how_to_use": "Open: the default TrgTimerDurationSeconds that add_trigger_object gives a new MATriggerTimer (if not 0 the tick is never detected); whether Enable 1 from a later trigger reveals the unit without a separate AI enable.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 2026
+    },
+    {
+     "file": "editor/src/app/app_triggers.cpp",
+     "line": 544
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "starts-hidden",
+    "maactionshow"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-starting-orders-block-reads-ai-children-and-give-orde",
+   "title": "The Starting orders block (commit 05b294d) reads a unit's MAAIGroup/MAEvent/behaviour children; Give this unit orders writes a timer, MAAIGroup, MAEvent and a patrol or attack behaviour plus a path",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "In the mission Properties panel, non-multiplayer units with Nation != 0 of class MAMech, MATank, MAVehicle, MAFlyer, MATurret or MAPerson get a 'Starting orders' block that lists each order in plain words with an Edit button and 'Give this unit orders.'. It reads the unit's MAAIGroup children, their MAEvent children, the behaviour child (MAPatrol path length, MADefend.DefendUID, MAFollow.FollowUID, MAAttack AttackPlayer/AttackUID) and the trigger's MATriggerTimer duration for 'when the mission starts'. 'Give this unit orders' writes a MATriggerTimer 'Orders: <unit>', an MAAIGroup under the unit if none exists, an MAEvent (Description 'AI Event', then 'AI Event_00000', TriggerID, Priority 2), a behaviour child (MAPatrol, or MAAttack for turrets) and an add_ai_path named '<unit> - patrol path' reparented under the event; then the editor enters point-placing mode. The event names are plain AI Event, matching retail.",
+   "how_to_use": "Open: which property values set_order_kind writes (the diff was truncated).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/app_triggers.cpp",
+     "line": 1
+    },
+    {
+     "file": "editor/src/core/triggers.cpp",
+     "line": 1184
+    },
+    {
+     "file": "editor/src/core/triggers.cpp",
+     "line": 1211
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "orders",
+    "starting-orders"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-player-spawner-is-a-lookup-of-malevelstart-described",
+   "title": "The Player Spawner (commit 05b294d) is only a lookup: the editor treats the MALevelStart whose description is exactly Player Spawner as the player start, else the first MALevelStart",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "player_start_uid returns the MALevelStart whose description is exactly 'Player Spawner', else the first MALevelStart. It is used by 'Move player start', by MAFollow and MAAttack player targets, and for the compiled player reference. The commit creates and names no object. The commit's claim that the game uses the MALevelStart named Player Spawner is not supported by the diff: wiki facts say MAFollow.FollowUID and MAAttack.AttackUID reference the player's MALevelStart, but none say the game reads a description string.",
+   "how_to_use": "Open: does the game read MALevelStart.Description, or only class and UID references? Low confidence that the name matters.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/core/triggers.cpp",
+     "line": 1144
+    },
+    {
+     "file": "editor/src/core/triggers.cpp",
+     "line": 547
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "player-start",
+    "spawner"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-mp-player-starts-block-calls-add-spawn-and-warns-unde",
+   "title": "The multiplayer Player starts block (commit e71e2a8) arms Place Spawn per side and counts MALevelStart.TeamIndex; fewer than 6 per ticked team type triggers an orange warning",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The Units tab for multiplayer maps shows a 'Player starts' block with Red, Blue and Free-for-all buttons, each with a count of MALevelStart.TeamIndex 1, 2 and 0. Clicking arms Tool:PlaceSpawn with the team; placing calls ScenarioIO:add_spawn, which clones a MALevelStart with TeamIndex 0/1/2, Description 'Start Point', y = terrain + 2, heading in StartOrientation, in the 'Red/Blue/Spawn Points' group under 'Team Spawns' or 'FFA Spawns'. Orange text warns when a ticked team type has fewer than 6 Red or Blue starts, or a ticked free-for-all type has fewer than 6 FFA starts; a hint says real maps have about 12 a side (text only). Missions show only 'Move player start' (moves the first MALevelStart, or adds a team-0 start if none exists). The commit adds no remove control; per-side counts are advisory only.",
+   "how_to_use": "Open: which start the game picks for a given player or bot and whether it honours TeamIndex; whether the 12-a-side figure is right for retail (the wiki says 12).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 1016
+    },
+    {
+     "file": "editor/src/app/app.cpp",
+     "line": 3016
+    },
+    {
+     "file": "editor/src/core/players.cpp",
+     "line": 217
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "starts",
+    "mp",
+    "teamindex"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "retail-patrol-field-pattern-maaigroup-maevent-priority-2-way",
+   "title": "Retail patrols use MAAIGroup > MAEvent (Priority mostly 2) > MAPatrol with a sibling MAWaypointGroup; waypoint speeds are 0, 11, 15, 60 or 100; patrolling tanks on M01b start with AI off",
+   "subject": {
+    "kind": "class",
+    "id": "MAPatrol"
+   },
+   "addresses": [],
+   "related": [
+    "editor-give-orders-writes-maaigroup-maevent-patrol-follow-at",
+    "waypoint-traverse-loop"
+   ],
+   "fact": "Retail field check by inspect_wdf on M08, M01b, M03 and M05: the layout MAAIGroup > MAEvent (TriggerID, Priority) > MAPatrol, with the MAWaypointGroup as its sibling, is the same as the editor's. MAEvent Priority is mostly 2 (M01b 25 events, M03 24 events). WaypointSpeed on retail patrol paths is 0, 11, 15, 60 or 100 (M03 uses 0), so 0 is a legal retail value. StayOnPath is 0 or 1; TraverseType is 1 everywhere. Retail patrolling tanks on M01b (9 MATank) start with m_bAIEnabled 0 and are started by Logic or Radius triggers; people have AI 1. The editor's patrol data matches this layout field by field, so no field-level cause was found for a Partisan that does not drive.",
+   "how_to_use": "Open: whether MAPatrol needs the unit's AI on, whether waypoint speed 0 means the unit's own speed, and whether engagement overrides patrol. Suggested proof: an M01b-style MATank or a mech instead of the Partisan, with a 5-second timer.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "how-editor-maps-to-game",
+    "patrol",
+    "ai",
+    "retail-data"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "ai-order-needs-unit-ai-on-editor-patrol-on-an-ai-off-unit-li",
+   "title": "An AI order (MAEvent + MAPatrol) on a unit with m_bAIEnabled 0 does nothing; the unit must be woken with MAActionAI EnableAI 1 (game run)",
+   "subject": {
+    "kind": "class",
+    "id": "MAPatrol"
+   },
+   "addresses": [],
+   "related": [
+    "dormant-units-need-startup-hide",
+    "retail-patrol-field-pattern-maaigroup-maevent-priority-2-way",
+    "editor-give-orders-writes-maaigroup-maevent-patrol-follow-at"
+   ],
+   "fact": "Wiki fact dormant-units-need-startup-hide (verified in game) shows placed units saved with m_bAIEnabled 0 stand with their AI asleep until a trigger runs MAActionShow Enable 1 and MAActionAI EnableAI 1; retail patrolling tanks on M01b have m_bAIEnabled 0 and are started by Logic or Radius triggers. So a patrol needs the unit's AI on, which the editor's Give orders does not currently set (inferred, not tested). Structure: unit > MAAIGroup > MAEvent (TriggerID, Priority) > MAPatrol with the MAWaypointGroup as sibling, same as retail. Not found in code: the dispatcher reading TriggerID and Priority, the meaning of TriggerID 0, and the meaning of WaypointSpeed 0 (float at MAWaypointGroup +0x68, no consumer found). Editor WaypointID = first MAWaypoint uid, retail cinema groups use the last (unresolved). UPDATE: confirmed. An AI order on a unit with m_bAIEnabled 0 does nothing; the unit must be woken by MAActionAI EnableAI 1 (ActionEntity = the unit). Retail M01b patrolling MATanks are all AI-off and are woken by their Logic triggers' 'Entity Enable' actions. The editor now adds a 'Wake <unit>' action with every order.",
+   "how_to_use": "Remaining open: what WaypointSpeed 0 means, what TriggerID 0 means at runtime (common in retail: 12 of 22 missions), whether a hostile target suspends a patrol, and key 2A68614F (0 on every retail patrol). Resolved: WaypointID = first waypoint of the group matches retail (9 of 9).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "how-editor-maps-to-game",
+    "ai",
+    "patrol",
+    "open"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-orders-wake-action-writes-maactionai-enableai-1-entit",
+   "title": "Unit orders (commit 4337abb) also add a Wake <unit> action: MAActionAI with ActionEntity = the unit and EnableAI = 1, under the trigger that starts the order",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "In add_order the editor adds an MAActionAI labelled 'Wake <unit description>' with ActionEntity = the unit UID and EnableAI = 1, parented to the order's trigger. It is added only when the unit has m_bAIEnabled and it is saved as 0, and only if that trigger has no matching EnableAI 1 wake already. Root cause (game run, MEDIUM): an AI order on a unit with m_bAIEnabled 0 does nothing until MAActionAI EnableAI 1 wakes it. The wake runs only when its trigger fires.",
+   "how_to_use": "Open: the commit message's 'three M08 runs' was not verified.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/core/triggers.cpp",
+     "line": 1227
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "orders",
+    "wake",
+    "ai"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-make-it-reinforcements-writes-null-holder-maspawner-1",
+   "title": "'Make it reinforcements.' (commit 8e11eb5, merged in 6f95ef9) writes a NULL holder > MASpawner (Enabled 0, TriggerEnableID, 1 / 1) > the unit; it creates no trigger",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Button 'Make it reinforcements.' with fields 'Arrives when' (trigger), 'How many', 'At once', 'Seconds between'. It writes a NULL holder (template 32093, tmpdev NULL.NODE, invisible, Description 'Reinforcements: <unit>') and an MASpawner child: Enabled 0, TriggerEnableID = the chosen trigger UID (0 until chosen), MaxSpawners 1, MaxActiveSpawners 1, SpawnRate 0, SpawnDelay 0; StartDisabled is not written. The unit is reparented under the spawner. No trigger is created. In game (wiki reinforcements-spawner-pattern, documented): 157 of 167 campaign spawners are Enabled 0 with TriggerEnableID = a trigger UID. A spawn needs the Enabled bit, NumSpawned < MaxSpawners, NumActive < MaxActiveSpawners and time past NextSpawnTime; SpawnRate is the gap (spawner-runtime-offsets, code-confirmed). TriggerEnableID 0 means it never arrives. The default-ten rule (both maxes 0 gives 10) does not apply because the editor writes 1 and 1.",
+   "how_to_use": "Open: which code reads TriggerEnableID at runtime to set Enabled (wiki only, MEDIUM); whether the in-game unit is the placed unit or a copy from the spawner.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/core/players.cpp",
+     "line": 1
+    },
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "spawner",
+    "reinforcements"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-road-piece-roadposition-is-the-piece-start-and-turn-a",
+   "title": "MARoad.RoadPosition is the road piece's start end (its origin); turning a selected piece about its footprint middle (commit 6151cba) rewrites RoadPosition so the middle stays fixed",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Selecting a placed road piece draws a yellow box around its own footprint strip and puts the gizmo at the strip middle; Q/E turn the piece about that middle (0.2618 rad, 1.5708 rad for the larger step). The only extra write is RoadPosition: c + off - R(theta) x off, where off is the half-length along the piece's -Z; Y is unchanged and the heading changes on the root.",
+   "how_to_use": "Open: whether world:set_heading writes RoadRotation yaw for road pieces; the R9 box size from road_w/road_l is unchecked against retail.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/app_tools.cpp",
+     "line": 312
+    },
+    {
+     "file": "editor/src/app/gizmo.cpp",
+     "line": 79
+    },
+    {
+     "file": "editor/src/app/app.cpp",
+     "line": 2849
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "roads",
+    "maroad",
+    "selection"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-roof-placing-uses-model-top-y-only-position-is-writte",
+   "title": "Roof and bridge placing (commit 078631d, G10) moves the placing ghost and the click to the top of a model, so a placed prop takes the roof's Y; only the position changes",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "While placing a prop (not a road, not with Alt), cursor_object_top casts the cursor ray against the top plane of unrotated model boxes at least 1 m above terrain. If the ray enters that top before the ground, the ghost and the click use that point: X and Z from the hit and Y = the roof top. No new property is written; unit side rings are drawn flat at their feet (render only). It uses model boxes, not triangles, and skips pitched or rolled models.",
+   "how_to_use": "Open: whether the game re-snaps props to terrain on load (which would discard the roof Y); which position property the placement writes.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/app.cpp",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "placing",
+    "roof"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "retail-patrol-waypointid-is-first-waypoint-of-the-event-owne",
+   "title": "Retail patrols: the MAWaypointGroup (sibling of MAPatrol under the MAEvent) has WaypointID = its FIRST waypoint; MAEvent.TriggerID is a trigger uid and 0 is common; speed 0 sits beside non-zero speeds",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Retail dump (inspect_wdf on mission_01b and mission_03): MAPatrol itself has no WaypointID; the sibling MAWaypointGroup under the same MAEvent has WaypointID = the FIRST waypoint of its child-sibling chain in 9 of 9 event groups (e.g. 01b group 132506 -> 132504, first of [132504,132505]; 03 group 124214 -> 124215). This matches the editor's convention. MAEvent.TriggerID is the uid of a trigger (MATriggerLogic, Radius, Destroyed, Timer or CuboidalVolume). TriggerID 0 appears in 12 of 22 missions; mission_04 has 24 of 34 events at 0. In mission_01b event 132507 points to MATriggerRadius 130888, which has a child MAActionAI 'Entity Enable'; event 132502 points to MATriggerLogic 132615 with no Entity Enable, so the start trigger is the TriggerID trigger only when it carries the Entity Enable action (MEDIUM, one pair). Patrol-event groups in 01b have speeds 11, 15, 40 (no 0); in 03 all 6 are 0.0; unit-owned groups mix 0 and non-zero for the same class (03 MATank 0.0 x11 vs 4.0 x1), which does not prove 0 means unit default (LOW). An unnamed key 2A68614F is 0 on every retail patrol. COUNT CAVEAT: the catalog counts TriggerID 0 in 47 of 360 retail events (about 13 percent); the researcher's figures '12 of 22 missions' (missions with at least one) and 'Mission_04 24 of 34 events' come from a separate dump and were not cross-checked, so treat 'common' as: present in many missions, a minority of all events.",
+   "how_to_use": "Open: what key 2A68614F is and whether the editor writes it; what speed 0 does at runtime. Command: python inspect_wdf.py mission_01b --output <file> in the bringup folder.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "patrol",
+    "retail-data",
+    "waypoint"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "no-direct-code-reader-found-for-waypointspeed-maevent-trigge",
+   "title": "Code search found no direct runtime reader of MAWaypointGroup.WaypointSpeed, MAEvent.TriggerID or MASpawner.TriggerEnableID (dead ends recorded; the meaning of 0 stays open)",
+   "subject": {
+    "kind": "property",
+    "id": "WaypointSpeed / MAEvent.TriggerID / MASpawner.TriggerEnableID"
+   },
+   "addresses": [
+    "0012ED73",
+    "0012EAF2",
+    "0013270D",
+    "00132C92"
+   ],
+   "related": [
+    "ai-order-needs-unit-ai-on-editor-patrol-on-an-ai-off-unit-li",
+    "retail-patrol-waypointid-is-first-waypoint-of-the-event-owne"
+   ],
+   "fact": "WaypointSpeed (key 4B22EAB8, float at MAWaypointGroup +0x68, catalog offset 136): sub_0012ED73 (read) and sub_0012EAF2 (write) are vtable 0x46FD64 slots 1 and 0, the generic property get and set handlers, with no direct call sites; so the value is reached through the property system and no mover reader was isolated. No 'speed == 0 means default' fallback was found in the patrol or traverse functions. MASpawner.TriggerEnableID (key 0x9758CB1A, +0x80 uint): only reflective and serializer code touches it (sub_0013270D at 0x132E6B read, sub_00132C92 formats and writes, sub_00133DB2 copies); the spawner tick sub_0013321F does not read it, and the code that flips Enabled when the trigger fires was not found. MAEvent.TriggerID (key 0xF3773A85): no runtime reader located; the catalog says 'Starts when' and counts 0 in 47 of 360 retail events. The MAEvent functions sub_000D44AE to sub_000D46B1 in recomp_0021.c were listed but not checked.",
+   "how_to_use": "Open: settle with an in-game trace (log on 0x12EF62 and the patrol step with a speed-0 patrol such as an M03 unit; or trace which trigger-fire code scans spawners by uid).",
+   "status": "open-question",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "how-editor-maps-to-game",
+    "patrol",
+    "spawner",
+    "open"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-palette-only-objects-that-fit-this-maps-look-hides-ot",
+   "title": "The palette checkbox 'Only objects that fit this map's look' (S13, default on) hides objects that come from other levels; it is a UI setting, not saved to the map",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "An object counts as 'other level' unless its template uid is in the culled set of the map's base level, or its archive list includes the map's base archive. With the box on, such objects are hidden; 'Show objects from every level' lists them in amber with the tooltip 'from another level (adds to the load size)', and the Properties panel warns that the game loads their files too. The checkbox is a UI bool (app.h default true); no save path references it (found by grep, MEDIUM).",
+   "how_to_use": "Open: whether the choice affects the game's load set at runtime (the warning says the game loads the other level's files).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 1122
+    },
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 1217
+    },
+    {
+     "file": "editor/src/app/app.h",
+     "line": 366
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "palette",
+    "other-level"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-new-palette-pick-faces-the-camera-heading-from-view-c",
+   "title": "A new palette pick (P7) takes its heading from the camera's view-centre ray, place_heading_ = atan2(rd.x, rd.z); set_heading writes CorporalHeading, StartOrientation or VolumeHeading (RoadRotation for roads)",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Picking a new palette template sets place_heading_ from the camera's view-centre ray, replacing the last drag-aimed heading; Q/E and Shift still turn it, and placed objects take this heading. set_heading writes the first of CorporalHeading (degrees), StartOrientation (radians, wrapped to 0-2 pi) or VolumeHeading (degrees) that the object has; road pieces use RoadRotation.",
+   "how_to_use": "Open: which heading key each placed class (unit, spawn, pad) actually gets.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 1292
+    },
+    {
+     "file": "editor/src/core/scenario.cpp",
+     "line": 156
+    },
+    {
+     "file": "editor/src/core/scenario.cpp",
+     "line": 182
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "placing",
+    "heading"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-mp-bot-sliders-plus-you-are-launch-only-bots-rvb-skil",
+   "title": "The multiplayer 'Red bots (plus you)' and 'Blue bots (plus you)' sliders (P8) are editor-only test settings passed in the launch command (--bots RvB --skill N), not saved in the map",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The sliders set the editor-only test_red_ and test_blue_ values (defaults 2 and 3). The '(plus you)' suffix goes on the team with fewer bots, with no suffix on a tie; a line reads 'You join Red: N against M with you.' The values are passed only in the launch command (--bots RvB --skill N) and the start message; no map-file property is written.",
+   "how_to_use": "Open: the game-side parse of --bots and --skill was not found in the searched source (it lives in the bots tree); how the game applies it is unconfirmed.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 726
+    },
+    {
+     "file": "editor/src/app/app.cpp",
+     "line": 1561
+    },
+    {
+     "file": "editor/src/app/app.cpp",
+     "line": 1598
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "bots",
+    "mp",
+    "test-launch"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "retail-water-depth-under-type-map-cells-shallow-0-to-2-m-dee",
+   "title": "How deep retail water is where the type map says wade (8) or deep (16): shallow cells are about 0.3-2 m under the surface (flat MP lakes 2.9-4.4 m), deep cells 2-8 m",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Measured on all 15 campaign worlds and 15 multiplayer worlds with MAWater planes: for every type-map cell with bit 8 / 16 / 32 inside a plane, depth = plane CorporalPos.y minus the bilinear terrain height (8-bit height field, TerrainMinHeight.MaxHeight). SHALLOW (8): median 0.3-1.2 m and 90th percentile <=1.6 m on nearly every map: Bogged Down swamp median 0.9 / p90 1.2 / max 1.7; Mission_07 1.0 / 1.3 (max 5.0); New River City 1.2 / 1.6 (max 2.3); Mission_06a 0.3 / 1.1; Mission_14 0.7 / 1.4 (max 4.6); Mission_11a 0.8 / 2.5 (max 4.0). Flat-bottomed MP lakes are deeper but uniform: No Man's Land 2.9 m, Troubled Waters 4.4 m. DEEP (16, campaign only): Mission_01b night harbour 8.1 m, Mission_02 median 5.9 (p10 2.9), Cinema_1_3 5.9, Mission_11a median 4.7 (p90 6.8), Mission_14 median 2.2 (p90 4.1), Mission_06a 1.9. WATERWAY (32): median 0.6-1.2 m, p90 <=1.4 on most worlds. So retail never has an 8-marked wading cell deeper than about 4.4 m (typical <2 m) and puts bit 16 only where the water is deeper than about 2-3 m. The game does not read a depth to decide wading: gameplay water is the type-map bit plus the MAEnvironment per-type values (Speed / Damage / Cooling / 'Mech may enter' / Pilot in - shallow, deep, waterway). The editor's default dig makes a 200x120 lake ~8 m deep at the middle with every cell below the surface marked 8 (water_ux.cpp dig_water_basin: depth = min(pond_depth_ 8, max(1, 0.3 x shorter half side))), 2-4x the deepest retail shallow water; in game the on-foot pilot walks out of the start, sinks fully under the surface and the camera sits at the waterline.",
+   "how_to_use": "Use for the c3 water owner: a wadable lake should dig 1-2 m (retail median 0.9-1.2 m, p90 <=1.6; 2.9-4.4 m exists only as flat MP lakes) or be warned/capped. Visibility trade-off: the editor comment says shallow water is faint in the game (thickness alpha ~ vertical depth/4, medium, see water-thickness-alpha-samples), which is why pond_depth_ starts at 8. Open: no game code was found that drowns, slows or pushes out a pilot below the surface (the pilot follows the terrain bed; no swim state found); what bit 16 does for an on-foot pilot (Pilot in - deep water: 1.0 x51, 100.0 x11, 0.0 x3, 10.0 x1 in the catalog, meaning unconfirmed) is untested; planes overlapping a larger plane (OverFalls pool 7.5 m) and a few negative depths come from cells outside the assumed plane extent (model size from the template name 1000/500/250).",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "editor/src/app/water_ux.cpp",
+     "line": 197
+    },
+    {
+     "file": "editor/src/app/app.h",
+     "line": 471
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "water",
+    "type-map",
+    "pilot"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-pickups-palette-weapon-upgrades-first-and-plain-names",
+   "title": "Pickups palette (G-c, d793a3a): weapon upgrades first, then the bomb, armour repairs by tonnage, the data core last; plain names such as 'Armor repair (15T)'. It changes the palette label and order only, not the placed object",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "palette_name renames MAPowerUp templates through pickup_plain_name: 'Armor (nT)' -> 'Armor repair (nT)' (PowerupArmor 786.2000 for 15T.100T), 'Energy/Ballistic/Missile Weapon' -> '. weapon upgrade' with '(small)' for the small variant, 'Data Core' -> 'Data core (mission objective)'; the game template name stays in brackets and the tooltip. palette_sort_key sorts all MAPowerUp templates together under 'pickup': rank 0 weapons, 1 bomb, 2 armour by tons, 3 data core. Placing one still writes the same template (TemplateID) as before, so the map file and the game are unchanged. Known leftover: duplicate rows with the same plain name (2x each weapon upgrade, 2x Armor 50T) are not told apart yet.",
+   "how_to_use": "Open: the two duplicate-name rows per weapon / 50T armour (different template ids, same label).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 969
+    },
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 981
+    },
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 997
+    },
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 1299
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "palette",
+    "pickups"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-player-starts-ready-or-needs-work-per-ticked-game-typ",
+   "title": "Sides & Units > Player starts shows one line per ticked game type: green 'Ready: <type>' or amber 'Needs work: <type>'; hover lists what is missing. It is the Check scenario list filtered to that type (c2918fd)",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "For every ticked game type (s.types), the line takes the Check scenario errors (level 2) whose text starts with the type's label and shows them as the tooltip; no such error = Ready. validate runs at most twice a second. The checks come from validate in scenario.cpp, per ticked type, counting only objects active in that type (inside MAMissionTypeGroups whose flag for the type is non-zero): team types (Team Destruction, Capture the Flag, Base War, Snatch It, Check It, Team Last Man Standing) need >= 6 MALevelStart with TeamIndex 1 (Red) and >= 6 with TeamIndex 2 (Blue); free-for-all types (Destruction, Last Man Standing, Not It, Grinder) need >= 6 with TeamIndex 0; extra objects per type (mode_requirements): CTF needs an MAFlagCTF (and one for each team: description containing red / blue), Snatch It needs MASnatchItBase and MASnatchItDataCore, Base War needs MAObjectiveType and objectives 0 (Red power plant) and 1 (Blue); spacing warnings (level 1, not part of Ready): two spawns within 3 m, enemy-team spawns within 60 m. It replaces the old fixed text 'Team game types need at least 6 Red and 6 Blue starts'.",
+   "how_to_use": "Open: the 6 per side minimum is the editor's rule (retail maps have about 12); the game-side parse of the game-type flags is still unread.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 1153
+    },
+    {
+     "file": "editor/src/core/scenario.cpp",
+     "line": 1404
+    },
+    {
+     "file": "editor/src/core/scenario.cpp",
+     "line": 1547
+    },
+    {
+     "file": "editor/src/core/scenario.cpp",
+     "line": 1559
+    },
+    {
+     "file": "editor/src/core/scenario.cpp",
+     "line": 1581
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "players",
+    "game-types",
+    "check-scenario"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-automation-dialogs-answers-please-confirm-popup-and-s",
+   "title": "Two small master 2f804ff changes: automation 'dialogs' yes/no now also answers the in-editor 'Please confirm' popup; the Side combo shows 'Other (nation N)' for a nation outside its list. Neither changes the saved map",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The in-editor 'Please confirm' popup (Delete trigger.) is ImGui, not a native dialog, so automation could not answer it. answer_confirm(yes) sets confirm_answer_ (1 yes / 2 no) that the popup applies on its next frame and returns the popup text, which the automation reply reports as last_question (936c1f2). Inspector Side combo: for multiplayer turrets and persons the list is Red team (Nation 1), Blue team (2), Neutral (0); for mission units Player's side (Nation 6), Enemy (5), Neutral (0). Any other Nation value (for example Nation 1 on a mission copy, written by a --place @1 developer flag) shows as a fourth entry 'Other (nation N)' instead of a blank box; choosing a listed side writes Nation, the 'Other' entry writes nothing.",
+   "how_to_use": "Open: none (editor UI/test tooling only).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/app.cpp",
+     "line": 320
+    },
+    {
+     "file": "editor/src/app/automation.cpp",
+     "line": 538
+    },
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 2712
+    },
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 2730
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "side",
+    "nation",
+    "automation"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-retail-reach-results-2026-10-26-rows-6-45-game-proven",
+   "title": "Re-run 10-26 on 936c1f2: #17 PASS (a fresh Mission_03 copy lists its objectives; copies saved before 01c1583 s",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Re-run 10-26 on 936c1f2: #17 PASS (a fresh Mission_03 copy lists its objectives; copies saved before 01c1583 still show none), #20 PASS (voice line in the main action list), #27 PASS (swap sets under collapsed Advanced), #31 PASS in the editor (Place water marks water ground, overlay blue) but PARTIAL in game (the default basin is ~8 m deep and the pilot sinks, see retail-water-depth-under-type-map-cells.), #34 PASS (Terrain > Plants), #41 PARTIAL (Environment tab has Day/Evening/Night + look combo, still no sky picture previews, c2 pending). Side finding for c3: retail actions '[text omitted]' / '[text omitted]' show 'Unit: (none)' (set/class targets the row cannot name).",
+   "how_to_use": "Open: #37 roads as AI path nodes unverified; #41 previews; the 'Unit: (none)' display.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "retail-reach",
+    "water"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-patrol-waypoint-group-traversetype-1-runs-the-route-o",
+   "title": "MAWaypointGroup TraverseType decides whether an editor patrol repeats: 1 drives the route once and the unit stands at the last point, 2 keeps looping (game-observed); editor 'Loop the route' (eff7b03) writes 2",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A 0 s MATriggerTimer order trigger fires at mission start, so the order begins at once; the ally did not aggro. The editor default was 1, so new patrols ran once; eff7b03 makes new routes write TraverseType 2 and adds a 'Loop the route' checkbox in the order view. Retail patrol groups in the wiki all show TraverseType 1 (see retail-patrol-field-pattern.), so retail patrols presumably get their repeat from another mechanism (unchecked).",
+   "how_to_use": "Open: what other mechanism makes retail TraverseType 1 patrols repeat (or whether they do); the meaning of other TraverseType values.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "orders",
+    "patrol",
+    "waypoints"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "ai-on-hostile-unit-with-no-ai-group-engages-the-player-by-it",
+   "title": "A unit with Nation 5 (enemy) and m_bAIEnabled 1 and NO AI group engages the player on its own within about 10 s of mission start; with m_bAIEnabled 0 it stands inert",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The same unit with m_bAIEnabled 0 stands inert (earlier runs). So the default engage behaviour comes from the unit's own AI switch and its Nation, not from an order; orders (MAAIGroup > MAEvent > MAPatrol.) only add behaviour on top and need the unit's AI on (see ai-order-needs-unit-ai-on.).",
+   "how_to_use": "Use for the editor: units placed for Enemy need AI enabled ON to fight. Open: whether retail enemy units placed idle are AI-on by default per class.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "orders",
+    "ai",
+    "sides"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-unit-placed-for-a-side-in-a-mission-writes-m-baienabl",
+   "title": "A unit placed from the palette for a side in a mission now gets m_bAIEnabled 1 (717af5f); before, it kept the template's AI-off and stood inert. Not done in multiplayer or for side-less placements",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "place_object (app_tools.cpp) calls apply_unit_side, then, when the document is a mission (not multiplayer), place_side_ is not 0 and the unit has m_bAIEnabled, sets m_bAIEnabled 1. Reason: retail unit templates are mostly saved AI-off (asleep until a trigger wakes them, e.g. M01b tanks), so an enemy placed in a mission stood still while the inspector said it 'fights whatever comes close'. Game run: enemy Manticore from a palette click with no orders moves, aims and fires missiles at the player (see ai-on-hostile-unit-with-no-ai-group-engages-the-player-by-itself-runtime-observed). The unit's Starting orders summary now says 'None, and its AI is off: it stays still and does not fight. Tick AI enabled below, or give it orders (they switch its AI on)' for AI-off units (orders add a Wake action, see the wake-action fact).",
+   "how_to_use": "Open: multiplayer placements keep the template value (the MP game starts bots separately); whether neutral (side 0) units should stay asleep is by design.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/app_tools.cpp",
+     "line": 254
+    },
+    {
+     "file": "editor/src/app/app_triggers.cpp",
+     "line": 338
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "units",
+    "ai",
+    "sides"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-check-scenario-warns-on-patrol-route-with-fewer-than",
+   "title": "Check scenario warns 'its patrol route has N point(s), so it will not move' for a MAPatrol whose MAWaypointGroup has fewer than 2 MAWaypoints; routes with no group at all are left alone",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "validate walks every MAPatrol, finds the event's waypoint group (order_path) and counts the MAWaypoint children; if the group exists and has <2, it adds a level-1 warning naming the unit, linking to it. A patrol with no group is skipped because retail Mission_01b has such patrols (e.g. 'tank at wall (was raptor)'), so a fresh M01b copy shows no false warnings. Fix text: open the unit's orders on the Triggers tab and press Draw on map (2 or more points). Why 2: a 1-point route has nowhere to go; with TraverseType 1 a 2-point route is driven once, with 2 it loops (see the TraverseType fact).",
+   "how_to_use": "Open: what retail does with its empty-group patrols (they are probably AI-off tanks woken by Entity Enable and given routes elsewhere).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/core/scenario.cpp",
+     "line": 1558
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "orders",
+    "patrol",
+    "check-scenario"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-water-dug-basin-defaults-to-1-4-m-so-a-pilot-wades-de",
+   "title": "Place water + Dig a basin now digs about 1.4 m (kWadeDepth) so an on-foot pilot wades through (game-proven g3); the 'Deep (only 'Mechs can wade)' tick restores up to 8 m. This follows the retail depth measurement",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "water_ux.cpp dig_water_basin keeps depth = min(pond_depth_, max(1, 0.3 x shorter half side)) and then caps it at kWadeDepth 1.4 m unless water_new_deep_ is ticked (then up to the deep-lake depth, 8 m). The cap was proven on g3: the pilot wades. The type-map write is unchanged: every playable cell below the surface gets value 8. Ticking Deep keeps 'Mechs able to walk through; the pilot goes under.",
+   "how_to_use": "Open: what the game does with an on-foot pilot in value-16 cells (editor does not write 16); shallow water is faint at 1.4 m (thickness alpha ~ depth/4), so tint/colour matters more than depth for visibility. SUPERSEDED by editor-water-dig-1-2-m-default-deep-lake-4-m-cells-deeper-than-1-6-m-marked-16 (master 6b60820).",
+   "status": "superseded",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "editor/src/app/water_ux.cpp",
+     "line": 254
+    },
+    {
+     "file": "editor/src/app/app.h",
+     "line": 452
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "water",
+    "pilot",
+    "type-map"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-water-ground-follows-the-water-track-water-ground-27f",
+   "title": "The type-map water ground (value 8) now follows each water object: moving, resizing, re-levelling or deleting a water returns the cells it no longer covers to plain ground and marks the new footprint (27ff6ab)",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "track_water_ground runs every frame: it keeps each MAWater's last footprint (centre, width, length, heading, oval) in water_feet_; when one changes or disappears, the type-map cells (value 8) of the old footprint that the water no longer covers are cleared to 0 and the new footprint is marked with mark_water_ground (cells whose ground lies below the surface). Before, a moved or deleted water left an invisible wading area behind. Skipped on read-only documents and maps without a type map.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/water_ux.cpp",
+     "line": 162
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "water",
+    "type-map"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "custom-mission-cutscene-timer-0-s-never-shows-use-1-s-game-p",
+   "title": "In a custom mission a MATriggerTimer set to 0 s that fires MAActionActivateCinema never showed its cutscene in game; 1 s does (g3 run). The editor's 'Play at mission start' and the intro template now write TrgTimerDurationSeconds 1 and TrgTimerDuration 1/60",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Fix 759a3f9 (app_cutscenes.cpp 'Play at mission start'; app_triggers.cpp 'Play the intro cutscene when the mission starts'): the new MATriggerTimer gets TrgTimerDurationSeconds 1 (and TrgTimerDuration 1/60), then an MAActionActivateCinema with cinemaID = the cutscene. Proven on g3: with 1 s the intro shows. Retail 0 s timers do work for other actions in the same game (the 0 s 'Starts hidden' timer and the 0 s patrol-order timer fire at start), so the cinema case is special: probably the cinema system is not ready on the first tick (cause unconfirmed).",
+   "how_to_use": "Open: why a 0 s timer's cinema does not show (cinema start before the first frame?); retail M-levels' own intro triggers use what delay?",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "editor/src/app/app_cutscenes.cpp",
+     "line": 197
+    },
+    {
+     "file": "editor/src/app/app_triggers.cpp",
+     "line": 810
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "cutscenes",
+    "triggers",
+    "timer"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-unit-ai-starts-on-checkbox-check-warns-on-foot-start",
+   "title": "(1) 'AI starts on' (1d30f80), shown for mission units with Nation != 0, writes m_bAIEnabled 0/1; unticked unit",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "(1) 'AI starts on' (1d30f80), shown for mission units with Nation != 0, writes m_bAIEnabled 0/1; unticked units stay still until a trigger wakes them, orders add that wake (see the wake fact). (2) Check scenario (2bcbf25), multiplayer only: if the chosen start is 'on foot' (start_choices kind 0) and no MASpawner has a MAMech / MATank / MAFlyer / MAVehicle child, it warns '[text omitted]' (real maps have 2-4 per team). (3) Map tab (706aca8): ticking a game type later calls add_missing_spawns (same helper as New map) in the same undo step and says so in the status line; flags/bases come from Sides & Units > Add <type>. Also in a7768b5, display-only: vehicle pads (teal 'Pad: Atlas') and power-ups (yellow) get ground rings and labels, H hides them; player turrets moved from Vehicles to Turrets; CTF and Snatch It objects are hidden from mission palettes.",
+   "how_to_use": "Open: none for the writes; the on-foot start check relies on the start choice list (kind 0).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 2983
+    },
+    {
+     "file": "editor/src/core/scenario.cpp",
+     "line": 1780
+    },
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 197
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "units",
+    "ai",
+    "check-scenario",
+    "game-types"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-mp-vehicle-pad-is-stand-maspawner-vehicle-spawner-val",
+   "title": "A multiplayer vehicle pad = MACorporeal stand (template 32093 NULL) > MASpawner > the 'Mech/vehicle; no Nation. Retail pad spawners: MaxSpawners 0, MaxActiveSpawners 1, SpawnRate 11 s (45 s on 60), SpawnDelay 0, CountJackedAsKilled 0, Enabled 1; the editor's pad spawner uses the same values",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Pads carry no team/Nation: any side may board. Per maspawner-spawn-rules a new vehicle appears only while NumActive < MaxActiveSpawners (1) and time is past NextSpawnTime (SpawnRate 11 s after the last spawn); a cap of 0 means unlimited.",
+   "how_to_use": "Open (MEDIUM): whether a pad refills after its vehicle is boarded or only after it is destroyed. Evidence: pads leave CountJackedAsKilled (spawner flag bit 0x20) at 0, while the campaign reinforcement spawners set it to 1, which suggests a jacked/boarded vehicle does NOT free the pad's active slot (it refills on destruction); who decrements NumActive (+0x9C, touched at 0x157CD0) is still unread. A game test with a boarded Atlas would settle it.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "editor/src/app/../core/players.cpp",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "pads",
+    "mp",
+    "spawner"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-new-circle-reinforcement-d5-proven-in-game-spawner-en",
+   "title": "D5 'one reinforcement model' is game-proven: an editor circle path writes a spawner Enabled 0 with TriggerEnableID = a MATriggerRadius (r 30); the unit arrives when the player enters the circle (A/B run)",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Run on g1 (c1-proof.md): a unit's 'Arrives: when the player enters a new circle' creates an MATriggerRadius (EncounterRadius 30) and wraps the unit as NULL > MASpawner (Enabled 0, TriggerEnableID = the radius trigger uid, MaxSpawners 1, MaxActive 1); with the circle entered the unit arrives, with the trigger removed it does not. This is the same retail pattern B (157 of 167 campaign spawners) as 'Make it reinforcements', now with a circle as the trigger (0d32dff).",
+   "how_to_use": "Open: TriggerEnableID's runtime reader is still not found in code (the effect is proven by behaviour only).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "reinforcements",
+    "spawner",
+    "triggers"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-attack-order-give-up-after-is-maattack-attacktimeout",
+   "title": "An editor 'Attack a unit' order with the class-default 'Give up after' 3 s (MAAttack AttackTimeout, key FCFD971B) makes the unit fire ONE volley and stop; 9999 keeps the fight going. New editor Attack orders write 9999 ('Keep attacking until the target is gone')",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Runtime-observed: ally Manticore with MAAttack AttackUID = an AI-off enemy Manticore, AttackPlayer 1, AttackTimeout 3.0 -> one PPC volley, then it stops; the enemy is unharmed 45 s later. The same map with AttackTimeout 9999 -> several volleys, hits, the enemy fires back, both leave the view by ~66 s. Catalog (retail dump of 89 MAAttack behaviours): AttackTimeout float at MAAttack serializer +96 = runtime object +0x80 (loader sub_000D49C6, write sub_000D48C0), class default 3.0, retail values 3.0 x47, 6.0 x11, 9999 x8, up to 99999 (11 distinct); label 'Give up after', tooltip '[text omitted]'. So retail mostly uses SHORT timeouts (a burst, then the unit goes back to its other orders / re-evaluates), and only 8 behaviours say 'never give up'. Editor: new Attack orders write AttackTimeout 9999; the Orders view shows the checkbox 'Keep attacking until the target is gone' (off writes 3 and shows 'Stop attacking after (s)', a float field on the same key). Attack-the-player (AttackPlayer 2) by an ALLY (nation 6) fired one shot at the start, no damage seen (PARTIAL, LOW).",
+   "how_to_use": "To make a unit fight to the end write 9999 (the editor default); to copy a retail 'burst then back to patrol' feel use 3-6 s. Defend and Follow have no timeout field. UPDATE: the runtime reader is sub_001854C5 (see attack-order-target-chooser-sub-001854c5.); older note: the per-frame reader was not found (the load site sub_000D4941 at recomp_0022.c:309 reads +0x60 as a float and the setter sub_000D482C stores it; the copy function at 0xD4A32 does NOT copy it; the catalog code.offset 128 is wrong, +0x60 = 96 matches its own evidence text; the MAAttack vtable 0x466618 has no tick, so the runtime owner is probably an MABehavior/AI-group update); whether it counts from the order start or each shot and what the unit does on expiry is only known from the game run (stops after one volley); the editor's 'Keep attacking' default differs from retail's modal value 3 s on purpose.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "editor/src/core/triggers.cpp",
+     "line": 1284
+    },
+    {
+     "file": "editor/src/app/app_triggers.cpp",
+     "line": 1474
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "orders",
+    "attack",
+    "ai"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-defend-and-follow-orders-proven-in-game-madefend-defe",
+   "title": "Defend and Follow orders written by the editor are game-proven: a MADefend unit drives to its DefendUID marker and holds; a MAFollow ally re-joins the player after the player moves away",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Runtime-observed on g1 with the --add-order proof flag: DEFEND: ally Manticore at 40 m ahead / -30 m side, MADefend DefendUID = a NULL marker object placed 40 m ahead / +30 m side; the tank drives to the marker and stays there. FOLLOW: MAFollow ally (FollowUID = the player's start, retail pattern 'MALevelStart for the player') sits beside the player at the start, is out of view after the player moves left for 7 s, and ~8 s later drives back into view. Catalog fields: MADefend DefendUID (+88, marker; retail 33 distinct) + Radius (+92, default 100 m, retail 10-250); MAFollow FollowUID (+88 area, catalog note: an MALevelStart for the player; retail 10 distinct values, top 115116 x12 and 0 x12), FollowRadius 'Follow distance' (default 50 m, retail 10-200) and FollowDefenseRadius 'Fight radius' (default 100 m). With the patrol (TraverseType 1 stops at the last point, 2 loops) and Attack proofs, all four editor order kinds (Patrol, Defend, Attack a unit, Follow) now work in game when the unit is awake (m_bAIEnabled 1).",
+   "how_to_use": "Hint: when testing Follow on M08, drive back/sideways, not forward - driving forward from the M08 start sets off the Spider Boss cinema/fight. Open: Attack-the-player by an ally (one shot, no damage) is only a partial proof.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "editor/src/app/app_triggers.cpp",
+     "line": 1471
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "orders",
+    "defend",
+    "follow",
+    "ai"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-water-dig-1-2-m-default-deep-lake-4-m-cells-deeper-th",
+   "title": "Dug water basins now default to 1.2 m (kWadeDepth); the 'Deep lake ('Mechs only)' tick digs up to 4 m (was 8 m); ground more than 1.6 m under the surface is written as type-map 16 (deep water) instead of 8 (wade), as retail does",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "4: 1.2) and each playable cell below the surface gets Special (8) when the water is <= 1.6 m above the ground and DeepWater (16) when deeper; the Boundaries overlay has a darker-blue legend entry 'Deep water: too deep to wade on foot (Deep lakes)'. Water ground tracking (edc874c) only clears cells under the OLD surface, so retail marks on higher ground stay. This follows the retail depth fact (shallow 8 cells median 0.3-1.2 m, p90 <= 1.6 m; flat MP lakes 2.9-4.4 m; deep 16 cells 2-8 m on campaign maps).",
+   "how_to_use": "Open: what the game does to an on-foot pilot in a 16 cell is still untested (MAEnvironment 'Pilot in - deep water' values 1.0 x51, 100.0 x11, 0.0 x3, meaning unconfirmed); no drown/swim code found.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/water_ux.cpp",
+     "line": 156
+    },
+    {
+     "file": "editor/src/app/water_ux.cpp",
+     "line": 255
+    },
+    {
+     "file": "editor/src/app/app.h",
+     "line": 472
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "water",
+    "pilot",
+    "type-map"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-game-type-kit-copies-flags-and-bases-next-to-the-team",
+   "title": "Ticking a game type (CTF etc.) on a map copies that type's kit (flags, bases: MTG groups with the type flag) from a real level; a team that already has 6 MALevelStart spawns gets NO spawns copied, and the copied pieces are moved next to that team's own spawns instead of the source level's positions",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "scenario.cpp add_mode_kit (780-): counts this map's MALevelStart per TeamIndex (have[]), skip_spawns = team game ? have[1] >= 6 && have[2] >= 6: have[0] >= 6; averages each team's spawn centre (home[]) and the source level's (src_home[]); each copied MTG group is shifted from the source team's ring to this team's ring. e28dbfd: New map / game-type tick now adds the spawn ring FIRST, then the kit; before that fix the kit kept the source level's 12 spawns a side (+6 from the ring = 18) and left flags/bases at the source positions. add_type_kit is shared by Create and the Map tab tick, so ticking CTF later adds its flags too (app_tabs.cpp:3327).",
+   "how_to_use": "This is the editor side of the open 'retail starts per side 12 vs editor 6' question: copied retail kits carry 12 spawns a side; the editor deliberately stops at 6 a side (the ring) and drops the copies. Open: which MALevelStart the game picks per player/bot is still unread.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/core/scenario.cpp",
+     "line": 780
+    },
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 3327
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "game-types",
+    "spawns",
+    "mp"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-vehicle-pad-fields-vehicles-in-total-on-the-map-at-on",
+   "title": "Vehicle pad inspector: 'Vehicles in total' = MASpawner MaxSpawners, 'On the map at once' = MaxActiveSpawners, 'Seconds before a new one' = SpawnRate; the game spawns when Enabled and NumSpawned < MaxSpawners and NumActive < MaxActiveSpawners and now > NextSpawnTime, and a cap of 0 skips its check - but BOTH caps 0 means MaxSpawners 10",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Game (wiki maspawner-spawn-rules + spawner-runtime-offsets, code-confirmed): the spawner tick sub_0013321F (recomp) returns without spawning unless the Enabled flag (+0x78 bit 0x01) is set and bit 0x10 is clear, NumSpawned (+0x98) < MaxSpawners (+0x7C) unless MaxSpawners is 0, NumActive (+0x9C) < MaxActiveSpawners (+0x90) unless that is 0, and the clock is past NextSpawnTime; a spawn increments NumSpawned and NumActive and sets NextSpawnTime = now + SpawnRate (the first spawn waits SpawnDelay). So 'Seconds before a new one' counts from the moment the previous vehicle SPAWNED, not from when it leaves the pad, and with 'On the map at once' 1 the next vehicle can only come when NumActive has dropped (who decrements it is still unread, see spawner-numactive-disputed). Retail pads: MaxSpawners 0, MaxActiveSpawners 1, SpawnRate 11 (916 of 1,020 MP spawners; 60 use 45). One trap: spawner-default-ten - when BOTH max fields are 0 the init code (0x1326E3-0x1326F4) writes MaxSpawners = 10, so a pad with Total 0 and At-once 0 gives only 10 vehicles, not unlimited. Pads have no team because the stand is a NULL-template MACorporeal holder with no Nation and the vehicle under the spawner carries none either (any side may board).",
+   "how_to_use": "Editor wording to fix (MEDIUM, tooltip accuracy): the SpawnRate tooltip says the wait starts when the vehicle leaves the pad; the code counts from the spawn. 'Vehicles in total' 0 = no limit is true only while 'On the map at once' is not also 0. Open: whether a boarded (not destroyed) vehicle frees the pad's NumActive slot (retail pads keep CountJackedAsKilled 0, so probably only destruction does) - a game test with a boarded Atlas would settle it.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/app_spawner.cpp",
+     "line": 175
+    },
+    {
+     "file": "editor/src/app/app_spawner.cpp",
+     "line": 237
+    },
+    {
+     "file": "generated recomp_0030.c (made at install time, not in the repository)",
+     "line": 17821
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "pads",
+    "spawner",
+    "mp"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-four-order-kinds-proven-in-game-patrol-defend-attack",
+   "title": "All four editor order kinds work in game on M08 copies: Patrol needs 2+ points and TraverseType 2 to loop, Defend drives to its DefendUID marker and holds, Attack a unit needs AttackTimeout 9999 to keep fighting, Follow re-joins the player; every order needs the unit's AI on",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Summary of the game proofs in c1-proof.md (all: unit placed in a copy of M08, MAAIGroup > MAEvent (timer 0 s, Priority 2) > order object, unit woken by MAActionAI EnableAI 1 when its AI starts off): PATROL - MAWaypointGroup of 2 waypoints, TraverseType 1 (class default) = walks the route once and stands at the last point, TraverseType 2 = loops (editor 'Loop the route' writes 2); DEFEND - MADefend DefendUID = a NULL marker, Radius default 100 m: the tank drives to the marker and stays; ATTACK A UNIT - MAAttack AttackUID = the target unit, AttackPlayer 1, AttackSet 0: with the 3 s class default AttackTimeout the unit fires one volley then stops, with 9999 it fights on (editor default now 9999); Attack the player (AttackPlayer 2, AttackUID = the player's start) by an ALLY fired one shot, no damage seen (PARTIAL); FOLLOW - MAFollow FollowUID = the Player Spawner start, FollowRadius default 50 m, FollowDefenseRadius 100 m: the ally re-joins the player after the player drives away (test with S/A on M08: driving forward starts the Spider Boss cinema). Common pitfalls: a unit with m_bAIEnabled 0 ignores every order (editor now wakes it); placed units for a side start AI on and attack the player by themselves; the editor Check warns on a 1-point patrol.",
+   "how_to_use": "Per-kind detail: editor-defend-and-follow-orders-proven-in-game. editor-attack-order-give-up-after. editor-patrol-waypoint-group-traversetype-1-runs-the-route-once-2-loops-runtime-observed, ai-order-needs-unit-ai-on. Open: Attack-the-player by an ally (one shot, no damage), key 2A68614F, WaypointSpeed 0, TriggerID 0 meaning.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "orders",
+    "patrol",
+    "defend",
+    "attack",
+    "follow",
+    "ai"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "attack-order-target-chooser-sub-001854c5-attackplayer-0-alwa",
+   "title": "The game reads MAAttack AttackTimeout in sub_001854C5 (a 'choose target' helper): with AttackPlayer 1 the unit sticks to its current target until elapsed time since a per-unit stamp exceeds AttackTimeout, then takes the order's target; AttackPlayer 0 always takes the order's target, AttackPlayer 2 (the player) switches when the player is farther than a range",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "recomp_0040.c:17651-17800 sub_001854C5 (edi = the AI unit; code-confirmed incl. the x87 order: clock - [unit+0x100] is compared with the timeout, ja = elapsed > timeout). Steps: the unit's current order event is [unit+0x1A8], its behaviour [event+0x7C]; the behaviour's class id [beh+0x28] must equal MEM32(0x4EAF1C) (MAAttack, else the helper just returns the current target [unit+0xB4]); unit+0xF0 = the behaviour's +0x2C, the order's target is resolved by sub_001855E7(unit, behaviour) (runtime AttackUID at beh+0x78, AttackSet +0x7C), validated by sub_000B3C50 and stored to unit+0xF4. If the unit has NO current target ([unit+0xB4] == 0) or AttackPlayer (beh+0x84) == 0 the order's target is returned at once. AttackPlayer 1 ('attack a unit'): elapsed = the live clock (double at 0x4E2440) minus the float stamp [unit+0x100]; if elapsed > AttackTimeout (beh+0x80) it returns the order's target, else it keeps the current target. AttackPlayer 2 ('attack the player'): no timeout test; it takes the distance between two positions (the current target and the order's target) and returns the CURRENT target if the squared distance is below [[unit+0x20]+0x200] squared (a range read from the unit's class data), otherwise the ORDER's target. Runtime object offsets are the serializer offsets + 0x20 (the constructor sub_000D476C stores the vtable at obj+0x20): AttackUID +0x78, AttackSet +0x7C, AttackTimeout +0x80, AttackPlayer +0x84. Callers store the result into unit+0xB4 after a unit vtable +0x20 call (nine sites: recomp_0046.c:15293, 27730, 27952, 29373; recomp_0047.c:7841, 8068, 30150; plus 0x1BACF6 x2).",
+   "how_to_use": "Meaning for authors: AttackTimeout is NOT a countdown that ends the order. It is how long the unit may go without a fresh 'event' stamp before it re-targets the ordered unit; the stamp [unit+0x100] is written by sub_0018519F (shifts +0xF8/+0x100 history, stores the clock; probably last hit or last engagement - inferred). A large value (9999) keeps whatever the unit is fighting; 3 s snaps back to the ordered target quickly. Open: callers of sub_0018519F (stamp meaning) and what happens when the returned target equals the current one; AttackPlayer 0 is used by 2 of 89 retail attacks, 1 by 42, 2 by 45.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_0040.c (made at install time, not in the repository)",
+     "line": 17651
+    },
+    {
+     "file": "generated recomp_0021.c (made at install time, not in the repository)",
+     "line": 34048
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "orders",
+    "attack",
+    "ai"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "node-light-spot-beam-direction-is-the-light-nodes-local-minu",
+   "title": "Spot node_lights shine along the light NODE's local -Y (direction = -row 1 of the node world matrix), not +Z: searchlight and highway-lamp model geometry plus a same-pose game frame agree",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "(2) Env_Highway_Light: the hardware_spotlight node is the IDENTITY matrix and its 'cone' mesh hangs from y 9.4 down to 0, so down = -Y. (3) Game: the Office20 annex wall 14 m in front of a highway lamp (dot with +Z 0.86, inside the 29-40 degree half-angle cone, radius 44) is UNLIT in the game (pixel value 81) while the editor's +Z reading lit it to 208. Spot angles are half-angles (highway lamp inner 29.4 / outer 39.8, searchlight 7 / 8), as spot-light-axis said. Editor caveat: the editor turns light directions by the object's heading only, not pitch or roll (the M01b searchlights are pitched 60 degrees).",
+   "how_to_use": "Use: editor spot direction = -(node local Y) transformed by the full node rotation (heading, pitch, roll). This CONFLICTS with the code-based wiki facts spot-light-axis / spot-axis-is-plus-z (render-light matrix row 2 = +Z, code-confirmed in sub_0024F4A0): the two are reconcilable only if the engine builds the render light's matrix from the node matrix with a basis change (e.g. a 90 degree turn about X), which was not found (SetMatrix sub_0006D5B0 caller unknown). Open: annotate spot-light-axis / spot-axis-sign with this runtime result; find which matrix reaches SetMatrix for .mtb node lights.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "lights",
+    "spot",
+    "sky"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "objective-variable-claim-30-mission-variables-shared-with-tr",
+   "title": "Mission variables: the game has 30 (0.29, one byte each) shared by objective slots (ob<i>var0), MAActionMissionVariableSet actions and trigger/camera MissionVariable gates; retail MARoot fills UNUSED objective slots with var 0, so 'slot index = variable' only holds for new maps",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Mission_14 slot 10 and Mission_15 slot 7 carry ob%dvar0 = 0 as filler for an unused slot (no ObjectiveItemDesc), and Mission_01b's retail triggers (e.g. 'TT - delay post barge dest', 'TD - jack mech (now dest tanks)') set variable 16, which is exactly the index a 17th objective would take, so the new objective finished at once. claim_objective_var now treats var 0 on an empty slot as unclaimed, then marks as used every number set by an MAActionMissionVariableSet (MissionVariableSet), every numeric trigger/camera MissionVariable gate and every other slot's ob<j>var<n>, and picks the slot index if free, else the first free number from 1.29, with 0 last (0 is settable but never gates a trigger). fmt_test --all-maps checks every mission.",
+   "how_to_use": "Use: when authoring or reading a mission, an objective's completion variable is the number in its ob<i>var0 key, not the slot number; a clash with a trigger that sets the same variable completes (or un-completes) the objective. Variable space is 30 entries, shared fleet-wide within one mission. Treat 'ob%dvar0 = 0 on a slot with no ObjectiveItemDesc' as unused filler.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/core/triggers.cpp",
+     "line": 1102
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "objectives",
+    "triggers",
+    "mission-variables"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "base-level-culled-template-list-names-mechs-whose-models-it",
+   "title": "A Base level's template list (culled set) can name 'Mechs whose model files are NOT in its own archive or common.mgf (Mission_01b lists Kit Fox and Cougar; their models only exist in other missions' archives), so a map based on it must ship those files via [Assets]",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "For Mission_01b that is false for \\Models\\mechs\\Light\\KitFox\\KitFox.NODE and the Cougar: the disc holds those models only in other missions' archives, so a placed one drew as a placeholder until the save shipped them. The editor now also treats a known template as fresh when its Corporal3DObj model (or its _low variant) exists in neither the Base archive nor common.mgf and is not absent on the disc, and ships it like a new object. Verified in game: both mechs then draw and fire.",
+   "how_to_use": "Use: 'Base level lists template T' means the level may CREATE it, not that the files are present. When building a scenario that reuses a template from the Base's list, check the model exists in the Base archive or common.mgf; otherwise add the model (and its dependencies) to [Assets]. Also relevant to the retail level census: which missions ship which 'Mech models.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "editor/src/core/scenario.cpp",
+     "line": 996
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "assets",
+    "templates",
+    "authoring"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "terrain-height-range-8bit-between-min-h-max-h-default-minus2",
+   "title": "Terrain heights are stored as 8 bits between the map's min_h and max_h (editor default -20.100 m); Raise/Lower/Plateau strokes clamp to that range, and the editor now says so (Advanced > Height range)",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "terrain.h: 'Writes heights (quantized to 8 bits between min_h and max_h) and the range into MATerrain'; default min_h -20, max_h 100 (core/terrain.h:20, scenario.h:99). The Raise/Lower status in the editor (app.cpp ~3398) reports the whole stroke's actual change after the clamp (stroke_change_ = |h - h_in|) , when the ground is already at the map's highest/lowest height, says it cannot go higher/lower and points to Advanced > Height range. The step size of the 8-bit quantisation is (max_h - min_h)/255, about 0.47 m at the default range.",
+   "how_to_use": "Use: the ceiling that stops a raise is the map's own max_h, not a game constant; widening the range coarsens the height step. Display-only status text otherwise (no new game value).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/app.cpp",
+     "line": 3398
+    },
+    {
+     "file": "editor/src/core/terrain.h",
+     "line": 20
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "terrain",
+    "height"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-spot-light-direction-is-minus-node-row-1-model-cache",
+   "title": "Editor side of the spot-axis ruling: model_cache now builds a spot light's dir as -(row 1 of the node world matrix); placed instances still turn it by heading only (no pitch/roll), and --dump-lights prints dir and cone cosines",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Before 81ad9ba the editor used +Z (row 2) of the light node, which pointed every Env_Highway_Light sideways into buildings (annex wall 208 vs game 81); after, -row 1: same-pose pair annex 80. Remaining gap: M01b searchlights pitched 60 degrees are not tilted in the editor (v262).",
+   "how_to_use": "Use: when matching game lighting, use -Y of the node's full rotation; pitched or rolled placements need the same full rotation, not just heading.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "editor/src/app/model_cache.cpp",
+     "line": 670
+    }
+   ],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "lights",
+    "spot"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "retail-wall-and-bridge-pieces-join-end-to-end-same-heading-s",
+   "title": "How retail wall-run and bridge pieces join (placed templates, 18 models over 30+ worlds): neighbours sit on one line, same heading (not flipped), same height, spaced by about the model's long bbox length: MedWall/GothicWall/ClimbingWall/Canal_Wall_QTR exact (0.99-1.00), LargeWall 0.94, WideBridge02 0.97, TallWall loose (0.83-0.95)",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "COLLINEAR NEIGHBOURS (cross offset < 0.6 m, dy < 0.6 m): Env_MedWall_Span (long axis X, bbox x -39.4.1.1, L 40.5): spacing 40.5/40.4 m (ratio 1.00), 114 same-heading pairs of 123, Mission_04 44 pairs at 40.5. Env_TER_GothicWall_Span (long Z, bbox z -46.7.-2.1, L 44.6): spacing 44.7/44.5 (1.00), 72 of 73 same heading, Missions 16/17a/17b. ENV_Climbingwall (long X, centred x -24.0.24.1, L 48.1): 47.7/47.6 (0.99), 134 same heading. Canal_Wall_QTR (long Z, centred, L 70.2): 70.2 (1.00) x20, GoCommando. Env_LargeWall_Span (long Z, bbox z -45.2.-0.1, L 45.2): 42.5 (0.94, a 2.7 m overlap), 224 of 241 pairs same heading (Mission_16 38 pairs at 42.5; Mission_04 42.8; Mission_03 42.2). Env_THE_MedWall_Span: 40.3 (0.99); Env_THE_LargeWall_Span 41.9 (0.93). Env_TallWall_Span (long Z, bbox z -52.2.0.0, L 52.2): spacing varies by level 43.5 / 47.6 / 47.8 / 49.7 (0.83-0.95, median 0.91; hand-placed with overlap), 48 same heading of 77 (29 differ by a few degrees = gentle bends). Env_NOR_PrisonWall_Span (long X, bbox x -16.0.16.9, L 32.9): 32.2-33.0 (0.98). Env_SecurityFence (long X, x -10.0.0, L 10.0): 8-10.1 (1.01). Env_HesperusArena_Wall (long Z, L 90.0): 88.9 (0.99) x4 Mission_14. Env_HesperusArena_OuterWall (L 90.0): 94-110 and never same heading (arena ring: pieces turn by 10-30 degrees, spacing 1.19 L along the ring chord). BRIDGES: Env_WideBridge02 (long Z, bbox z -87.0.0.4, L 87.4) 84.6-84.7 (0.97) all same heading (Mission_03, TroubledWaters); Env_WideBridge04_MP 84.3 (0.97); Env_WideBridge01_SectionTwo (bbox z -87.0.-52.1 only 34.9 long: the origin is 52 m from the near end) pieces face each other with heading differing by 180 (6 of 6), spacing 43.3 m (Mission_11b). Env_PontoonBridge_Landing pairs are not collinear (14 landings, bank pairs facing 180 apart). MODEL ORIGIN: end of the piece, not the centre, for LargeWall, TallWall, Gothic, HesperusArena walls, WideBridge02 (geometry runs from the origin to local -Z by L); MedWall_Span runs to local -X (origin at the +X end, x -39.4.1.1); centred (origin mid-piece) for ClimbingWall, PrisonWall_Span, Canal_Wall_QTR, SecurityFence is -10.0 (origin at the +X end). Corner pieces (HesperusArena_Corner, GothicWall_Corner, Cap) are centred squares (+-13.9 / +-6.2) and join at 90 degrees. Gates keep the span's frame (TallWall_Gate bbox identical to TallWall_Span; LargeWall_Gate z -51.3.-0.7; HesperusArena_Gate identical to the Wall).",
+   "how_to_use": "Use for snapping: next piece = this piece's position + R(heading) * (0,0,+/-spacing) for long-Z models or (+/-spacing,0,0) for long-X models, SAME heading, same y, where spacing = ratio * long bbox length: 1.00 for MedWall/Gothic/Climbing/Canal, 0.94 LargeWall, 0.97 bridges, 0.91 TallWall (retail is loose). For end-origin models the chain direction along local -Z (or -X) continues the geometry; either direction works because pieces are identical. Bridge SectionTwo halves are mirrored (heading +180). Spacing is a convention of the level builders, not read by the game: no snap data exists in the templates (pieces are ordinary MABuilding with CorporalPos / CorporalHeading). Caveat: bbox is from lt/ma2models LoadModel (all meshes incl. non-colliding lips), the collision box may differ.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "walls",
+    "bridges",
+    "snapping",
+    "authoring",
+    "measured"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "model-collision-is-a-bounding-volume-bv-composite-of-bv-obb",
+   "title": "Model collision is a <bounding_volume><bv_composite> of oriented boxes (bv_obb) inside the .MGMODEL XML itself; no separate collision file exists in any archive. Env_WideBridge02: 10 boxes, deck slab top at origin +2.28 (road mesh at +2.12), parapet boxes to +4.2, centre support block down to -35",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "(1) Searched every game_files .mgf for collision-like files (names with coll/phys/bsp/.col/hull as a file): none; mission_03.mgf (the only archive holding Env_WideBridge02, 6 retail pieces, all in Mission_03; TroubledWaters has 4 more but no archive of its own) has only .mgmodel/.mtb/.tif/.gr2/.mgparticle/.node/.mesh etc. (2) The .MGMODEL base file is XML (<xmlres>) and holds, besides materials/meshxml/nodes, <bounding_volume><bv_composite><bv_obb origin xaxis yaxis zaxis lengths/>. (lengths = half extents along the three given axes). Every node has collidable=\"true\". Env_WideBridge02.MGMODEL: ONE bounding_volume with 10 bv_obb: deck slab origin(-0.37,-1.15,-43.30), axes x=(-1,0,0) y=(0,0,-1) z=(0,1,0), half extents (12.48, 43.85, 3.43) = x +-12.5, z -87.15.0.55, y -4.58.+2.28; two parapet boxes at x -10.6 / +10.2 (half 1.97 wide, y 0.2.4.2, whole length); centre support block origin (-0.03,-17.47,-43.20) half (9.57 wide, 8.18 long, 17.6 tall) = y -35.07.0.13; four slanted girder boxes; two end boxes at x +-11.4/-12.1 (y 0.26.3.35). The road mesh is a flat plane at y +2.12 (road01 at 2.12-2.30), inner_core mesh (own node 'interior') y -34.7.+1.89. Env_WideBridge04_MP and Env_WideBridge01 have the same node layout (inner_core under an 'interior' node). Env_WideBridge02_CS (the collapsed state, template 117552, IsCollidable 0, 'cut_section' meshes) carries 4 + 2 + 11 + 10 + 11 boxes in five bounding_volumes. (3) The editor's [Assets] list for a map that uses the bridge already contains the Env_WideBridge02.MGMODEL base entry (and the sub-streams, _CS and _CS.mtb): the XML with the boxes ships; nothing is missing. (4) The placed instance the editor writes is a clone of a retail instance and matches retail on every flag (InitiallyCollidable 1, IsCollidable 1, CorporalForceLandHeight 0, Indestructible 0, MAMaxHitPoints 1800, MinDamThres 2, ReceivesCollisionDamage 1, TransparentBlockingCamera 1, DestroyedBuilding 117552); the TEMPLATE record (117551) differs (InitiallyCollidable 0, ForceLandHeight 1) but retail instances never use the template values. One divergence: the clone has SetCount 1 / SetMember0 = its own uid (retail pieces point at a real MoeEntitySet: Mission_03 'Bridges' 157676 and 'cp 2 buildings' 124373, destroy-objective sets); a dangling set reference, probably harmless. Retail Mission_03 pieces: chain of 4 at x 1380.7, y 30.35, z 731.3.985.1 heading 0 (a highway overpass between two plateaus at y about 32.2; road surface 32.47 = 0.27 above the plateau), chain of 2 at (731.9/766.5, 28.0, 724.8/647.6) heading -24; headings seen in retail: 0 and -24 only (the failing test used 90).",
+   "how_to_use": "Deck collision exists and is just a box: do not look for a separate collision asset or a walkable flag. The mech standing on a deck in game is the box top at origin +2.28 (road surface +2.12), 17 m of it between the parapet boxes (x -8.6.+8.2). To match retail geometry put the road surface 0.27 above the flat the mech walks in from (origin y = plateau - 2.12 + 0.27); retail never has the deck below the plateau. Model xml is readable with Mgf.file('Models/./X.MGMODEL') as text.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "bridges",
+    "collision",
+    "obb",
+    "models"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "a-placed-wide-bridge-02-is-a-destructible-mabuilding-the-mec",
+   "title": "A placed Wide bridge 02 collapses when the 'Mech steps DOWN onto it (deck 0.7-0.9 m below the ground it joins); with the road surface level with or 0.27 m above the ground (retail) the deck holds the Mad Dog end to end",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "HUD health full (the mech was not hurt). Template data: Env_WideBridge02 MABuilding Indestructible 0, MAMaxHitPoints 1800, MinDamThres 2, ReceivesCollisionDamage 1, DestroyedBuilding 117552 = Env_Widebridge02_CS (MACorporealDestroyed, IsCollidable 0, CausesCollisionDamage 1, DamageAmount 250, DamageTimer 4, models with cut_section / env_widebridge_sectionone/two meshes). Mad Dog 27828: CausesCollisionDamage 1, CorporalMass 60, MechStepDestroy 0. The wall templates that DO hold the mech are Indestructible 1 / MaxHP 1 (Canal_Wall pieces, wiki). Retail Mission_03 treats the bridges as a destroy objective ('Bridges' set + MATriggerDestroyed 'Player Did It', MAActionRemoveEntity 'Remove Bridge', enemy 'Bridge Crosser' units cross them). NOT PROVEN: no game log line was read, the second candidate (the deck sat 0.7-0.9 m BELOW the plateau the mech walked in , retail has it 0.27 above) is not excluded. Discriminating tests: set Indestructible=1 on the three pieces and retry; or place the chain with the road surface 0.27 m above the plateau; or play the same map with the pieces' ReceivesCollisionDamage 0. RESULT: FAIL old pieces h 41.0 (road 0.9 m below plateau), Indestructible 0: deck collapses under the mech (debris, mech ends under the deck). FAIL old pieces road 0.7 m below plateau with Indestructible=1 set by --set-prop. PASS old pieces raised to h 42.15 (road 0.27 m above plateau, as retail M03), Indestructible 1: whole chain crossed, no debris. PASS pit test with deck at retail ground height, Indestructible 0. PASS fresh palette-placed pieces (editor 6c65b92: Indestructible 1 and the template's set links dropped) at h 41.0 = road 0.9 m below the plateau: crossed, only dust/chips. So the mechanism is collision damage from stepping down onto the deck (the building takes hits, goes to its _CS state), not missing deck collision. Heading 0 vs 90 and Env_WideBridge04_MP were not tested.",
+   "how_to_use": "Place bridge decks level with or slightly above the ground they join (road surface = ground + 0.27 m; origin = ground + 0.27 - road top, 2.12 for the collision slab, 2.30 for the road sub-mesh). Do not drop the mech down onto a deck. Whether Indestructible or removing the dangling set link also prevents the collapse is open.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "how-editor-maps-to-game",
+    "editor",
+    "bridges",
+    "collision",
+    "destructible"
+   ],
+   "date": "2026-10-26"
+  }
+ ]
+}

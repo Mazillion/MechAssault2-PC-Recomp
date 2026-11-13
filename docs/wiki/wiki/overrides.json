@@ -1,0 +1,236 @@
+{
+ "_note": "Corrections applied by merge_wiki.py on top of the fact packs. Key = merged fact id; each field replaces the fact field; \"append\" adds a sentence to the fact text.",
+ "t05.pulse-invisible-laser-open": {
+  "status": "superseded"
+ },
+ "t10.bs-pulse-trace-open": {
+  "status": "superseded",
+  "append": "Resolved: see t09.pulse-blend-fix and t10.bs-laser-visible-check."
+ },
+ "t10.bs-sub-0040fa70-pulse-point-size": {
+  "status": "historical",
+  "append": "The point-size path turned out not to be the pulse's problem (t09.pulse-line-width-refuted, t09.pulse-blend-fix)."
+ },
+ "t07.fpu-c2-fix-state": {
+  "append": "PC Release has been built from the the game source tree tree since 2026-10-14, so the fix ships (the five edits are hand edits in generated files; area B finding B-12 adds a build-time check to the installer chain).",
+  "date": "2026-10-14"
+ },
+ "t14.start-missing-body-model": {
+  "confidence": "verified-in-game"
+ },
+ "t14.start-rule": {
+  "confidence": "verified-in-game"
+ },
+ "t14.start-how-to-compute": {
+  "confidence": "verified-in-game"
+ },
+ "t06.save-latency-attribution-gap": {
+  "status": "current"
+ },
+ "t12.spawner-numactive-decrement": {
+  "status": "superseded"
+ },
+ "t12.spawner-numactive-disputed": {
+  "status": "superseded"
+ },
+ "t12.radar-blip-test-sub-204133-reads-no-camo-field-caller-prefil": {
+  "status": "open-question"
+ },
+ "t12.xact-notit-4-crash-setmode5-stop-null-body-2ad5c0": {
+  "status": "open-question"
+ },
+ "t12.xact-objects-freed-by-game-xmemfree-alloc-id-0x84-not-xbox-h": {
+  "status": "open-question"
+ },
+ "t12.xact-p1-run-counts-fix-guard-vs-baseline": {
+  "status": "open-question"
+ },
+ "t12.elite-keep55-vs-heat88-ab-result-all-elite-td-5v6": {
+  "status": "current"
+ },
+ "t12.bot-high-ground-final-verdict-hg-stay-on-drop-mech-climb-off": {
+  "status": "open-question"
+ },
+ "t12.bot-high-ground-known-limits-surface-probe-trip-follow-climb": {
+  "status": "open-question"
+ },
+ "t12.bot-final-ea43d95-review-8of8-clean-and-ship-decisions": {
+  "status": "current"
+ },
+ "t14.vtol-edge-grid-chamfer-bug-1101": {
+  "status": "current"
+ },
+ "t14.vtol-bot-rider-crawl-1101": {
+  "status": "current"
+ },
+ "t14.vtol-pad-stale-lift-1102": {
+  "status": "current"
+ },
+ "t14.vtol-hang-after-brake-1102": {
+  "status": "current"
+ },
+ "t14.mech-spawn-mode6-freeze-1102": {
+  "status": "current"
+ },
+ "t14.ctrl-stall-detector-gaps-1102": {
+  "status": "current"
+ },
+ "t14.pilot-board-zone-edge-1102": {
+  "status": "open-question"
+ },
+ "t14.pilot-stale-nopath-chain-1102": {
+  "status": "current"
+ },
+ "t14.foot-progress-giveup-1102": {
+  "status": "current"
+ },
+ "t14.sp-stomp-level-gates-1102": {
+  "status": "open-question"
+ },
+ "t14.snapwide2-tactical-drop-1102": {
+  "status": "current"
+ },
+ "t14.upstretch-canals-1102": {
+  "status": "current"
+ },
+ "t14.pitpartial-drop-landing-1102": {
+  "status": "current"
+ },
+ "t14.pocketdrop-raised-island-1102": {
+  "status": "current"
+ },
+ "t14.path-same-ground-1102": {
+  "status": "current"
+ },
+ "t14.ba-entry-pilot-1102": {
+  "status": "open-question"
+ },
+ "t14.planner-hopout-1102": {
+  "status": "current"
+ },
+ "t14.planner-linkfoot-1102": {
+  "status": "current"
+ },
+ "t18.ctfvtol-bd-crossing-open": {
+  "status": "current"
+ },
+ "t24.slope-stuck-no-turn": {
+  "status": "current"
+ },
+ "t24.engage-wedge-dead-wedgelive-boxwedge": {
+  "status": "current"
+ },
+ "t24.lms-ghost-roam": {
+  "status": "current"
+ },
+ "t24.heat-jet-hold": {
+  "status": "current"
+ },
+ "t24.custom-maps-all-modes-1109": {
+  "status": "current"
+ },
+ "t24.touch-stall-navigator-parks-short": {
+  "status": "current"
+ },
+ "t3.bots3-grinder-kit-clone-broke-its-entity-sets-wave-mechs-poi": {
+  "status": "current"
+ },
+ "t3.bots3-sky-pieces-fight-zones-mech-rating-eject-save-and-solo": {
+  "status": "current"
+ },
+ "t3.bots3-shipped-new-river-city-nav-nodes-sit-exactly-2-m-over": {
+  "status": "current"
+ },
+ "t3.bots3-lanes-and-flanks-smoke-on-nrc-left-and-centre-lanes-fi": {
+  "status": "current"
+ },
+ "t3.bots3-editor-map-mode-proofs-check-it-passes-ctf-captures-2": {
+  "status": "current"
+ },
+ "t3.bots3-test-autostart-mode-aliases-lms-teamlms-now-match-the": {
+  "status": "current"
+ },
+ "t3.bots3-6v6-td-on-the-editor-fresh-map-skill-ladder-holds-elit": {
+  "status": "current"
+ },
+ "t3.bots3-marootstart-vehicle-slots-are-keyed-crc-of-startvehicl": {
+  "status": "current"
+ },
+ "t3.bots3-replan-blocked-rise-on-killing-field-is-teammates-cros": {
+  "status": "current"
+ },
+ "t3.bots3-editor-maps-with-a-water-plane-hide-solid-objects-belo": {
+  "status": "current"
+ },
+ "t01a.bots-ba-locomotion-anim-driven": {
+  "status": "superseded",
+  "how_to_use": "Superseded: BattleArmor walking works. See t28.ba-walker-bit-cleared-by-jet.",
+  "append": "SUPERSEDED 2026-11-03: wrong. BattleArmor walking works (a bot 11-15 m/s, a player's BattleArmor 15 m/s). The 0 m/s was a BattleArmor whose walker bit a jet had cleared. See t28.ba-walker-bit-cleared-by-jet."
+ },
+ "t14.blast-escape-fixes-1101": {
+  "append": "CORRECTION 2026-11-03: 'their MoveTo walk is 0 m/s' is wrong; the BattleArmor stood because a jet had cleared its walker bit (t28.ba-walker-bit-cleared-by-jet)."
+ },
+ "t14.ba-hack-hop-1101": {
+  "append": "CORRECTION 2026-11-03: the BattleArmor walk is not 0 m/s; the BattleArmor stood because a jet had cleared its walker bit (t28.ba-walker-bit-cleared-by-jet). The hop steering through ai+0x244 is still valid."
+ },
+ "t06.settings-frame-limit-presets": {
+  "status": "superseded",
+  "append": "SUPERSEDED 2026-11-04 (c3bee9c): Unlimited was removed and a value that is not a preset counts as 144. See t28.frame-limit-no-unlimited-default-144."
+ },
+ "t06.settings-display-keys": {
+  "append": "UPDATE 2026-11-04: FrameLimit 0 no longer means unlimited; 0 reads as 144 and the default is 144 (t28.frame-limit-no-unlimited-default-144)."
+ },
+ "t06.settings-clamp-table": {
+  "append": "UPDATE 2026-11-04: FrameLimit 0 is set to 144 and 1-29 to 30 at start (t28.frame-limit-no-unlimited-default-144)."
+ },
+ "t25.dsound-defer-double-insert": {
+  "append": "SHIPPED: PC Release par24 (48831dc, exe sha256 28c3eb44.) since 2026-11-09. Switch: t28.audio-defer-guard-env."
+ },
+ "t26.dsound-active-reinsert-freeze": {
+  "append": "SHIPPED: PC Release par24 (48831dc, exe sha256 28c3eb44.) since 2026-11-09. Switch: t28.audio-active-guard-env; the hang sampler is t28.cs-wait-hang-sampler."
+ },
+ "t01b.stall-monitor-env": {
+  "append": "UPDATE 2026-11-09: it also prints [CS-WAIT] lock waiters; see t28.cs-wait-hang-sampler."
+ },
+ "t01a.bots-vtol-altitude-ai": {
+  "append": "UPDATE 2026-11-01: this is the MoveTo (FlyerAI) path. A stick-flown bot VTOL climbs through the comp+0x90 demand instead (t28.vtol-climb-demand-comp-90)."
+ },
+ "t01b.nav-cache-path": {
+  "append": "NOTE 2026-11-03: a second, separate cache exists since 1.0.1: the obstacle grid .\\MechAssault2\\NavCache (t28.navcache-default-on)."
+ },
+ "t24.eject-death-blast-late": {
+  "status": "current",
+  "confidence": "verified-in-game",
+  "date": "2026-11-08"
+ },
+ "t07.freeze-trig-cos-sin-fmod": {
+  "date": "2026-10-14"
+ },
+ "t07.fpu-c2-root-cause": {
+  "date": "2026-10-14"
+ },
+ "t05.tank-hull-rate-spring-clock": {
+  "append": "CORRECTION 2026-11-10: the 30 Hz tank step is ON by default; kit/source/game/src/ma2_tank_fixedstep.c enabled is true unless RECOMP_TANK_FIXEDSTEP=0 (see t02.tank-physics-default). The 'opt-, default off' text above is out of date."
+ },
+ "t05.tank-fixedstep-wrapper-current": {
+  "append": "CORRECTION 2026-11-10: the wrapper runs by default; RECOMP_TANK_FIXEDSTEP=0 is the opt-out (ma2_tank_fixedstep.c enabled, see t02.tank-physics-default)."
+ },
+ "t05.tank-shoreline-symptom": {
+  "append": "Whether the third tank still stays pitched needs a human look at the shoreline cutscene at default settings, then again with RECOMP_TANK_FIXEDSTEP=0 (plan step W-93); still open, not done in r26."
+ },
+ "t05.save-stall-open": {
+  "append": "POINTER 2026-11-10: tracked as W-20 of the public-release plan (measure the 'Saving progress' pause on the published build with RECOMP_SAVE_LATENCY=1; needs a person at the PC). Not done in r26; stays open."
+ },
+ "t10.bs-desktop-close": {
+  "append": "POINTER 2026-11-10: tracked as W-23 (mission-2 soak with a person) of the public-release plan. The default-on hang monitor and crash dump (t28.hang-monitor-default-on, t28.crash-dump-retention) now leave a report if it happens again. Stays open."
+ },
+ "t05.qte-tree-rect-guard-open": {
+  "append": "POINTER 2026-11-10: tracked as W-102 (QTE and Press prompts fall back to controller letters for long or non-Latin key names). Not done in r26; stays open."
+ },
+ "t06.rumble-expiry-candidate": {
+  "append": "Stays open."
+ },
+ "t06.installer-release-fix-v5": {
+  "append": "POINTER 2026-11-10: to be checked once in the W-90 campaign gate run (all 41 campaign entries on the installed build); Sky_Test and Small_TeamDestruction are not campaign entries, so check them by hand. Stays open until then."
+ }
+}

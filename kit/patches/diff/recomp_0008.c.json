@@ -1,0 +1,1 @@
+[[8,0,["#include \"pc_draw_distance.h\"\r\n"]],[27430,0,["    ma2_pc_lightmap_parameters(ebp,&MEMF(esp+0x44),&MEMF(esp+0x50));\r\n"]],[27478,0,["    xmm0.f[0]=ma2_pc_lightmap_extent(ebp,MEMF(esp+0x44),xmm0.f[0]);\r\n","    MEMF(esp+0x1C)=xmm0.f[0];\r\n"]]]

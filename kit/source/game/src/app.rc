@@ -1,0 +1,27 @@
+#include <windows.h>
+#include "ma2_release.h"
+101 ICON "app.ico"
+1 VERSIONINFO
+ FILEVERSION MA2_VERSION_MAJOR,MA2_VERSION_MINOR,MA2_VERSION_PATCH,0
+ PRODUCTVERSION MA2_VERSION_MAJOR,MA2_VERSION_MINOR,MA2_VERSION_PATCH,0
+ FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+ FILEFLAGS 0
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+BEGIN
+ BLOCK "StringFileInfo"
+ BEGIN
+  BLOCK "040904B0"
+  BEGIN
+   VALUE "FileDescription", "MechAssault 2 PC Recomp\0"
+   VALUE "FileVersion", MA2_PUBLIC_VERSION "\0"
+   VALUE "ProductName", "MechAssault 2 PC Recomp (unofficial)\0"
+   VALUE "ProductVersion", MA2_PUBLIC_VERSION "\0"
+   VALUE "OriginalFilename", "MechAssault 2.exe\0"
+  END
+ END
+ BLOCK "VarFileInfo"
+ BEGIN
+  VALUE "Translation", 0x409, 1200
+ END
+END

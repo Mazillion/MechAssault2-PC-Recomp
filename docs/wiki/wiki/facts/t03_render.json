@@ -1,0 +1,2693 @@
+{
+ "pack": "t03_render",
+ "title": "Rendering: NV2A emulation, D3D11, HUD, shaders, textures, performance",
+ "facts": [
+  {
+   "id": "pb-exec-role",
+   "title": "nv2a_pb_exec walks the title's NV2A pushbuffer and turns it into draws and clears",
+   "subject": {
+    "kind": "file",
+    "id": "nv2a_pb_exec.c"
+   },
+   "addresses": [],
+   "related": [
+    "nv2a_gpu_d3d11.c",
+    "xbox_memory_layout.c",
+    "nv2a_pb_exec_method"
+   ],
+   "fact": "The title builds NV2A commands in guest RAM and advances DMA_PUT. nv2a_pb_exec.c walks the same command stream that nv2a_pb_scan.c surveys and executes the subset that decides what appears on screen: the target surface, clears, and geometry. Dispatch is per method through nv2a_pb_exec_method (line 3357), which handles subchannel object classes, semaphores and software methods. Everything not handled is counted and ranked by nv2a_pb_exec_report.",
+   "how_to_use": "RECOMP_PB_UNHANDLED_ALL=1 lists every unhandled method in the report instead of the top ten.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 3357
+    }
+   ],
+   "tags": [
+    "renderer",
+    "pushbuffer"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "pb-exec-header-stale",
+   "title": "The nv2a_pb_exec header comment describes the CPU path only and is out of date",
+   "subject": {
+    "kind": "file",
+    "id": "nv2a_pb_exec.c"
+   },
+   "addresses": [],
+   "related": [
+    "nv2a_gpu_d3d11.c"
+   ],
+   "fact": "The file header says texturing, depth and vertex programs are still missing and that the upgrade path is kit/source/game/src/nv2a/nv2a_pgraph_d3d11.c In the MA2 tree the GPU path is real: nv2a_gpu_d3d11.c (kernel) rasterises the same batches on D3D11 when nv2a_gpu_enabled is true. The CPU rasteriser (raster_batch and friends) is the fallback and the source of the 'screen-space only' rule. Trust the code, not the header.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 14
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "renderer",
+    "docs"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "gpu-d3d11-enable-env",
+   "title": "RECOMP_GPU must be d3d11 or the hardware renderer stays off",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_GPU"
+   },
+   "addresses": [],
+   "related": [
+    "nv2a_gpu_enabled",
+    "main.c"
+   ],
+   "fact": "nv2a_gpu_enabled reads RECOMP_GPU on first use. Anything other than the case-insensitive value d3d11 sets s.failed and the function returns 0, so every draw falls back to the CPU rasteriser and presentation uses the GDI window. main.c sets RECOMP_GPU=d3d11 when the variable is unset, so a normal launch is hardware. The repository's main.c is outside this pack and is cited from a grep of the same source tree.",
+   "how_to_use": "Set RECOMP_GPU to something else, for example none, to compare against the CPU rasteriser.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 672
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 165
+    }
+   ],
+   "tags": [
+    "renderer",
+    "env"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "pb-exec-default-env",
+   "title": "main.c turns on the renderer chain by default",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_PB_EXEC"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_GPU",
+    "RECOMP_FB_WINDOW",
+    "RECOMP_VBLANK"
+   ],
+   "fact": "At start-up main.c sets, if they are not already set: RECOMP_PB_EXEC=1 (run the pushbuffer executor), RECOMP_GPU=d3d11, RECOMP_FB_WINDOW=1 (the framebuffer window), RECOMP_VBLANK=1, RECOMP_TITLE_KEVENTS=1, RECOMP_ASYNC_IO=1, RECOMP_EXIT_ON_CLOSE=1 and RECOMP_RENDER_SCALE=0. The executor is off unless RECOMP_PB_EXEC is set, and xbox_memory_layout.c checks it before calling nv2a_pb_consume.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 164
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 952
+    }
+   ],
+   "tags": [
+    "renderer",
+    "env"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "nv2a-ack-thread-owner",
+   "title": "The FIFO ack thread owns all pushbuffer work and presentation",
+   "subject": {
+    "kind": "concept",
+    "id": "nv2a_ack_thread"
+   },
+   "addresses": [],
+   "related": [
+    "nv2a_pb_consume",
+    "nv2a_pb_exec_method"
+   ],
+   "fact": "Only nv2a_ack_thread calls nv2a_pb_consume (xbox_memory_layout.c line 976). Methods, draws, flips, presentation and reporting therefore all run on the one renderer owner thread. Thread-local diagnostic state in nv2a_gpu_d3d11.c and nv2a_pb_exec.c relies on that.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 20
+    }
+   ],
+   "tags": [
+    "renderer",
+    "threading"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "draw-dispatch-path",
+   "title": "How a draw is dispatched: fixed-function or vertex-program path",
+   "subject": {
+    "kind": "function",
+    "id": "draw_primitive / raster_batch / raster_batch_program"
+   },
+   "addresses": [],
+   "related": [
+    "nv2a_pb_exec.c",
+    "nv2a_gpu_d3d11.c"
+   ],
+   "fact": "draw_primitive (line 2812) counts the draw and hands it to raster_batch (called at line 2853). If the transform mode xf_mode&3 equals 2 and RECOMP_NO_VSH is unset, raster_batch goes to raster_batch_program, which is the vertex-program path. Otherwise the fixed-function path runs: batches that are not in screen space are counted as batches_untransformed and skipped, and screen-space batches go to the GPU (nv2a_gpu_draw) when enabled or to the CPU rasteriser.",
+   "how_to_use": "RECOMP_NO_VSH=1 skips the vertex-program path, so every draw goes through the fixed-function branch.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 2812
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 2632
+    }
+   ],
+   "tags": [
+    "renderer",
+    "draw"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "screen-space-rule",
+   "title": "Fixed-function batches are drawn only when attribute 0 is already in screen space",
+   "subject": {
+    "kind": "function",
+    "id": "batch_is_screen_space"
+   },
+   "addresses": [],
+   "related": [
+    "raster_batch"
+   ],
+   "fact": "batch_is_screen_space (line 1603) requires a non-empty clip rect, at least one index, and that the position of vertex 0 (attribute 0) can be fetched. The batch is drawn only if its positions are in screen space. A batch that needs a vertex program is never drawn this way. This is the honest-drawing rule from the header: unknown transforms are counted, not guessed.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 1603
+    }
+   ],
+   "tags": [
+    "renderer",
+    "draw"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "vertex-pull-path",
+   "title": "Vertex pulling sends guest vertex buffers straight to the GPU",
+   "subject": {
+    "kind": "function",
+    "id": "raster_batch_program / nv2a_gpu_draw_buffers"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_VERTEX_PULL",
+    "nv2a_gpu_draw_program_indexed"
+   ],
+   "fact": "On the program path, when the batch is not inline (s_gpu.inline_active is 0) and RECOMP_VERTEX_PULL is on (the default), raster_batch_program calls nv2a_gpu_draw_buffers with the raw attribute setup and index buffer. The GPU reads the guest vertex data itself. If that fails and the frame is not discarded, the batch falls back to CPU gather: each unique index's attributes are fetched into raw vertices and sent through nv2a_gpu_draw_program_indexed.",
+   "how_to_use": "RECOMP_VERTEX_PULL=0 forces the CPU gather path for comparison.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 2473
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 2480
+    }
+   ],
+   "tags": [
+    "renderer",
+    "draw",
+    "vertex"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "pending-shader-cpu-fallback",
+   "title": "While a vertex shader compiles, the CPU interpreter keeps drawing",
+   "subject": {
+    "kind": "function",
+    "id": "transform_vertex / program_cpu_fallback"
+   },
+   "addresses": [],
+   "related": [
+    "nv2a_gpu_program_pending",
+    "nv2a_vsh_interp"
+   ],
+   "fact": "If the GPU program is still pending (nv2a_gpu_program_pending), the batch is transformed on the CPU with transform_vertex and the result is sent to nv2a_gpu_draw. The comment says this keeps rasterisation on the GPU and avoids a render-thread compile or a framebuffer round trip. Only when this also fails is the surface read back and the batch drawn by the CPU rasteriser.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 2517
+    }
+   ],
+   "tags": [
+    "renderer",
+    "shader",
+    "fallback"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "gpu-state-capture",
+   "title": "hardware_state copies the NV2A register state into one draw state",
+   "subject": {
+    "kind": "function",
+    "id": "hardware_state"
+   },
+   "addresses": [],
+   "related": [
+    "Nv2aGpuState",
+    "nv2a_gpu_draw"
+   ],
+   "fact": "hardware_state (line 784) fills an Nv2aGpuState from the executor's register mirror: colour and depth surfaces (dma_resolve of the offsets), pitch, bpp, clip rect, depth, cull, polygon offset, stencil, blend, colour mask, alpha test, fog, z clamp and clip planes, bump matrices, the combiner state (use_rc, rc) and the texture stages. Every hardware draw, clear and present is decided from this struct.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 784
+    }
+   ],
+   "tags": [
+    "renderer",
+    "state"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "surface-refused-guard",
+   "title": "Writes into the wrong guest surface are refused, not drawn",
+   "subject": {
+    "kind": "function",
+    "id": "surface_write_refused / hardware_surface_ok"
+   },
+   "addresses": [],
+   "related": [
+    "hardware_state"
+   ],
+   "fact": "hardware_surface_ok (line 815) only lets a hardware draw run when the colour address is set, the pitch and clip height are non-zero, bpp is 2 or 4, and surface_write_refused (line 213) returns false for the written range. Refused writes are reported as what they were rather than silently drawn.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 213
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 815
+    }
+   ],
+   "tags": [
+    "renderer",
+    "guard"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "clear-path",
+   "title": "Clears are native D3D11 clears, or small draws for masked and partial clears",
+   "subject": {
+    "kind": "function",
+    "id": "nv2a_gpu_clear"
+   },
+   "addresses": [],
+   "related": [
+    "ClearView",
+    "ClearDepthStencilView"
+   ],
+   "fact": "nv2a_gpu_clear (nv2a_gpu_d3d11.c line 2345) uses ClearView on ID3D11DeviceContext1 when clipped to a rectangle, or ClearRenderTargetView otherwise. Partial clears and masked clears (colour-write masks, depth/stencil masks) become a four-vertex native draw with the exact write masks, because ClearView overwrites all channels. The depth value is divided by 65535 or 16777215 depending on the format bits, and stencil clear uses the low 8 bits.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 2345
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 2368
+    }
+   ],
+   "tags": [
+    "renderer",
+    "clear"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "pixel-shader-key",
+   "title": "A pixel shader is keyed by its combiner instructions, not its constants",
+   "subject": {
+    "kind": "function",
+    "id": "pixel_program"
+   },
+   "addresses": [],
+   "related": [
+    "GpuPixelKey",
+    "nv2a_shader_find"
+   ],
+   "fact": "pixel_program (nv2a_gpu_d3d11.c line 423) builds a key from use_rc, the combiner control word, the stage programs (colour and alpha ICW/OCW for up to eight stages), final combiner inputs, clip-plane mode, alpha test, texture kind and shader_depth. Colours, fog, alpha reference, texture bindings and bump matrices stay as constants, so lighting or animation changes do not make new shaders. The key is hashed with XXH64 and compared in full before reuse.",
+   "how_to_use": "RECOMP_PIXEL_SPECIALIZE=0 uses only the generic pixel_main or pixel_clamped programs.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 423
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 391
+    }
+   ],
+   "tags": [
+    "shader",
+    "renderer"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "pixel-shader-depth-variant",
+   "title": "Clamped-depth pixel shader is used only for narrower depth bounds",
+   "subject": {
+    "kind": "function",
+    "id": "pixel_program / pixel_clamped"
+   },
+   "addresses": [],
+   "related": [
+    "SV_Depth"
+   ],
+   "fact": "shader_depth is set only when z_clamp is on and the clip bounds are narrower than the full 0.1 range. D3D already clamps interpolated depth to the viewport range, so the SV_Depth output is needed only for narrower guest bounds. This avoids redundant output and keeps early depth rejection working. The entry point is pixel_clamped; otherwise pixel_main is used.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 423
+    }
+   ],
+   "tags": [
+    "shader",
+    "depth"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "shader-cache-file-name",
+   "title": "On-disk DXBC cache: file name and where it lives",
+   "subject": {
+    "kind": "file",
+    "id": "nv2a_shader_cache.c shader_path"
+   },
+   "addresses": [],
+   "related": [
+    "LOCALAPPDATA",
+    "RECOMP_SHADER_CACHE"
+   ],
+   "fact": "shader_path (nv2a_shader_cache.c line 123) names each compiled shader v2-<16 hex FNV-1a hash>-<source length>-o3.psc for pixel or .vsc for vertex, under %LOCALAPPDATA%/xboxrecomp/shader-cache. The hash is FNV-1a over the source text, then the entry point and profile. Version 1 omitted the entry point, which made generic and clamped pixel shaders collide, so the entry is part of the key now. The cache is off when the cache directory cannot be created or RECOMP_SHADER_CACHE=0.",
+   "how_to_use": "Delete the shader-cache folder to force a full recompile. RECOMP_SHADER_CACHE=0 turns the disk cache off.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_shader_cache.c",
+     "line": 123
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_shader_cache.c",
+     "line": 110
+    }
+   ],
+   "tags": [
+    "shader",
+    "cache"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "shader-cache-validation",
+   "title": "Cached DXBC is re-validated and recompiled if the stage or profile does not match",
+   "subject": {
+    "kind": "function",
+    "id": "valid_blob / read_blob"
+   },
+   "addresses": [],
+   "related": [
+    "D3DReflect"
+   ],
+   "fact": "read_blob (line 135) accepts a file only between 32 bytes and 16 MiB and then valid_blob (line 146) uses D3DReflect to check shader type, major and minor version against the profile string. A blob that fails is logged as 'Ignored invalid or incompatible cached' and dropped, and the shader is compiled again. A corrupted cache therefore costs a recompile, not a crash.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_shader_cache.c",
+     "line": 135
+    }
+   ],
+   "tags": [
+    "shader",
+    "cache"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "shader-compile-path",
+   "title": "Shader requests go through a background compile queue with a blocking variant",
+   "subject": {
+    "kind": "function",
+    "id": "nv2a_shader_find / nv2a_shader_poll / nv2a_shader_compile_blocking"
+   },
+   "addresses": [],
+   "related": [
+    "NV2A_SHADER_PENDING",
+    "nv2a_shader_compile"
+   ],
+   "fact": "pixel_program asks nv2a_shader_find for a job. If the job is pending it returns the fallback program and counts a pixel-pending event, so the frame still draws. Compilation runs on worker threads that never touch the immediate context: they produce a DXBC blob and the render thread does CreatePixelShader after a complete compile. nv2a_shader_compile_blocking is the synchronous path used for the fixed present shaders and the first vertex shader, and it still checks the disk cache first.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_shader_cache.c",
+     "line": 1
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 423
+    }
+   ],
+   "tags": [
+    "shader",
+    "threading"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "shader-seed-pack",
+   "title": "shader-seed.pack ships pre-compiled shaders so first use is not a hitch",
+   "subject": {
+    "kind": "asset",
+    "id": "pc_assets/shader-seed.pack"
+   },
+   "addresses": [],
+   "related": [
+    "make_shader_seed.py",
+    "RECOMP_SHADER_SEED"
+   ],
+   "fact": "The seed pack (added 2026-10-15) holds compiled DXBC keyed exactly like the disk cache: source hash, source length, stage. Layout: magic NV2ASED1, u32 count, u32 zero, then sorted 24-byte entries {u64 hash, u32 length, u32 kind (0 vertex, 1 pixel), u32 offset, u32 size}, then the blobs. open_seed (line 49) maps it from pc_assets (or RECOMP_GAME_OVERLAY) at cache start.",
+   "how_to_use": "RECOMP_SHADER_SEED=0 ignores the seed. RECOMP_SHADER_CACHE_LIST=<file> appends every cache name used, which is the input for building a new seed.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_shader_cache.c",
+     "line": 36
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_shader_cache.c",
+     "line": 49
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_shader_cache.c",
+     "line": 164
+    }
+   ],
+   "tags": [
+    "shader",
+    "seed",
+    "performance"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "shader-seed-validated",
+   "title": "The shader seed removed Mission 1 compiles on a clean cache",
+   "subject": {
+    "kind": "asset",
+    "id": "pc_assets/shader-seed.pack"
+   },
+   "addresses": [],
+   "related": [
+    "mechassault2-laptop-perf"
+   ],
+   "fact": "From an empty cache, Mission 1 compiled 439 shaders. With the 3071-shader seed installed it compiled 0. This is the validation that the seed works on a typical laptop test. Compiles cost 250 to 450 ms each on the i7-1260P, which is why the first appearance of an effect used to stall.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "shader",
+    "seed",
+    "performance"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "shader-cache-load-cost",
+   "title": "Cached shader load costs about 5 ms on Iris Xe, 0.6 ms on desktop",
+   "subject": {
+    "kind": "concept",
+    "id": "shader cache load cost"
+   },
+   "addresses": [],
+   "related": [
+    "shader-seed-pack"
+   ],
+   "fact": "On the laptop, loading a cached shader costs about 5 ms each on the Iris Xe driver, against 0.6 ms on the desktop. This was measured and is not fixed; it is a driver cost. A seed that moves compiles out of the frame does not remove it, so a level with many shaders still pays this on first use.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "shader",
+    "performance"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "shader-preload-setting",
+   "title": "The 'Load level shaders when loading' setting turns on per-level shader pre-creation",
+   "subject": {
+    "kind": "setting",
+    "id": "Display/PreloadShaders (PC_SHADER_PRELOAD)"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_SHADER_PRELOAD",
+    "pc_native_settings.cpp"
+   ],
+   "fact": "The menu row 'Load level shaders when loading' is PC_SHADER_PRELOAD. It is stored as Display/PreloadShaders in the INI, defaults to 0 (off) and is set by RECOMP_SHADER_PRELOAD (0 or 1). The setting only decides whether the background pre-creation thread runs. Recording of the shader list per level happens regardless, so the first visit to a level only records.",
+   "how_to_use": "Set PreloadShaders=1 in the INI or RECOMP_SHADER_PRELOAD=1 to run pre-creation on later visits.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 189
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_shader_cache.c",
+     "line": 483
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 296
+    }
+   ],
+   "tags": [
+    "shader",
+    "setting",
+    "preload"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "shader-level-begin",
+   "title": "Each level load picks up its shader list and starts pre-creation",
+   "subject": {
+    "kind": "function",
+    "id": "nv2a_shader_level_begin"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_mapid.c",
+    "preload_worker"
+   ],
+   "fact": "nv2a_shader_level_begin(level) is called from bots/ma2_bot_mapid.c on every level load, with the hash of the level's Partition5 cache file (an 8-hex name). It bumps nv2a_shader_level_epoch, reads the level's record file %LOCALAPPDATA%/xboxrecomp/shader-cache/levels/<LEVEL>.txt (one key per line: hash, length, kind), queues keys not already loaded for a background thread, and releases shaders made for the previous level that this one does not use. It is a no-op when the same level is re-entered.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_shader_cache.c",
+     "line": 489
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_mapid.c",
+     "line": 75
+    }
+   ],
+   "tags": [
+    "shader",
+    "level",
+    "preload"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "shader-level-record",
+   "title": "A level's shader list is recorded as the game draws it",
+   "subject": {
+    "kind": "function",
+    "id": "nv2a_shader_note_level"
+   },
+   "addresses": [],
+   "related": [
+    "nv2a_shader_level_begin"
+   ],
+   "fact": "nv2a_shader_note_level (line 549) runs on the render thread when a pixel or vertex shader is used. It marks the key in the current level's key set , the first time a key is seen this level, records it to the level file. That file is what level_begin reads on the next visit. Each line is hash, length and kind, so the cache can be rebuilt without the source.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_shader_cache.c",
+     "line": 549
+    }
+   ],
+   "tags": [
+    "shader",
+    "level"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "shader-level-shipped-list",
+   "title": "pc_assets/shader-levels.txt covers the first visit to each level",
+   "subject": {
+    "kind": "asset",
+    "id": "pc_assets/shader-levels.txt"
+   },
+   "addresses": [],
+   "related": [
+    "make_shader_seed.py --levels"
+   ],
+   "fact": "pc_assets/shader-levels.txt has one line per shader: LEVEL HASH LENGTH KIND (hex level, hex hash, decimal length, kind). It is loaded at start-up (lines 458 to 481) and sorted, so a level's first visit can pre-create its shaders too. It is built from test runs with make_shader_seed.py --levels. Without it a level's first visit only records.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_shader_cache.c",
+     "line": 458
+    }
+   ],
+   "tags": [
+    "shader",
+    "level",
+    "asset"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "shader-what-loads-when",
+   "title": "Which shaders load when: seed, disk cache, pre-creation, or compile",
+   "subject": {
+    "kind": "concept",
+    "id": "shader load order"
+   },
+   "addresses": [],
+   "related": [
+    "shader-seed-pack",
+    "shader-level-begin",
+    "shader-cache-file-name",
+    "pixel-shader-key"
+   ],
+   "fact": "A key is only created on the render thread, after the compile is complete. Pre-creation covers the level's recorded list; anything else pays step 2 to 4 on first use.",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_shader_cache.c",
+     "line": 185
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 423
+    }
+   ],
+   "tags": [
+    "shader",
+    "summary"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "shader-frame-hitch-open",
+   "title": "The explosion hitch is not yet tied to shaders or textures",
+   "subject": {
+    "kind": "concept",
+    "id": "explosion hitch attribution"
+   },
+   "addresses": [],
+   "related": [
+    "PERF",
+    "miss-split"
+   ],
+   "fact": "The 2026-10-10 read-only evidence review found no measured correspondence between a first explosion and a shader, texture or upload call. Only one shader split of 8.8 ms appears near a loaded pixel program with no frame or explosion marker. The shader telemetry has a gap: miss_split reports create_ms as 0 when a job completes on a later poll. The review says earlier '60% shader, 30% texture' attributions cannot be summed from nested interval totals. Do not claim the hitch is fixed or assign it a share.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "performance",
+    "shader",
+    "open-question"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "texture-pack-setting",
+   "title": "Texture quality choice selects the Original, 2x or 4x texture pack",
+   "subject": {
+    "kind": "setting",
+    "id": "Display/TextureQuality (PC_TEXTURE_QUALITY)"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_TEXTURE_QUALITY",
+    "nv2a_texture_pack_frame"
+   ],
+   "fact": "Display/TextureQuality in the INI (env RECOMP_TEXTURE_QUALITY, range 0 to 2) is read at each present. 0 is Original, 1 is 2x Enhanced and 2 is 4x Enhanced. A change is applied at a frame boundary without restarting, and the choice falls back to Original if that pack is not installed (pc_native_settings.cpp line 270).",
+   "how_to_use": "Set TextureQuality=1 in the INI for the 2x pack. The HUD work is always tested with TextureQuality=1 (see hud entries).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_texture_pack.cpp",
+     "line": 316
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 187
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 270
+    }
+   ],
+   "tags": [
+    "texture",
+    "setting"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "texture-pack-index-load",
+   "title": "A pack index is read the first time its quality is chosen",
+   "subject": {
+    "kind": "function",
+    "id": "load_index"
+   },
+   "addresses": [],
+   "related": [
+    "index.json",
+    "RECOMP_TEXTURE_PACK_DIR"
+   ],
+   "fact": "load_index (nv2a_texture_pack.cpp line 122) reads <root>/2x/index.json or <root>/4x/index.json, where root is RECOMP_TEXTURE_PACK_DIR or game_files/texture_packs. Only schema 1 and matching scale are accepted. Each resource must have a 77-character file name textures/<64 hex>.dds, a 64-hex dds_sha256, a kind of 2d, array, cube or volume with consistent frame and depth counts, and width and height equal to original size times scale. Bad resources are skipped and the pack loads the rest. A failed index logs 'unavailable' and uses originals.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_texture_pack.cpp",
+     "line": 122
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_texture_pack.cpp",
+     "line": 136
+    }
+   ],
+   "tags": [
+    "texture",
+    "pack"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "texture-pack-fingerprint",
+   "title": "Texture lookup key: SHA-256 over the decoded RGBA of the original texture",
+   "subject": {
+    "kind": "function",
+    "id": "pack_fingerprint / nv2a_texture_pack_fingerprint"
+   },
+   "addresses": [],
+   "related": [
+    "original_rgba_match_key",
+    "original_frame_match_keys"
+   ],
+   "fact": "The pack key is SHA-256 over little-endian uint32 values (1, width, height, depth, frames) followed by all faces, slices and rows of the texture as RGBA8, decoded from guest memory the same way the uploader decodes it. The enhancer writes the same canonical hash as original_rgba_match_key, and an animated array records one key per frame in original_frame_match_keys. A live texture whose key is in the index is replaced by that resource's DDS. Textures with colour formats 0x24 or 0x25 are not fingerprinted, and a fingerprint failure marks the texture as never replaced.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_texture_pack.cpp",
+     "line": 277
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_texture_pack.cpp",
+     "line": 296
+    }
+   ],
+   "tags": [
+    "texture",
+    "pack",
+    "lookup"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "texture-pack-lookup-rules",
+   "title": "When a texture is replaced: lookup, size and kind must match, and no movies",
+   "subject": {
+    "kind": "function",
+    "id": "nv2a_texture_pack_view"
+   },
+   "addresses": [],
+   "related": [
+    "nv2a_gpu_d3d11.c texture_view"
+   ],
+   "fact": "nv2a_texture_pack_view (line 335) returns no replacement when no pack is active, a movie is playing (pc_display_movie_active), the key is invalid, or the matched resource has a different width or height, a different volume or cube kind. Keys are cached per texture and re-matched only when the pack generation changes. A matched resource is loaded to the GPU, with its SRV created per array slice, and its mip count and scale are reported to the sampler.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_texture_pack.cpp",
+     "line": 335
+    }
+   ],
+   "tags": [
+    "texture",
+    "pack",
+    "lookup"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "texture-pack-async-reads",
+   "title": "With async reads on (the default), the first time a matched texture is needed queue_read starts a and the orig",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_TEXTURE_PACK_ASYNC"
+   },
+   "addresses": [],
+   "related": [
+    "queue_read",
+    "read_worker"
+   ],
+   "fact": "With async reads on (the default), the first time a matched texture is needed queue_read starts a and the original is drawn that frame. When the read completes, create_gpu makes the texture. A read or checksum error marks the resource failed and logs 'original fallback'. RECOMP_TEXTURE_PACK_ASYNC=0 reads inline. The caches are bounded: 512 MiB total and 256 MiB per file.",
+   "how_to_use": "RECOMP_TEXTURE_PACK_TRACE=1 logs pack activity. RECOMP_TEXTURE_PACK_ASYNC=0 for inline reads when testing ordering.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_texture_pack.cpp",
+     "line": 256
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_texture_pack.cpp",
+     "line": 36
+    }
+   ],
+   "tags": [
+    "texture",
+    "pack",
+    "async"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "texture-pack-verify-env",
+   "title": "RECOMP_PACK_VERIFY=1 checks the fast fingerprint against the per-texel one",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_PACK_VERIFY"
+   },
+   "addresses": [],
+   "related": [
+    "nv2a_texture_decode_row_canonical"
+   ],
+   "fact": "With RECOMP_PACK_VERIFY=1 every texture is fingerprinted both by the row decoder and by the per-texel decoder, and a difference is logged in [TEXTURE-PACK] verify lines. The per-texel digest is the one used in that mode. In the laptop round 2 test this compared more than 1000 textures with 0 differences.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_texture_pack.cpp",
+     "line": 296
+    }
+   ],
+   "tags": [
+    "texture",
+    "pack",
+    "verify"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "texture-row-decoder",
+   "title": "Row decoder makes texture fingerprinting about 3.5x faster",
+   "subject": {
+    "kind": "function",
+    "id": "nv2a_texture_decode_row_canonical"
+   },
+   "addresses": [],
+   "related": [
+    "nv2a_texture_decode_canonical"
+   ],
+   "fact": "Texel-by-texel decoding cost about 140 ns per texel on the i7-1260P, which made a burst of new textures (an explosion's sprites) cost hundreds of milliseconds on the render thread. nv2a_texture_decode_row_canonical (nv2a_texture.c line 301) decodes a whole row with the swizzle masks computed once, and each DXT block row once. Its values are the same as nv2a_texture_decode_canonical. Non-handled layouts return -1 and use the per-texel path.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_texture.c",
+     "line": 295
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_texture.h",
+     "line": 14
+    }
+   ],
+   "tags": [
+    "texture",
+    "performance"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "texture-linear-twin",
+   "title": "Swizzled texture formats decode through a linear twin with the same texels",
+   "subject": {
+    "kind": "function",
+    "id": "linear_twin"
+   },
+   "addresses": [],
+   "related": [
+    "LIN_A8R8G8B8",
+    "d3d8_swizzle.h"
+   ],
+   "fact": "linear_twin (nv2a_texture.c line 28) maps a swizzled format to the linear format that decodes the same texels. The Xbox formats A8R8G8B8 (0x06) and LIN_A8R8G8B8 (0x12) hold the same bytes in the same order, so only the address calculation differs. Swizzle is Morton order from d3d8_swizzle.h, shared with the D3D8 layer. Volume swizzle interleaves Z with X and Y, and compressed volumes group up to four Z slices per tile.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_texture.c",
+     "line": 21
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_texture.h",
+     "line": 7
+    }
+   ],
+   "tags": [
+    "texture",
+    "format"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "texture-bytes-table",
+   "title": "Texel size table for NV2A texture formats",
+   "subject": {
+    "kind": "function",
+    "id": "nv2a_texture_texel_bytes"
+   },
+   "addresses": [],
+   "related": [
+    "tex_size_from_format"
+   ],
+   "fact": "nv2a_texture_texel_bytes returns 1 for the 8-bit and paletted formats (0, 1, 0x0B, 0x13, 0x19, 0x1B, 0x1F), 2 for the 16-bit formats (2 to 5, 0x0A, 0x10 and 0x11, 0x15 to 0x18, 0x1A, 0x1C, 0x1D, 0x20, 0x24, 0x25, 0x27 to 0x29) and 4 for everything else. Used for pitch and size calculation of uploads.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_texture.c",
+     "line": 5
+    }
+   ],
+   "tags": [
+    "texture",
+    "format"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "guest-memory-versioning",
+   "title": "Texture sources are versioned against guest memory writes",
+   "subject": {
+    "kind": "function",
+    "id": "nv2a_gpu_memory_version / nv2a_gpu_memory_watch"
+   },
+   "addresses": [],
+   "related": [
+    "nv2a_gpu_memory.h"
+   ],
+   "fact": "nv2a_gpu_memory.h exposes version counters, watches and epochs for guest ranges, observed through both the physical and the tiled CPU alias, including ordinary guest stores outside the resource-lock helpers. A cached texture or upload is re-read when its range's version changes. DMA writes made through nv2a_gpu_memory_dma_write keep cache coherence while bypassing CPU permissions.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_memory.h",
+     "line": 5
+    }
+   ],
+   "tags": [
+    "texture",
+    "memory"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "texture-mask-stages-original",
+   "title": "HUD threshold masks always sample the game's own texture, never a pack replacement",
+   "subject": {
+    "kind": "function",
+    "id": "texture_view (sprite_original)"
+   },
+   "addresses": [],
+   "related": [
+    "patch_sprite_mask_original_art.py",
+    "mechassault2-hud-widescreen"
+   ],
+   "fact": "The weapon level bars, health and power meters draw artwork on stage 0 and a game-written threshold mask on stage 1+. The mask textures at 81822000, 81818000, 8182C000 and 81834000 were matched by content and replaced with upscaled snapshots, whose smeared thresholds sliced the bar outline into dashes. The patch sets sprite_original for stages above 0 of clamped sprite draws, so those stages return the original view. Stage 0 artwork can still be enhanced.",
+   "how_to_use": "Test with TextureQuality=1 and the 3840x1600 window to reproduce the dashed bar outline.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "hud",
+    "texture",
+    "bug"
+   ],
+   "date": "2026-10-11",
+   "addresses_unverified": [
+    "80889000",
+    "81822000",
+    "81818000",
+    "8182C000",
+    "81834000"
+   ]
+  },
+  {
+   "id": "sprite-mask-point-sampling",
+   "title": "Mask stages of sprite draws are point-sampled",
+   "subject": {
+    "kind": "function",
+    "id": "program_sprite_clamp (stage i>0)"
+   },
+   "addresses": [],
+   "related": [
+    "patch_sprite_mask_point.py"
+   ],
+   "fact": "For in-bounds sprite draws, stages above 0 get their filter replaced with point sampling (filter bits set to 0x01010000) in addition to CLAMP addressing. A bilinear mask blends neighbouring thresholds across a bar edge and lets dotted fragments of a hidden outline through. Point sampling restores the native per-texel result at 640x480 and upscaled. Stage 0 keeps its filtering.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "hud",
+    "renderer",
+    "filter"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "sprite-clamp",
+   "title": "Small in-bounds screen-space sprites sample with CLAMP, not WRAP",
+   "subject": {
+    "kind": "function",
+    "id": "program_sprite_clamp"
+   },
+   "addresses": [],
+   "related": [
+    "s.sprite_clamp",
+    "patch_sprite_clamp.py"
+   ],
+   "fact": "Upscaled HUD sprites sampled with WRAP bled the opposite texture edge across the sprite, producing faint vertical lines. Sprite draws that are small and in bounds in screen space now set a per-stage bit in s.sprite_clamp and get a sampler with addr_u and addr_v set to 3 (CLAMP). The bitmask is per texture stage, so other draws keep WRAP.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "hud",
+    "renderer",
+    "sampler"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "hud-layout-interpolation",
+   "title": "HUD layout is evaluated at 4:3 and 16:9 and extrapolated for other aspects",
+   "subject": {
+    "kind": "function",
+    "id": "sub_001CCC10"
+   },
+   "addresses": [
+    "001CCC10"
+   ],
+   "related": [
+    "recomp_0048.c",
+    "patch_hud_layout.py"
+   ],
+   "fact": "sub_001CCC10 (recomp_0048.c) turns an element's authored rect into a normalised screen rect. Elements have a 4:3 rect, a widescreen rect used at aspect 1.5 or more, and an anchor mode. Mode 3 shrinks each element around its own centre, so composites (weapon panel and level bars, health frame, fill and outline) only align at exactly 16:9, which is why the extra bar appeared at 21:9. The patch evaluates the original routine at 4:3 and at 16:9 and extrapolates linearly in s = (4/3)/aspect, reproducing both authored layouts and keeping pieces aligned elsewhere.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "hud",
+    "widescreen",
+    "layout"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "hud-image-edge-grid",
+   "title": "HUD image edges snap to the output pixel grid, not 640x480 guest pixels",
+   "subject": {
+    "kind": "function",
+    "id": "sub_0007E5D0 / sub_0007DC28"
+   },
+   "addresses": [
+    "0007E5D0"
+   ],
+   "related": [
+    "recomp_0013.c"
+   ],
+   "fact": "The image drawers sub_0007E5D0 and sub_0007DC28 (recomp_0013.c) floor each image edge to whole 640x480 guest pixels. Once widescreen layout shrinks HUD pieces the edges are fractional, so a fill and its outline rounded to different guest pixels, up to 5 output pixels apart at 3440x1440. The patch floors on the output pixel grid instead. At 640x480 the result is unchanged. sub_0007DC28 is not an entry in functions.json; its location comes from the patch.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "hud",
+    "widescreen"
+   ],
+   "date": "2026-10-11",
+   "addresses_unverified": [
+    "0007DC28"
+   ]
+  },
+  {
+   "id": "hud-640-option",
+   "title": "Resolution list offers 640x480 (Xbox original)",
+   "subject": {
+    "kind": "setting",
+    "id": "Resolution"
+   },
+   "addresses": [],
+   "related": [
+    "patch_resolution_640.py"
+   ],
+   "fact": "The Resolution choice starts with 640x480, labelled '640x480 (Xbox original)', before 960x720 and 1280x960. The label is produced only when the chosen size is 640x480.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "hud",
+    "setting"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "hud-ultrawide-testing-rule",
+   "title": "HUD changes must be tested with typical settings: 3840x1600 and TextureQuality=1",
+   "subject": {
+    "kind": "concept",
+    "id": "HUD test settings"
+   },
+   "addresses": [],
+   "related": [
+    "TextureQuality",
+    "RECOMP_WINDOW_WIDTH"
+   ],
+   "fact": "The HUD glitches were worst at ultrawide, and the dashed weapon-bar outline appeared with the 2x pack on. HUD changes are therefore tested at a typical high-end setting: a 3840x1600 window and TextureQuality=1, not only 640x480 or texture quality 0.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "hud",
+    "testing"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "hud-build-lineage",
+   "title": "HUD fix builds, in order, with the open radar item",
+   "subject": {
+    "kind": "concept",
+    "id": "HUD widescreen fix history"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The later heap/OOM build (EXE e007e4ff) rebased onto the same HUD sources. Radar blips are still drawn unsqueezed at 16 guest pixels at widescreen; that item is open.",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "hud",
+    "history"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "hud-radar-open",
+   "title": "Radar blips are not squeezed at widescreen",
+   "subject": {
+    "kind": "concept",
+    "id": "radar blip layout"
+   },
+   "addresses": [],
+   "related": [
+    "hud-layout-interpolation"
+   ],
+   "fact": "The HUD layout fix does not cover radar blips. They are still drawn at 16 guest pixels without the squeeze the other elements get, so they look wrong at ultrawide. This is open.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "hud",
+    "open-question"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "mouse-capture-on-resume",
+   "title": "A mouse capture fix applies when play resumes from a menu",
+   "subject": {
+    "kind": "function",
+    "id": "fb_wndproc (PC_WINDOW_AIM_MESSAGE)"
+   },
+   "addresses": [],
+   "related": [
+    "patch_gameplay_capture.py",
+    "PC_WINDOW_AIM_MESSAGE"
+   ],
+   "fact": "Entering the gameplay input context with keyboard or mouse as the active device posts PC_WINDOW_AIM_MESSAGE (0x8056). The window then captures the mouse if it is still in gameplay, outside a movie, with mouse aim on. Before this, clicking Resume or leaving a settings page left the cursor visible and the camera did not follow the mouse until a click.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "window",
+    "input"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "fb-present-gdi-fallback",
+   "title": "The GDI framebuffer window is the fallback when the GPU cannot present",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_FramebufferWindowPresent"
+   },
+   "addresses": [],
+   "related": [
+    "nv2a_gpu_present",
+    "xbox_FramebufferWindowHardware"
+   ],
+   "fact": "fb_present.c is a plain GDI window that shows the guest framebuffer. On each flip it copies the finished frame into one of two buffers, so the window never reads memory being drawn. The executor calls nv2a_gpu_present first; only when that returns 0 (no GPU target for the presented address, the device has failed, or there is no window) does it read the surface back and call xbox_FramebufferWindowPresent. A successful native present marks the window as hardware-presented through xbox_FramebufferWindowHardware.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/video/fb_present.c",
+     "line": 1
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 3688
+    }
+   ],
+   "tags": [
+    "present",
+    "window"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "present-flip-model",
+   "title": "Native presentation uses a DXGI flip-model swap chain",
+   "subject": {
+    "kind": "function",
+    "id": "present_init / nv2a_gpu_present"
+   },
+   "addresses": [],
+   "related": [
+    "DXGI_SWAP_EFFECT_FLIP_DISCARD"
+   ],
+   "fact": "present_init (nv2a_gpu_d3d11.c line 2410) creates a two-buffer B8G8R8A8 flip-discard swap chain for the HWND, stretch scaling and alpha ignored, tearing allowed when the factory supports it, and window transitions locked to our handler (DXGI_MWA_NO_WINDOW_CHANGES and NO_ALT_ENTER). nv2a_gpu_present (line 2555) then draws the GPU target for the presented guest address into the back buffer with a small present shader, preserving aspect ratio when set.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 2410
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 2555
+    }
+   ],
+   "tags": [
+    "present",
+    "d3d11"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "present-settings",
+   "title": "Presentation settings and their env vars",
+   "subject": {
+    "kind": "setting",
+    "id": "Display/VSync, PreserveAspect, SmoothScaling"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_VSYNC",
+    "RECOMP_PRESERVE_ASPECT",
+    "RECOMP_SCALE_FILTER"
+   ],
+   "fact": "VSync defaults to off (RECOMP_VSYNC, INI Display/VSync). PreserveAspect defaults to on (RECOMP_PRESERVE_ASPECT). SmoothScaling defaults to on, giving linear filtering; 0 gives point sampling (RECOMP_SCALE_FILTER). Each is read again at present time through pc_setting_get, so the settings page can change them at run time. The window defaults to 1280x960 (RECOMP_WINDOW_WIDTH and HEIGHT).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 2432
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 175
+    }
+   ],
+   "tags": [
+    "present",
+    "setting"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "frame-limit-pacing",
+   "title": "Frame limit uses a fixed-cadence high-resolution pacer",
+   "subject": {
+    "kind": "setting",
+    "id": "Display/FrameLimit (RECOMP_FRAME_LIMIT)"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_HIGH_RES_PACING",
+    "nv2a_frame_pacer_wait"
+   ],
+   "fact": "FrameLimit (default 0, off) is a frames-per-second target. nv2a_gpu_present keeps a fixed cadence (present_deadline advances by one period, not by the sleep overshoot) and waits with nv2a_frame_pacer_wait. A wait that falls more than four periods behind resets the deadline. High-resolution pacing is on by default and RECOMP_HIGH_RES_PACING=0 turns it off. With VSync a small scheduling margin is left before the deadline.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 2665
+    }
+   ],
+   "tags": [
+    "present",
+    "pacing"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "device-recovery",
+   "title": "The D3D11 device recovers at a frame boundary after loss",
+   "subject": {
+    "kind": "function",
+    "id": "recover_at_frame_boundary"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_GPU_RECOVERY_TEST",
+    "RECOMP_GPU_RECOVERY_FAIL_ATTEMPTS"
+   ],
+   "fact": "On a lost device the renderer discards the frame, and recovery runs at a frame boundary. A recovery state machine (NV2A_GPU_RESTORING, VERIFYING, HEALTHY) needs a number of healthy frames to count as recovered. Two test switches exist: RECOMP_GPU_RECOVERY_TEST injects a loss, and RECOMP_GPU_RECOVERY_FAIL_ATTEMPTS sets how many attempts fail first. Both are off by default.",
+   "how_to_use": "RECOMP_GPU_RECOVERY_TEST=1 with RECOMP_GPU_RECOVERY_FAIL_ATTEMPTS=<n> to exercise recovery without a real driver fault.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 2497
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 2515
+    }
+   ],
+   "tags": [
+    "d3d11",
+    "recovery",
+    "test"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "gpu-debug-env",
+   "title": "D3D11 debug switches",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_GPU_DEBUG"
+   },
+   "addresses": [],
+   "related": [
+    "gpu_debug_messages"
+   ],
+   "fact": "RECOMP_GPU_DEBUG=1 creates the D3D11 device with the debug layer and prints its messages through gpu_debug_messages. RECOMP_GPU_WARP=1 selects the WARP software adapter and RECOMP_GPU_LEGACY_ENUMERATION selects the old adapter enumeration. RECOMP_GPU_CONSTANT_STREAMING=discard turns off constant buffer offsetting.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 598
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 616
+    }
+   ],
+   "tags": [
+    "d3d11",
+    "debug",
+    "env"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "render-trace-env",
+   "title": "Render and target trace switches",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_RENDER_TRACE"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_TARGET_TRACE",
+    "RECOMP_UPLOAD_TRACE"
+   ],
+   "fact": "RECOMP_RENDER_TRACE=1 logs render target use, RECOMP_TARGET_TRACE=1 logs target resizing (both read through gpu_option in target_for). RECOMP_UPLOAD_TRACE=<mode> records buffer and texture uploads with their caller and HRESULT.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 908
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 153
+    }
+   ],
+   "tags": [
+    "debug",
+    "env"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "vsh-verify-env",
+   "title": "Vertex shader verification switches",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_VSH_VERIFY"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_VSH_VERIFY_DUMP",
+    "RECOMP_VSH_TRACE",
+    "RECOMP_NO_VSH"
+   ],
+   "fact": "RECOMP_VSH_VERIFY=1 bypasses the vertex shader cache and checks GPU output against the CPU interpreter. RECOMP_VSH_VERIFY_DUMP dumps the verification output. RECOMP_VSH_VERIFY_AFTER=<s> starts verification only after that many seconds. RECOMP_VSH_TRACE=<n> prints the attribute setup of n program batches, and RECOMP_NO_VSH disables the whole program path.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 2233
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 2555
+    }
+   ],
+   "tags": [
+    "shader",
+    "debug",
+    "env"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "perf-env-and-report",
+   "title": "RECOMP_PERF turns on CPU phase timing and interval reports",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_PERF"
+   },
+   "addresses": [],
+   "related": [
+    "perf_report_cpu",
+    "nv2a_gpu_cpu_take"
+   ],
+   "fact": "RECOMP_PERF (checked by nv2a_gpu_cpu_enabled) enables wall-clock timing of renderer phases: pack digest, pack read, program miss, vertex fallback, present, pacer and similar. Counts and totals are kept per thread and printed as [PERF] lines in about 5 second windows by perf_report_cpu (nv2a_pb_exec.c line 505). These are CPU wall times, not GPU times, and nested phases must not be summed.",
+   "how_to_use": "RECOMP_PERF=1 and read the [PERF] lines; the per-draw signature lines show up to eight of the most recent eligible draws per window.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 31
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 505
+    }
+   ],
+   "tags": [
+    "performance",
+    "env",
+    "telemetry"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "perf-instrumentation-status",
+   "title": "Frame, draw and pack diagnostics were added only to CPU fixtures",
+   "subject": {
+    "kind": "concept",
+    "id": "renderer instrumentation status"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_PERF"
+   ],
+   "fact": "It used thread-local counters with bounded storage. Measured overhead was about 0.03 to 0.04 ms per 1000 uploads with fake APIs.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "performance",
+    "telemetry",
+    "status"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "upload-trace-env",
+   "title": "Upload tracing is a separate switch from RECOMP_PERF",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_UPLOAD_TRACE"
+   },
+   "addresses": [],
+   "related": [
+    "upload_trace_capture"
+   ],
+   "fact": "RECOMP_UPLOAD_TRACE is read by upload_trace_begin and upload_trace_capture in nv2a_gpu_d3d11.c. It is not enabled by RECOMP_PERF, so a run with RECOMP_PERF alone has aggregate upload counts but no per-Map timing.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 151
+    }
+   ],
+   "tags": [
+    "performance",
+    "env"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "frame-trace-env",
+   "title": "Frame trace: flag file plus per-batch and per-pixel dumps",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_FRAME_TRACE"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_FRAME_TRACE_PIXEL",
+    "RECOMP_FRAME_TRACE_TEXTURE"
+   ],
+   "fact": "RECOMP_FRAME_TRACE=<flag file> starts a trace of every batch once the flag file exists (trace_surface_snapshot and frame_trace_flip, nv2a_pb_exec.c line 2784). Extra switches: RECOMP_FRAME_TRACE_SURFACES=<prefix> for surface snapshots, _VERTICES=<file>, _TEXTURE=<filter>, _PIXEL=<x,y> for one pixel's coverage, _DEPTH for the depth value at a pixel, and _METHODS for every method of the traced frame.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 2784
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 2868
+    }
+   ],
+   "tags": [
+    "debug",
+    "env",
+    "trace"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "fb-dump-env",
+   "title": "Framebuffer and texture dump switches",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_FB_DUMP"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_FB_DUMP_FLIPS",
+    "RECOMP_TEX_DUMP"
+   ],
+   "fact": "RECOMP_FB_DUMP=<prefix> writes the surface to <prefix>NNN.bmp. RECOMP_FB_DUMP_FLIPS dumps every presented frame in sequence, from boot with 1 or from a chosen point, and RECOMP_FB_DUMP_INTERVAL sets the spacing. RECOMP_FB_WINDOW_DUMP_EVERY=<frames> dumps the GDI window repeatedly. RECOMP_TEX_DUMP names texture dump files and RECOMP_TEX_DUMP_EVERY sets the interval. RECOMP_RASTER_TEST draws a known triangle after every clear.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 877
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 3706
+    }
+   ],
+   "tags": [
+    "debug",
+    "env",
+    "dump"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "pb-debug-env",
+   "title": "Pushbuffer inspection switches: peek, NaN and quad finders, texture state",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_PEEK"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_PEEK_CHAIN",
+    "RECOMP_TEX_STATE"
+   ],
+   "fact": "RECOMP_PEEK=<addr,> prints guest dwords as hex and float. RECOMP_PEEK_CHAIN=<start,count,offset,> follows pointer chains. RECOMP_FIND_NAN and RECOMP_FIND_QUAD search the matrices and quad vertices. RECOMP_TEX_STATE prints the current texture state, and RECOMP_PB_EXEC_VERBOSE adds the batch log.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 3929
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 4088
+    }
+   ],
+   "tags": [
+    "debug",
+    "env"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "unhandled-report",
+   "title": "Unhandled pushbuffer methods are counted and ranked at shutdown",
+   "subject": {
+    "kind": "function",
+    "id": "nv2a_pb_exec_report"
+   },
+   "addresses": [],
+   "related": [
+    "note_unhandled"
+   ],
+   "fact": "note_unhandled (nv2a_pb_exec.c line 688) counts each method the executor does not handle, and nv2a_pb_exec_report (line 3994) prints the top ten by count. RECOMP_PB_UNHANDLED_ALL=1 prints all of them.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 688
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 4105
+    }
+   ],
+   "tags": [
+    "debug",
+    "pushbuffer"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "cpu-rasteriser-combiners",
+   "title": "The CPU rasteriser runs its own register combiner and fog stages",
+   "subject": {
+    "kind": "function",
+    "id": "rc_stage_fetch / fog_factor / alpha_test_pass"
+   },
+   "addresses": [],
+   "related": [
+    "nv2a_combiner.h",
+    "RECOMP_NO_COMBINERS"
+   ],
+   "fact": "The CPU rasteriser has its own combiner stages (rc_stage_fetch, line 1839), linear fog (fog_factor, line 1895), alpha test (alpha_test_pass, line 1920) and depth test (depth_pass, line 1750). RECOMP_NO_COMBINERS disables the combiner stages for comparison. This is the code the GPU path replaces, so it is a reference for correctness.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 1839
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 2162
+    }
+   ],
+   "tags": [
+    "cpu",
+    "combiner",
+    "reference"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "dma-resolve",
+   "title": "DMA offsets resolve to guest addresses through dma_resolve",
+   "subject": {
+    "kind": "function",
+    "id": "dma_resolve"
+   },
+   "addresses": [],
+   "related": [
+    "hardware_state"
+   ],
+   "fact": "dma_resolve (nv2a_pb_exec.c line 185) turns an NV2A DMA offset (colour, zeta, texture or semaphore) into a guest address, through the bound DMA object. Every surface address in hardware_state and every present target goes through it.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 185
+    }
+   ],
+   "tags": [
+    "memory",
+    "dma"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "presented-surface-choice",
+   "title": "The surface presented at flip is the largest drawn clip rectangle",
+   "subject": {
+    "kind": "function",
+    "id": "note_drawn"
+   },
+   "addresses": [],
+   "related": [
+    "drawn_offset",
+    "nv2a_gpu_present"
+   ],
+   "fact": "note_drawn (nv2a_pb_exec.c line 821) remembers which colour surface was drawn last, but a new draw replaces the record only if its clip rectangle is at least as large as the one already recorded, unless the record is stale. At flip the executor presents this drawn surface (or the colour surface when nothing has been drawn). A small overlay therefore does not replace the full scene as the presented image.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 821
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 3688
+    }
+   ],
+   "tags": [
+    "present",
+    "surface"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "draw-distance-setting",
+   "title": "Draw distance setting: 50 keeps the authored scene",
+   "subject": {
+    "kind": "setting",
+    "id": "Display/DrawDistance (PC_DRAW_DISTANCE)"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_DRAW_DISTANCE",
+    "pc_draw_distance.h"
+   ],
+   "fact": "Draw distance is an INI setting (Display/DrawDistance, default 50, range 0 to 100, env RECOMP_DRAW_DISTANCE). ma2_draw_distance_scale returns the far-plane scale for a value: 50 preserves the authored scene, and the two endpoints are half and twice the authored distance. ma2_draw_distance_far, ma2_draw_distance_fog and the lightmap and LOD helpers apply the same scale to the far plane, fog, lightmap extent and level-of-detail distance.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_draw_distance.h",
+     "line": 5
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 186
+    }
+   ],
+   "tags": [
+    "draw-distance",
+    "setting"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "draw-distance-hooks",
+   "title": "Draw distance hooks: camera far plane, fog, lightmap and a constant",
+   "subject": {
+    "kind": "function",
+    "id": "sub_00044BE0"
+   },
+   "addresses": [
+    "00044BE0",
+    "00126AAA",
+    "00053071",
+    "000530FA",
+    "004A6628"
+   ],
+   "related": [
+    "recomp_0007.c",
+    "recomp_0028.c",
+    "recomp_0008.c",
+    "recomp_0014.c",
+    "patch_draw_distance.py"
+   ],
+   "fact": "patch_draw_distance.py reapplies the hooks after regeneration. sub_00044BE0 (recomp_0007.c) stores the scaled far distance at camera+0x80 (pc_far from ma2_pc_camera_distance). Fog at the call through vtable offset 0x134 (return address 0x00126AAA, recomp_0028.c) is scaled with ma2_pc_fog_distance. The lightmap paths at 0x00053071 and 0x000530FA (recomp_0008.c) use ma2_pc_lightmap_parameters and ma2_pc_lightmap_extent. A multiply by the constant at 0x004A6628 (recomp_0014.c) is also replaced.",
+   "how_to_use": "Run patch_draw_distance.py after regenerating recomp sources; it is idempotent (already-applied edits are skipped).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/bringup/patch_draw_distance.py",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "draw-distance",
+    "patch"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bink-native-api",
+   "title": "Native Bink decoder API: decode, copy, release and open association",
+   "subject": {
+    "kind": "file",
+    "id": "bink_native.h"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bink_decode",
+    "ma2_bink_copy",
+    "ma2_bink_opened"
+   ],
+   "fact": "bink_native.h declares ma2_bink_decode(movie, video) (decode the current compressed video packet), ma2_bink_copy(movie, destination, pitch, height, x, y, flags) (copy the decoded frame into guest memory), ma2_bink_release(movie) and ma2_bink_opened(movie, name, flags) (associate a successful retail BinkOpen with its original file name). The retail movie player still owns guest timers, file I/O and audio; the native codec consumes the same compressed video packets at each frame.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bink_native.h",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "bink",
+    "fmv"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bink-open-flag-handle",
+   "title": "BinkOpen passes a file handle, not a file name, when flag 0x00800000 is set",
+   "subject": {
+    "kind": "function",
+    "id": "BinkOpen wrapper 0x000B0037 / default I/O 0x00399701"
+   },
+   "addresses": [
+    "000B0037",
+    "00390FC0"
+   ],
+   "related": [
+    "recomp_0094.c",
+    "recomp_0018.c",
+    "bink_native.c"
+   ],
+   "fact": "The Xbox wrapper at 0x000B0037 always ORs 0x00800000 into BinkOpen flags. The default Bink I/O at 0x00399701 tests that bit: when set, the first argument is an already open file handle (tagged 0x48000000) and is passed to SetFilePointer. Only the clear branch treats it as a CreateFile name. The association hook (recomp_0094.c, BinkOpen at 0x00390FC0, success association at 0x00391EBB) wrongly read the handle as a C string and failed the guest-pointer check, so the enhanced replacement was never selected. The fix resolves the handle with GetFinalPathNameByHandleW through a read-only helper.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bink",
+    "fmv",
+    "bug"
+   ],
+   "date": "2026-10-09",
+   "addresses_unverified": [
+    "00399701",
+    "00391EBB"
+   ]
+  },
+  {
+   "id": "bink-fps-fields-bug",
+   "title": "Enhanced FMV rejected at frame 1 because the wrong frame-rate fields were read",
+   "subject": {
+    "kind": "function",
+    "id": "enhanced_open (bink_native.c)"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The BIK public header keeps LastFrameNum at +0x10. The frame rate numerator and divisor are copied to +0x14 and +0x18. Reading the rate from +0x10 gave the wrong ratio, so the 2x MKV was rejected at frame 1 and MAIntro fell back to the original. Instructions 0x00391222 to 0x00391273 and 0x00391566 to 0x00391572 were executed in Unicorn to confirm the values (2997 and 100 for MAIntro). Fixed in bink_native.c only.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bink",
+    "fmv",
+    "bug"
+   ],
+   "date": "2026-10-09",
+   "addresses_unverified": [
+    "00391222",
+    "00391566"
+   ]
+  },
+  {
+   "id": "fmv-enhanced-selection",
+   "title": "Enhanced FMV replacement: which movies, which settings, and what falls back",
+   "subject": {
+    "kind": "setting",
+    "id": "Display/FMVQuality (PC_FMV_QUALITY)"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_FMV_QUALITY",
+    "bink_native.c",
+    "Enhanced/2x"
+   ],
+   "fact": "Display/FMVQuality (env RECOMP_FMV_QUALITY, 0 Original, 1 Enhanced) is shown in the Video menu as Cutscene videos. MAIntro always prefers its matching 2x replacement when present. Attract, SPIntro and ConquestIntro follow the menu choice. The replacement is game_files/Movie/Enhanced/2x/<same relative path with .mkv>, and the rate folder (50 or 60), language and basename must match. Only the final .mkv name is opened (never .part.mkv). The MKV must be H264 at exactly twice the guest size with the exact frame-rate rational and a matching frame count. Any open, decode or EOF error falls back to the original video for that playback. The audio is always the original track.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "fmv",
+    "setting",
+    "fallback"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "fmv-resolution-limit",
+   "title": "Enhanced FMV frames are shrunk to the guest-sized copy, not shown at 2x",
+   "subject": {
+    "kind": "concept",
+    "id": "FMV presentation size"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bink_copy"
+   ],
+   "fact": "Enhanced source frames are converted into the existing guest-sized Bink copy destination. For MAIntro this is 1440x960 to 720x480. There is no true 2x movie render texture. Live image quality, A/V sync, skip and resource interaction still need a live smoke test.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "fmv",
+    "limitation"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "fmv-baseline-hashes",
+   "title": "Original movie decode baselines for regression",
+   "subject": {
+    "kind": "asset",
+    "id": "MAIntro / SPIntro original decode"
+   },
+   "addresses": [],
+   "related": [
+    "mission_agent_fmv_verify.py"
+   ],
+   "fact": "The original Bink decode of the whole clip must match these FNV-64 hashes after any change: MAIntro, 778 frames, 5c7d555e11b3aed2; English SPIntro, 2135 frames, fee5d4d75916a8b1. The FMV fixture checks loop restart and RGB565 pitch as well.",
+   "how_to_use": "python bringup/mission_agent_fmv_verify.py decode (add --actual-game-root for real packets).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "fmv",
+    "test"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "fmv-verify-script",
+   "title": "mission_agent_fmv_verify.py: CPU-only FMV and settings checks",
+   "subject": {
+    "kind": "tool",
+    "id": "mission_agent_fmv_verify.py"
+   },
+   "addresses": [],
+   "related": [
+    "mission_agent_fmv_fixture.c"
+   ],
+   "fact": "The script has three modes: decode (the production reader on synthetic libx264 clips and real retail packets; 108 checks at the last run), settings (Video page storage, defaults and reload, 12 write checks and 9 reload checks) and evidence (compiles recomp_0094.c with MSVC and checks the GGF layout of the menu). It makes no window, device or game process. It uses fresh private INI files under a UUID folder.",
+   "how_to_use": "python 'kit/source/game/bringup/mission_agent_fmv_verify.py' decode (or settings, evidence). Safe to run with no game present.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "fmv",
+    "test",
+    "tool"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "fmv-enhancer-outputs",
+   "title": "Enhancer FMV batch writes 28 enhanced MKVs into the PC Release",
+   "subject": {
+    "kind": "asset",
+    "id": "game_files/Movie/Enhanced/2x"
+   },
+   "addresses": [],
+   "related": [
+    "Enhance All FMVs 2x.cmd",
+    "SPIntro.bik"
+   ],
+   "fact": "Enhancer/FMV/README.md describes Enhance All FMVs 2x.cmd, which processes all 28 movies at 2x and 50 percent AI strength. It shares frames between language copies of the same stream: 8 distinct video streams, 14,666 unique source frames. Output goes to game_files/Movie/Enhanced/2x in the PC Release, with a zip and a manifest. The README says the game does not yet play the MKVs.",
+   "status": "superseded",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "fmv",
+    "enhancer"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "fmv-movie-aspect",
+   "title": "Movie aspect: the 4:3 override squeezed the intro and was removed",
+   "subject": {
+    "kind": "function",
+    "id": "pc_display_aspect (movie override)"
+   },
+   "addresses": [
+    "000382C0"
+   ],
+   "related": [
+    "sub_382C0",
+    "pc_frontend.c"
+   ],
+   "fact": "On 2026-10-14 the bots tree forced 4:3 during fullscreen Bink movies. The game's movie player lays out from the widened screen size (sub_382C0) before the first frame flips the movie count, so the intro was squeezed to 0.84:1 on a 2.4:1 display. The override was removed and the cinematic kept. NTSC 720x480 movies are true 3:2 square-pixel (same scale as PAL 640x480). The SAR 8:9 tag in the enhanced MKV is wrong.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "fmv",
+    "aspect",
+    "bug"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "effect-sprite-resample",
+   "title": "Jump-jet smoke artifacts came from AI-upscaled SpecialEffects textures",
+   "subject": {
+    "kind": "asset",
+    "id": "Texture_Dump/SpecialEffects"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_assets.effect_sprite",
+    "Wpn_Smoke_02"
+   ],
+   "fact": "Jump-jet smoke is a stack of Wpn_Smoke_02 quads (64x64 DXT3, src-alpha blending). Real-ESRGAN had turned its soft grey into a dark rounded box with white cracks and a light frame, while the alpha stayed soft, so colour jumped sharply inside the translucent area. 178 SpecialEffects images were AI-processed. Every path under Texture_Dump/SpecialEffects is now resampled per channel with bilinear interpolation (fixed 2026-10-17 in the Enhancer, with packs rebuilt and installed). The game executable did not change.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "texture",
+    "effects",
+    "bug"
+   ],
+   "date": "2026-10-17"
+  },
+  {
+   "id": "effect-jet-show-hook",
+   "title": "RECOMP_BOT_JET_SHOW makes a bot jet in front of the player",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_JET_SHOW"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_ctrl.c jet_show"
+   ],
+   "fact": "RECOMP_BOT_JET_SHOW=1 makes a jet-capable teammate bot jet 30 m in front of the human player, so jet smoke can be checked on screen. Frame tracing (RECOMP_FRAME_TRACE with _PIXEL, _VERTICES and _TEXTURE) is the companion for the smoke sprites.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "effects",
+    "test"
+   ],
+   "date": "2026-10-17"
+  },
+  {
+   "id": "enhancer-pack-counts",
+   "title": "Enhancer packs: 2x and 4x complete, 2,118 DDS resources each",
+   "subject": {
+    "kind": "asset",
+    "id": "texture_packs/2x and 4x"
+   },
+   "addresses": [],
+   "related": [
+    "Enhance.cmd",
+    "extract_textures.py"
+   ],
+   "fact": "The 2x and 4x native batches are complete: 2,417 enhanced PNGs and 2,118 DDS resources per pack, from 2,193 distinct image paths across 61 archives. All 4,834 top-level images across both packs pass the pixel audit (audit_dds_pixels.py). Installed packs live in game_files/texture_packs/2x and 4x. Missing or invalid replacements fall back to originals, and render targets and movie surfaces are excluded.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "texture",
+    "enhancer"
+   ],
+   "date": "2026-10-17"
+  },
+  {
+   "id": "enhancer-processing-policies",
+   "title": "Enhancer processing policies per texture",
+   "subject": {
+    "kind": "concept",
+    "id": "ai_rgb / ai_alpha / resample_data"
+   },
+   "addresses": [],
+   "related": [
+    "config.json processing_overrides"
+   ],
+   "fact": "ai_rgb sends RGB through the AI model and resizes alpha separately with Lanczos. ai_alpha enhances a font's alpha mask only. resample_data resizes each channel with bilinear interpolation, and is the default for cube, volume and packed luminance or alpha data, the packed lightmap, and effect sprites. Terrain samples marked wrap get wrapped padding. config.json processing_overrides can change any source's policy, using its source_path.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "texture",
+    "enhancer",
+    "policy"
+   ],
+   "date": "2026-10-17"
+  },
+  {
+   "id": "enhancer-dds-format",
+   "title": "Enhancer DDS output formats",
+   "subject": {
+    "kind": "asset",
+    "id": "textures/*.dds"
+   },
+   "addresses": [],
+   "related": [
+    "foliage_mips.py",
+    "DirectXTex"
+   ],
+   "fact": "The packer writes BC7_UNORM for ordinary colour textures, and uncompressed BGRA8 for fonts, data textures, volumes and sizes BC7 cannot hold. Cubes, volumes and arrays keep their DDS resource type, and every resource gets a mip chain. Transparent tree textures keep the authored mip levels at their original sizes, so distant silhouettes are unchanged; only extra levels above the original size use enhanced art (foliage_mips.py). BC7 blocks that fail validation fall back to lossless BGRA, and the game rejects invalid blocks.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "texture",
+    "enhancer",
+    "format"
+   ],
+   "date": "2026-10-17"
+  },
+  {
+   "id": "enhancer-index-format",
+   "title": "Enhancer index.json: what the renderer reads",
+   "subject": {
+    "kind": "asset",
+    "id": "texture_packs/<scale>x/index.json"
+   },
+   "addresses": [],
+   "related": [
+    "nv2a_texture_pack.cpp load_index"
+   ],
+   "fact": "index.json (schema 1) records each resource's original width, height and depth, resource kind, frames, mip levels, dds_file and dds_sha256, and the match key. The match key is SHA-256 over the uint32 header and RGBA8 bytes of the original (see the texture fingerprint fact). Animated textures also record original_frame_match_keys. The loader verifies each DDS checksum, keeps the resource type and game UVs, and bounds the GPU cache.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_texture_pack.cpp",
+     "line": 122
+    }
+   ],
+   "tags": [
+    "texture",
+    "enhancer",
+    "format"
+   ],
+   "date": "2026-10-17"
+  },
+  {
+   "id": "shader-seed-remove-compile-hitch-claim",
+   "title": "Shader compile hitches are reduced, not fully removed",
+   "subject": {
+    "kind": "concept",
+    "id": "shader compile hitch"
+   },
+   "addresses": [],
+   "related": [
+    "shader-seed-pack",
+    "shader-cache-load-cost"
+   ],
+   "fact": "The seed removes compiles for shaders it contains, but a shader not in the seed still compiles on first use (250 to 450 ms on the laptop) while the CPU fallback draws. Cached loads still cost about 5 ms each on Iris Xe. Keep the seed and the level lists in step with the test runs that build them.",
+   "status": "open-question",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "shader",
+    "performance"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "laptop-round1-nv2a-spin",
+   "title": "NV2A ack idle backoff was part of the laptop fix in round 1",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_NV2A_SPIN"
+   },
+   "addresses": [],
+   "related": [
+    "voice_lock fix 9d210d29"
+   ],
+   "fact": "Round 1 of the laptop performance fix (commit 9d210d29, the game source tree) added an idle backoff to the NV2A ack thread. RECOMP_NV2A_SPIN=1 restores the old spin. The round also opted the main process out of EcoQoS. The same round fixed an audio lock convoy, which is recorded in the audio pack.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "performance",
+    "env",
+    "history"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "laptop-round2-render-fixes",
+   "title": "Laptop round 2: texture-pack digest and async reads shipped",
+   "subject": {
+    "kind": "concept",
+    "id": "laptop performance round 2"
+   },
+   "addresses": [],
+   "related": [
+    "nv2a_texture_decode_row_canonical",
+    "shader seed"
+   ],
+   "fact": "Round 2 (shipped in 22ddd9d4, the game source tree) added the row decoder (texel-by-texel fingerprinting cost about 140 ns per texel), async DDS reads, and the shader seed pack. Its test runs were 163742 and 164355. Each piece has a switch: RECOMP_PACK_VERIFY, RECOMP_TEXTURE_PACK_ASYNC=0 and RECOMP_SHADER_SEED=0.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "performance",
+    "history"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "laptop-perf-measure",
+   "title": "How to measure the laptop-class renderer performance on the desktop",
+   "subject": {
+    "kind": "tool",
+    "id": "mission1perf.py / m1sum.py"
+   },
+   "addresses": [],
+   "related": [
+    "REPLAY_USERENV",
+    "REPLAY_AFFINITY"
+   ],
+   "fact": "Use mission1perf.py with REPLAY_USERENV=1 and REPLAY_AFFINITY=FF0000 (the desktop E-cores as a laptop stand-), then read the output with m1sum.py and the [PERF] phase lines (pack_digest, pack_read, program_miss, vertex_fallback). This measures CPU phases only.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "performance",
+    "tool",
+    "test"
+   ],
+   "date": "2026-10-15"
+  },
+  {
+   "id": "native-graphics-ctests",
+   "title": "Native graphics regression tests: 19 CTests with a watchdog",
+   "subject": {
+    "kind": "tool",
+    "id": "19 hardware/WARP/texture CTests"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The v22 plan rebuilds 19 hardware, WARP and texture CTests, run one at a time with 30 seconds each, a watchdog of 135 seconds and an inclusive limit of 150 seconds. They cover native resolution, scratch byte aliases, depth texture interpretation and feedback views. This is a plan.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "test",
+    "gpu"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "fps-overlay-gamepad",
+   "title": "The passive FPS overlay no longer polls XInput through the ImGui Win32 backend",
+   "subject": {
+    "kind": "setting",
+    "id": "IMGUI_IMPL_WIN32_DISABLE_GAMEPAD"
+   },
+   "addresses": [],
+   "related": [
+    "imgui_impl_win32.cpp"
+   ],
+   "fact": "Adding IMGUI_IMPL_WIN32_DISABLE_GAMEPAD to the game CMake definitions for imgui_impl_win32.cpp stops the overlay polling XInput GetState and GetCapabilities. Native menu and guest USB input are compiled separately and not affected. The backend caches controller availability at start-up and refreshes it only in WM_DEVICECHANGE, which the frontend does not forward, so a pad connected after an absent start may never be seen by the overlay. This is a known limit.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "fps",
+    "input",
+    "overlay"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "jsrf-plan-scope-note",
+   "title": "The JSRF plan is about another game and is historical context only",
+   "subject": {
+    "kind": "file",
+    "id": "jsrf-plan-scope-note"
+   },
+   "addresses": [],
+   "related": [
+    "d3d-translation.md"
+   ],
+   "fact": "The 2026-09-23 plan covers Jet Set Radio Future, not MechAssault 2. Its idea is to lift graphics at the D3D8 boundary, about 100 entry points plus D3D global arrays, rather than emulate the NV2A. The status note says a targeted draw-lift prototype exists and the whole-boundary replacement was not built. MA2 uses the pushbuffer path instead.",
+   "status": "historical",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "history",
+    "docs"
+   ],
+   "date": "2026-09-23"
+  },
+  {
+   "id": "d3d8-doc-generic",
+   "title": "d3d-translation.md describes a generic D3D8 layer, not the MA2 path",
+   "subject": {
+    "kind": "file",
+    "id": "docs/technical/d3d-translation.md"
+   },
+   "addresses": [],
+   "related": [
+    "nv2a_gpu_d3d11.c"
+   ],
+   "fact": "The generic document describes d3d8_device.c, d3d8_resources.c, d3d8_shaders.c and d3d8_states.c, a fixed-function translation with Present(1,0). The MA2 renderer is nv2a_gpu_d3d11.c with its own pushbuffer executor and a flip-model present, so the device and present sections do not describe MA2.",
+   "status": "historical",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/runtime/src/d3d/README.md",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "docs",
+    "history"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "nv2a-readme-stale",
+   "title": "kit/source/game/src/nv2a/README.md says PGRAPH does no rendering: no longer true for MA2",
+   "subject": {
+    "kind": "file",
+    "id": "kit/source/game/src/nv2a/README.md"
+   },
+   "addresses": [],
+   "related": [
+    "nv2a_pb_exec.c",
+    "nv2a_gpu_d3d11.c"
+   ],
+   "fact": "The nv2a README lists as current limitations: PGRAPH is register-level only, no shader execution and no texture fetch. For MA2 these are out of date: nv2a_pb_exec.c executes pushbuffer methods and nv2a_gpu_d3d11.c runs vertex and pixel programs, textures and presentation on D3D11. The README still describes the register and MMIO structure correctly.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/runtime/src/nv2a/README.md",
+     "line": 261
+    }
+   ],
+   "tags": [
+    "docs",
+    "superseded"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "nv2a-shaders-doc",
+   "title": "nv2a-shaders.md describes a combiner and microcode translator not in the MA2 kernel",
+   "subject": {
+    "kind": "file",
+    "id": "docs/technical/nv2a-shaders.md"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The note describes an 8-stage register-combiner to HLSL translation with a 128-entry cache and an NV2A vertex microcode translator (14 MAC ops, 8 ILU ops, 192 constants, 64-entry cache). Its file names (d3d8_combiners.c, nv2a_pgraph_d3d11.c) are not the MA2 kernel files. The concept matches the MA2 pixel-program key (combiner words in the key, constants separate), but the code paths differ.",
+   "status": "historical",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "shader",
+    "docs",
+    "history"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "d3d8ltcg-doc-other-title",
+   "title": "d3d8ltcg-device-context.md is about Burnout 3, not MA2",
+   "subject": {
+    "kind": "file",
+    "id": "docs/technical/d3d8ltcg-device-context.md"
+   },
+   "addresses": [
+    "0035D6A0"
+   ],
+   "related": [
+    "burnout3",
+    "D3D8LTCG"
+   ],
+   "fact": "This note maps a 16 KB D3D8LTCG device context at 0x0035D6A0 with the global pointer at 0x0035FB48, plus push-buffer ring fields and a spin-wait fix (self-referencing read pointer at device+0x30). Its own header says it applies to Burnout 3 and related Criterion titles. None of these addresses apply to MA2 without checking the MA2 binary.",
+   "status": "historical",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "docs",
+    "other-title"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "qemu-shim-header",
+   "title": "qemu_shim.h maps QEMU types to Win32 so xemu's NV2A code compiles",
+   "subject": {
+    "kind": "file",
+    "id": "source/src/nv2a/qemu_shim.h"
+   },
+   "addresses": [],
+   "related": [
+    "xemu"
+   ],
+   "fact": "qemu_shim.h lets the NV2A code extracted from xemu compile without QEMU. It maps hwaddr to uint64_t, QemuMutex to CRITICAL_SECTION, QemuCond to CONDITION_VARIABLE, QemuThread to HANDLE and qemu_irq to void pointers, and adds muldiv64, ctz32, GET_MASK and SET_MASK. The include guard and comment still say BURNOUT3, a copy from the other project.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/nv2a/qemu_shim.h",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "nv2a",
+    "build"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "fb-present-bgr-convert",
+   "title": "The GDI window converts guest pixels to 32-bit with a pixel-format switch",
+   "subject": {
+    "kind": "function",
+    "id": "fb_convert"
+   },
+   "addresses": [],
+   "related": [
+    "xbox_FramebufferDumpBmp"
+   ],
+   "fact": "fb_convert (fb_present.c line 436) converts a guest framebuffer of 2 or 4 bytes per pixel into the 32-bit RGB buffer that GDI draws. xbox_FramebufferDumpBmp (line 466) writes the same buffer as a BMP. The window uses HALFTONE stretching by default (RECOMP_SCALE_FILTER), and keeps the aspect ratio when RECOMP_PRESERVE_ASPECT is 1.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/video/fb_present.c",
+     "line": 436
+    }
+   ],
+   "tags": [
+    "present",
+    "window"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "fb-window-env",
+   "title": "GDI window environment switches",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_FB_VA"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_FB_HIDDEN",
+    "RECOMP_FULLSCREEN"
+   ],
+   "fact": "RECOMP_FB_VA=<address> pins the window to one guest framebuffer instead of the flipped one. RECOMP_FB_HIDDEN=1 hides the window (diagnostic), RECOMP_FULLSCREEN=1 starts fullscreen, RECOMP_WINDOW_WIDTH and HEIGHT set the size, and RECOMP_SHOW_FPS=1 turns on the FPS overlay (also Display/ShowFPS in the INI). RECOMP_DISPLAY_TRACE logs window changes.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/video/fb_present.c",
+     "line": 65
+    },
+    {
+     "file": "kit/source/game/src/video/fb_present.c",
+     "line": 620
+    }
+   ],
+   "tags": [
+    "window",
+    "env"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "fb-window-start-gate",
+   "title": "The framebuffer window only starts when RECOMP_FB_WINDOW is set",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_FramebufferWindowStart"
+   },
+   "addresses": [],
+   "related": [
+    "main.c"
+   ],
+   "fact": "xbox_FramebufferWindowStart (fb_present.c line 819) returns at once unless RECOMP_FB_WINDOW is set. main.c sets it by default. Without the window there is no HWND to pass to nv2a_gpu_present, which returns 0 when its window argument is NULL, so no native present happens.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/video/fb_present.c",
+     "line": 819
+    }
+   ],
+   "tags": [
+    "window",
+    "env"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "fb-window-mouse-capture",
+   "title": "Window mouse capture is controlled by the mouse aim setting",
+   "subject": {
+    "kind": "setting",
+    "id": "Input/MouseAim (PC_MOUSE_AIM)"
+   },
+   "addresses": [],
+   "related": [
+    "PC_WINDOW_CAMERA_MESSAGE"
+   ],
+   "fact": "fb_capture_mouse (fb_present.c line 153) captures the mouse only when PC_MOUSE_AIM (INI Input/MouseAim, default 1, env RECOMP_MOUSE_AIM) allows it. The window captures or releases in response to PC_WINDOW_CAMERA_MESSAGE from the input layer.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/video/fb_present.c",
+     "line": 153
+    }
+   ],
+   "tags": [
+    "window",
+    "input"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bink-player-no-replacement-title",
+   "title": "Enhanced movies are skipped for memory-backed or archived Bink files",
+   "subject": {
+    "kind": "concept",
+    "id": "FMV replacement eligibility"
+   },
+   "addresses": [],
+   "related": [
+    "bink_native.c"
+   ],
+   "fact": "Only Bink files opened from disk by filename are considered for enhanced replacement. Memory-backed or archived movies keep the original video. Matched files must come from the exact configured Movie tree (junctions and Unicode included), and cache paths are rejected.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "fmv",
+    "eligibility"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "fmv-audio-untouched",
+   "title": "Enhanced FMV replacement keeps the original audio and timers",
+   "subject": {
+    "kind": "concept",
+    "id": "FMV audio and timing"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bink_decode"
+   ],
+   "fact": "The enhanced reader only changes the picture. Original guest audio packets, playback timers, end and skip logic, and input ownership stay on the retail path, and MKV audio streams are ignored. A backward frame seek reopens the MKV, and a forward skip decodes forward to the guest frame ordinal. There is no separate wall clock.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "fmv",
+    "audio"
+   ],
+   "date": "2026-10-09"
+  }
+ ]
+}

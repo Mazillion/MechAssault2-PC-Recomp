@@ -1,0 +1,4875 @@
+{
+ "pack": "t01b_bots_code",
+ "title": "Bots: source code map",
+ "facts": [
+  {
+   "id": "bots-overview-layering",
+   "title": "Bot code is split into core, nav, path, brain, controller, terrain, entry, UI and content modules",
+   "subject": {
+    "kind": "concept",
+    "id": "kit/source/game/src/bots"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bots_core.c",
+    "ma2_bot_brain.c",
+    "ma2_bot_ctrl.c",
+    "ma2_bot_nav.c",
+    "ma2_bot_path.c",
+    "ma2_bots_ui.c"
+   ],
+   "fact": "A bot is a non-human MAPlayer that this machine simulates. ma2_bots_core.c holds the world snapshot, roster, registry, AI line of sight and diagnostics; ma2_bot_brain*.c decide strategy and emit a Ma2Order; ma2_bot_ctrl.c executes the order through the game's own MoveTo, AI fire and command-frame interfaces; ma2_bot_nav.c and ma2_bot_path.c plan routes on a 2 m traversability grid; ma2_bot_terrain.c steers around obstacles; ui and content handle the New Game barrels and localized strings. ma2_bot_api.h is the shared contract.",
+   "how_to_use": "Start reading at ma2_bot_api.h, then ma2_bots_core.c ma2_bot_player_tick (line 3512).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 4
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_api.h",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "bots",
+    "architecture"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bots-zero-footprint",
+   "title": "Bot hooks do nothing with zero bots configured",
+   "subject": {
+    "kind": "concept",
+    "id": "zero footprint"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bots_core.c"
+   ],
+   "fact": "Every predicate returns 0 and every hook returns without touching guest memory when no bots are configured. ma2_bot_player_tick returns at once when g_rt.nbots is 0. The guest registers are saved and restored around every exported entry point so generated code never sees a change.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3514
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 8
+    }
+   ],
+   "tags": [
+    "bots",
+    "safety"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "session-singleton-0x4EBBFC",
+   "title": "Session singleton global at 0x4EBBFC",
+   "subject": {
+    "kind": "global",
+    "id": "VA_SESSION"
+   },
+   "addresses": [
+    "004EBBFC"
+   ],
+   "related": [
+    "ma2_bots_core.c",
+    "sub_1CE1A0"
+   ],
+   "fact": "MEM32(0x4EBBFC) holds the session singleton (created by sub_1CE1A0). Bot count for the current session is read from it, and session accessors take their base from it. session_ok requires at least 0x730 bytes of valid guest memory.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 50
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 355
+    }
+   ],
+   "tags": [
+    "bots",
+    "globals",
+    "session"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "local-mask-0x50C9AC",
+   "title": "Local controller bitmask at 0x50C9AC",
+   "subject": {
+    "kind": "global",
+    "id": "VA_LOCAL_MASK"
+   },
+   "addresses": [
+    "0050C9AC"
+   ],
+   "related": [
+    "ma2_bots_core.c"
+   ],
+   "fact": "MEM32(0x50C9AC) & 0xF is the bitmask of local controllers that have a human. The roster counts humans from it, and each set bit c reads session+0x3A8+4c for that human's team.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 51
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 370
+    }
+   ],
+   "tags": [
+    "bots",
+    "globals",
+    "roster"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "players-vector-0x50E280",
+   "title": "Player vector bounds at 0x50E280 and 0x50E284",
+   "subject": {
+    "kind": "global",
+    "id": "VA_PLAYERS_BEGIN/END"
+   },
+   "addresses": [
+    "0050E280",
+    "0050E284"
+   ],
+   "related": [
+    "ma2_bot_player.c"
+   ],
+   "fact": "MEM32(0x50E280) and MEM32(0x50E284) are the begin and end of the active player pointer vector. bot_ensure_active scans this vector to see whether a bot player is active; if it is missing after 3 s it runs the mid-game join path.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 52
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_player.c",
+     "line": 75
+    }
+   ],
+   "tags": [
+    "bots",
+    "globals",
+    "players"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "game-object-0x50C958",
+   "title": "Game object pointer at 0x50C958",
+   "subject": {
+    "kind": "global",
+    "id": "VA_GAME"
+   },
+   "addresses": [
+    "0050C958"
+   ],
+   "related": [
+    "sub_161B4B",
+    "ma2_bot_objective.c"
+   ],
+   "fact": "The game object (sub_161B4B) is at 0x50C958. The Not-It objective keeps the 'It' player id at game+0x48 (compared with player+0x88), and -1 means nobody.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 54
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_objective.c",
+     "line": 123
+    }
+   ],
+   "tags": [
+    "bots",
+    "globals",
+    "objectives"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "step-and-time-globals",
+   "title": "Simulation step stamp, step dt and game clock",
+   "subject": {
+    "kind": "global",
+    "id": "VA_STEP_TIME / VA_STEP_DT / VA_GAME_TIME"
+   },
+   "addresses": [
+    "004E2430",
+    "004E2428",
+    "004E2440"
+   ],
+   "related": [
+    "ma2_bot_brain.c"
+   ],
+   "fact": "MEM32(0x4E2430) is the simulation step stamp: a bot ticks at most once per step (b->last_step). MEMD(0x4E2428) is the step dt (double). MEMD(0x4E2440) is the game clock in seconds, used by the brain, the controller timers and the TEST_JUMP hook. The brain takes w->dt only when it is between 0 and 0.25 s, else 1/60 s.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 56
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 2480
+    }
+   ],
+   "tags": [
+    "bots",
+    "globals",
+    "time"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "paused-byte-0x4EAED4",
+   "title": "Pause flag byte at 0x4EAED4",
+   "subject": {
+    "kind": "global",
+    "id": "VA_PAUSED"
+   },
+   "addresses": [
+    "004EAED4"
+   ],
+   "related": [
+    "bot_hold_paused",
+    "sub_C97D1"
+   ],
+   "fact": "MEM8(0x4EAED4) is nonzero while the pause menu is up (sub_C97D1 area). ma2_bot_player_tick then calls bot_hold_paused and skips the decision step.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 59
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3533
+    }
+   ],
+   "tags": [
+    "bots",
+    "globals",
+    "pause"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "class-ids-va",
+   "title": "Class-descriptor VAs used to test entity kinds",
+   "subject": {
+    "kind": "global",
+    "id": "CLS_*_VA"
+   },
+   "addresses": [
+    "004EAED0",
+    "004EAF2C",
+    "004EAF40",
+    "004EAF78",
+    "004EAF84",
+    "004EAF88",
+    "004EAF98",
+    "004EAF9C",
+    "004EAF4C",
+    "004EAFC0"
+   ],
+   "related": [
+    "is_kind",
+    "class_id"
+   ],
+   "fact": "Class ids are about crc32 of the class name (checked on 11 classes). The core reads class VAs for MAPlayer (0x4EAED0), MACorporeal (0x4EAF2C), MAMover (0x4EAF40), MAMech (0x4EAF78), MATank (0x4EAF84), MATurret (0x4EAF88), MAFlyer (0x4EAF98), MASpider (0x4EAF9C). Weapon class is 0x4EAF4C and the camera class is 0x4EAFC0. is_kind(e, id) is native sub_B3C50.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 61
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 139
+    }
+   ],
+   "tags": [
+    "bots",
+    "classes"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "vcall0-and-class-cache",
+   "title": "Guest virtual calls and class-descriptor cache",
+   "subject": {
+    "kind": "function",
+    "id": "vcall0 / class_desc"
+   },
+   "addresses": [
+    "000B3C5A"
+   ],
+   "related": [
+    "ma2_bots_core.c"
+   ],
+   "fact": "vcall0(obj, slot, ret_site) calls a guest vtable slot thiscall with no arguments and returns eax. class_desc reads the class descriptor through vtable slot 0x54, decoding the 'mov eax,imm32; ret' body, and caches it per vtable in a 128-entry table. Actor HP uses slot 0x74 (current) and 0x6C (max), nation uses 0xA8.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 121
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 161
+    }
+   ],
+   "tags": [
+    "bots",
+    "guest-abi"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "uid-lookup-world",
+   "title": "UID lookup through world hash table",
+   "subject": {
+    "kind": "function",
+    "id": "sub_B4F70 (uid_lookup)"
+   },
+   "addresses": [
+    "000B4F70"
+   ],
+   "related": [
+    "ma2_bot_entry.c"
+   ],
+   "fact": "uid_lookup(world, uid) calls native sub_B4F70 with ecx=world and esi=uid. The uid hash table lives at world+0x34 and world+0x38. Entry zones and ride targets resolve their UIDs through it.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 195
+    }
+   ],
+   "tags": [
+    "bots",
+    "entities"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "terrain-object-sub2AAA30",
+   "title": "Native terrain height port at sub_2AAA30",
+   "subject": {
+    "kind": "function",
+    "id": "terrain_height (sub_2AAA30 via sub_F70A9)"
+   },
+   "addresses": [
+    "002AAA30",
+    "000F70A9"
+   ],
+   "related": [
+    "VA_TERRAIN"
+   ],
+   "fact": "terrain_height(x, z) is an exact native port of sub_2AAA30 (reached through sub_F70A9). It reads the terrain object at VA_TERRAIN 0x4EAF64: cell size at +0x814, row count at +0x834, width and depth at +4 and +8. It returns 0 when the terrain is not ready. The code checks the sign of the first dword ('js' in sub_2AAA30), and the port was checked against a probe capture matching actor+0x4C0.y.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 27
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 214
+    }
+   ],
+   "tags": [
+    "bots",
+    "terrain"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "ground-probe-sub1760E1",
+   "title": "Ground probe uses sub_1760E1 with apply=0",
+   "subject": {
+    "kind": "function",
+    "id": "sub_1760E1 (ground_fn / object_probe)"
+   },
+   "addresses": [
+    "001760E1"
+   ],
+   "related": [
+    "MAModSubObjectPhysics"
+   ],
+   "fact": "The ground probe calls the game's physics ground follow sub_1760E1 with apply=0, so it never writes to the component. The result is max(sweep hit, terrain + actor+0xD8). The probe actor must be a live MAMover whose physics component links back (phys+0x148 == actor). Probe objects are on unless RECOMP_BOT_PROBE_TERRAIN_ONLY is set.",
+   "how_to_use": "RECOMP_BOT_PROBE_TERRAIN_ONLY=1 disables object collision in the probe.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 259
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2804
+    }
+   ],
+   "tags": [
+    "bots",
+    "probe",
+    "collision"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "probe-live-freed-actor-crash",
+   "title": "Ground probe crash on freed probe actor (fixed)",
+   "subject": {
+    "kind": "function",
+    "id": "probe_live"
+   },
+   "addresses": [
+    "000B3C50"
+   ],
+   "related": [
+    "ma2_bots_core.c",
+    "sub_B3C50"
+   ],
+   "fact": "Bug (2026-10-13/14): the probe actor was freed before the frame ended, for example a bot pilot that boarded a VTOL. The ray filter then ran IsKindOf (sub_B3C50) on freed memory and crashed twice. probe_live revalidates each frame: same vtable, actor+0x8C == phys, phys+0x148 == actor, both in range.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 249
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 253
+    }
+   ],
+   "tags": [
+    "bots",
+    "crash",
+    "fixed"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "ray-cast-as-query",
+   "title": "Ray cast through collision space with a self filter",
+   "subject": {
+    "kind": "function",
+    "id": "ray_cast_as (sub_A10A0, sub_8DF50)"
+   },
+   "addresses": [
+    "000A10A0",
+    "0008DF50",
+    "00477CA8"
+   ],
+   "related": [
+    "ma2_bots_core.c"
+   ],
+   "fact": "ray_cast_as builds a query with sub_A10A0 (type 2, origin, direction, length, ignore filter) and traces it with sub_8DF50. result+0xC is the hit distance and result+4 the hit collider. The filter is vtable 0x477CA8 with self at +4, and it rejects colliders whose owner (+0x128) is self. flags2d and flags2e select dynamic and static layers.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 290
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 308
+    }
+   ],
+   "tags": [
+    "bots",
+    "collision",
+    "raycast"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "ai-los-sub17AD5C",
+   "title": "Bot line of sight is the AI's own collision ray (sub_17AD5C)",
+   "subject": {
+    "kind": "function",
+    "id": "sub_17AD5C (ai_los_impl)"
+   },
+   "addresses": [
+    "0017AD5C",
+    "00185068"
+   ],
+   "related": [
+    "sn_los",
+    "Ma2Senses"
+   ],
+   "fact": "Line of sight for bots is the game AI's ray sub_17AD5C, cdecl (self, target, 3, Entity **hit), ignoring self and target. It returns clear when al is 1. The brain's ray use is budgeted by a token bucket: 90 rays per second with a 40-ray burst per bot. Return address pushed is 0x00185068.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2977
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 329
+    }
+   ],
+   "tags": [
+    "bots",
+    "los",
+    "ai"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "team-mode-sub16616C",
+   "title": "Team mode test (sub_16616C)",
+   "subject": {
+    "kind": "function",
+    "id": "team_mode_of (sub_16616C)"
+   },
+   "addresses": [
+    "0016616C",
+    "001661C1"
+   ],
+   "related": [
+    "Ma2GameType"
+   ],
+   "fact": "Team modes are game types 1.3 and 11.17. Game type ids (sub_1661C1 name table): 1 TeamLMS, 2 Soccer, 3 TeamDestruction, 4 NotIt, 5 GiantKillers, 6 Grinder, 7 ScoutMatch, 8 SkirmishMatch, 9 LMS, 10 Destruction, 11 TeamScoutMatch, 12 TeamSkirmishMatch, 13 TakeIt, 14 CTF, 15 CheckIt, 16 BaseWar, 17 SnatchIt.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 358
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_api.h",
+     "line": 123
+    }
+   ],
+   "tags": [
+    "bots",
+    "gametype"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "total-cap-env",
+   "title": "Bot cap: RECOMP_BOTS_MAX (6 a side)",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOTS_MAX"
+   },
+   "addresses": [],
+   "related": [
+    "compute_roster",
+    "ma2_bots_ui.c total_cap"
+   ],
+   "fact": "The total number of players (humans plus bots) is clamped to 2.12 from RECOMP_BOTS_MAX (default 12). In team modes each side is capped at total/2 (6 a side). Grinder (game type 6) is always capped to one bot, the two-player co-op against AI waves.",
+   "how_to_use": "RECOMP_BOTS_MAX=8 limits the match to 4 a side.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 363
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 375
+    }
+   ],
+   "tags": [
+    "bots",
+    "env",
+    "roster"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "compute-roster",
+   "title": "compute_roster derives the bot roster from settings and humans",
+   "subject": {
+    "kind": "function",
+    "id": "compute_roster"
+   },
+   "addresses": [],
+   "related": [
+    "Roster",
+    "ma2_bot_count_for"
+   ],
+   "fact": "compute_roster runs only when session+0x4C == 2. It counts humans from the local mask and their team words at session+0x3A8 (0 = Red, 1 = Blue). It caps the room at min(total cap - humans, 12 - humans, 12). In team modes Red and Blue bots come from the settings (cfg red/blue), each side capped by total/2 minus its humans, then the total is bounded by the room. In FFA the count is the cfg ffa value. Bots take slots 4+i, and slots past 11 use controller ids no local human holds.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 365
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 405
+    }
+   ],
+   "tags": [
+    "bots",
+    "roster"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "grinder-one-bot",
+   "title": "Grinder co-op caps bots at one",
+   "subject": {
+    "kind": "setting",
+    "id": "Grinder bot cap"
+   },
+   "addresses": [],
+   "related": [
+    "compute_roster"
+   ],
+   "fact": "Grinder (game type 6) is a two-player co-op against AI waves, so compute_roster caps the room at 1 bot. The extra AI vehicles become combatants via add_ai_combatants, not bots.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 389
+    }
+   ],
+   "tags": [
+    "bots",
+    "grinder",
+    "roster"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "mixed-skill-spread",
+   "title": "Mixed skill spread per side",
+   "subject": {
+    "kind": "setting",
+    "id": "MA2_SKILL_MIXED (4)"
+   },
+   "addresses": [],
+   "related": [
+    "mixed_skills",
+    "Ma2Skill"
+   ],
+   "fact": "Mixed (setting 4) gives each side a spread. For n players a side gets n/3 Elites and n/3 Recruits, and the rest Veterans then Regulars (6 players: E E V R Rc Rc). Each local human counts as an Elite of his side. The bots of a side take their places in a shuffled order seeded by GetTickCount at level spawn, so who is the ace changes each match.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 424
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_player.c",
+     "line": 50
+    }
+   ],
+   "tags": [
+    "bots",
+    "skill"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "mixed-skill-bump",
+   "title": "Bots facing humans get one skill notch up in Mixed",
+   "subject": {
+    "kind": "setting",
+    "id": "Mixed skill bump"
+   },
+   "addresses": [],
+   "related": [
+    "mixed_skills"
+   ],
+   "fact": "In Mixed, the weakest place on a side that faces a human goes up one level (6 players: E E V R R Rc). This was added after a 2026-10-20 match where the human was the ace of a spawn-camping game. FFA: every bot faces the human.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 441
+    }
+   ],
+   "tags": [
+    "bots",
+    "skill",
+    "balance"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "roster-skills-fallback",
+   "title": "Single skill setting for all bots",
+   "subject": {
+    "kind": "function",
+    "id": "roster_skills"
+   },
+   "addresses": [],
+   "related": [
+    "mixed_skills"
+   ],
+   "fact": "roster_skills gives every bot the chosen skill when the setting is 0.3 and Regular otherwise. Only setting 4 (Mixed) goes through mixed_skills.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 456
+    }
+   ],
+   "tags": [
+    "bots",
+    "skill"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "count-accessors",
+   "title": "ma2_bot_count and ma2_bot_count_for",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_count / ma2_bot_count_for"
+   },
+   "addresses": [
+    "004EBBFC"
+   ],
+   "related": [
+    "compute_roster"
+   ],
+   "fact": "ma2_bot_count returns the roster size for the session at MEM32(0x4EBBFC). ma2_bot_count_for(session) returns it for an explicit session. Both just call compute_roster and return r.n.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 463
+    }
+   ],
+   "tags": [
+    "bots",
+    "roster"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "lobby-active",
+   "title": "ma2_bots_lobby_active lists bots in the Briefing Room",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bots_lobby_active"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_lobby_record"
+   ],
+   "fact": "Bots appear in lobby listings (Briefing Room, launch checks, Players x/y, scoreboard) when session+0x4C == 2 and bots are configured. They are not listed while the level spawns, since BotPlayers are then created by ma2_bot_player.c.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 474
+    }
+   ],
+   "tags": [
+    "bots",
+    "lobby"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "lobby-record-layout",
+   "title": "Lobby roster record layout for a bot",
+   "subject": {
+    "kind": "save",
+    "id": "lobby record (rec 0x4C bytes)"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_lobby_record"
+   ],
+   "fact": "ma2_bot_lobby_record writes one 0x4C-byte roster record in the layout of the original local loop (sub_1D3E20). +0x00 name (wide pointer from ma2_pc_wide), +0x04 and +0x0C controller id (4+i), +0x10 vehicle UID, +0x18 team, +0x20 slot, +0x24 not host, +0x38 option, +0x3E isHuman = 0 (System Link style), +0x43 ready, +0x44 = 1, +0x48 peer = 0.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 515
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 519
+    }
+   ],
+   "tags": [
+    "bots",
+    "lobby",
+    "record"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "session-field-offsets",
+   "title": "Controller ids >= 4 are bots",
+   "subject": {
+    "kind": "save",
+    "id": "session+0x388 / +0x398 / +0x3A8 / +0x3B8"
+   },
+   "addresses": [
+    "001D49F0",
+    "001D47C0",
+    "001D4CA0",
+    "001D4760",
+    "001D4DA0",
+    "001D4790",
+    "001D4B60"
+   ],
+   "related": [
+    "ma2_bot_session_set",
+    "ma2_bot_session_get"
+   ],
+   "fact": "Controller ids >= 4 are bots. ma2_bot_session_set stores Briefing Room overrides in g_ovr[i] (up to 12 bots).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_api.h",
+     "line": 1
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 548
+    }
+   ],
+   "tags": [
+    "bots",
+    "session",
+    "briefing"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "session-set-get",
+   "title": "ma2_bot_session_set and ma2_bot_session_get",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_session_set / ma2_bot_session_get"
+   },
+   "addresses": [],
+   "related": [
+    "Ma2BotSessionField"
+   ],
+   "fact": "Setter returns 1 (handled) for controller ids >= 4 and writes an override in g_ovr. Getters return the override, or the defaults: vehicle = first human vehicle, option 0, team from the roster, ready 1.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 548
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 563
+    }
+   ],
+   "tags": [
+    "bots",
+    "session"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "callsigns-skip-human",
+   "title": "Bot callsigns skip the human's profile name",
+   "subject": {
+    "kind": "function",
+    "id": "bot_name"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_content.c"
+   ],
+   "fact": "Bot i takes consecutive callsign entries from a per-process start. It skips any entry matching a human's name, read from session+0x264 (the local profile name as a wide string), so no bot shares the player's name.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 480
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 502
+    }
+   ],
+   "tags": [
+    "bots",
+    "content"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "is-local-ai-registry",
+   "title": "is_local_ai registry gates authority",
+   "subject": {
+    "kind": "function",
+    "id": "bot_index_of / ma2_bot_is_local_ai"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_is_port",
+    "ma2_player_is_local"
+   ],
+   "fact": "A BotPlayer is registered when ma2_bot_player.c creates it and removed when the game deactivates it (sub_C6FF3). Every authority gate asks ma2_bot_is_local_ai(player) rather than a port range or the human bit. ma2_player_is_local = human or bot.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 628
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 648
+    }
+   ],
+   "tags": [
+    "bots",
+    "authority"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "local-flags-0x244",
+   "title": "player+0x244 bit 2 forced for local AI",
+   "subject": {
+    "kind": "property",
+    "id": "MAPlayer.flags (+0x244)"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_local_flags"
+   ],
+   "fact": "player+0x244 bit 2 means local (simulation authority). ma2_bot_local_flags returns the flags with bit 2 set for local AI players, and the authority gates read this rather than MEM32(p+0x244). Bit 0 is the MAInput activation bit: bot_create sets it so the control behaviour and has-control are created.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 654
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_player.c",
+     "line": 30
+    }
+   ],
+   "tags": [
+    "bots",
+    "player",
+    "flags"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "level-begin-sub1DB150",
+   "title": "Level begin hook: roster for the match (sub_1DB150 entry)",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bots_level_begin (sub_1DB150)"
+   },
+   "addresses": [
+    "001DB150"
+   ],
+   "related": [
+    "ma2_bots_level_spawn"
+   ],
+   "fact": "ma2_bots_level_begin runs at the entry of the level spawn sub_1DB150. It frees the previous level runtime, computes the roster and sets g_bot_spawning when there are bots. It logs [BOT-LEVEL] under RECOMP_BOT_DIAG. The lobby iterator lists humans only until the bots exist.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 739
+    }
+   ],
+   "tags": [
+    "bots",
+    "level",
+    "spawn"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "level-spawn-hook",
+   "title": "Bot players are created after the lobby iterator (loc_001DB1E8)",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bots_level_spawn (loc_001DB1E8)"
+   },
+   "addresses": [
+    "001DB1E8"
+   ],
+   "related": [
+    "bot_create"
+   ],
+   "fact": "ma2_bots_level_spawn is hooked at loc_001DB1E8 in sub_1DB150, right after the lobby iterator has built the human players. It builds one BotPlayer per roster entry, sets the skill for each and creates its brain with a seed from GetTickCount. It also sets g_rt.nbots as each bot is created.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_player.c",
+     "line": 43
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_player.c",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "bots",
+    "spawn",
+    "hook"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bot-create-sub1DAE30",
+   "title": "Creating a BotPlayer through the game's constructor",
+   "subject": {
+    "kind": "function",
+    "id": "bot_create (sub_1DAE30, sub_1668D8)"
+   },
+   "addresses": [
+    "001DAE30",
+    "001668D8",
+    "001D3F2E"
+   ],
+   "related": [
+    "ma2_bot_lobby_record"
+   ],
+   "fact": "bot_create writes a lobby record and calls the game's per-player constructor sub_1DAE30 (cdecl) with the record and the session, returning the new player from 0x50C9B8. It clears the network-proxy bits 0x30000 in actor+0x1C and sets player+0x244 |= 1 for input control. CreatePlayer sub_1668D8 gives isHuman = 0.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_player.c",
+     "line": 22
+    }
+   ],
+   "tags": [
+    "bots",
+    "player",
+    "spawn"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bot-ensure-active-join",
+   "title": "Mid-game join fallback for an inactive bot player",
+   "subject": {
+    "kind": "function",
+    "id": "bot_ensure_active (sub_B2B70)"
+   },
+   "addresses": [
+    "000B2B70",
+    "000B4080",
+    "001DB58B"
+   ],
+   "related": [
+    "bot_create"
+   ],
+   "fact": "If a bot player is missing from the player vector 3 s after the check, bot_ensure_active calls sub_B2B70 (activation) with a spawn request through the respawn tick, then sets player+0x244 |= 0x40 and player+0x2D0 to the game time. It logs [BOT-PLAYER] not active when this happens.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_player.c",
+     "line": 75
+    }
+   ],
+   "tags": [
+    "bots",
+    "player",
+    "fallback"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "vehicle-ai-flags-1E8",
+   "title": "Vehicle AI flags at +0x1E8 for bot bodies",
+   "subject": {
+    "kind": "property",
+    "id": "actor+0x1E8 (AI flags)"
+   },
+   "addresses": [
+    "000E6C55"
+   ],
+   "related": [
+    "ma2_bot_vehicle_ai",
+    "sub_E6C55"
+   ],
+   "fact": "For a player-parented body, +0x1E8 selects campaign AI. Humans keep AI off (original). Bot bodies keep the campaign AI on (bits 0 and 1 set) so the BotController can drive them through MoveTo and attack mode. RECOMP_BOT_GAME_AI=0 opts out. The patch site is sub_E6C55 (loc_000E6C8E).",
+   "how_to_use": "RECOMP_BOT_GAME_AI=0 disables the campaign AI for bot bodies.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 671
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 716
+    }
+   ],
+   "tags": [
+    "bots",
+    "ai",
+    "patch"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "externally-driven-body-144",
+   "title": "Body flag +0x144 bit 0 makes the campaign AI tick",
+   "subject": {
+    "kind": "property",
+    "id": "entity body +0x144 (externally driven)"
+   },
+   "addresses": [
+    "002AC940",
+    "00183345"
+   ],
+   "related": [
+    "ma2_bot_vehicle_ai",
+    "sub_183345"
+   ],
+   "fact": "The campaign AI ticks (sub_183345) only for a body whose [entity+0x8C]+0x144 has bit 0 set (externally driven), and the human control tick skips such entities. For a bot's vehicle the core sets this with sub_2AC940 (al=1). Bodies put under AI control are tracked in g_flagged[24] and released to the pad once no bot is in them. The AI sleeps with comp+0x144 |= 0x60 on a think that leaves it asleep.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 674
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 700
+    }
+   ],
+   "tags": [
+    "bots",
+    "ai",
+    "body"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "ai-drive-sweep",
+   "title": "Vehicles under bot AI return to the pad when empty",
+   "subject": {
+    "kind": "function",
+    "id": "ai_drive_sweep / ai_release_body"
+   },
+   "addresses": [],
+   "related": [
+    "g_flagged"
+   ],
+   "fact": "ai_drive_sweep walks the flagged vehicles. When no bot is in one, ai_release_body clears its externally driven bit so a human who boards can steer, and an empty vehicle does not roam.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 703
+    }
+   ],
+   "tags": [
+    "bots",
+    "vehicles"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "attack-pilot-flags-env",
+   "title": "RECOMP_BOT_ATTACK_PILOT chooses AI flag bits",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_ATTACK_PILOT"
+   },
+   "addresses": [],
+   "related": [
+    "ai_flag_bits"
+   ],
+   "fact": "ai_flag_bits returns 0x83 when RECOMP_BOT_ATTACK_PILOT is on (the default, 1), else 3. The flags are ORed into a bot body's AI flags for a local AI owner.",
+   "how_to_use": "RECOMP_BOT_ATTACK_PILOT=0 gives the AI bits 3 only.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 715
+    }
+   ],
+   "tags": [
+    "bots",
+    "env",
+    "ai"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "map-id-table",
+   "title": "Multiplayer map table keyed by level cache hash",
+   "subject": {
+    "kind": "asset",
+    "id": "ma2_bot_mapid.c maps[]"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_map_archive",
+    "ma2_bot_map_nav"
+   ],
+   "fact": "Each multiplayer map is identified by the level cache name, ~CRC32 of the lower-case d:\\<archive> path, which every level load opens as \\Device\\Harddisk0\\Partition5\\XXXXXXXX.cache. The table lists 14 maps (for example inyourface.mgf 0xF026C4DE, newrivercity.mgf 0xC44F7405, witchcauldron.mgf 0xC36F38BE). Maps with a shipped Mech graph are inyourface, newrivercity, rushhour and witchcauldron. Hashes were checked against cinema_2_1, mission_04 and the front-end lobby.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_mapid.c",
+     "line": 1
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_mapid.c",
+     "line": 24
+    }
+   ],
+   "tags": [
+    "bots",
+    "maps",
+    "nav"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "389B4EBE",
+    "9855A39E",
+    "EC3C5013",
+    "8D0FB316",
+    "F026C4DE",
+    "5CF1EEAB",
+    "C44F7405",
+    "CD1E02E4",
+    "13FDF0A0",
+    "594C25AA",
+    "D27209A4",
+    "9FFC216C",
+    "2CB181A6",
+    "C36F38BE"
+   ]
+  },
+  {
+   "id": "map-path-hook",
+   "title": "Map identification via g_xbox_path_hook",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_map_path / ma2_bot_map_install"
+   },
+   "addresses": [],
+   "related": [
+    "nv2a_shader_level_begin"
+   ],
+   "fact": "ma2_bot_map_install is run from the CRT .CRT$XCU initializer and chains g_xbox_path_hook. On every level cache open, ma2_bot_map_path calls nv2a_shader_level_begin(hash) (shader preloading) and sets the current map, or -1 for a non-multiplayer level. The same hook is shared with ma2_cinematic.c.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_mapid.c",
+     "line": 68
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_mapid.c",
+     "line": 97
+    }
+   ],
+   "tags": [
+    "bots",
+    "maps",
+    "hook"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "ensure-nav-terrain-gate",
+   "title": "Obstacle grid is built once the terrain is ready",
+   "subject": {
+    "kind": "function",
+    "id": "ensure_nav"
+   },
+   "addresses": [
+    "004EAF64"
+   ],
+   "related": [
+    "ma2_trav_build"
+   ],
+   "fact": "ensure_nav waits until VA_TERRAIN is valid (retry each step), then builds the traversability grid with ma2_trav_build over the terrain size (cell at +0x814) plus 10 m, using terrain_only_fn and obstacle_top. It then calls trav_fine_props. RECOMP_BOT_TRAV=0 skips the grid build.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1172
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1186
+    }
+   ],
+   "tags": [
+    "bots",
+    "nav",
+    "grid"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "nav-load-order",
+   "title": "Navigation graph load order: shipped, then terrain match, then generate",
+   "subject": {
+    "kind": "function",
+    "id": "ensure_nav (graph load)"
+   },
+   "addresses": [],
+   "related": [
+    "k_nav_archives",
+    "ma2_nav_generate"
+   ],
+   "fact": "The nav graph is loaded in this order. A map with a shipped Mech graph loads it from its archive. Maps without one (and not identified) are scored against four archives (inyourface, newrivercity, rushhour, witchcauldron) by the fraction of graph nodes on the level's terrain. The best wins if it scores at least 0.5 and beats the second by 0.2. Otherwise the graph is generated and cached. RECOMP_BOT_NAV_MAP forces one archive.",
+   "how_to_use": "RECOMP_BOT_NAV_MAP=rushhour forces that archive; RECOMP_BOT_DIAG prints the candidates.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1227
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1026
+    }
+   ],
+   "tags": [
+    "bots",
+    "nav",
+    "load"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "nav-cache-path",
+   "title": "Generated nav cache file location",
+   "subject": {
+    "kind": "file",
+    "id": "%LOCALAPPDATA%/MechAssault2/BotNav/gen_<fingerprint>.map"
+   },
+   "addresses": [],
+   "related": [
+    "terrain_fingerprint"
+   ],
+   "fact": "A generated graph is cached at %LOCALAPPDATA%/MechAssault2/BotNav/gen_<fp>.map, where fp is terrain_fingerprint (an FNV hash of the terrain header, the width, depth, rows and the 0x814.0x817 cell bytes). Later runs on the same terrain reuse it.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1060
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1077
+    }
+   ],
+   "tags": [
+    "bots",
+    "nav",
+    "cache"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "mgf-reader",
+   "title": "MGF archive reader and zlib inflate for pathfinding maps",
+   "subject": {
+    "kind": "function",
+    "id": "mgf_open / mgf_read / zlib_inflate"
+   },
+   "addresses": [],
+   "related": [
+    "bringup/inspect_mgf.py"
+   ],
+   "fact": "The core reads PATHFINDING maps out of .mgf archives with its own reader. The header check expects the magic 0x2066676D (mgf) at offset 0, and sanity limits apply to the table counts. Entries are found by mgf_find_file (case-insensitive <dir>/<anything><suffix>), and data is inflated with a built-in RFC 1950/1951 inflater (zlib_inflate).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 778
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 952
+    }
+   ],
+   "tags": [
+    "bots",
+    "nav",
+    "mgf"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "2066676D"
+   ]
+  },
+  {
+   "id": "stuck-memory-off",
+   "title": "Stuck memory across matches is off by default",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_STUCK_MEMORY"
+   },
+   "addresses": [],
+   "related": [
+    "stuck_memory_record",
+    "stuck_memory_load"
+   ],
+   "fact": "Stuck spots are appended to '<profile>/Bot Nav/<map>.stuck' and replayed into the graph on the next load when RECOMP_BOT_STUCK_MEMORY=1. Penalties from stuck events still apply within one match.",
+   "how_to_use": "RECOMP_BOT_STUCK_MEMORY=1 turns it on.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1104
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1125
+    }
+   ],
+   "tags": [
+    "bots",
+    "nav",
+    "memory",
+    "env"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "obstacle-probe-rules",
+   "title": "Obstacle probe: colliders become cell blocks",
+   "subject": {
+    "kind": "function",
+    "id": "obstacle_top / side props / trav_fine_props"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_trav_build"
+   ],
+   "fact": "The obstacle grid is built from downward rays (2 m spacing) and side rays. Thin static scenery (pylons, posts, lamp poles) gets a second 0.5 m pass over +-4 m. Props found only side-on are stamped into a g_side[512] list and re-applied after any local re-probe. Vehicles and units are not stamped as static obstacles (they are planned round). Turrets are stamped once, and scenery flagged as breakable is treated as passable for 'Mechs.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1336
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1409
+    }
+   ],
+   "tags": [
+    "bots",
+    "nav",
+    "obstacles"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "breakable-scenery-flags",
+   "title": "Breakable scenery flags at entity+0x80",
+   "subject": {
+    "kind": "property",
+    "id": "MACorporeal flags +0x80 (CORP_BREAKABLE)"
+   },
+   "addresses": [],
+   "related": [
+    "obstacle_top"
+   ],
+   "fact": "Scenery a 'Mech breaks by walking into it has these MACorporeal flags at entity+0x80, set by the property serializer sub_D8561: MechStepDestroy bit 6, MechTopples bit 20, TreeGroup bit 27 and SnowyTreeGroup bit 31 (mask 0x88100040 combined). Posts, pylons and rocks have none, so they block a 'Mech.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 128
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1429
+    }
+   ],
+   "tags": [
+    "bots",
+    "nav",
+    "scenery"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "tank-fixed-turret",
+   "title": "Fixed gun emplacements are not drivable tanks",
+   "subject": {
+    "kind": "property",
+    "id": "MATank drive limits +0xBC/+0xC0 = 0 (fixed gun)"
+   },
+   "addresses": [],
+   "related": [
+    "tank_fixed",
+    "vehicle_pref"
+   ],
+   "fact": "Some MATank instances have zero drive limits (speed and acceleration at +0xBC and +0xC0 of the physics root, also +0x98/+0xC4/+0xD0). These are fixed gun emplacements (for example at Bogged Down). tank_fixed classifies them as TURRET, so no bot picks one, the controller never drives one, and a bot inside one gets out. An earlier tank_repair that wrote drive limits was removed.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1440
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3464
+    }
+   ],
+   "tags": [
+    "bots",
+    "vehicles",
+    "turret"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "actor-kind-classify",
+   "title": "Body kind classification from property bits",
+   "subject": {
+    "kind": "function",
+    "id": "actor_kind"
+   },
+   "addresses": [],
+   "related": [
+    "Ma2ActorKind"
+   ],
+   "fact": "actor_kind maps an actor to Ma2ActorKind. A MAMech with bit 17 of +0x26C (IsPersonMech, bit 49 of the 64-bit field at +0x268) is a PILOT. A MAMech with bit 18 of +0x268 is BATTLEARMOR, else MECH. A MAFlyer with bit 2 of +0x260 is VTOL, else FLYER. Other kinds map to TANK, MOVER or TURRET. The order follows the control-behaviour factory sub_C9084.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1466
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1476
+    }
+   ],
+   "tags": [
+    "bots",
+    "kinds",
+    "properties"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "actor-pos-node",
+   "title": "World position from the scene node, physics for walkers",
+   "subject": {
+    "kind": "property",
+    "id": "actor+0x94 scene node, node+0xF0, actor+0x4C0"
+   },
+   "addresses": [],
+   "related": [
+    "actor_pos",
+    "actor_yaw"
+   ],
+   "fact": "actor_pos reads the scene node position at node+0xF0 (actor+0x94) for every kind when the node is valid. Walkers also have the physics position at actor+0x4C0, but that field holds something else for tanks, so flyers keep their position only in the node. actor_yaw reads the heading from the node's world matrix (rows +0xC0 right, +0xD0 up, +0xE0 forward, +0xF0 position) and checks node+0xF0 equals actor+0x4C0.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1486
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1500
+    }
+   ],
+   "tags": [
+    "bots",
+    "actors",
+    "position"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "player-actor-child",
+   "title": "Controlled actor is the player's first MACorporeal child",
+   "subject": {
+    "kind": "function",
+    "id": "player_actor (sub_C8E6A)"
+   },
+   "addresses": [
+    "000C8E6A"
+   ],
+   "related": [
+    "player_child"
+   ],
+   "fact": "The body a player controls is the first child of the player entity that is a MACorporeal (sub_C8E6A). Children are linked by +0x0C (first child) and +0x08 (sibling). player_child returns the first child of an exact class id.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1523
+    }
+   ],
+   "tags": [
+    "bots",
+    "actors",
+    "tree"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "entity-tree-links",
+   "title": "Entity tree links and scoreboard stats",
+   "subject": {
+    "kind": "property",
+    "id": "entity +0x08 sibling, +0x0C child, player +0x2EC stats"
+   },
+   "addresses": [],
+   "related": [
+    "player_stat"
+   ],
+   "fact": "Entity children are linked at +0x0C and siblings at +0x08. The player's stats object is at +0x2EC and its vfunc 0 gets stat id: 2 is kills, 5 is deaths (2, 3 and 4 rise on each kill). The port is at player+0x2AC. The scoreboard is read this way for player views.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1961
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_objective.c",
+     "line": 25
+    }
+   ],
+   "tags": [
+    "bots",
+    "stats",
+    "scoreboard"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "player-view-health",
+   "title": "Health and nation for a player view",
+   "subject": {
+    "kind": "function",
+    "id": "build_player (HP and nation)"
+   },
+   "addresses": [
+    "000C9476",
+    "000C8C2A",
+    "000EB091",
+    "000C8BDC"
+   ],
+   "related": [
+    "actor_int"
+   ],
+   "fact": "Actor HP is read by vtable slot 0x74 (current) and 0x6C (max), with the guest return sites 0xC9476 and 0xC8C2A. Nation is read by slot 0xA8 (site 0xEB091). A MAMech's health is in ints at [actor+0x260]+8 (current) and +4 (max) (sub_C8BDC), because slot 0x74 only reports a class constant for 'Mechs.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1979
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1981
+    }
+   ],
+   "tags": [
+    "bots",
+    "actors",
+    "health"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "rider-clamp-ride-props",
+   "title": "Riders, clamp target and ride UID offsets",
+   "subject": {
+    "kind": "property",
+    "id": "actor +0x1A8/+0x1AC riders, +0x1A0 IsAttached, +0x194 RideMoverUID, +0x1B4"
+   },
+   "addresses": [],
+   "related": [
+    "build_player"
+   ],
+   "fact": "Riders are 12-byte entries between +0x1A8 and +0x1AC, with the uid at +8 (sub_EB12B). A BattleArmor's clamp target is found through IsAttached at +0x1A0 and RideMoverUID at +0x194, else the ride uid read at +0x1B4 (sub_EB475). Only an enemy mover counts as a clamp. A friendly VTOL becomes its 'riding' lift.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2003
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2013
+    }
+   ],
+   "tags": [
+    "bots",
+    "battlearmor",
+    "clamp"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "vtol-tether-cargo",
+   "title": "VTOL tether cargo at +0x57C and capacity at +0x578",
+   "subject": {
+    "kind": "property",
+    "id": "VTOL actor +0x57C / +0x578"
+   },
+   "addresses": [],
+   "related": [
+    "Ma2PlayerView.cargo"
+   ],
+   "fact": "A VTOL's tether count is actor+0x57C and its capacity is +0x578 (sub_115C13 hooks while +0x57C < +0x578). Ma2PlayerView.cargo reports the count.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2024
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "cargo"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "neurohack-qte-offsets",
+   "title": "NeuroHack QTE object at actor+0x274 and bits in +0x26C",
+   "subject": {
+    "kind": "property",
+    "id": "actor +0x274 QTE, +0x26C bits 0x39 and 0x3C"
+   },
+   "addresses": [],
+   "related": [
+    "qte_control"
+   ],
+   "fact": "The QTE object for a NeuroHack is at actor+0x274 and exists only while a hack runs (sub_101E9D needs +0x274 == 0 to start one). Bit 0x39 of the 64-bit flags at +0x26C means the minigame runs and bit 0x3C means clamped. The bar is +0x18/+0xA8 (progress, 0.1), the window at +0x04, and the required bitmask at +0x00 with the pressed bitmask at +0x20.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2029
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2034
+    }
+   ],
+   "tags": [
+    "bots",
+    "neurohack",
+    "qte"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "launcher-charge",
+   "title": "Alpha Strike launcher charge flag",
+   "subject": {
+    "kind": "property",
+    "id": "launcher +0x78 bit 0x20, actor +0xF8 == 7"
+   },
+   "addresses": [],
+   "related": [
+    "alpha_ready"
+   ],
+   "fact": "A launcher whose +0x78 has bit 0x20 is charging (sub_D1BFF), and its charge in percent is at +0x88. The core only reports a charge when the actor's weapon class at +0xF8 is 7 (Alpha Strike).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2080
+    }
+   ],
+   "tags": [
+    "bots",
+    "alpha",
+    "weapons"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "powerup-armor-offset",
+   "title": "Power-up armour offset (RECOMP_BOT_PU_OFF)",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_PU_OFF"
+   },
+   "addresses": [
+    "00131206"
+   ],
+   "related": [
+    "Ma2PickupView"
+   ],
+   "fact": "A power-up's armour repair is at pickup+0x190 + base, where base comes from RECOMP_BOT_PU_OFF (default 0x20, its save interface; 0 = the entity). The save routine sub_131206 writes it. A power-up that is taken waits out its respawn parked at the map edge (1,1 and 300,0), so pickups within 15 m of the edge are dropped.",
+   "how_to_use": "RECOMP_BOT_PU_OFF=0 reads the armour from the entity itself.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2454
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2471
+    }
+   ],
+   "tags": [
+    "bots",
+    "powerups",
+    "env"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "scan-pads",
+   "title": "Helipads found by scanning for MACollectionArea buildings",
+   "subject": {
+    "kind": "function",
+    "id": "scan_entities (pads)"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_pad_add"
+   ],
+   "fact": "scan_entities adds a VTOL repair pad at a building's node position when the building is a MACollectionArea (the helipad where a VTOL collects cargo and is repaired). The entity classes used are 0xCA77C1A6 and 0xC3E3D036 (any MABuilding). Pads are not where VTOLs stand at spawn.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2365
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 641
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "pads"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "CA77C1A6",
+    "C3E3D036"
+   ]
+  },
+  {
+   "id": "destroyed-wreck-reprobe",
+   "title": "Destroyed scenery re-probes the grid",
+   "subject": {
+    "kind": "function",
+    "id": "wreck_seen / wreck_update / wreck_probe"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_trav_reprobe"
+   ],
+   "fact": "When a building or prop becomes its destroyed version (MABuildingDestroyed or MACorporealDestroyed), the core re-probes the grid around it with downward rays 0.5 m apart (wreck_probe, highest top or ground) so plans route through the gap. Destroyed-prop side learning is forgotten there too (side_prop_forget). A wreck queue is kept in g_wreck[512].",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2093
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2118
+    }
+   ],
+   "tags": [
+    "bots",
+    "nav",
+    "destruction"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "hull-outline-measure",
+   "title": "Parked vehicle hull outline measured in 16 directions",
+   "subject": {
+    "kind": "function",
+    "id": "vehicle_extent / hull_ray"
+   },
+   "addresses": [],
+   "related": [
+    "MA2_HULL_DIRS",
+    "Ma2VehicleView.ext"
+   ],
+   "fact": "A parked vehicle's hull reach is measured with horizontal rays from 14 m out toward its centre (hull_ray) in 16 directions (22.5 degrees each), five rays per sector, at heights 0.3, 1.0, 1.8, 2.6 m (pilot head) and 3.5 and 5 m for a 'Mech's hips (ext_hi). Measurement uses about 4 ms of ray time per frame, and the rest of a match start is spread over later frames (ext_max 0 meanwhile). Cached until the vehicle moves.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2161
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2207
+    }
+   ],
+   "tags": [
+    "bots",
+    "vehicles",
+    "hull"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "turret-stamping",
+   "title": "Turrets are stamped into the grid after build",
+   "subject": {
+    "kind": "function",
+    "id": "turrets_reapply / turret_seen (g_tur[32])"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_trav_block_disc"
+   ],
+   "fact": "Turrets are solid but placed after the map was built, and movers are not in the static collision the map rays . Each turret is measured with horizontal rays like a parked vehicle and stamped into the grid (ma2_trav_block_disc, then commit). A destroyed turret's spot is probed again. g_tur holds up to 32.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2301
+    }
+   ],
+   "tags": [
+    "bots",
+    "nav",
+    "turrets"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "lanes-discovery",
+   "title": "Team-mode lanes found once per match",
+   "subject": {
+    "kind": "function",
+    "id": "lanes_update (g_lanes)"
+   },
+   "addresses": [],
+   "related": [
+    "Ma2Lane",
+    "ma2_bot_path.c"
+   ],
+   "fact": "In team modes the core finds lanes once a match: the main route between the two spawn areas, then the best route that keeps clear of it (a wide corridor around it is made expensive), then one more. A route whose apex stays close to the main one is not a lane. Up to three lanes are stored in g_lanes (Ma2World.lanes).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2597
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2638
+    }
+   ],
+   "tags": [
+    "bots",
+    "lanes",
+    "nav"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "coop-ai-combatants",
+   "title": "Grinder AI waves join the world as combatants",
+   "subject": {
+    "kind": "function",
+    "id": "add_ai_combatants (g_ai)"
+   },
+   "addresses": [],
+   "related": [
+    "Grinder"
+   ],
+   "fact": "In co-op modes (Grinder) the game's AI vehicles have no MAPlayer parent. Those that have moved since first seen and belong to another nation are added to the world as combatants so bots hunt, aim and hack them like players. Identity is the actor address. g_ai holds up to MA2_BOT_MAX_VEHICLES entries.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2710
+    }
+   ],
+   "tags": [
+    "bots",
+    "grinder",
+    "combatants"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "world-update-radar",
+   "title": "World snapshot update and radar range",
+   "subject": {
+    "kind": "function",
+    "id": "world_update"
+   },
+   "addresses": [],
+   "related": [
+    "Ma2World",
+    "hud-local-object-radar-range-is-400-m-on-new-river-city-and"
+   ],
+   "fact": "world_update fills Ma2World once per step (players, vehicles, pickups, objectives, lanes, projectiles). Radar range is RECOMP_BOT_RADAR, default 300 m (a TODO notes the HUD radar at +0x18C was not yet read). Vehicle claims are reset each step so a walking bot reserves its target for its team. CORRECTION 2026-10-24: effective PC value is 300; retail HUD default 30.0 (radar-range-retail-vs-pc). See hud-local-object-radar-range-is-400-m-on-new-river-city-and-render-camera-chain.",
+   "how_to_use": "RECOMP_BOT_RADAR=200 sets the radar distance.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2747
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 2758
+    }
+   ],
+   "tags": [
+    "bots",
+    "world",
+    "radar"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "damage-events",
+   "title": "Damage events feed the brain's senses",
+   "subject": {
+    "kind": "function",
+    "id": "damage_track / ev_push"
+   },
+   "addresses": [],
+   "related": [
+    "Ma2DmgEvent"
+   ],
+   "fact": "Every health drop becomes an event. A damage dealt event goes to the bots shooting at the victim (their controller target, or engaged or fired within 1.5 s). A damage received event goes to the enemies attacking the bot, else the nearest firing enemy. Up to 12 events per tick are kept (MA2_SENSE_MAX_EVENTS).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3103
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3112
+    }
+   ],
+   "tags": [
+    "bots",
+    "senses",
+    "damage"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "attacking-firing-flags",
+   "title": "Attacking and firing state visible to other players",
+   "subject": {
+    "kind": "function",
+    "id": "combat_state_update / human_trigger"
+   },
+   "addresses": [],
+   "related": [
+    "Ma2PlayerView.attacking",
+    "Ma2PlayerView.firing"
+   ],
+   "fact": "Ma2PlayerView.attacking is the actor a player is shooting at: a bot's controller target, the game AI's target slot, or the human's enemy in his sights (within about 12 degrees of heading and 320 m). Ma2PlayerView.firing is set when a weapon fired within the last second, and the human's trigger is read from weapon commands 44.47 held on the control behaviour.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3060
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3071
+    }
+   ],
+   "tags": [
+    "bots",
+    "senses",
+    "combat"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "ai-selector-hook",
+   "title": "AI selector returns the controller's engaged target",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_ai_select (patch_ai4 sub_1837B3)"
+   },
+   "addresses": [
+    "001837B3"
+   ],
+   "related": [
+    "ma2_bot_ai_select"
+   ],
+   "fact": "patch_ai4.py hooks the AI selector sub_1837B3. For a local AI body, ma2_bot_ai_select returns the controller's engaged target, or nobody. The campaign AI therefore only fights what the BotController has engaged.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3186
+    }
+   ],
+   "tags": [
+    "bots",
+    "patch",
+    "ai"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "skill-tune-mover",
+   "title": "Skill tunes accuracy radius and fire delay of vehicles",
+   "subject": {
+    "kind": "property",
+    "id": "MAMover +0x1F8 AccuracyRadius, +0x218 FireDelay"
+   },
+   "addresses": [],
+   "related": [
+    "skill_tune_mover",
+    "bots-skill-tuning-correction-accuracyradius-not-on-fire-path"
+   ],
+   "fact": "Bot skill scales the vehicle's own campaign-AI tuning: +0x1F8 AccuracyRadius (random miss offset) and +0x218 FireDelay, scaled once per vehicle from its authored values. RECOMP_BOT_SKILL_TUNE=0 leaves them alone. AMENDED: the scaled AccuracyRadius (+0x1F8) is not read on the fire path sub_18482E, so the radius scaling has little effect on damage; g_tune[48] is never cleared (latent re-scaling across matches).",
+   "how_to_use": "RECOMP_BOT_SKILL_TUNE=0 keeps authored values.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3030
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3039
+    }
+   ],
+   "tags": [
+    "bots",
+    "skill",
+    "tuning"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bot-hold-paused",
+   "title": "Bots stand down while the game is paused",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_world_pause_ok / bot_hold_paused"
+   },
+   "addresses": [
+    "00017ED0",
+    "000C97D1",
+    "000C7F8F"
+   ],
+   "related": [
+    "sub_1DE70"
+   ],
+   "fact": "A local match with bots pauses the world like the campaign: ma2_bot_world_pause_ok (patched into sub_17ED0) returns 1 unless RECOMP_BOT_WORLD_PAUSE=0. In multiplayer the pause stops only local players (sub_C97D1 and sub_C7F8F), so bots stand down while paused: no decisions, nothing held or fired, the body stopped, a VTOL hovering on a centred stick. On resume they carry on from where they were.",
+   "how_to_use": "RECOMP_BOT_WORLD_PAUSE=0 keeps the multiplayer pause rule.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3474
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3481
+    }
+   ],
+   "tags": [
+    "bots",
+    "pause"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "player-tick-hook",
+   "title": "Per-step bot tick hooked into the player tick",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_player_tick (loc_000C8130 in sub_C80DB)"
+   },
+   "addresses": [
+    "000C8130",
+    "000C80DB"
+   ],
+   "related": [
+    "ma2_bot_player_tick"
+   ],
+   "fact": "ma2_bot_player_tick is hooked at loc_000C8130 in the player tick sub_C80DB, after sub_C94FF rebinds the control behaviour. It runs only for local AI players. It ticks each bot once per simulation step (step stamp check), updates the world, holds the body while paused, then runs the brain and controller and the damage and combat tracking. The order is: world update, pause, nav ensure, ray selftest, AI drive sweep, bot activation, combat state, damage.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3509
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3560
+    }
+   ],
+   "tags": [
+    "bots",
+    "tick",
+    "hook"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "test-jump-hook",
+   "title": "RECOMP_BOT_TEST_JUMP advances the game clock",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_TEST_JUMP"
+   },
+   "addresses": [
+    "004E2440"
+   ],
+   "related": [
+    "ma2_bot_player_tick"
+   ],
+   "fact": "RECOMP_BOT_TEST_JUMP='at:add' advances the game clock (MEMD 0x4E2440) by add seconds once the clock reaches , from bot index 0's tick. Used for match-end flow tests.",
+   "how_to_use": "RECOMP_BOT_TEST_JUMP=600:600 jumps the clock by ten minutes at 600 s.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3527
+    }
+   ],
+   "tags": [
+    "bots",
+    "env",
+    "test"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "perf-and-profile-env",
+   "title": "Bot performance counters and sampling profiler",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_PERF / RECOMP_PROFILE"
+   },
+   "addresses": [],
+   "related": [
+    "profiler"
+   ],
+   "fact": "RECOMP_BOT_PERF=1 (or any RECOMP_PROFILE) times the bot tick and world update with QueryPerformanceCounter and counts rays, LOS and plans. RECOMP_PROFILE='start:seconds' starts a sampling profiler that suspends every thread about once a millisecond from start seconds after the first bot tick and prints [PROF] RIP counts.",
+   "how_to_use": "RECOMP_PROFILE=10:30 profiles 30 s starting at 10 s.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1712
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_env.h",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "bots",
+    "profiling",
+    "env"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "stall-monitor-env",
+   "title": "RECOMP_BOT_STALL stall monitor",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_STALL"
+   },
+   "addresses": [],
+   "related": [
+    "stall_monitor",
+    "crash_sampler"
+   ],
+   "fact": "When bot ticks stop for 3 s, RECOMP_BOT_STALL samples the game thread RIP and the image addresses on its stack, and writes the text out with WriteFile. It also samples every other thread on an access violation or divide fault, so audio worker crashes show what the game thread was doing.",
+   "how_to_use": "RECOMP_BOT_STALL=1; resolve exe RVAs with the .map.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1614
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1667
+    }
+   ],
+   "tags": [
+    "bots",
+    "diagnostics",
+    "stall"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "write-watch-env",
+   "title": "RECOMP_BOT_WATCH hardware write watch",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_WATCH"
+   },
+   "addresses": [],
+   "related": [
+    "watch_arm",
+    "watch_veh"
+   ],
+   "fact": "RECOMP_BOT_WATCH arms a hardware write watch (code 0xE0B07001) on the first human's camera controller at player+0x2F4 and then on that controller's +0x14 link, logging the host backtrace of each writer. Used to find what took a human's camera.",
+   "how_to_use": "RECOMP_BOT_WATCH=1 with RECOMP_BOT_DIAG.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1556
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1869
+    }
+   ],
+   "tags": [
+    "bots",
+    "diagnostics",
+    "camera"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "E0B07001"
+   ]
+  },
+  {
+   "id": "camera-hijack-fix",
+   "title": "Bot gun camera no longer takes the human's view",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_cam_set / cam_watch_*"
+   },
+   "addresses": [
+    "0016B2F1",
+    "0016B7B8",
+    "0046D348",
+    "0046D208",
+    "0046D4E0",
+    "0046D630",
+    "0046D738",
+    "00475DF8",
+    "0046D110",
+    "0046CF08"
+   ],
+   "related": [
+    "recomp_0021.c"
+   ],
+   "fact": "Bug (2026-10-14, Bogged Down): a human's view flew off him. sub_16B2F1 puts a camera into a screen's camera slot (taken from player+0x88 via sub_16B7B8) and turns the old one off. A bot in a fixed gun that began an attack had a MACameraFirst built for it and put in the human's slot, so the screen showed the bot's camera each time it engaged. The fix skips bots in the vehicle-camera block (recomp_0021.c) and ma2_bot_cam_set refuses cameras for bots. Camera vtables: Third 0x46D348, First 0x46D208, Spiral 0x46D4E0, Free 0x46D630, Pan 0x46D738, Lock 0x475DF8, Camera 0x46CF08, FreeCamera 0x46D110.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3394
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3304
+    }
+   ],
+   "tags": [
+    "bots",
+    "camera",
+    "fixed",
+    "bug"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "camera-census-diag",
+   "title": "Camera diagnostics under RECOMP_BOT_DIAG",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_CAMWATCH"
+   },
+   "addresses": [],
+   "related": [
+    "camera_census",
+    "cam_watch_players"
+   ],
+   "fact": "The core logs which camera the local players see through (on change, always on) , under RECOMP_BOT_DIAG, every 5 s the camera entities per player with the views drawn ([BOT-VIEWS]). This is the proof there are no bot cameras. RECOMP_BOT_CAMWATCH enables cam_watch_fields, which logs camera field targets every 2 s.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3294
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3329
+    }
+   ],
+   "tags": [
+    "bots",
+    "camera",
+    "diagnostics"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bot-diag-env",
+   "title": "RECOMP_BOT_DIAG master diagnostic switch",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_DIAG"
+   },
+   "addresses": [],
+   "related": [
+    "bot_diag",
+    "bot_summary",
+    "human_hp_watch",
+    "death_watch"
+   ],
+   "fact": "RECOMP_BOT_DIAG (89 references) turns on the bot log lines: [BOT-ROSTER], [BOT-LEVEL], [BOT-PLAYER], [BOT-NAV], [BOT-PAUSE], [HUMAN-HIT] and [DEATH]/[STAT]/[BOT-DMG]. A value of 2 or more also runs player_diag once per second.",
+   "how_to_use": "RECOMP_BOT_DIAG=1 for logs; =2 adds per-player activation state.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3206
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3232
+    }
+   ],
+   "tags": [
+    "bots",
+    "env",
+    "diagnostics"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "env-cache-getenv",
+   "title": "getenv results cached by string address",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_getenv_cached"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_env.h"
+   ],
+   "fact": "ma2_bot_env.h redefines getenv for the bot units to ma2_bot_getenv_cached, a 512-slot table keyed by the address of the string literal. A profile of a 6v6 match (2026-10-14) showed the CRT getenv, which takes a lock and walks the environment, was a large share of the game thread. The environment does not change while the game runs, so each name is looked up once.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_env.h",
+     "line": 1
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_env.h",
+     "line": 20
+    }
+   ],
+   "tags": [
+    "bots",
+    "perf",
+    "env"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "bot-api-superseded-command",
+   "title": "Defence command number: 12, not 52 (api comment superseded)",
+   "subject": {
+    "kind": "setting",
+    "id": "defence command id"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_defense.c",
+    "ma2_bot_api.h"
+   ],
+   "fact": "ma2_bot_api.h says the defend order taps the defensive system with command 52. ma2_bot_defense.c (line 271) corrects this: the defence command is id 12 (behaviour vt+0xA4, sub_175952), and ids 49.55 (including 52) are NeuroHack answers. The defence file is the later and more specific note, so command 12 wins.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_api.h",
+     "line": 332
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_defense.c",
+     "line": 14
+    }
+   ],
+   "tags": [
+    "bots",
+    "commands",
+    "conflict"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "command-frames",
+   "title": "Command frames: 61 commands delivered each step",
+   "subject": {
+    "kind": "function",
+    "id": "ctrl_send_frame / ctrl_tap / ctrl_button"
+   },
+   "addresses": [
+    "000C8012",
+    "0011AD8B",
+    "0016F08C"
+   ],
+   "related": [
+    "BTN_A",
+    "g_frame_cmd"
+   ],
+   "fact": "Each step the controller builds one frame like MAInput sub_11AD8B: 60 command records updated through sub_16F08C (value, held and released timers, edges), all active, then the end-of-frame command 0x3C. The frame is delivered to the player's receiver sub_C8012. A pad press lights several actions at once per control context, so ctrl_button sends the action set for the physical button: A (37), B, X, Y (39), LS, RS (12). Pressing only one of them left a VTOL's exit unanswered.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 116
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 94
+    }
+   ],
+   "how_to_use": "RECOMP_HUMAN_ACT logs which action the human's input lights up.",
+   "tags": [
+    "bots",
+    "controller",
+    "input"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "player-trigger-3C4",
+   "title": "Player trigger record copied to player+0x3C4 for Alpha Strike",
+   "subject": {
+    "kind": "property",
+    "id": "player +0x3C4 trigger record, +0x3E0 fire flag"
+   },
+   "addresses": [],
+   "related": [
+    "ctrl_player_trigger",
+    "Alpha Strike"
+   ],
+   "fact": "A human's fire input reaches a weapon through the player struct. The behaviour fire handler (sub_174A48 -> sub_CC06A) copies the trigger record (action 18) to player+0x3C4 (0x1C bytes) and sets +0x3E0. The player's fire step (sub_CC083 -> sub_DE453 -> sub_D3806) then charges while held and fires on release. Bots never do this copy, so ctrl_player_trigger writes the record itself to make Alpha Strike charge and fire.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 119
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 131
+    }
+   ],
+   "tags": [
+    "bots",
+    "alpha",
+    "trigger"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "body-moveto-ai-mode",
+   "title": "Body travel: campaign AI mode 6 and MoveTo",
+   "subject": {
+    "kind": "function",
+    "id": "body_moveto / ai_moveto / ai_setmode"
+   },
+   "addresses": [
+    "00183B9D"
+   ],
+   "related": [
+    "ma2_bot_ctrl.c"
+   ],
+   "fact": "Travel sets actor+0x1E8 |= 3, clears the sleep flag (ai+0x90 = 0), stores the destination at ai+0x130 (x,y,z) and switches the campaign AI to mode 6 (goto) with sub_183B9D (ecx=ai, eax=mode, push 3). MoveTo is ai vtable+0x38 (thiscall, Vec3*, run flag, speed), returns al = arrived. Stop is mode 7.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 35
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 202
+    }
+   ],
+   "tags": [
+    "bots",
+    "locomotion",
+    "ai"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "ai-sleep-think",
+   "title": "A sleeping campaign AI freezes its body on each think",
+   "subject": {
+    "kind": "property",
+    "id": "ai+0x1C0 / ai+0x1C4 think gates, comp+0x144 |= 0x60"
+   },
+   "addresses": [
+    "00183345",
+    "0016A806",
+    "0016A905"
+   ],
+   "related": [
+    "ai_hold_think"
+   ],
+   "fact": "An asleep campaign AI still thinks every ai+0x1C0 times 1.0 to 1.4 s (0.2 to 0.28 s for a pilot's MechAI; gate sub_16A806, next think at ai+0x1C4 from sub_16A905). Each think that leaves it asleep sets comp+0x144 |= 0x60 (sub_183345), so the body's update zeroes its velocity and skips the step. A 'Mech pushed by MoveTo while its AI sleeps moved only a third of its speed (measured 6.6 of 18.8 m/s), so body_steer keeps the AI awake in mode 6.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 187
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 274
+    }
+   ],
+   "tags": [
+    "bots",
+    "locomotion",
+    "sleep"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "body-walk-direct",
+   "title": "Close-range walk without the AI navigator",
+   "subject": {
+    "kind": "function",
+    "id": "body_walk_direct (sub_2AE360, sub_2AD5C0)"
+   },
+   "addresses": [
+    "002AE360",
+    "002AD5C0"
+   ],
+   "related": [
+    "body_steer"
+   ],
+   "fact": "For the last 25 m on foot (and near parked hulls) the controller walks the pilot itself: sub_2AE360 turns the body toward the point (yaw only) and sub_2AD5C0 sets forward speed in percent of max. MoveTo otherwise stops a pilot 5 to 10 m short and orbits a point beside a hull.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 247
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1311
+    }
+   ],
+   "tags": [
+    "bots",
+    "locomotion",
+    "pilot"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "mech-steer-12-degrees",
+   "title": "Mech steering point kept within 12 degrees of course",
+   "subject": {
+    "kind": "function",
+    "id": "body_steer (Mech walk)"
+   },
+   "addresses": [],
+   "related": [
+    "ctrl_travel"
+   ],
+   "fact": "A 'Mech only keeps striding while the point it walks to lies within about 15 to 20 degrees of its course, otherwise it stops, turns and restarts (measured: walk, anim 18, idle, start, walk). So while it walks the steering point leads its course by at most 12 degrees and the 'Mech curves round.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1268
+    }
+   ],
+   "tags": [
+    "bots",
+    "locomotion",
+    "mech"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "jet-fuel-49C",
+   "title": "Jump-jet fuel at actor+0x49C and StartJump",
+   "subject": {
+    "kind": "property",
+    "id": "actor +0x49C jet fuel, AI +0x240 burning"
+   },
+   "addresses": [
+    "0018ABB5"
+   ],
+   "related": [
+    "ai_startjump"
+   ],
+   "fact": "Jet fuel is actor+0x49C, 0.2 (2 = full). StartJump sub_18ABB5 (ebx=ai, pushes strength, duration and direction, ret 0xC) needs fuel above 1 and returns al = started; MoveTo then flies the jet along the direction. The burn lasts about 1 unit of fuel a second. The AI's burning flag is ai+0x240. The jet is lit when actor+0x268 bit 15 is set.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 298
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 311
+    }
+   ],
+   "tags": [
+    "bots",
+    "jets",
+    "mech"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "jet-up-duration-env",
+   "title": "Up-jump burn duration (RECOMP_BOT_UPJET_DUR, UPJET_DUR10)",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_UPJET_DUR / RECOMP_BOT_UPJET_DUR10"
+   },
+   "addresses": [],
+   "related": [
+    "body_jump_up"
+   ],
+   "fact": "Jetting up onto a roof or ledge aims at the point including its height and burns longer. The default is 3 s (RECOMP_BOT_UPJET_DUR10 = 30 in tenths of a second), and the jet's own fuel still cuts it short.",
+   "how_to_use": "RECOMP_BOT_UPJET_DUR10=50 burns 5 s.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 327
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 336
+    }
+   ],
+   "tags": [
+    "bots",
+    "jets",
+    "env"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "jet-sputter-fix",
+   "title": "Jet burn ends cleanly when the tank runs dry",
+   "subject": {
+    "kind": "function",
+    "id": "ctrl_tick jet cut-out (actor+0x268 bit 15)"
+   },
+   "addresses": [],
+   "related": [
+    "ai_startjump"
+   ],
+   "fact": "Bug fixed: with the tank empty the jet fired and cut out frame after frame on the recharge trickle, restarting its sound each frame. The controller now ends the jump when it runs dry, and when no jump runs but the jet is lit it clears actor+0x268 bit 15 and thrust +0x4E4/+0x4E8 the way the game's own resets do. While a jump burns it holds action 3 so the second thrust update does not put the jet out.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 2415
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 2422
+    }
+   ],
+   "tags": [
+    "bots",
+    "jets",
+    "fixed"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "weapon-group-fire",
+   "title": "Weapon groups and native fire (sub_18482E)",
+   "subject": {
+    "kind": "function",
+    "id": "weapon_of / ai_fire (sub_18482E)"
+   },
+   "addresses": [
+    "0018482E",
+    "004EAF4C"
+   ],
+   "related": [
+    "ctrl_fire"
+   ],
+   "fact": "A weapon of fire group g is the arsenal's (actor+0xA4) child of class [0x4EAF4C] whose +0x80 is g, the one selected at arsenal+0x7C+4g. ai_fire calls sub_18482E(ai, aimPoint, weapon, target), with aimPoint from target vtable slot 0x134. The AI inaccuracy and fire-rate gate apply, and the projectile flies from the muzzle. A weapon's range is its definition's +0x128.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 350
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 363
+    }
+   ],
+   "tags": [
+    "bots",
+    "weapons",
+    "fire"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "aim-torso-turret",
+   "title": "Native aim routines for 'Mech torso and tank turret",
+   "subject": {
+    "kind": "function",
+    "id": "sub_18AFDB / sub_18F874 (aim)"
+   },
+   "addresses": [
+    "0018AFDB",
+    "0018F874",
+    "001B44D9"
+   ],
+   "related": [
+    "ctrl_fire"
+   ],
+   "fact": "ctrl_fire aims a 'Mech by sub_18AFDB (torso) and a tank by sub_18F874 (turret and barrel), with eax = the AI and the target pushed. Long weapons are used at range: a shot past 200 m with a group reaching 400 m is skipped when that group's range is below 400 m, because a weapon at the edge of its reach mostly misses.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 499
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 516
+    }
+   ],
+   "tags": [
+    "bots",
+    "aim",
+    "fire"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "fire-discipline",
+   "title": "Fire discipline: alive, clear line, no teammate in line",
+   "subject": {
+    "kind": "function",
+    "id": "ctrl_fire / ctrl_shot_los"
+   },
+   "addresses": [],
+   "related": [
+    "weapon_defended"
+   ],
+   "fact": "A native shot is fired only when the target is alive, the AI's own collision ray from the eye is clear (refreshed 4 times a second), no teammate is in the line of fire or the splash around the target, the weapon group is inside its range, and the weapon is not wasted on the target's running defence (weapon_defended, see DEFENSE_SPEC).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 407
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 479
+    }
+   ],
+   "tags": [
+    "bots",
+    "fire"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "battlearmor-clamp",
+   "title": "BattleArmor clamp and release",
+   "subject": {
+    "kind": "function",
+    "id": "ba_clamp / ba_release (sub_10239A, sub_1019EB, sub_10165B, sub_102102)"
+   },
+   "addresses": [
+    "0010239A",
+    "001019EB",
+    "0010165B",
+    "00102102"
+   ],
+   "related": [
+    "MAMech"
+   ],
+   "fact": "A BattleArmor clamps by sub_10239A ('can clamp now') and then sub_1019EB, which attaches it to an enemy 'Mech within 11 m. Letting go calls the attach routine with on = 0 (sub_10165B(ecx=BA, u8 on, Entity*, node, x), then sub_102102(BA, 0, 0, 0)). The jump command does not loosen the claw on a VTOL. A BA cannot clamp a flagged defence (sub_EB837).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 381
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 394
+    }
+   ],
+   "tags": [
+    "bots",
+    "battlearmor",
+    "clamp"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "vtol-cruise-height",
+   "title": "VTOL cruise height and altitude control",
+   "subject": {
+    "kind": "function",
+    "id": "vtol_prepare / vtol_stick"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_ctrl.c"
+   ],
+   "fact": "The FlyerAI flies straight at ai+0x130 at altitude ai+0x20C (absolute y). The cruise height is 20 m over the highest surface ahead (up to +60 m after no headway), and a VTOL carrying a BattleArmor flies 12 m higher. Nap of the earth is 8 m over what is close ahead. A VTOL's yaw gate actor+0x248 is set to 1.0 when it is 0 so the AI turn step works. Manual flight uses the stick: forward thrust vt+0x264, vertical vt+0x268, yaw vt+0x260.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 781
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 976
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "flight"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "vtol-map-height-cap",
+   "title": "Map caps VTOL height (MaxVTOLHeight)",
+   "subject": {
+    "kind": "property",
+    "id": "MaxVTOLHeight"
+   },
+   "addresses": [],
+   "related": [
+    "vtol_prepare"
+   ],
+   "fact": "The map caps a VTOL's height (MaxVTOLHeight). A climb that gains nothing for 3 s has found the cap, and the controller then flies at that height instead of asking MoveTo to climb forever (vt_ceiling).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 962
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "airspace-learned-block",
+   "title": "Learned airspace barrier for VTOLs",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bot_air_blocked / airblk_add"
+   },
+   "addresses": [],
+   "related": [
+    "AIRBLK_MAX"
+   ],
+   "fact": "Airspace a VTOL could not enter (an invisible barrier that sight rays miss) is learned when the awake FlyerAI and then MoveTo make no headway toward a point with nothing in the way. It is kept in a shared list of up to 48 cells (AIRBLK_MAX) per map and planned round by every bot. ma2_bot_air_reset clears it for a new map.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 633
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 910
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "airspace"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "vtol-repair-run",
+   "title": "VTOL repair run: land on the helipad or skim a health pack",
+   "subject": {
+    "kind": "function",
+    "id": "ctrl VTOL repair (vt_heal)"
+   },
+   "addresses": [],
+   "related": [
+    "Ma2Order.vt_heal"
+   ],
+   "fact": "A VTOL repair run flies to its base helipad (vt_heal = 1: set down, press A for the repair prompt) or to a health pack (vt_heal = 2: skim through it). The run comes in at its height, brakes as it closes and settles inside 12 m (latched until it drifts past 25 m). It holds descend until the bottom, then the exit control (Y) lowers it while held; the pilot gets out at about 2 m. Y is held over the pad only down to 6.5 m to avoid getting out early.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 2262
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 2299
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "repair"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "vtol-exit-holds",
+   "title": "VTOL exit: Y held over the pad, not handed to the flight AI",
+   "subject": {
+    "kind": "function",
+    "id": "ctrl VTOL exit (command 39 hold)"
+   },
+   "addresses": [],
+   "related": [
+    "body_stop"
+   ],
+   "fact": "A player holds exit (Y/Q) and the VTOL sets itself down and the pilot gets out at the bottom, on the player's controls rather than the flight AI (handing it to body_stop refused the exit at any height). A craft resting on something above the ground is nudged up by letting go of exit, climbing and moving on.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 2543
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 2560
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "exit"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "air-pad-and-cargo",
+   "title": "VTOL cargo hook and drop",
+   "subject": {
+    "kind": "function",
+    "id": "ctrl VTOL cargo (Ma2Order.cargo)"
+   },
+   "addresses": [],
+   "related": [
+    "Ma2Order.cargo"
+   ],
+   "fact": "Tether work: cargo 1 hovers low (5 m) over a point and hooks what lies there (action A), cargo 2 hovers at 12 m and drops it (action B), cargo 3 sets down to let a BattleArmor climb on or off. The hook hangs under the hull, so the VTOL flies lower than a plain hover.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 2492
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "cargo"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "travel-watchdog",
+   "title": "Progress and shuttle watchdog for travel",
+   "subject": {
+    "kind": "function",
+    "id": "ctrl_travel watchdog"
+   },
+   "addresses": [],
+   "related": [
+    "ctrl_travel"
+   ],
+   "fact": "ctrl_travel replans when a body makes no headway: a body standing still, or one that keeps moving but stays in one small patch for 12 s (shuttling in front of an obstacle). A stuck spot is added as an obstacle for this bot's plans for the match. Then it looks again at 0.5 m around the stall, teaches the grid (ma2_trav_learn), backs out along breadcrumbs, and jets up over the lip on the first stall (Mech and BA).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1376
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1439
+    }
+   ],
+   "tags": [
+    "bots",
+    "locomotion",
+    "stall"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "mech-jump-legs",
+   "title": "'Mechs jump long clear legs (RECOMP_BOT_MECH_JUMP)",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_MECH_JUMP"
+   },
+   "addresses": [],
+   "related": [
+    "ctrl_travel"
+   ],
+   "fact": "'Mechs with jets jump along long, clear legs of the route (57 to 95 m per jump) like a player covering ground. Only when the goal is beyond 90 m and the hop is not over built-up ground. RECOMP_BOT_MECH_JUMP=0 turns it off.",
+   "how_to_use": "RECOMP_BOT_MECH_JUMP=0 walks all legs.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1372
+    }
+   ],
+   "tags": [
+    "bots",
+    "jets",
+    "env"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "hop-over-structures",
+   "title": "Travel hops are not taken over built-up ground",
+   "subject": {
+    "kind": "function",
+    "id": "ctrl_travel hop_ok"
+   },
+   "addresses": [],
+   "related": [
+    "hop_check_t"
+   ],
+   "fact": "A travel hop that comes down on a roof costs more than it saves, so the ground under a hop is checked every 8 m (once a second at most). A structure (a surface 3 m or more above the bare terrain) means walk. Flag carriers spent half a minute on the bases' roofs before this was added.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1338
+    }
+   ],
+   "tags": [
+    "bots",
+    "jets",
+    "fix"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "drops-env",
+   "title": "Ledge drops are allowed in planning (RECOMP_BOT_DROPS)",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_DROPS"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_path_set_drop"
+   ],
+   "fact": "Routes may step off a ledge: tanks and pilots take modest drops and a tactical move takes only a drop its jets can climb back up (drop_mode 1). A VTOL route never drops. Drops off an edge that failed (no descent within 5 s) are forbidden there for 10 minutes. RECOMP_BOT_DROPS=0 turns drops off.",
+   "how_to_use": "RECOMP_BOT_DROPS=0 disables ledge drops.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 754
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1136
+    }
+   ],
+   "tags": [
+    "bots",
+    "nav",
+    "drops"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "path-planner-core",
+   "title": "Path planner: A* on the 2 m grid with string pulling",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_path_plan"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_path.c",
+    "MA2_PATH_MAX"
+   ],
+   "fact": "ma2_bot_path.c plans 8-connected A* over the traversability grid with an octile heuristic (weight 1.15), with a wall-hug cost within 2 m of the radius and circular dynamic obstacles (parked hulls as outlines, units as discs). Limits are 400000 node expansions per query, 10 m to find a free start cell and 16 m for a free goal cell. The cell path is string-pulled to at most 96 corner points. Danger circles add cost but no state persists; the same query on the same map gives the same path.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_path.c",
+     "line": 1
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_path.c",
+     "line": 20
+    }
+   ],
+   "tags": [
+    "bots",
+    "path",
+    "astar"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "path-drop-constants",
+   "title": "Path drop reach and minimum",
+   "subject": {
+    "kind": "function",
+    "id": "PATH_DROP_REACH / PATH_DROP_MIN"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_path_set_drop"
+   ],
+   "fact": "A drop is considered within PATH_DROP_REACH (10 cells, 20 m) and must be at least PATH_DROP_MIN (1.0 m) down. A drop is forbidden for 15 m around a spot that failed (ma2_path_forbid_drop), and the list resets for a new map.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_path.c",
+     "line": 186
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_path.c",
+     "line": 193
+    }
+   ],
+   "tags": [
+    "bots",
+    "path",
+    "drops"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "trav-grid-constants",
+   "title": "Traversability grid constants",
+   "subject": {
+    "kind": "concept",
+    "id": "TG_CELL / TG_STEEP / TG_OBST_H"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_trav_build"
+   ],
+   "fact": "The traversability grid cell is 2.0 m (TG_CELL). Ground with a rise-to-run above 0.80 is a wall (TG_STEEP), so a neighbouring step above 1.6 m blocks. Collidable objects taller than 2.5 m above ground block (TG_OBST_H), and objects over 0.4 m above the terrain are what one stands on (TG_OBJ_MIN). 'Mech-heavy view: TG_STEP_HEAVY 1.1 m. The shipped nav graphs use a 20 m cell.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_nav.c",
+     "line": 90
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_nav.c",
+     "line": 97
+    }
+   ],
+   "tags": [
+    "bots",
+    "nav",
+    "grid"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "nav-graph-generate",
+   "title": "Nav graph generation and load",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_nav_generate / ma2_nav_load_text"
+   },
+   "addresses": [],
+   "related": [
+    "Ma2NavGenParams"
+   ],
+   "fact": "The planner's graph (Ma2Nav) is either loaded from a shipped *_Mech.map text file or generated over the terrain with 20 m cells, a max step per cell and ground probes from a top height. Components smaller than 8 nodes are dropped (NAV_MIN_ISLAND), and generation is capped at 4M cells. ma2_nav_save_text writes the same text format used by the cache.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_nav.c",
+     "line": 19
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_api.h",
+     "line": 191
+    }
+   ],
+   "tags": [
+    "bots",
+    "nav",
+    "generate"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "terrain-steer-module",
+   "title": "Terrain steering for ground units (ma2_bot_terrain.c)",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_terrain_steer"
+   },
+   "addresses": [],
+   "related": [
+    "Ma2TerrainState"
+   ],
+   "fact": "ma2_terrain_steer adjusts a ground unit's intended heading by probing the surface on 16 headings (22.5 degrees each) at 3 distances. It uses a budget of 16 probes per tick per bot and caches each bin for 0.4 s or 2.5 m. It avoids recent stuck headings for about 10 s (ma2_terrain_note_stuck), and may request a jump-jet tap, with a cooldown.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_terrain.c",
+     "line": 8
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_terrain.h",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "bots",
+    "terrain",
+    "steer"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "entry-zone-gen-layout",
+   "title": "Vehicle entry zones: MACrateGenerator and MATriggerPoint",
+   "subject": {
+    "kind": "function",
+    "id": "entry_zones (ma2_bot_entry.c)"
+   },
+   "addresses": [
+    "004EB188",
+    "004EB0E4",
+    "004EBAE8",
+    "00152C6C",
+    "00154AD8",
+    "00154CAD",
+    "00154678",
+    "000C86EC",
+    "00145A14",
+    "00145D77",
+    "000EB188"
+   ],
+   "related": [
+    "Ma2EntryZone"
+   ],
+   "fact": "Every enterable vehicle owns 1 to 3 MACrateGenerator children (class 0x4EB188, constructor sub_152C6C). Each stores three (radius, local offset) sets at +0x90, +0xA4 and +0xB4 (offsets +0x94, +0xA8, +0xB8). Set B (+0xA4) is used normally; set C (+0xB4) for a MAMech whose vehicle flags bit 11, 12 or 13 are set. sub_154AD8 creates the live zone, a MATriggerPoint (class 0x4EB0E4) with its UID at gen+0x7C, its UID owner at +0xC0, radius at +0xD4 and world centre at +0xB0. The zone is placed each tick by sub_145A14 and sub_145D77 from the vehicle's node matrix. The use trigger is id 0x4EBAE8, with +0x68 = gen UID.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_entry.c",
+     "line": 1
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_entry.c",
+     "line": 40
+    }
+   ],
+   "tags": [
+    "bots",
+    "entry",
+    "boarding"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "entry-zone-test",
+   "title": "Entry prompt is a horizontal circle test",
+   "subject": {
+    "kind": "function",
+    "id": "sub_154678 / entry zone test"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_vehicle_entry_zones"
+   ],
+   "fact": "The game offers 'Press Y to enter' while hypot(dx, dz) between the player and the zone centre is at most the zone radius (height ignored). Each tick the zone tests each MACorporeal in its list. sub_154678 also requires the vehicle to be a MACorporeal with the enterable bit (+0x84 bit 9), the zone trigger enabled (zone +0x89), and either a neutral or friendly nation unless gen+0xD4 bit 7 allows enemies. A zone with no live trigger is offered only when gen+0xD4 bit 4 is set. Walk until the distance is below radius minus 0.3 m.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_entry.c",
+     "line": 20
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_entry.c",
+     "line": 95
+    }
+   ],
+   "tags": [
+    "bots",
+    "entry",
+    "boarding"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "boarding-flow",
+   "title": "Boarding walk: one A* path to the entry zone, then enter (command 39)",
+   "subject": {
+    "kind": "function",
+    "id": "ctrl_board"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_vehicle_entry_points",
+    "Ma2Order.MA2_ORD_GET_VEHICLE"
+   ],
+   "fact": "Boarding is one A* path from the bot to the vehicle's exact entry zone, with the target's own hull and other parked vehicles as obstacles. The bot walks it with MoveTo or direct walk, and when the zone offers this vehicle (the game's own +0x428 UID offer) it presses enter, command 39. A pilot that takes far longer than twice its path at pilot pace (plus slack) reports enter_failed and the brain picks another vehicle. Vehicles are claimed for a team while a bot walks to them.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1496
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1703
+    }
+   ],
+   "tags": [
+    "bots",
+    "boarding",
+    "vehicles"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "player-offer-428",
+   "title": "Entry offer UID at player+0x428 and enter target +0x438",
+   "subject": {
+    "kind": "property",
+    "id": "player +0x428 offer UID, +0x438 enter target"
+   },
+   "addresses": [],
+   "related": [
+    "ctrl_board"
+   ],
+   "fact": "The game's zone offer is written to the player's +0x424.+0x444 block (sub_154678 -> sub_C86EC, promoted by sub_C8576). +0x428 holds the offered vehicle's UID, and only on frames with a fresh offer (the frames where enter can board, sub_CADEE). Ma2PlayerView.enter_target reads +0x438.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1609
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1682
+    }
+   ],
+   "tags": [
+    "bots",
+    "entry",
+    "player"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "hull-learned-pilot",
+   "title": "Pilots learn the true reach of a parked hull",
+   "subject": {
+    "kind": "function",
+    "id": "hull_learn (g_hull[32])"
+   },
+   "addresses": [],
+   "related": [
+    "hull_at"
+   ],
+   "fact": "A pilot pressed against a hull records how far that side reaches (hull_learn), for the match. g_hull[32] keeps per-direction reach, so the next approach keeps clear. Measured hull rays are never taken below 0.6 times the kind's core radius (a ray can slip through). A VTOL's long tail is learned without its short nose.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1513
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1577
+    }
+   ],
+   "tags": [
+    "bots",
+    "hull",
+    "learning"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bug-vtol-stuck-ground",
+   "title": "VTOL pressed against a hillside (fixed by cruise height)",
+   "subject": {
+    "kind": "function",
+    "id": "vtol_prepare (cruise height)"
+   },
+   "addresses": [],
+   "related": [
+    "vtol-cruise-height"
+   ],
+   "fact": "Bug: a VTOL sat pressed against a hillside for a minute because the FlyerAI does not climb over what lies between it and its point. Fix: cruise 20 m over the highest surface ahead, checked twice a second. A later bug: climbing counted as stuck, so the cruise kept rising and the VTOL climbed instead of flying (7 m/s across a city). Climb to cruise now counts as headway.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 889
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 904
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "bug"
+   ]
+  },
+  {
+   "id": "bug-ba-tether-rider-height",
+   "title": "BattleArmor on a VTOL claw is carried 12 m higher",
+   "subject": {
+    "kind": "function",
+    "id": "vtol_prepare (vt_rider)"
+   },
+   "addresses": [],
+   "related": [
+    "vtol-cruise-height"
+   ],
+   "fact": "A BattleArmor on the claw hangs 7 to 8 m under the skids. At the usual 8 to 10 m it was dragged along and knocked off within seconds of pickup (runs fr10, fr18). vt_rider adds 12 m to the cruise height.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 957
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "bug"
+   ]
+  },
+  {
+   "id": "bug-spawn-camping-skill",
+   "title": "Bots raised a notch against spawn camping",
+   "subject": {
+    "kind": "setting",
+    "id": "Mixed skill bump (2026-10-20)"
+   },
+   "addresses": [],
+   "related": [
+    "mixed-skill-bump"
+   ],
+   "fact": "A 2026-10-20 match was lost to spawn camping by a human who was the ace. The fix bumps the weakest bot of a side facing humans one notch up in Mixed. See mixed-skill-bump.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 441
+    }
+   ],
+   "tags": [
+    "bots",
+    "balance",
+    "bug"
+   ],
+   "date": "2026-10-20"
+  },
+  {
+   "id": "bug-autobalance-split",
+   "title": "AutoBalance no longer splits evenly (1 Red 4 Blue fixed)",
+   "subject": {
+    "kind": "setting",
+    "id": "AutoBalance"
+   },
+   "addresses": [],
+   "related": [
+    "compute_roster",
+    "ma2_bots_ui.c config"
+   ],
+   "fact": "Bug: AutoBalance split the total evenly, so 1 Red and 4 Blue became 3v3 with the human. The rule now places bots by the counts set (each side as set, up to 6 a side) and the players go on the short side, implemented in the UI config and compute_roster.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 387
+    }
+   ],
+   "tags": [
+    "bots",
+    "roster",
+    "bug"
+   ]
+  },
+  {
+   "id": "bug-stuck-memory-feedback",
+   "title": "Stuck memory feedback loop disabled by default",
+   "subject": {
+    "kind": "setting",
+    "id": "RECOMP_BOT_STUCK_MEMORY"
+   },
+   "addresses": [],
+   "related": [
+    "stuck-memory-off"
+   ],
+   "fact": "Fix: stuck memory is off unless RECOMP_BOT_STUCK_MEMORY=1.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1125
+    }
+   ],
+   "tags": [
+    "bots",
+    "nav",
+    "bug"
+   ]
+  },
+  {
+   "id": "bug-pilot-stands-at-rim",
+   "title": "Pilot stuck at the rim of an entry zone (fixed)",
+   "subject": {
+    "kind": "function",
+    "id": "ctrl_board (rim rule)"
+   },
+   "addresses": [],
+   "related": [
+    "boarding-flow"
+   ],
+   "fact": "Bug (2026-10-19, Overfalls): a VTOL's zone sits under its nose, and the pilot stood 1.5 m short of the rim for 20 s. The walk now counts as done once it has brought the pilot as close as it goes and it is still within the zone's rim plus 4 m.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1645
+    }
+   ],
+   "tags": [
+    "bots",
+    "boarding",
+    "bug"
+   ],
+   "date": "2026-10-19"
+  },
+  {
+   "id": "bug-jump-ping-pong",
+   "title": "Back-out after a stall is walked, not jetted",
+   "subject": {
+    "kind": "function",
+    "id": "ctrl_travel back_until"
+   },
+   "addresses": [],
+   "related": [
+    "travel-watchdog"
+   ],
+   "fact": "Backing out after a stall walks straight to a breadcrumb rather than jetting, since a hop forward over a lip and a hop back out repeated is a jump-jet ping-pong no player would make. BattleArmor still hops.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1082
+    }
+   ],
+   "tags": [
+    "bots",
+    "locomotion"
+   ]
+  },
+  {
+   "id": "bug-grinder-cap",
+   "title": "Grinder bots capped at one",
+   "subject": {
+    "kind": "setting",
+    "id": "Grinder"
+   },
+   "addresses": [],
+   "related": [
+    "grinder-one-bot"
+   ],
+   "fact": "Duplicate of grinder-one-bot: Grinder keeps one bot (co-op) and the rest of the enemy comes from AI waves.",
+   "status": "historical",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 389
+    }
+   ],
+   "tags": [
+    "bots",
+    "grinder"
+   ]
+  },
+  {
+   "id": "bug-bot-fights-in-pause",
+   "title": "Bots fought on while a human sat in the pause menu (fixed)",
+   "subject": {
+    "kind": "function",
+    "id": "bot_hold_paused"
+   },
+   "addresses": [],
+   "related": [
+    "bot-hold-paused"
+   ],
+   "fact": "Bug: multiplayer pause stops only the local humans, so the bots fought on against a player in the menu. Bots now stand down while paused and carry on on resume.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3481
+    }
+   ],
+   "tags": [
+    "bots",
+    "pause",
+    "bug"
+   ]
+  },
+  {
+   "id": "lobby-and-menu-hooks",
+   "title": "New Game menu hook and barrel rows",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bots_newgame_update (sub_226587 entry)"
+   },
+   "addresses": [
+    "00226587",
+    "00482240",
+    "00485778",
+    "00487E68",
+    "0020B21F",
+    "00208C45",
+    "00208C9E",
+    "00208BF9",
+    "00208BD0",
+    "001639DA",
+    "001CAA80",
+    "001FF864",
+    "0001B7F0"
+   ],
+   "related": [
+    "ma2_bots_ui.c"
+   ],
+   "fact": "The UI hooks the entry of sub_226587 (the System Link New Game menu, vtable 0x482240). It adds the Red Bots, Blue Bots and Bot Skill barrel rows through sub_208C45 (add item, ebx=barrel) and sub_208C9E (narrow text), selects by value with sub_208BF9, finds an index with sub_208BD0, reads the selected value with sub_20B21F, sets text with sub_1FF864, shows or hides with sub_1B7F0 (flags +0x74 bit 1) and finds a form action with sub_1CAA80. Row pitch is 29, actions are Red 910, Blue 920 and Skill 930. Barrel vtable is 0x485778 and arrow vtable 0x487E68.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_ui.c",
+     "line": 16
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_ui.c",
+     "line": 236
+    }
+   ],
+   "tags": [
+    "bots",
+    "ui",
+    "menu"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "00020BD0"
+   ]
+  },
+  {
+   "id": "config-ini-keys",
+   "title": "Bot settings in pc_settings.ini [Bots] and env overrides",
+   "subject": {
+    "kind": "file",
+    "id": "pc_settings.ini [Bots]"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bots_config",
+    "ma2_bots_config_set"
+   ],
+   "fact": "Settings are read with ma2_pc_ini_get_int from section Bots: Red (default 0), Blue (0), FFA (0), Skill (default 1 = Regular), AutoBalance (default 1). Environment overrides take priority: RECOMP_BOTS_RED, RECOMP_BOTS_BLUE, RECOMP_BOTS_FFA, RECOMP_BOTS_SKILL and RECOMP_BOTS_AUTOBALANCE. Values are sanitised: sides capped at total/2, FFA at total-1, skill 0.4. Setting them writes back to the ini unless a Test launch is active.",
+   "how_to_use": "RECOMP_BOTS_RED=3 RECOMP_BOTS_BLUE=3 RECOMP_BOTS_SKILL=4 forces a 3v3 Mixed match.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_ui.c",
+     "line": 99
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_ui.c",
+     "line": 118
+    }
+   ],
+   "tags": [
+    "bots",
+    "settings",
+    "env"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "config-test-launch",
+   "title": "Scenario Test launch keeps bot settings in memory",
+   "subject": {
+    "kind": "setting",
+    "id": "g_cfg_test (Test launch)"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bots_test_config",
+    "ma2_bots_test_release"
+   ],
+   "fact": "The scenario editor's Test launch sets bot counts and skill in memory only (g_cfg_test = 1). The values are not saved to pc_settings. When the test match starts (g_cfg_test = 2) the player's saved values return at the next New Game.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_ui.c",
+     "line": 75
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_ui.c",
+     "line": 133
+    }
+   ],
+   "tags": [
+    "bots",
+    "settings",
+    "scenario"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "menu-policy-features",
+   "title": "Menu policy hides online, split screen and demos",
+   "subject": {
+    "kind": "menu",
+    "id": "FEATURE_ONLINE / FEATURE_SPLITSCREEN / FEATURE_DEMOS"
+   },
+   "addresses": [
+    "00481B70",
+    "004874A8",
+    "0048C228",
+    "004827B0",
+    "004830F0",
+    "0048BD88"
+   ],
+   "related": [
+    "ma2_menu_policy_pulse"
+   ],
+   "fact": "Online (main CONQUEST widget 7, System Link, Xbox Live), split screen (ADD GUEST, pause Add Guest) and Demos (Custom Scenarios, main widget 8) are disabled natively by widget table entries keyed by vtable: 0x481B70 main menu, 0x48C228 multiplayer, 0x4827B0 pause, with 0x48BD88 credits. Demos means ma2_scn_mission_count == 0. Pause-menu Add Guest is widget 600 (0x7D00). Policy is applied in ma2_menu_policy_pulse.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_ui.c",
+     "line": 784
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_ui.c",
+     "line": 849
+    }
+   ],
+   "tags": [
+    "bots",
+    "menu",
+    "policy"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "bot-text-localization",
+   "title": "Localized bot menu strings (six languages)",
+   "subject": {
+    "kind": "asset",
+    "id": "ma2_bot_text_table"
+   },
+   "addresses": [
+    "002265B0",
+    "002265C0",
+    "002265D0"
+   ],
+   "related": [
+    "ma2_bot_text",
+    "ma2_bots_localized"
+   ],
+   "fact": "ma2_bot_content.c holds the New Game strings for English, French, German, Italian, Japanese and Spanish, in the enum Ma2BotText order (Bots, Red Bots, Blue Bots, Bot Skill, Off, Recruit, Regular, Veteran, Elite, Mixed). Our text ids are 0x70020000 + 1.5 (Bots, Red, Blue, Skill, Mixed). ma2_bots_localized resolves ids through sub_1639DA, so shipped and our ids use the same path, and bots_language reads RECOMP_BOT_LANGUAGE.",
+   "how_to_use": "RECOMP_BOT_LANGUAGE sets the language index.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_content.c",
+     "line": 13
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_ui.c",
+     "line": 57
+    }
+   ],
+   "tags": [
+    "bots",
+    "localization"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "70020000"
+   ]
+  },
+  {
+   "id": "bots-test-hooks-brain",
+   "title": "Brain and controller test hooks",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_brain_test_refuse / ma2_brain_test_bail / ma2_bot_test_human_pad"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_TEST_*"
+   ],
+   "fact": "ma2_brain_test_refuse keeps every bot off a hull for a set time (test hook). ma2_brain_test_bail makes one brain leave its vehicle now. ma2_bot_test_human_pad is a no-op since the human autopilot harness was removed with the virtual pads. The brain's test hooks are called from ma2_bots_core.c under RECOMP_BOT_TEST_* switches.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 1143
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3467
+    }
+   ],
+   "tags": [
+    "bots",
+    "test"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "brain-tick-api",
+   "title": "Brain tick contract: order out, senses in",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_brain_tick"
+   },
+   "addresses": [],
+   "related": [
+    "Ma2Order",
+    "Ma2CtrlStatus",
+    "Ma2Senses"
+   ],
+   "fact": "ma2_brain_tick(brain, world, self, nav, status, senses, out) zeros the Ma2Order, skips a dead or kindless player, and records the actor. It re-evaluates on a kind or actor change, tracks health and damage since the last tick, and fills out with one order: TRAVEL, GET_VEHICLE, ENGAGE, FIGHT_MOVE, EJECT, HACK, or IDLE. The brain never touches guest memory.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 2465
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_api.h",
+     "line": 396
+    }
+   ],
+   "tags": [
+    "bots",
+    "brain",
+    "contract"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "brain-eval-constants",
+   "title": "Brain timing constants",
+   "subject": {
+    "kind": "setting",
+    "id": "MA2B_* timing constants"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_brain_tick"
+   ],
+   "fact": "Behaviour is re-evaluated at 4 Hz (MA2B_EVAL_PERIOD 0.25 s). The current behaviour keeps a 0.15 bonus (hysteresis), and no behaviour is replaced within 1.2 s of starting (dwell). Enemy memory decays with tau 8 s and is forgotten after 15 s unseen. Damage rate uses tau 4 s. Teammate call-outs arrive after 0.4 s and last 5 s. An enemy within 25 m is noticed without sight. The defence cooldown is 10 s and the shield range 30 m.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 36
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 54
+    }
+   ],
+   "tags": [
+    "bots",
+    "brain",
+    "tuning"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "kind-table",
+   "title": "Body kind table (eye, radius, band, range, threat, dps, sight)",
+   "subject": {
+    "kind": "setting",
+    "id": "k_kind[9]"
+   },
+   "addresses": [],
+   "related": [
+    "Ma2ActorKind"
+   ],
+   "fact": "k_kind lists per kind: eye height, radius, preferred band min and max, weapon range, threat weight, nominal dps and sight. Pilot: eye 1.7, band 10 to 35 m, dps 3, sight 170. Mech: eye 7, radius 4, band 60 to 160 m, range 300, threat 1.0, dps 45, sight 340. BattleArmor: band 15 to 40, threat 0.45, dps 20. Tank: band 80 to 200, range 300, threat 0.9, dps 35. VTOL: band 80 to 170, threat 0.7, dps 25, sight 380. Flyer: threat 0.6. Mover: band 40 to 120. Turret: band 60 to 160.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 106
+    }
+   ],
+   "tags": [
+    "bots",
+    "brain",
+    "kinds"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "skill-table",
+   "title": "Skill table: Recruit, Regular, Veteran, Elite",
+   "subject": {
+    "kind": "setting",
+    "id": "k_skill[4]"
+   },
+   "addresses": [],
+   "related": [
+    "Ma2Skill"
+   ],
+   "fact": "Per skill: reaction time (Recruit 0.90 s, Regular 0.55, Veteran 0.30, Elite 0.12), line-of-sight period (0.70, 0.50, 0.35, 0.25 s), field of view half-angle (55, 65, 75, 85 deg), aggression (0.45 to 0.90), cover use (0 to 1.0), NeuroHack miss chance (0.25 down to 0.02), retreat health (0.12 to 0.32) and dodge rate (0.2 to 1.8 hops per 10 s). Veteran and Elite have smart = 1 (kill-value reasoning, focus fire, finishing kills).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 132
+    }
+   ],
+   "tags": [
+    "bots",
+    "brain",
+    "skill"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "goal-enum",
+   "title": "Brain goals (enum Goal)",
+   "subject": {
+    "kind": "concept",
+    "id": "enum Goal"
+   },
+   "addresses": [],
+   "related": [
+    "evaluate"
+   ],
+   "fact": "The brain picks one behaviour goal: ROAM, GET_VEHICLE, ATTACK, DEFEND_HACK, EJECT, RETREAT, OBJECTIVE, COVER, POWERUP, SUPPORT, HACK, SWAP, RIDE, LIFT, REPAIR. evaluate scores each goal and keeps the current one unless a rival beats it by the hysteresis.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 169
+    }
+   ],
+   "tags": [
+    "bots",
+    "brain",
+    "goals"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "fight-band",
+   "title": "Fight distance band by kind and weapons",
+   "subject": {
+    "kind": "function",
+    "id": "fight_band"
+   },
+   "addresses": [],
+   "related": [
+    "KindInfo"
+   ],
+   "fact": "Tanks always fight at range (they snipe with the zoom and die to a 'Mech stepping on them). 'Mechs fight at their weapons' reach: marksmen with long guns keep distance and brawlers close in for the campaign AI's duel. The band is passed as band_min and band_max on the ENGAGE order.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 614
+    }
+   ],
+   "tags": [
+    "bots",
+    "brain",
+    "fight"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "choose-target",
+   "title": "Target choice by threat removed per second",
+   "subject": {
+    "kind": "function",
+    "id": "choose_target"
+   },
+   "addresses": [],
+   "related": [
+    "obj_bonus",
+    "field_kills"
+   ],
+   "fact": "choose_target ranks enemies by threat removed per second of our fire. A sharp player goes for a kill shot on a badly hurt enemy, piles onto one a teammate is already working on, or catches one busy with someone else. Scoreboard leaders draw more attention: field_kills is 0 until a few kills clear, and up to 1.5 at about 10 kills clear. A Not-It 'It' or a flag carrier draws bonus attention (obj_bonus), scaled by skill.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 656
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 691
+    }
+   ],
+   "tags": [
+    "bots",
+    "brain",
+    "targeting"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "lanes-brain",
+   "title": "Brain lanes: bots spread across lanes in team modes",
+   "subject": {
+    "kind": "function",
+    "id": "lane_pick / lane_point"
+   },
+   "addresses": [],
+   "related": [
+    "LANE_MIN_TRIP"
+   ],
+   "fact": "Each bot takes the least-used lane of its team (-1 left, 0 centre, +1 right; the centre takes a bit more). A flank bot travels by its lane's apex when that is on the way (at most 1.6 times the straight distance). Lanes are only used for trips over 150 m (LANE_MIN_TRIP).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 936
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 977
+    }
+   ],
+   "tags": [
+    "bots",
+    "brain",
+    "lanes"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "vehicle-refusal-memory",
+   "title": "Vehicles that refuse a bot are passed over",
+   "subject": {
+    "kind": "function",
+    "id": "no_board_* / refused_add"
+   },
+   "addresses": [],
+   "related": [
+    "pick_vehicle"
+   ],
+   "fact": "A vehicle whose zone gave a bot no prompt is skipped for 30 s, and after two refusals it is passed over by the whole roster for longer (refused_add). This stopped every pilot walking up to a parked BattleArmor that refused all of them (0 of 17 tries on In Your Face).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 1109
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 1124
+    }
+   ],
+   "tags": [
+    "bots",
+    "brain",
+    "vehicles"
+   ]
+  },
+  {
+   "id": "alpha-strike-brain",
+   "title": "Alpha Strike brain logic",
+   "subject": {
+    "kind": "function",
+    "id": "alpha_logic / alpha_vtol"
+   },
+   "addresses": [],
+   "related": [
+    "Ma2PlayerView.alpha_ready"
+   ],
+   "fact": "A 'Mech with all three weapon classes at Level 3 (Atlas, Prometheus, Star Adder, Blood Asp) can charge Alpha Strike. The brain holds the trigger at a target while its charge is below full, then lets go when the charge is full and the shot is clear. After its own charge it cools off, and it covers or punishes an enemy's charge. Ma2PlayerView.alpha_ready and alpha_charge (percent) report the state to other bots.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 1316
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 214
+    }
+   ],
+   "tags": [
+    "bots",
+    "alpha",
+    "brain"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "qte-brain-answer",
+   "title": "Brain answers NeuroHack minigames",
+   "subject": {
+    "kind": "function",
+    "id": "qte_control"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_QTE_MISS_MECH",
+    "RECOMP_BOT_QTE_MISS_BA"
+   ],
+   "fact": "qte_control answers a NeuroHack cue with its skill's response window fraction and a miss probability (Recruit 0.25 down to Elite 0.02). Nominal window is 0.8 s. The answer is sent as command 49 plus a bit (ma2_bot_api qte_press). Miss rates can be set with RECOMP_BOT_QTE_MISS_MECH and RECOMP_BOT_QTE_MISS_BA.",
+   "how_to_use": "RECOMP_BOT_QTE_MISS_MECH=0 makes 'Mech answers never miss.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 1271
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 47
+    }
+   ],
+   "tags": [
+    "bots",
+    "neurohack",
+    "brain"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "shield-logic",
+   "title": "Shield and defence use in the brain",
+   "subject": {
+    "kind": "function",
+    "id": "shield_logic / order_defend"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_defense.c"
+   ],
+   "fact": "shield_logic uses the defence like a player when incoming fire is heavy: absorber, AMS or shield bubble. The brain taps the defensive system through an order (order_defend) with a 10 s cooldown (MA2B_DEFENSE_COOLDOWN). The tap goes through command 12, not command 52 (see bot-api-superseded-command).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 1391
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 2405
+    }
+   ],
+   "tags": [
+    "bots",
+    "defense",
+    "brain"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "defense-objects",
+   "title": "Defence objects and their vtables",
+   "subject": {
+    "kind": "vtable",
+    "id": "defence types 0x478D98 0x478B0C 0x478A50 0x478CA0 0x478B90 0x478CF0"
+   },
+   "addresses": [
+    "00478D98",
+    "00478B0C",
+    "00478A50",
+    "00478CA0",
+    "00478B90",
+    "00478CF0"
+   ],
+   "related": [
+    "ma2_bot_defense.c"
+   ],
+   "fact": "A MAMover's defence object is at actor+0x220, created from DefenseType at actor+0x21C by sub_E6ED1. Vtables: base 0x478D98 (flags at +4: 1 recharging, 2 active, 4 down cue; +8 duration, +0xC recharge time, +0x10 end time on the game clock). Shield 0x478B0C (spawns an MAEffectShield bubble). Camouflage 0x478A50. Target jamming 0x478CA0. Absorber 0x478B90 (shield HP at +0x8C, absorbing +0x94, percent damage absorbed by type at +0x48). Advanced AMS 0x478CF0.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_defense.c",
+     "line": 4
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_defense.c",
+     "line": 28
+    }
+   ],
+   "tags": [
+    "bots",
+    "defense",
+    "vtables"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "defense-active-check",
+   "title": "IsDefenseActive (sub_E694C)",
+   "subject": {
+    "kind": "function",
+    "id": "def_is_active (sub_E694C)"
+   },
+   "addresses": [
+    "000E694C"
+   ],
+   "related": [
+    "defense-objects"
+   ],
+   "fact": "The game's IsDefenseActive is sub_E694C: the defence object is present and its flag 2 is set. The core reports this as Ma2PlayerView.defense_active.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_defense.c",
+     "line": 76
+    }
+   ],
+   "tags": [
+    "bots",
+    "defense"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "defense-weapon-soak",
+   "title": "Weapons are held back when the target's defence soaks them",
+   "subject": {
+    "kind": "function",
+    "id": "weapon_defended / wpn_value_vs"
+   },
+   "addresses": [
+    "0018482E",
+    "0017B222",
+    "0012BBEB"
+   ],
+   "related": [
+    "ctrl_fire"
+   ],
+   "fact": "The fire step does not fire a group at a target whose running defence soaks most of it: an absorber takes 75 to 80 percent of the types it covers, AMS destroys missiles, the shield bubble stops everything, a jammer makes homing weapons lose lock (0.6 weight), and a fully cloaked target cannot be aimed . AMS is decided when an AMS-flagged projectile crosses the AMS effect (sub_197E12). Overheat is reported at 100 percent heat (sub_12BBEB).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_defense.c",
+     "line": 134
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_defense.c",
+     "line": 424
+    }
+   ],
+   "tags": [
+    "bots",
+    "defense",
+    "weapons"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "defense-hit-hooks",
+   "title": "Damage absorption hooks (TakeDamage and Absorb)",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_def_hit_hook / ma2_def_absorb_pre / post"
+   },
+   "addresses": [
+    "00100A52",
+    "000E9A10",
+    "0010669F",
+    "000E9CB6"
+   ],
+   "related": [
+    "ma2_bot_defense.c"
+   ],
+   "fact": "The defence file hooks the 'Mech TakeDamage entry sub_100A52 (vt+0x1D0, damage info) and the MAMover Absorb (vt+0x1CC, sub_E9A10: dmg, type, splash). ma2_def_act_hook handles activation; the MAMech vt+0x204 is forwarded to MAMover sub_E9CB6 (sub_10669F). Command 12 reaches the defence through behaviour vt+0xA4 (sub_175952) and then the defence vt+0x18 SetActive (sub_189462).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_defense.c",
+     "line": 215
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_defense.c",
+     "line": 271
+    }
+   ],
+   "tags": [
+    "bots",
+    "defense",
+    "hooks"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "defense-env",
+   "title": "Defence diagnostics and test switches",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_DEFENSE_PROBE / RECOMP_DEFENSE_TEST / RECOMP_DEFENSE_CATALOG"
+   },
+   "addresses": [],
+   "related": [
+    "defense_probe",
+    "defense_test_tap"
+   ],
+   "fact": "RECOMP_DEFENSE_PROBE=1 logs [DEF] once a second, [DEF-EDGE], [DEF-WPN], [DEF-VS], [DEF-HIT], [DEF-ABS] and [DEF-CMD]/[DEF-MSET]/[DEF-SET]/[DEF-ACT]. RECOMP_DEFENSE_TEST=<seconds> makes every bot in a 'Mech or tank tap command RECOMP_DEFENSE_TEST_CMD (default 12) every N seconds. RECOMP_DEFENSE_CATALOG dumps the weapon and defence catalogue, and RECOMP_DEFENSE_TEST_ALPHA runs the Alpha test.",
+   "how_to_use": "RECOMP_DEFENSE_PROBE=1 for live defence logs.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_defense.c",
+     "line": 14
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_defense.c",
+     "line": 89
+    }
+   ],
+   "tags": [
+    "bots",
+    "defense",
+    "env"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "alpha-topup",
+   "title": "Alpha Strike top-up keeps classes at level",
+   "subject": {
+    "kind": "function",
+    "id": "def_alpha_topup (sub_DF238, sub_13200F)"
+   },
+   "addresses": [
+    "000DF238",
+    "00132085"
+   ],
+   "related": [
+    "Mech.AlphaEnabled"
+   ],
+   "fact": "The Alpha test raises the three weapon classes to their levels the way a power-up does (sub_13200F to sub_DF238(actor, class, notify, -1)). A hit drops each reloaded class one level (sub_E9A5F to sub_12AD89), so the test keeps topping them up. The class-7 group is fired at its target through ai_fire every step for 20 s and logged as [DEF-ALPHA]. The string Mech.AlphaEnabled is in sub_DF238.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_defense.c",
+     "line": 619
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_defense.c",
+     "line": 669
+    }
+   ],
+   "tags": [
+    "bots",
+    "alpha",
+    "defense"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "objective-state-core",
+   "title": "Objective state read from the game",
+   "subject": {
+    "kind": "function",
+    "id": "objective_update / objective_refresh"
+   },
+   "addresses": [
+    "0014A377",
+    "0014A57D",
+    "00152868",
+    "000C6940",
+    "000C6935"
+   ],
+   "related": [
+    "Ma2ObjectiveView"
+   ],
+   "fact": "ma2_bot_objective.c fills Ma2ObjectiveView for flags, cores, bases, checkpoints and targets. Player stat reads go through the stats object vfunc 0 (sub_C6940). Check-It terminals are MATriggerMenuActivate with +0xE0 = checkpoint UID (sub_14A377). A Check-It claim is made by running the terminal's menu (MAActionCheckItGoal, sub_152868) when the checkpoint is not held by the bot's team (RECOMP_BOT_CHECKIT_CLAIM, default 1). Objective capture radius is 10 m (0x4B0EA4).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_objective.c",
+     "line": 1
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_objective.c",
+     "line": 202
+    }
+   ],
+   "tags": [
+    "bots",
+    "objectives",
+    "checkit"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "flag-ctf-rules",
+   "title": "CTF flag pickup, drop, return and capture rules",
+   "subject": {
+    "kind": "function",
+    "id": "MAFlagCTF handling (ma2_bot_objective.c)"
+   },
+   "addresses": [
+    "00150E89",
+    "001513D6",
+    "00150880",
+    "00135D58",
+    "0050E5F4"
+   ],
+   "related": [
+    "Ma2ObjKind"
+   ],
+   "fact": "The CTF flag (MAFlagCTF, size 0x204) is listed by uid in the vector at 0x50E5F4.0x50E5F8. Pickup (sub_150E89 -> sub_1513D6) takes a flag from an enemy-nation MAMover with property bit actor+0x1E8.3. Touching your own dropped flag returns it. Capture (sub_150880) happens when the carrier of the same nation comes within the radius of its home (sub_135D58). The core state is HOME, CARRIED, DROPPED or IN_BASE.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_objective.c",
+     "line": 111
+    }
+   ],
+   "tags": [
+    "bots",
+    "objectives",
+    "ctf"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "objective-roles",
+   "title": "Objective roles: attack, defend, flex",
+   "subject": {
+    "kind": "function",
+    "id": "obj_role / objective_eval (ma2_bot_brain_obj.c)"
+   },
+   "addresses": [],
+   "related": [
+    "G_OBJECTIVE"
+   ],
+   "fact": "In objective modes each team's bots take roles by rank among the team's bots with a personal zeal: ATTACK takes the enemy flag, cores or far checkpoints. DEFEND guards the own flag, base or held checkpoints and hunts carriers. FLEX fights and escorts, and takes objectives of opportunity. Anyone carrying something runs it home, and anyone near a dropped own flag returns it. ma2_brain_objective_lock is set while a bot must keep its body for an objective.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain_obj.c",
+     "line": 1
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain_obj.c",
+     "line": 35
+    }
+   ],
+   "tags": [
+    "bots",
+    "objectives",
+    "roles"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "notit-it-player",
+   "title": "Not-It: the 'It' player is game+0x48",
+   "subject": {
+    "kind": "function",
+    "id": "obj_notit / Ma2World.it_player"
+   },
+   "addresses": [],
+   "related": [
+    "game-object-0x50C958"
+   ],
+   "fact": "Not-It keeps the player id of 'It' at game+0x48, compared with player+0x88. Only It scores. Ma2World.it_player holds that player, or 0 when nobody is It.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_objective.c",
+     "line": 123
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 569
+    }
+   ],
+   "tags": [
+    "bots",
+    "objectives",
+    "notit"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "terrain-file-brain-spec",
+   "title": "Bot design and guide references",
+   "subject": {
+    "kind": "file",
+    "id": "/ / / /"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bots_core.c",
+    "ma2_bot_defense.c"
+   ],
+   "fact": "The code cites design documents that sit beside it: (layers 1 to 5), (revision 2, sections 2 and 3), (MechAI jump, native fire, BattleArmor clamp, VTOL), (defence systems), (MoveTo and the AI line of sight, section 4). These paths are not inside this pack, so they are not checked here.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 4
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_api.h",
+     "line": 12
+    }
+   ],
+   "tags": [
+    "bots",
+    "docs"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "helper-clamp-ops",
+   "title": "Shared math helpers and rng",
+   "subject": {
+    "kind": "function",
+    "id": "rng_next / rng_f (brain)"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c"
+   ],
+   "fact": "The brain uses a 32-bit xorshift (rng_next) seeded from mix32(level seed ^ mix32(bot index)). rng_f gives a float in 0.1 and rng_range a value between two bounds, so bot variety changes between matches and stays repeatable within one.",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 77
+    }
+   ],
+   "tags": [
+    "bots",
+    "brain",
+    "rng"
+   ],
+   "date": "2026-10-21"
+  }
+ ]
+}

@@ -1,0 +1,1 @@
+[[8,0,["#include \"pc_draw_distance.h\"\r\n"]],[16,0,["void ma2_bot_view_drawn(uint32_t view);   /* [bots build] patch_native.py: diagnostic view counter */\r\n","\r\n"]],[8636,0,["    xmm0.f[0]=ma2_pc_lod_distance_squared(xmm0.f[0]);\r\n"]],[30163,0,["    ma2_bot_view_drawn(ebp);   /* [bots build] diagnostic: count drawn views */\r\n"]]]

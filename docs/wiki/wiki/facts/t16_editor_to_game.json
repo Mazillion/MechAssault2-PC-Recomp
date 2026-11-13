@@ -1,0 +1,1319 @@
+{
+ "pack": "t16_editor_to_game",
+ "title": "How the editor maps to the game",
+ "facts": [
+  {
+   "id": "t16-map-terrain-env-surprise-1",
+   "title": "Sun direction consumer: menv-fog-setter-args says \"DirectionalLightDirection is never read by name (sun direction has no consumer, open)\", while m15-model-v0-sun-has-extr",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Sun direction consumer: menv-fog-setter-args says \"DirectionalLightDirection is never read by name (sun direction has no consumer, open)\", while m15-model-v0-sun-has-extra-factor (verified-in-game) shows models light with c13 = DirectionalLightDirection, and menv-sun-colour-direction infers the offset. The editor's Sun sliders and lightmap bake assume the field is used.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Map, Terrain, Paint, Water, Plants, Environment, View.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "map-terrain-env",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-map-terrain-env-surprise-2",
+   "title": "Lightmap contents: the editor bakes sun diffuse into L (0.35 + 0.65 x N.L) and shadow into A. terrain-lightmap-channels says the game treats L as a baked ambient/sky term",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Lightmap contents: the editor bakes sun diffuse into L (0.35 + 0.65 x N.L) and shadow into A. terrain-lightmap-channels says the game treats L as a baked ambient/sky term (x LightAmbientColor) and A as a shadow mask gating the vertex-lit sun term, whereas mgiC-terrain-pictures says \"L is diffuse light\". The editor's bake is not game-verified on an editor-made map.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Map, Terrain, Paint, Water, Plants, Environment, View.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "map-terrain-env",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-map-terrain-env-surprise-3",
+   "title": "Ground-layer neutral colour: \"Show it in its own colours\" uses 1/(4 x DetailBlend); terrain-detail-colour-gain-. (verified-in-game, UC/KF/NRC) says the gain is 8 x Deta",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Ground-layer neutral colour: \"Show it in its own colours\" uses 1/(4 x DetailBlend); terrain-detail-colour-gain-. (verified-in-game, UC/KF/NRC) says the gain is 8 x DetailBlend, RESOLVED: not a mismatch; the game's 8x includes the light doubling, the editor's albedo is 4 x DetailBlend with x2 light, so 1/(4 x DetailBlend) is right in both (render.cpp tps; matched in game on a new map 10-25).",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Map, Terrain, Paint, Water, Plants, Environment, View.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "map-terrain-env",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-map-terrain-env-surprise-4",
+   "title": "Type map value 8: terrain-type-map says 8 = special (water/waterway), the editor uses 8 as \"Water/special\"; bs-mawater-size says 8 = shallow, 16 = deep, 32 = waterway. Th",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Type map value 8: terrain-type-map says 8 = special (water/waterway), the editor uses 8 as \"Water/special\"; bs-mawater-size says 8 = shallow, 16 = deep, 32 = waterway. The editor only knows 0/1/2/8.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Map, Terrain, Paint, Water, Plants, Environment, View.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "map-terrain-env",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-map-terrain-env-surprise-5",
+   "title": "Description default text: editor-null-description-bug says \"A custom scenario (by <author>).\"; the code writes \"A custom scenario by <author>.\" (core/scenario.cpp:1997) a",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Description default text: editor-null-description-bug says \"A custom scenario (by <author>).\"; the code writes \"A custom scenario by <author>.\" (core/scenario.cpp:1997) and strips that form when loading.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Map, Terrain, Paint, Water, Plants, Environment, View.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "map-terrain-env",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-map-terrain-env-surprise-6",
+   "title": "IsNightTime wiki conflict: isnighttime-values-unknown-and-only-reader-building-light-127ed7 / editor-evening-look-ui-grouping (values unknown, Bogged Down maybe 1) versus",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "IsNightTime wiki conflict: isnighttime-values-unknown-and-only-reader-building-light-127ed7 / editor-evening-look-ui-grouping (values unknown, Bogged Down maybe 1) versus isnighttime-retail-values-all-worlds-34-on-26-off (full list). The editor's Look constants match the full list (Go Commando, Ill Wind, Bogged Down lit; Cold dusk, New River City, Witch Cauldron not).",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Map, Terrain, Paint, Water, Plants, Environment, View.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "map-terrain-env",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-map-terrain-env-surprise-7",
+   "title": "The Night checkbox label implies darkness, but the game's IsNightTime does not darken (menv-lightning-night, isnighttime-buildings-only).",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The Night checkbox label implies darkness, but the game's IsNightTime does not darken (menv-lightning-night, isnighttime-buildings-only). When no Look matches, the box simply mirrors `IsNightTime`, so a bright map with lit windows shows Night ticked.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Map, Terrain, Paint, Water, Plants, Environment, View.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "map-terrain-env",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-map-terrain-env-surprise-8",
+   "title": "gap-environment-lighting and gap-culture-scatter (still \"inferred\", status not superseded) say the editor ignores lighting / does not draw culture scatter;",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "gap-environment-lighting and gap-culture-scatter (still \"inferred\", status not superseded) say the editor ignores lighting / does not draw culture scatter; both are now implemented (View > Game lighting, View > Ground scatter) and the \"Night/Sun controls change saved data only\" statement is stale.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Map, Terrain, Paint, Water, Plants, Environment, View.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "map-terrain-env",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-map-terrain-env-surprise-9",
+   "title": "gap-weather-lights says rain is not previewed;",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "gap-weather-lights says rain is not previewed; the editor now previews rain/snow/dust (screen-space) and snow via the game's particle effect.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Map, Terrain, Paint, Water, Plants, Environment, View.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "map-terrain-env",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-map-terrain-env-surprise-10",
+   "title": "Fog: fog-applier-modes-and-shadow-pass-mode-3 says FogMode 2/3 are identical fixed 0.1 VS-driven fog; the editor treats mode 3 as plain distance fog (app/app.cpp:2027) a",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Fog: fog-applier-modes-and-shadow-pass-mode-3 says FogMode 2/3 are identical fixed 0.1 VS-driven fog; the editor treats mode 3 as plain distance fog (app/app.cpp:2027) and only draws the height band for mode 2. Not exposed in these panels, but the Height fog band help text is true only for mode 2 (matches fog-mode-2-vertex-program-height-band-formula-verified).",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Map, Terrain, Paint, Water, Plants, Environment, View.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "map-terrain-env",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-map-terrain-env-surprise-11",
+   "title": "Editor writes `EnableLightning` although menv-lightning-night / menv-weather-layout say it is never read (harmless).",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Editor writes `EnableLightning` although menv-lightning-night / menv-weather-layout say it is never read (harmless).",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Map, Terrain, Paint, Water, Plants, Environment, View.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "map-terrain-env",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-map-terrain-env-gaps",
+   "title": "Editor controls whose game effect no wiki fact explains: Map, Terrain, Paint, Water, Plants, Environment, View",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "1. Ground layers 3-8 (Add a texture. Remove, layer Pattern size): the PC-only `MA2L` layers file format, weight texture resolution (4x colour map) and how the runtime combines layers have no spec fact. Only three log-only facts exist (m06b-layered-terrain. paint-neutral-colour-game-match. terrain-layer-recognition-key.). 2. Lightning `SkyFlash` (written with LightFlash): offset 0x18C is only listed in menv-weather-layout; no fact says what reads it. `EnableLightning` is documented as never read, yet the editor still writes it. 3. `LightningColorRed/Green/Blue` (read for the preview, never edited): offsets only, no behaviour fact. 4. `ShadowColor`, `EnableShadows`, `EnableMechDarken`, `DirectionalLightOn` (written by Looks / read by Game lighting): named in gap-environment-lighting but no fact says how the game uses them. `ShadowColor` is written by every Look. 5. `EnvironmentMapName` (written by every Look): used as the water fallback reflection (water-reflection-falls-back-to-envmap) and as the model env cube; no fact covers the Look-list map choices. 6. 7. \"Repaint ground colours from height\": the procedural theme colours have no game-side fact. 8. Water Description encoding (size/shape in `Description`, name) and the Dig-a-basin / pond helpers are editor logic; custom water model is only [runtime-observed] with \"draw and CorporalHeading unverified\". 9. MAEnvironment water-zone properties (DamageLava, SpeedShallow .), `WindDirection`, `WindSpeed`, `NoShadowDistance`, `MaxShadowAngle`, `RainEffect`, `InstanceTimeMin/Max`: not exposed in this area (menv-unread-props-sweep says no fact). 10. Graphics-memory estimate (58 MB crash threshold): no wiki fact. 11. FogMode and the sky fog fields (`SkyFogOn`, `SkyFogColor`, `SkyFogTop/Bottom`) cannot be changed from these panels; the Height fog band only appears when the Base world already has FogTop/FogBottom.",
+   "how_to_use": "Open research list for 'how the editor maps to the game'.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "map-terrain-env",
+    "gaps"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-units-roads-water-surprise-1",
+   "title": "Multi-selection inspector: F-MULTISEL says Team/Side/Visible with are editable for several selected objects. Master 534d702",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "**Multi-selection inspector**: F-MULTISEL says Team/Side/Visible with are editable for several selected objects. Master 534d702 prints only \"N objects selected\" and returns (T:1844-1847). The Selection \"Side:\" buttons (T:1306) are the only multi-edit of Nation in master.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Units palette, placement, sides, inspector, AI orders, helpers, Players, roads, water.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "units-roads-water",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-units-roads-water-surprise-2",
+   "title": "Default order: F-GIVEORD says the order defaults to Patrol; the UI always adds MAAttack (T:1331, AT:1221, TR:1099). Patrol is the default only in the trigger-effect \"Orde",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "**Default order**: F-GIVEORD says the order defaults to Patrol; the UI always adds MAAttack (T:1331, AT:1221, TR:1099). Patrol is the default only in the trigger-effect \"Orders\" compile path.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Units palette, placement, sides, inspector, AI orders, helpers, Players, roads, water.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "units-roads-water",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-units-roads-water-surprise-3",
+   "title": "water-extent vs bs-mawater-size vs editor: water-extent says size comes from the template name and defaults to 500 m; bs-mawater-size says it is the model bounding box. T",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "**water-extent vs bs-mawater-size vs editor**: water-extent says size comes from the template name and defaults to 500 m; bs-mawater-size says it is the model bounding box. The editor stores size in Description (\"[W x L m]\") and writes a generated model, matching bs-mawater-size; water-extent looks stale.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Units palette, placement, sides, inspector, AI orders, helpers, Players, roads, water.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "units-roads-water",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-units-roads-water-surprise-4",
+   "title": "Player start identity: F-LSTART says the game finds the start as a child named 'Player Spawner'; the editor's \"Move player start\" moves the first MALevelStart in file ord",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "**Player start identity**: F-LSTART says the game finds the start as a child named 'Player Spawner'; the editor's \"Move player start\" moves the first MALevelStart in file order (A:3009-3015), and a new start is named \"Start Point\" (players.cpp:218). Works only when the first MALevelStart is the player's (F-PLACEREL notes the same trap for `--place`).",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Units palette, placement, sides, inspector, AI orders, helpers, Players, roads, water.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "units-roads-water",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-units-roads-water-surprise-5",
+   "title": "Neutral boarding: neutral-unit-boarding (inferred, \"unpublished\", scripted Q did not change actor) conflicts with boarding-rule/no-owner-controller-no-boarding (verified-",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "**Neutral boarding**: neutral-unit-boarding (inferred, \"unpublished\", scripted Q did not change actor) conflicts with boarding-rule/no-owner-controller-no-boarding (verified-in-game, Q tap enters). bs-boardable-definition says m_bAIEnabled 0 may not be required; the editor writes it anyway (players.cpp:400).",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Units palette, placement, sides, inspector, AI orders, helpers, Players, roads, water.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "units-roads-water",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-units-roads-water-surprise-6",
+   "title": "Defend radius: editor shows a \"Radius (m)\" field for MADefend; F-GIVEORD says that write is unread by the game.",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "**Defend radius**: editor shows a \"Radius (m)\" field for MADefend; F-GIVEORD says that write is unread by the game.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Units palette, placement, sides, inspector, AI orders, helpers, Players, roads, water.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "units-roads-water",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-units-roads-water-surprise-7",
+   "title": "Hidden units: the inspector's Visible box edits VisibleEntity, but F-DORMANT proves start-up hide needs a trigger (MAActionShow Enable 0). There is no \"hidden at start\" c",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "**Hidden units**: the inspector's Visible box edits VisibleEntity, but F-DORMANT proves start-up hide needs a trigger (MAActionShow Enable 0). There is no \"hidden at start\" control on a unit.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Units palette, placement, sides, inspector, AI orders, helpers, Players, roads, water.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "units-roads-water",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-units-roads-water-surprise-8",
+   "title": "Heading units in one slider: CorporalHeading/VolumeHeading are degrees, StartOrientation and RoadRotation[0] are radians; the slider converts all, but heading-direction-o",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "**Heading units in one slider**: CorporalHeading/VolumeHeading are degrees, StartOrientation and RoadRotation[0] are radians; the slider converts all, but heading-direction-open says zero direction for spawns is unverified.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Units palette, placement, sides, inspector, AI orders, helpers, Players, roads, water.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "units-roads-water",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-units-roads-water-surprise-9",
+   "title": "Menu trigger: nationtypetotest-is-live corrects inert-property-keys, but inert-property-keys is still listed (not superseded).",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "**Menu trigger**: nationtypetotest-is-live corrects inert-property-keys, but inert-property-keys is still listed (not superseded).",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Units palette, placement, sides, inspector, AI orders, helpers, Players, roads, water.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "units-roads-water",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-units-roads-water-surprise-10",
+   "title": "Palette placeable set: editor-palette-groups says 801 placeable, 279 cut; the code also allows MAEffect (Effects/) and \"Heavy Bomb\" (VTOL Bombs) classes; counts in the fa",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "**Palette placeable set**: editor-palette-groups says 801 placeable, 279 cut; the code also allows MAEffect (Effects/) and \"Heavy Bomb\" (VTOL Bombs) classes; counts in the fact predate those unlocks (palette-sweep-gaps-1023).",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Units palette, placement, sides, inspector, AI orders, helpers, Players, roads, water.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "units-roads-water",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-units-roads-water-gaps",
+   "title": "Editor controls whose game effect no wiki fact explains: Units palette, placement, sides, inspector, AI orders, helpers, Players, roads, water",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "1. Palette note \"AI only\" (palette_kind_ ai_only_actor): origin of the classification is the palette_sweep, no fact says why a MAPerson/others \"cannot be climbed into\". 2. MABuilding placement warning ('[text omitted]'): only a code comment, no wiki fact; mabuilding-factory-sub-127d22 says dispatch unknown. 3. MADefend.Radius (\"Radius (m)\", default 60): F-GIVEORD says write unread; catalog \"inferred\". No game read found. 4. MAFollow.FollowRadius / FollowDefenseRadius semantics: catalog \"inferred\" only; no code-level fact. 5. Patrol path following: F-PATROLRUN verifies load and AI active only; MAWaypointGroup.WaypointID first-vs-last convention unreconciled (F-AIPATH); editor does not write TraverseType (loop) or WptPauseTime semantics beyond 0. 6. Inspector VisibleEntity (\"Visible\") and IsActive (\"Active\"): no fact states the runtime effect of an initial 0/1 on a unit; F-DORMANT shows only the trigger-based hide works. 7. InitiallyCollidable (\"Starts solid\") for non-vehicle units, OverrideEnable beyond bit-1: no fact on effect in play. 8. MACheckpoint helper: serialization/restoration unproven (checkpoint-serialization); no fact says what placing one does in a mission. 9. MATriggerMenuActivate helper: nationtypetotest-is-live explains one field; the menu-entry trigger purpose in an editor-authored map is not explained, and inert-property-keys still says NationTypeToTest is inert. 10. Vehicle pad: nothing says whether pad+MASpawner placed off a retail clone respawns vehicles in custom maps (only code-confirmed spawner rules, type-map validation). 11. MALevelStart.RandomDistance and spawn heading zero (heading-direction-open): editor writes StartOrientation, spawn facing in game not verified. 12. Road path nodes ([Roads] section, AI sidewalk/road/centreline nodes): road-nodes-confirmed shows loading, but no fact says whether editor-placed pieces make AI/bots path on them or whether MAPathDB regenerated at save includes them (mappath-db is documented only). 13. place_water does not mark the MATerrainInfo type map 8 (only the dev Pond tool does), so wading/waterway gameplay for UI-placed water has no fact (terrain-type-map explains values only). 14. Custom water draw: F-CUSTWATER says draw unverified; code comment (S:1276-1283) says tested in game 2026-10-24. 15. Multi-selection edit (Team/Side/Visible with): F-MULTISEL describes it, not in this master (see Surprises). 16. Water \"Type\" visuals in editor vs game: gap-water-material is verified-in-game but older; later water facts (m05-*, audit18/19) show editor still off. Gap count: 16.",
+   "how_to_use": "Open research list for 'how the editor maps to the game'.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "units-roads-water",
+    "gaps"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-triggers-sets-surprise-1",
+   "title": "Stale wiki description of the compiler. `editor-workflow` (\"Triggers compile to native MATrigger and MAAction trees in the group 'Editor Triggers'\") and `editor-trigger-actions-map` describe the old m",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "**Stale wiki description of the compiler.** `editor-workflow` (\"Triggers compile to native MATrigger and MAAction trees in the group 'Editor Triggers'\") and `editor-trigger-actions-map` describe the old model. The current tab edits native objects directly; the \"Editor Triggers\" group only appears for legacy files and is renamed \"Triggers\" on load. USABILITY U9 vocabulary (\"Give a unit orders\", \"Change a unit's side\") likewise refers to legacy labels no longer in the live UI.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Objectives & Triggers: conditions, actions, shapes, Sets, Used by, AI orders.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "triggers-sets",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-triggers-sets-surprise-2",
+   "title": "MAActionAI label says \"spawners\". Label \"Switch units, spawners or triggers on or off\" and `editor-trigger-actions-map` (\"enables triggers, units or spawners\"), but `reinforcements-spawner-pattern` sa",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "**MAActionAI label says \"spawners\".** Label \"Switch units, spawners or triggers on or off\" and `editor-trigger-actions-map` (\"enables triggers, units or spawners\"), but `reinforcements-spawner-pattern` says spawners are enabled via the spawner's own `TriggerEnableID` = trigger uid, with the spawner `Enabled 0`. No fact shows an MAActionAI enabling a spawner.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Objectives & Triggers: conditions, actions, shapes, Sets, Used by, AI orders.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "triggers-sets",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-triggers-sets-surprise-3",
+   "title": "Swap-set \"Swapped in at start\" and \"Its units appear/leave the level\". The UI implies a load-time hide;",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "**Swap-set \"Swapped in at start\" and \"Its units appear/leave the level\".** The UI implies a load-time hide; `swap-set-linked-members-visible-at-start-in-game-contradicts-hide-rule` shows linked members visible at start, and item (4) of `what-is-visible-at-mission-start-.` (hidden unless bSwappedIn) is only \"contested\".",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Objectives & Triggers: conditions, actions, shapes, Sets, Used by, AI orders.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "triggers-sets",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-triggers-sets-surprise-4",
+   "title": "Broadcast caption. The UI offers \"Speaker or title (optional)\";",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "**Broadcast caption.** The UI offers \"Speaker or title (optional)\"; `broadcast-caption-missing` (verified-in-game) says the caption is not displayed.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Objectives & Triggers: conditions, actions, shapes, Sets, Used by, AI orders.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "triggers-sets",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-triggers-sets-surprise-5",
+   "title": "Checkpoint template promise. Tooltip '[text omitted]' versus `checkpoint-serialization` (restoration unproven).",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "**Checkpoint template promise.** Tooltip '[text omitted]' versus `checkpoint-serialization` (restoration unproven).",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Objectives & Triggers: conditions, actions, shapes, Sets, Used by, AI orders.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "triggers-sets",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-triggers-sets-surprise-6",
+   "title": "\"Repeat\" wording. Tooltip says \"Fire every time the condition is met\";",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "**\"Repeat\" wording.** Tooltip says \"Fire every time the condition is met\"; `trigger-rearm-and-random-reset` shows TriggerAutoReset clears the has-fired byte every update, so a still-true condition (player standing in a circle) can re-fire repeatedly rather than once per entry. This is an inference from the re-arm code, not verified in game.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Objectives & Triggers: conditions, actions, shapes, Sets, Used by, AI orders.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "triggers-sets",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-triggers-sets-surprise-7",
+   "title": "\"The player\" shape filter. Writes TypeOfCheck 3 + PlayerEntitesOnly 1;",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "**\"The player\" shape filter.** Writes TypeOfCheck 3 + PlayerEntitesOnly 1; `tree4-uc-radius-trigger-correction-18-11z-typeofcheck-3-never-fires` says this never fires in UnderCover MP with the on-foot avatar. The UI only has a code comment (AT:793-795), no warning on MP maps.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Objectives & Triggers: conditions, actions, shapes, Sets, Used by, AI orders.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "triggers-sets",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-triggers-sets-surprise-8",
+   "title": "\"Used by\" key set is narrower than the reference-key list. `entity-set-structure-.` names AISet, ActionSet, DestroySet, RadiusSet, EntitySetUID, TriggerEnableID, m_wptGroupUID as reference keys;",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "**\"Used by\" key set is narrower than the reference-key list.** `entity-set-structure-.` names AISet, ActionSet, DestroySet, RadiusSet, EntitySetUID, TriggerEnableID, m_wptGroupUID as reference keys; `used_by` (CT:1205-1243) checks only ActionEntity, MarkerUID, cinemaID, ReferenceUID, TriggerID, Defend/Attack/FollowUID, set members, dwEntitySwapSet, dwSwapSet. Deleting a set that an AISet or RadiusSet uses warns less than it should (AS:127).",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Objectives & Triggers: conditions, actions, shapes, Sets, Used by, AI orders.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "triggers-sets",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-triggers-sets-surprise-9",
+   "title": "WaypointID convention. The editor writes the FIRST waypoint uid (matches `ai-orders-structure`) while retail cinema path groups were measured as LAST (`cinema-path-pattern-.`;",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "**WaypointID convention.** The editor writes the FIRST waypoint uid (matches `ai-orders-structure`) while retail cinema path groups were measured as LAST (`cinema-path-pattern-.`; `editor-ai-paths-as-real-objects-.`: \"retail11 did not reconcile\"). Unresolved.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Objectives & Triggers: conditions, actions, shapes, Sets, Used by, AI orders.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "triggers-sets",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-triggers-sets-surprise-10",
+   "title": "Combine method labels. The Destroyed UI uses 2 = all / 1 = any (matches the 2026-10-24 correction);",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "**Combine method labels.** The Destroyed UI uses 2 = all / 1 = any (matches the 2026-10-24 correction); the old catalog text (t04_scenario.json:6218) had them swapped and USABILITY notes the relabel. No remaining editor conflict, but the dictionary text should be checked.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Objectives & Triggers: conditions, actions, shapes, Sets, Used by, AI orders.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "triggers-sets",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-triggers-sets-surprise-11",
+   "title": "Timer fields. The wiki records TrgTimerDuration = seconds/60 (minutes);",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "**Timer fields.** The wiki records TrgTimerDuration = seconds/60 (minutes); the editor keeps both in step, so a retail timer edited via Properties alone could leave them inconsistent (a footgun, not a disagreement).",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Objectives & Triggers: conditions, actions, shapes, Sets, Used by, AI orders.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "triggers-sets",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-triggers-sets-gaps",
+   "title": "Editor controls whose game effect no wiki fact explains: Objectives & Triggers: conditions, actions, shapes, Sets, Used by, AI orders",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Kinds the editor offers with **no game-side wiki fact** (or only an inferred one), and missing editor controls for known game fields: 1. Circle \"Fires when something is inside (untick: outside)\" (InRadiusCheck): no fact states the game meaning. 2. Box \"outside\" (VolumeStateTest 2): inferred only. 3. Box \"Units that set it off\" = entity set (EntitySetUID, TypeOfCheck 2): only the cuboid property-map fact (inferred); the circle case is the one proven in game. 4. Timer: which of TrgTimerDurationSeconds / TrgTimerDuration the game reads is not recorded (editor writes both). 5. MAActionMissionVariableSet \"clear\" (VariableState 0): retail always 1; clearing is untested. The \"Variable number (advanced)\" box does not clamp to 0.29, the range the game accepts. 6. MAActionNation labels (Player's side 6 / Enemy 5 / Neutral 0): fact `nations` marks the mapping as inferred. 7. MAActionSound IsQueued / DelayBeforePlay and MAActionMusic MusicEvent (play/stop/swap/intensity) have code facts but no UI control. 8. Counter: fact exists (CheckType compares the count) but the UI cannot add the reference that says which trigger is counted. 9. Attach, GameTime, PlayerVehicleType, Uber, Spider, plain MATrigger, MenuActivate, Point, NationRadius: generic Common-tier forms only; only structure/count facts exist (cinema-trigger-structure, matriggerattach-layout-plus20-bias, entry-zone-gen-layout, objective-state-core, nationtypetotest-is-live), no behaviour fact tied to the tab workflow. 10. Actions with a friendly name but only a generic form: PlayVoice (cue id has no picker; the old `voice` kind had one), AICommand, AIFire, AIScan, Camera, Lights, PlayAnim, PopupMenu, ChangeHUD, ChangePlayerVehicle, AttachDetach, Attribute, DropShip, MoeEFX, Response, CheckItGoal, Uber. Facts exist for Lights, AIFire, DropShip, PlayVoice only. 11. Action target as a **set**: Show/AI/Nation/Remove use only ActionEntity (single object). Retail pattern A uses AISet/ActionSet; the UI has no set picker for them (Properties \"Target set\" is the only way). Destroyed \"by set\" (DestroySet, TypeOfCheck 2) likewise. 12. The trigger form hides random re-arm (UseRndReset, RndResetTimeMin/Max), MissionVariable gate, AllowClientActivate, ResetIfHaveInvalidCheck (Advanced tier, Properties only), though the re-arm and variable-gate facts are code-confirmed. 13. Percent combine (CombineMethod 3, MinCombinationPercent) for Destroyed/Circle/Box: shown as \"Other (3)\", not selectable. 14. Game-side start of AI events: the wiki records that the code that runs a trigger's actions/events is **not found** (`action-dispatch-runner2`, `matrigger-fire-1452d4-walkers-and-builder-145582-latent-bug`); everything about events starting behaviours rests on retail data and in-game proofs. 15. Open tab items in USABILITY.md: T2 (no \"added by you\" mark on triggers), T3 (generic names for new triggers).",
+   "how_to_use": "Open research list for 'how the editor maps to the game'.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "triggers-sets",
+    "gaps"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-cutscenes-objectives-test-surprise-1",
+   "title": "Preview fallback shot length is 5 s when `CameraDuration` and path duration are 0, but the game's `CameraDuration` default is 8 s (`camera-fov-and-shot-length`).",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Preview fallback shot length is 5 s when `CameraDuration` and path duration are 0, but the game's `CameraDuration` default is 8 s (`camera-fov-and-shot-length`).",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Cutscenes, Messages, Options, Level tree, File menu, New scenario, Test.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "cutscenes-objectives-test",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-cutscenes-objectives-test-surprise-2",
+   "title": "The \"Game started\" popup tells Mission testers the campaign intro movie plays first, but `custom-scenarios-no-spintro` says Custom Scenarios mode suppresses SPIntro (verified in test42).",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The \"Game started\" popup tells Mission testers the campaign intro movie plays first, but `custom-scenarios-no-spintro` says Custom Scenarios mode suppresses SPIntro (verified in test42). The editor text may be stale (the older `briefing-screen-open` fact said the intro played).",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Cutscenes, Messages, Options, Level tree, File menu, New scenario, Test.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "cutscenes-objectives-test",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-cutscenes-objectives-test-surprise-3",
+   "title": "The Briefing title and text the Messages tab writes are never shown for a single custom mission:",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The Briefing title and text the Messages tab writes are never shown for a single custom mission: the game skips the briefing screen (verified-in-game), although `[Mission]`, `[Strings]` and MARoot ids are all written.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Cutscenes, Messages, Options, Level tree, File menu, New scenario, Test.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "cutscenes-objectives-test",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-cutscenes-objectives-test-surprise-4",
+   "title": "`editor-test-f5-saves-untitled-scenario-to-scenario-folder-as-name-ma2map` says Test saves silently to `<Name>.ma2map`;",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "`editor-test-f5-saves-untitled-scenario-to-scenario-folder-as-name-ma2map` says Test saves silently to `<Name>.ma2map`; in master `cmd_save` with no file opens the Save dialog (app.cpp:1447-1453). Not merged, or changed since.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Cutscenes, Messages, Options, Level tree, File menu, New scenario, Test.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "cutscenes-objectives-test",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-cutscenes-objectives-test-surprise-5",
+   "title": "There is no Export. Save is the export; the game finds the file by scanning the scenario folder (Scenarios.ini). Test is a plain `--scenario` launch plus a menu walk insi",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "There is no Export. Save is the export; the game finds the file by scanning the scenario folder (Scenarios.ini). Test is a plain `--scenario` launch plus a menu walk inside the game.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Cutscenes, Messages, Options, Level tree, File menu, New scenario, Test.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "cutscenes-objectives-test",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-cutscenes-objectives-test-surprise-6",
+   "title": "\"New cutscene\" is built only from the retail Mission_05 data (`retail_world(\"Mission_05\")`);",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "\"New cutscene\" is built only from the retail Mission_05 data (`retail_world(\"Mission_05\")`); without the disc data it fails with \"the retail Mission_05 is needed as the model\".",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Cutscenes, Messages, Options, Level tree, File menu, New scenario, Test.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "cutscenes-objectives-test",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-cutscenes-objectives-test-surprise-7",
+   "title": "\"Add shot\" copies only the LAST controller (about 19 objects), moves it 25 m +X, and the Description gets \" 2\" appended each time;",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "\"Add shot\" copies only the LAST controller (about 19 objects), moves it 25 m +X, and the Description gets \" 2\" appended each time; there is no reorder. \"Delete shot\" keeps pieces another shot still uses.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Cutscenes, Messages, Options, Level tree, File menu, New scenario, Test.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "cutscenes-objectives-test",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-cutscenes-objectives-test-surprise-8",
+   "title": "Objective text goes to three places on save: `[Strings] 60100+i`, `ObjectiveItemDesc<i>`, and ASCII text cut to 60 chars in `ObjectiveEditorName<i>` and `mfname<i>`.",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Objective text goes to three places on save: `[Strings] 60100+i`, `ObjectiveItemDesc<i>`, and ASCII text cut to 60 chars in `ObjectiveEditorName<i>` and `mfname<i>`.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Cutscenes, Messages, Options, Level tree, File menu, New scenario, Test.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "cutscenes-objectives-test",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-cutscenes-objectives-test-surprise-9",
+   "title": "At save, compiled strings 60000, 60001 and 60100+ overwrite user \"Advanced\" entries with the same key (core/scenario.cpp ~1951 merges `extra` over `strings`);",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "At save, compiled strings 60000, 60001 and 60100+ overwrite user \"Advanced\" entries with the same key (core/scenario.cpp ~1951 merges `extra` over `strings`); \"Add text\" numbering starts at 1, so a collision needs a player to type a key of 60000+.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Cutscenes, Messages, Options, Level tree, File menu, New scenario, Test.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "cutscenes-objectives-test",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-cutscenes-objectives-test-surprise-10",
+   "title": "Test refuses while any `MechAssault 2.exe` is running, because the game reads new or changed scenarios only at start or hub/menu rescan.",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Test refuses while any `MechAssault 2.exe` is running, because the game reads new or changed scenarios only at start or hub/menu rescan.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Cutscenes, Messages, Options, Level tree, File menu, New scenario, Test.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "cutscenes-objectives-test",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-cutscenes-objectives-test-surprise-11",
+   "title": "Cutscene Preview hides helper markers on purpose (\"the game draws no helpers\").",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Cutscene Preview hides helper markers on purpose (\"the game draws no helpers\").",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Cutscenes, Messages, Options, Level tree, File menu, New scenario, Test.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "cutscenes-objectives-test",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-cutscenes-objectives-test-surprise-12",
+   "title": "Mission tests pass no `--mode`, `--bots` or `--skill`:",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Mission tests pass no `--mode`, `--bots` or `--skill`: only Multiplayer maps get the Players-tab Testing settings.",
+   "how_to_use": "Editor vs game/wiki disagreement found in the t16 survey; fix the editor or the stale fact. Table row: see page t16_editor_to_game, section Cutscenes, Messages, Options, Level tree, File menu, New scenario, Test.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "cutscenes-objectives-test",
+    "surprise"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "t16-cutscenes-objectives-test-gaps",
+   "title": "Editor controls whose game effect no wiki fact explains: Cutscenes, Messages, Options, Level tree, File menu, New scenario, Test",
+   "subject": {
+    "kind": "topic",
+    "id": "Editor"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "1. `MAFreeCameraController.bSkipTo` (Shots tree): no fact; `cinema-stop-and-advance` lists its effect as open. 2. `MACameraProperty.Offset` (eye and focus steps), `Endy` / `EndWidth` / `EndHeight` (screen-size step), `startRGB` / `startAlpha` / `endRGB` / `endAlpha` (colour filter): only step template names are known. Only `flags` is documented (`camera-path-duration-flags`). 3. `MAPath.useSpline`, `smoothIn`, `smoothOut`, `duration`: structure is documented (`cinema-path-pattern.`), but the game's interpolation for MAPath eye paths is not (the Catmull-Rom fact covers MACameraPan). 4. How the game aims the camera at `focusUID` (versus the path tangent): the cinema-camera fact lists the look rule as open. 5. Deleting a cutscene that a trigger still uses: no fact on what the game does with a `cinemaID` that does not resolve. 6. Briefing \"Title\" and \"Briefing\" text: no fact shows custom ids render on the briefing screen (`briefing-screen-open` only says the screen is skipped). 7. \"Speaker or title (optional)\" and \"No caption\" on \"Show a message\": the editor offers them, the game never shows the caption (`broadcast-caption-missing`, open game bug). 8. Objectives: nothing explains what happens if the copied MARoot has fewer than 30 `ObjectiveItemDesc<i>` keys (the editor sets only keys that exist, triggers.cpp:556-566; `NumObjectiveItems` is constant 30 in the game, `maroot-objectives-keys`). 9. \"Add part\": no fact lists which classes are safe under which parents. 10. \"Duplicate\" of units, AI orders (`MAEvent`) and triggers: game effect beyond entity-set membership not documented. 11. Save As / Test with an untitled scenario: fact `editor-test-f5-saves-untitled-scenario.` (code-read-not-run) conflicts with master code (see Surprises). 12. \"Add part\" and \"Duplicate\" of classes whose models are not in the base archive: `palette-sweep-in-game.` shows an 80-object batch failing on heap, but no fact gives a per-object rule. 13. `--quick-test` on the game side: no single fact lists everything it does (only the Return key workaround and idle-player level restart are documented). 14. Cutscene \"Preview\" fidelity versus the game's shot player (letterbox bar size 11 percent, linear interpolation): no fact compares.",
+   "how_to_use": "Open research list for 'how the editor maps to the game'.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "editor-to-game",
+    "cutscenes-objectives-test",
+    "gaps"
+   ],
+   "date": "2026-10-26"
+  },
+  {
+   "id": "editor-pc-release-built-from-scenario-editor-master-1101",
+   "title": "The editor installed in PC Release on 2026-10-31 (sha256 48665353da90.) is byte-identical to Scenario Editor.e",
+   "subject": {
+    "kind": "file",
+    "id": "PC Release/MA2 Scenario Editor.exe"
+   },
+   "addresses": [],
+   "related": [
+    "build.cmd"
+   ],
+   "fact": "The editor installed in PC Release on 2026-10-31 (sha256 48665353da90.) is byte-identical to Scenario Editor.exe built from master a05a50e (clean tree), not one of the sibling editor-* worktrees.",
+   "how_to_use": "To find the lineage of an installed editor, sha256 it and compare with in each editor tree; build with plain build.cmd (MA2SE_EXE= links elsewhere while an editor runs).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "editor",
+    "release",
+    "lineage"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "editor-crop-editorcrop-property-project-json",
+   "title": "Cropped road pieces / foundations: editor-only EditorCrop property, stripped at save, kept in editor/project.json 'crops'",
+   "subject": {
+    "kind": "property",
+    "id": "EditorCrop"
+   },
+   "addresses": [],
+   "related": [
+    "MARoad",
+    "MACorporeal",
+    "crop.h"
+   ],
+   "fact": "MARoad and the corporeal plates have no scale or size property, so a crop is stored in the editor as the string property EditorCrop = 'x0 x1 z0 z1' (the kept rectangle in the model's own x/z, metres; crop:of / crop:set). Undo, copy and paste carry it like any property. ScenarioIO:add_cropped (run after asset_closure and add_custom_water in build) removes EditorCrop from every object of the saved world, points Corporal3DObj (with a leading backslash) or RoadDefinition (no leading backslash, like place_road) at the cut files, and returns {uid, rect, original path}, which build writes to editor/project.json 'crops'. ScenarioIO:load puts EditorCrop back and restores the original path, so the editor cuts again from the source.",
+   "how_to_use": "Properties > 'Crop (fit it into a gap)' on a road piece or foundation; 'Whole again' removes it.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/core/scenario.cpp",
+     "line": 1554
+    },
+    {
+     "file": "editor/src/core/scenario.cpp",
+     "line": 2740
+    },
+    {
+     "file": "editor/src/core/crop.h",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "editor",
+    "crop",
+    "save-format"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "editor-crop-cut-model-files",
+   "title": "Crop export: cut MGMODEL / legacy .NODE beside the source as MA2SE_<stem>_c<tag>, triangles clipped with interpolated UVs, bv_obb shrunk",
+   "subject": {
+    "kind": "function",
+    "id": "crop:make_model"
+   },
+   "addresses": [],
+   "related": [
+    "add_custom_water"
+   ],
+   "fact": "crop:make_model reads the model the game loads (ResolveModelPath), clips every mesh's triangles to the kept rectangle (Sutherland-Hodgman per triangle; cut edges get interpolated position, normal, both UV sets and colour, so the texture is cut, not squeezed; cut points are computed from a fixed end so shared edges stay watertight) and writes new vertex and index files in the source's own layout (flags 0x301, 0x501 and the rest; skinned layouts refused) with the source's MGIc header. Strips are written back as one strip joined by repeated indices with every real triangle starting at an even position (keeps the winding); lists stay lists. MGMODEL: the same XML with each bv_obb origin and lengths recomputed from its node's kept vertices; models with shadow_mesh are refused.NODE: copies of the node and of each .mesh name the cut .geomVert/.geomFace; material paths stay valid because every file sits beside its source. Clip planes go through the mesh-to-model node transform (Env_ParkingLot_30x30.NODE scales its +-30 m mesh by 0.5). Files are named MA2SE_<stem>_c<8 hex of the rectangle> and shipped in the scenario archive; pieces cut the same way share them.",
+   "how_to_use": "fmt_test '0b' checks a Mission_16 long straight and pattern-brick base round trip and the parking-lot NODE: cut models load with LoadModel and stay inside the rectangle.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/core/crop.cpp",
+     "line": 436
+    },
+    {
+     "file": "editor/src/core/crop.cpp",
+     "line": 97
+    },
+    {
+     "file": "editor/tests/fmt_test.cpp",
+     "line": 902
+    }
+   ],
+   "tags": [
+    "editor",
+    "crop",
+    "models",
+    "export"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "editor-crop-cut-road-file",
+   "title": "Crop export for road pieces: a cut .road whose [model], [attachments], [boundary], [Roads] AI points and [params] follow the kept part",
+   "subject": {
+    "kind": "function",
+    "id": "crop:make_road"
+   },
+   "addresses": [],
+   "related": [
+    "MARoad.RoadDefinition",
+    "road_snap"
+   ],
+   "fact": "crop:make_road copies the .road text beside the source (MA2SE_<stem>_c<tag>.road): [model] model= names the cut _rw.node (cut by make_model), attachment points and boundary point1/point2 are clamped onto the kept rectangle, [Roads] AI path points (sidewalk, lane, centre line) are clamped 0.3 m inside it with their connections unchanged, and [params] fWidth / fLength (when present) become the kept size. RWmodel is left alone. In the editor, road_snap clamps a placed piece's entry and exits the same way, so the next piece joins the cut end. Road model space: x across (+-13 m for country pieces), z from 0 at the entry to -L at the far end.",
+   "how_to_use": "Trim start / far end on a selected road piece, then place the next piece near the cut end.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/core/crop.cpp",
+     "line": 554
+    },
+    {
+     "file": "editor/src/app/palette_search.cpp",
+     "line": 450
+    }
+   ],
+   "tags": [
+    "editor",
+    "crop",
+    "roads"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "editor-foundation-snap-family-3",
+   "title": "Foundations snap edge to edge: snap family 3 on the wall/bridge piece_snap path, four edge middles per plate",
+   "subject": {
+    "kind": "function",
+    "id": "App:piece_snap"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "App:is_foundation (Building base category, Bb_ / Bd_ / Wst_bb names or models, parking lots, footings, foundation, concretesquare, patternbrick, hextile; MACorporeal or MABuilding only) gives snap family 3. snap_ends then makes four ends per placed plate, the middle of each edge of its drawn (cropped) footprint facing out, with side 0.3 and the plate's heading as axis. piece_snap joins a new plate to the open edge whose resulting plate centre is nearest the cursor, within the plate's half size + 20 m, with no bonus for the last plate placed (11-04: the 60 m last-piece bonus of wall / bridge runs sent a 2x2 tile's third plate to the wrong edge): same heading as the neighbour, its centre half its own size out from the edge middle, height = the neighbour's; when the ground under it is higher it rests on that and place_object raises the whole connected sheet (snap_runs(3)) to its top, so the sheet stays level (11-04, one undo step). A joined piece keeps the joined heading even when the mouse moves during the click, and a free click aims only after 8 px of mouse travel (11-04 fix: plates turned away from their ghost on click). Env_ParkingLot_15x15 has no model on any disc archive (only Env_ParkingLot_30x30.NODE, in gocommando.mgf): the palette lists it under Not in the game and it cannot snap (no footprint). Shift places freely. Editor check: a second 38 m base landed exactly 38 m over; a third joined a cropped plate's cut edge. Editor check 11-04: a 2x2 tile of 38 m bases landed 38 m apart at 0 deg with click jitter and drags; a 30 deg plate's joined neighbour landed flush at 30 deg; on a slope the sheet came up level (raised up to 8.8 m).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/palette_search.cpp",
+     "line": 539
+    },
+    {
+     "file": "editor/src/app/palette_search.cpp",
+     "line": 567
+    },
+    {
+     "file": "editor/src/app/palette_search.cpp",
+     "line": 676
+    }
+   ],
+   "tags": [
+    "editor",
+    "snapping",
+    "foundations"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "editor-drawn-terrain-is-8bit-stored-not-height-at",
+   "title": "Gotcha: the ground the game and the editor view draw is the 8-bit stored height (cell diagonal (gx,gz)-(gx+1,gz+1)); Terrain:height_at can be up to range/255 lower",
+   "subject": {
+    "kind": "concept",
+    "id": "Terrain:height_at vs drawn ground"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Renderer:build_vertex draws the terrain at t.stored(height), what the game draws; Terrain:height_at is the unquantized bilinear surface, up to one height step lower (range/255: 0.47 m on a -20.100 m map). Placing by height_at put retail plates (model y 0.016 for Bb_34x34_Generic01, 0.050 for Bb_100x100_Airbase) inside the drawn ground: a 38 m base at 10.06 m on '10.0 m' flat ground drew nothing at all (seen in a playtest, 11-01, as foundations sinking into flat ground). Fix: App:plate_rest_y takes the highest point of the drawn surface under the footprint (stored heights, the game's diagonal, 1.5 m samples plus every grid point inside) and adds kFoundationLift 0.08 m minus the model's bmin.y; used on click, for the ghost, for G / To ground and for joined plates. Open: road pieces still rest at height_at + 0.15 m (road_rest_height), less than one step on maps with a range over about 38 m.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/app_crop.cpp",
+     "line": 70
+    },
+    {
+     "file": "editor/src/app/app_crop.cpp",
+     "line": 79
+    }
+   ],
+   "tags": [
+    "editor",
+    "terrain",
+    "foundations",
+    "gotcha"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "editor-start-marker-gizmo-square-centred",
+   "title": "Player start / spawn gizmo: the yellow move square is the marker's own footprint, centred on it",
+   "subject": {
+    "kind": "function",
+    "id": "App:gizmo_marker_half"
+   },
+   "addresses": [],
+   "related": [
+    "gizmo.cpp",
+    "MALevelStart"
+   ],
+   "fact": "The Move gizmo's ground-plane handle (H_PLANE) used to sit at 0.30-0.65 x the arrow length beside the pivot; next to a small start marker it read as the start itself (playtest 11-01). When the selection is one spawn or player-start view (kind 1), App:gizmo_marker_half returns half the marker's footprint (x marker_scale, x 1.2) and marker_square makes the square that size, centred on the pivot (lighter fill so the marker shows through); inside it the square wins the hit test, and the arrows are grabbed beyond it. Editor check: dragging the square moved the start from 512,512 to 524.1,503.3 with the arrows and the square on it.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/app/gizmo.cpp",
+     "line": 239
+    },
+    {
+     "file": "editor/src/app/app_crop.cpp",
+     "line": 116
+    }
+   ],
+   "tags": [
+    "editor",
+    "gizmo",
+    "player-start"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "editor-crop-session-gotchas-1101",
+   "title": "Gotchas from the crop work: road prototype inherits EditorCrop, an open ArchiveSet blocks fs:remove (0xC0000409), Windows Python rewrites LF files as CRLF",
+   "subject": {
+    "kind": "concept",
+    "id": "editor development gotchas"
+   },
+   "addresses": [],
+   "related": [
+    "fmt_test"
+   ],
+   "fact": "1. ScenarioIO:place_road clones this world's first MARoad as its prototype, so a new piece inherited a cropped piece's EditorCrop; it now erases it. 2. fmt_test died with 0xC0000409 and no output: fs:remove threw because a ma2m:ArchiveSet still held the .ma2map open (scope the set; use the error_code overload); fmt_test now sets stdout unbuffered so a crash keeps its log. 3. Editing the editor sources with Windows Python in text mode turned the LF files into CRLF (git showed every line changed); write with newline='' or use the Edit tool. 4. Bash heredocs passed to python collapsed backslash escapes in C++ string and char literals; check them after any scripted edit.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/src/core/roads.cpp",
+     "line": 71
+    },
+    {
+     "file": "editor/tests/fmt_test.cpp",
+     "line": 82
+    }
+   ],
+   "tags": [
+    "editor",
+    "gotcha",
+    "tests"
+   ],
+   "date": "2026-11-01"
+  }
+ ]
+}

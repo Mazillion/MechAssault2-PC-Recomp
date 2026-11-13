@@ -1,0 +1,1 @@
+[[8,0,["#include \"pc_settings.h\"\r\n"]],[1695,0,["    /* Keep the original visibility/texture gates before this private candidate. */\r\n","    if (ma2_gui_qte_draw(ebx)) goto loc_001FE81F;\r\n"]],[5015,0,["    eax=ma2_pc_prompt_text(eax);\r\n"]],[11220,0,["    eax=ma2_pc_prompt_text(eax);\r\n"]]]

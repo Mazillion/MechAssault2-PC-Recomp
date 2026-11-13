@@ -1,0 +1,110 @@
+MechAssault 2 PC recompilation - install guide (version {{VERSION}})
+====================================================================
+
+The installer builds a PC version of MechAssault 2 from your own disc. It
+contains no game data: the game's program, art, sound and levels come from
+your disc image. It runs on your PC and takes about 15 minutes on a fast
+8-core PC, longer on 4 cores.
+
+
+WHAT YOU NEED
+-------------
+- Your own MechAssault 2 disc, US (NTSC) retail version, dumped to an .iso or
+  .xiso file, or a folder copied from the disc. Other regions are not
+  supported. The installer checks every file of the dump.
+- 64-bit Windows 10 version 1903 or later, or Windows 11.
+- A graphics card with DirectX 11 (feature level 11.0).
+- 8 GB of RAM recommended.
+- About 5 GB free on the drive you install to (about 3 GB stay used).
+- Microsoft's C++ Build Tools. If they are missing the installer can install
+  them for you: about 8 GB more on C:, 10-30 minutes, and administrator
+  approval.
+- An internet connection. The installer downloads FFmpeg, which plays the
+  cutscenes (from gyan.dev, where it is published; every file is checked
+  before use), and if needed the Build Tools and the enhanced-content AI
+  software (FFmpeg is a download of about 90 MB). Without internet on
+  this PC: on another PC, download exactly this file (a newer FFmpeg
+  version does not work):
+  https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-full_build-shared.zip
+  and put it in the install folder.
+
+Making a good dump: clean the disc first and use a dumping tool that reports
+read errors. If the installer says files from your disc are damaged, dump the
+disc again.
+
+
+WINDOWS WARNINGS
+----------------
+The installer is not code-signed, so Windows SmartScreen may say "Windows
+protected your PC". If you got the installer from where you expected (compare
+its SHA-256 with the one published beside the download), choose More info,
+then Run anyway. Smart App Control, if it is on, can block unsigned programs
+with no way around; the installer never changes it. The installer needs no
+administrator rights except for Microsoft's Build Tools (their own installer
+asks).
+
+
+THE SEVEN PAGES
+---------------
+1. Welcome - what the installer does. If it finds an existing install it
+   also offers Update, Repair, Uninstall and Collect diagnostics.
+2. Systems - Windows version, graphics card, memory, power, the C++
+   Build Tools and free space. A red row must be fixed before Next; for
+   missing Build Tools press "Install for me" (this downloads Microsoft's own
+   signed installer; by continuing you accept Microsoft's licence terms for
+   the Build Tools, linked on the page).
+3. Disc - choose your disc image (Choose disc image...) or a folder copied
+   from the disc (Choose a folder...). The installer identifies the disc.
+4. Location - the install folder, by default C:\Games\MechAssault 2. It must
+   be empty or a previous install, and not a protected or temporary folder.
+   Free space on that drive is checked here.
+5. Loadout - optional enhanced textures and videos (see below), and
+   shortcuts.
+6. Install - the steps run one after another with a progress bar: checking
+   the disc, extracting the game files, analysing and translating the game
+   program, applying the PC fixes and features, compiling the game, building
+   the PC menus, installing. Copy log copies the log for a report.
+7. Done - Play, Open install folder, Open Scenario Editor and Controls.
+
+Pause, cancel, resume: you can cancel at any time. Running the installer
+again with the same folder resumes where it stopped.
+
+
+UPDATE AND REPAIR
+-----------------
+Run a newer installer and choose your install folder: Update rebuilds the game
+without the disc and keeps your settings and saves. Repair rebuilds the same
+version.
+
+
+ENHANCED CONTENT (OPTIONAL)
+---------------------------
+2x or 4x enhanced textures and 2x enhanced cutscene videos are made on your PC
+by AI upscaling. This needs an NVIDIA graphics card with 8 GB or more, an
+internet connection (several GB of AI software are downloaded) and hours of
+processing. 2x textures add 0.6 GB, 4x add 2.2 GB, videos add 3.5 GB (25 GB
+free while they are made). You can add them later by running the installer
+again.
+
+
+UNINSTALL
+---------
+Run the installer; its first page offers Uninstall for the install it finds.
+It removes the game folder and shortcuts. Tick "Also delete my settings and
+saves" to remove %LOCALAPPDATA%\MechAssault2 too. Your scenarios in
+Documents\MechAssault 2\Scenarios are never deleted. Microsoft's Build Tools
+stay installed; remove them in Windows Settings > Apps if you like.
+
+
+COMMAND LINE
+------------
+The installer's engine can also run without the window, for example:
+  --uninstall [--yes] [--delete-user-data]
+  --diagnostics [--include-dump] [--include-botrec]
+
+
+PROBLEMS
+--------
+See Docs\Troubleshooting.txt. Installer logs are in
+%LOCALAPPDATA%\MechAssault2\Logs (install-*.log, installer-ui-*.log,
+buildtools-*.log). Report problems at {{MA2_SUPPORT_URL}}.

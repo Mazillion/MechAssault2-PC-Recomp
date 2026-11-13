@@ -1,0 +1,58 @@
+Third-party components
+======================
+
+One line per component: name and version - licence - where it is used -
+licence file in this folder - where to get it.
+
+The project's own code
+  MechAssault 2 PC recompilation - MIT - game PC layer, bots, scenarios,
+  installer, scenario editor - LICENSE.txt
+
+Compiled into the game (MechAssault 2.exe, built on your PC)
+  xboxrecomp toolkit and runtime - MIT - translation of the Xbox program and
+  the runtime - xboxrecomp-LICENSE.txt, xboxrecomp-NOTICE.txt -
+  https://github.com/sp00nznet/xboxrecomp
+  xemu-derived audio (APU) and graphics (NV2A) files - LGPL 2.1 or later
+  (espes, Jannik Vogel, Matt Borgerson) - sound and graphics emulation -
+  runtime-LGPL-LICENSE.txt - https://github.com/xemu-project/xemu
+  DSP56300 emulator - GPL - audio DSP - DSP-GPL-LICENSE.txt
+  libsamplerate - BSD 2-clause - audio resampling - libsamplerate-LICENSE.txt
+  - https://github.com/libsndfile/libsamplerate
+  xxHash - BSD 2-clause - cache hashing - xxhash-LICENSE.txt -
+  https://github.com/Cyan4973/xxHash
+  jsmn - MIT - small JSON reader - jsmn-LICENSE.txt -
+  https://github.com/zserge/jsmn
+  DirectXTex DDSTextureLoader - MIT - enhanced texture loading -
+  directxtex-LICENSE.txt - https://github.com/microsoft/DirectXTex
+  Dear ImGui 1.92.5 (with stb_truetype, stb_rect_pack, stb_textedit) - MIT -
+  game overlay and the scenario editor - ImGui-MIT-LICENSE.txt -
+  https://github.com/ocornut/imgui
+
+Beside the game
+  FFmpeg 9.0.2, full build by gyan.dev (avcodec, avformat, avutil,
+  swresample, swscale DLLs) - GPL version 3 - cutscene playback -
+  FFmpeg-GPL-LICENSE.txt, FFmpeg-README.txt - source:
+  https://github.com/FFmpeg/FFmpeg/commit/946fcce07b ; build scripts and
+  library sources: https://www.gyan.dev/ffmpeg/builds/ - downloaded from
+  gyan.dev on your PC during the install (each file checked against its
+  SHA-256); not in the installer download
+  Microsoft Visual C++ runtime DLLs - Microsoft's redistributable terms -
+  copied from the Build Tools on your PC during the install; not in the
+  installer download
+
+Inside the installer only (unpacked to a temporary folder while it runs)
+  Python 3.13 with Tcl/Tk, OpenSSL, SQLite, zlib, bzip2, xz, libffi, expat
+  and mpdecimal - PSF licence and the licences listed in it - runs the
+  installer - Python-LICENSE.txt - https://www.python.org
+  Capstone - BSD 3-clause - disassembly while translating the game program -
+  capstone-LICENSE.txt - https://www.capstone-engine.org
+  Rajdhani and Share Tech Mono fonts - SIL Open Font Licence 1.1 - installer
+  window - Rajdhani-OFL.txt, ShareTechMono-OFL.txt
+
+Enhanced content (only if you choose it; downloaded during the install)
+  Real-ESRGAN (BSD 3-clause), BasicSR (Apache 2.0), DirectXTex texconv (MIT)
+  - AI upscaling of textures - Enhancer\Real-ESRGAN.txt, Enhancer\BasicSR.txt,
+  Enhancer\DirectXTex.txt
+  Video upscaling tools (RealBasicVSR and PyTorch, their own licences) -
+  enhanced cutscene videos - Enhancer\FMV-NOTICE.txt
+  The Enhancer folder is created only when enhanced content is made.

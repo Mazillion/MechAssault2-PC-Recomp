@@ -1,0 +1,146 @@
+[
+ {
+  "path": "interface/PC/QTE/button_A_idle.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/button_A_idle.tif",
+  "source_sha256": "3d5bea658274d6bb9e59638a1d1394715273d6a78017384a3851629d4311e259",
+  "sha256": "a18448d958916c5d0472af76dfc605b32554638c252570cd0d8dae562ebabe67"
+ },
+ {
+  "path": "interface/PC/QTE/button_A_active.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/button_A_active.tif",
+  "source_sha256": "aa847e83f75c69b8d0f65c953ade543a5a8c72741648ea19ced8b45f9f7c584c",
+  "sha256": "68fb8ab9257991d29351c938df5dca17a1bcc982781a1a25cdf3a8b6cbc5c56e"
+ },
+ {
+  "path": "interface/PC/QTE/button_A_pressed.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/button_A_pressed.tif",
+  "source_sha256": "cda8097ab31b68c8ace6f57658d94119cf582b3791ecea9a677089be7b190977",
+  "sha256": "3ba613504ac8fbfdc31a9753e29f1bdf6c4bb30f437dd67caf84936860ddd713"
+ },
+ {
+  "path": "interface/PC/QTE/button_A_error.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/button_A_error.tif",
+  "source_sha256": "16ca4d5cfd3a15ead5dc1ff0fe82e91c9fafb094012f739fbeac80618b21af60",
+  "sha256": "0c4b9c795f2116a226ce18bb298de382e72241a99a134ce1374c0caa388b256f"
+ },
+ {
+  "path": "interface/PC/QTE/button_X_idle.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/button_X_idle.tif",
+  "source_sha256": "a5c2dd5bd4ad1b53fd254ca05bb14243beebb126718f6f294206e4511b577397",
+  "sha256": "f492140b35755853094f14e90395cea3b596b8397027021d30c33461285eb081"
+ },
+ {
+  "path": "interface/PC/QTE/button_X_active.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/button_X_active.tif",
+  "source_sha256": "1f9b2cd061da3f3820639c5c01c55acdf5cc779a89ed4b62d9df2ae73036a39b",
+  "sha256": "56c84f67991a387ef06faca96ff61164339cefeafb60201ad210ff672faf1917"
+ },
+ {
+  "path": "interface/PC/QTE/button_X_pressed.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/button_X_pressed.tif",
+  "source_sha256": "6d7319176d94f3caf032dd8611fdb99c20a586903f54b90127f827b35424dfad",
+  "sha256": "420123d5079f119542a53f2aac7257ecac1dfaf05d3b9b30d0e213c6d76666df"
+ },
+ {
+  "path": "interface/PC/QTE/button_X_error.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/button_X_error.tif",
+  "source_sha256": "312ea92363d49ac30062ea912c198a6b84ccfc810b162a7e28a64d6e0d6df2fe",
+  "sha256": "cf49db6f24193d76db583746daa993e6b8a78bf10cb1892aebcb23172852b063"
+ },
+ {
+  "path": "interface/PC/QTE/button_Y_idle.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/button_Y_idle.tif",
+  "source_sha256": "0ae0f818fa5cc05277006aaeeff5c94ad869b5881a85526edd151705e0f53081",
+  "sha256": "fb8d7a89bf40729c5e8bec61b780ada35f9b1e3aa9810729a863c9c95ab603f1"
+ },
+ {
+  "path": "interface/PC/QTE/button_Y_active.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/button_Y_active.tif",
+  "source_sha256": "1a5c0634423a6250ebcb596b8e757ced86a6e3fdce9ee08c1a357cf59b887a44",
+  "sha256": "daf31024edfa2d034bbb1a6a1fd13d5232ff626529810f428edbaaf97099c4be"
+ },
+ {
+  "path": "interface/PC/QTE/button_Y_pressed.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/button_Y_pressed.tif",
+  "source_sha256": "2ff31f93fdaad0e11fd042dc200ffbf8ee667401740c14eb733cae22bd0a7eea",
+  "sha256": "3c6ffed8647d6eab17c69fc8cacb99e0c5af07c5286e26220fb5bf88e7c37cbe"
+ },
+ {
+  "path": "interface/PC/QTE/button_Y_error.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/button_Y_error.tif",
+  "source_sha256": "ccda9871f5962d7562ae8471f511d5b276186c1fb93b7018810cc76c2bc83c6f",
+  "sha256": "7bd0f3d56af526530531c1bfcf29557881125fd4b5c09603d3e0160b227c6098"
+ },
+ {
+  "path": "interface/PC/QTE/button_B_idle.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/button_B_idle.tif",
+  "source_sha256": "e61cb9e4fb682d05876e516914f9e1ca8ad74ba9f040e8010e6ee49ef5d83313",
+  "sha256": "f622d2ad2f6151aabf568e912df5414cbd0cf8694d64597adbd0430019ed3c5e"
+ },
+ {
+  "path": "interface/PC/QTE/button_B_active.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/button_B_active.tif",
+  "source_sha256": "b2e0096590e6d7871fb68f9677612203e8d61a3e5456b621aebdc7766e1b4c8a",
+  "sha256": "c580d5501526bb497004109a77254f8083a1f9105ea15d640e58099825c58aa8"
+ },
+ {
+  "path": "interface/PC/QTE/button_B_pressed.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/button_B_pressed.tif",
+  "source_sha256": "7c7fc9503c99ea8b751d4c465815ef221a270e68c25fbad5c7c24dab081cdec7",
+  "sha256": "cf31cffadee9a2204befe9a0a023877a60234b8f6a7ef5846e3ccccba926c4fa"
+ },
+ {
+  "path": "interface/PC/QTE/button_B_error.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/button_B_error.tif",
+  "source_sha256": "d90c05ecf9a4e20f4262d372608503f351b8cab3137abd14763a0f6e827e8ea0",
+  "sha256": "9f98b4243ed7c5a9500c66d17738b334ca9388c11af8cac3ae04555aa544aeea"
+ },
+ {
+  "path": "interface/PC/QTE/trigger_L_idle.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/trigger_L_idle.tif",
+  "source_sha256": "64d4484c5224720cceb6b88845a31a5826edef3adaccb83cbada3bdf215413f0",
+  "sha256": "c9391cac779cec71df1f06ec18bc8c92d2e16f2085a1cbea200060a23f8a3204"
+ },
+ {
+  "path": "interface/PC/QTE/trigger_L_active.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/trigger_L_active.tif",
+  "source_sha256": "cd9de367891d2de6cc67a88b2035e35893fbd777ad7a6f0f18cf8861083cac53",
+  "sha256": "0b99e2b64fdc8c8a0282cfec023ebcf90e4ff692d2f2f2f674e539ce91d4dd73"
+ },
+ {
+  "path": "interface/PC/QTE/trigger_L_pressed.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/trigger_L_pressed.tif",
+  "source_sha256": "afec682d55144e8794f87d1ad921b61a4b3c56c5111a3cfac97b57770f968dff",
+  "sha256": "9b771bd5a9cf453ed40ce85feb8f32cb3b4749f9621f867f6f26bf7473959eee"
+ },
+ {
+  "path": "interface/PC/QTE/trigger_L_error.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/trigger_L_error.tif",
+  "source_sha256": "4628e2a908bba93a9c3ffcde2d9265835b3309cede83b81ab6e28c3f01af9c81",
+  "sha256": "02ea3f4d70a97781930b15474971f087dd0e21ec0dd61f604c33cc3753ccb4c6"
+ },
+ {
+  "path": "interface/PC/QTE/trigger_R_idle.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/trigger_R_idle.tif",
+  "source_sha256": "26fda9e7f64b6d40fe70a30d6c5fb32b4b4855d2e1209f0115f7350bbd6b32c0",
+  "sha256": "4a6f8cd189a722572dd576d4b217ef1f017b15c0aeb0d850e444358fd9150356"
+ },
+ {
+  "path": "interface/PC/QTE/trigger_R_active.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/trigger_R_active.tif",
+  "source_sha256": "49905f2f30f46690b3124128086b28e93284940f84eae6d6144997e2a2e565ef",
+  "sha256": "204c37391a8745bb9ca18f08120fdeb5cc2e296c4d84c079bfe10a0235d067b4"
+ },
+ {
+  "path": "interface/PC/QTE/trigger_R_pressed.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/trigger_R_pressed.tif",
+  "source_sha256": "6dfe9c9dbfc8fe8a864305784be1df34f146c635a0b87aea894d2b870f0cafb7",
+  "sha256": "bced076a0cbb4c72f450682dd2d340dc90c31920f0bfe38a7d1d6f68c351a8e2"
+ },
+ {
+  "path": "interface/PC/QTE/trigger_R_error.tif",
+  "source": "interface/Sprites/UI_Navigation/buttons/trigger_R_error.tif",
+  "source_sha256": "a04c7bfaa5faa5380df72389e6a239aaaf3aaf74690ec63dab692d524f9f928c",
+  "sha256": "122d6bce20afc294f1b66b0d43e2c91cb2640ed99d453f94d42a6d8dee7c1f8c"
+ }
+]

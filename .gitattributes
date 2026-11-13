@@ -1,0 +1,8 @@
+# Keep files byte-for-byte as committed: patch files and their SHA-256 values depend on exact bytes,
+# and Windows batch files need CRLF.
+* -text
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.svg -diff linguist-documentation
+docs/wiki/** linguist-documentation
+kit/patches/** -diff linguist-generated

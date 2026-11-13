@@ -1,0 +1,1 @@
+[[8,0,["void ma2_input_context(uint32_t controller);\r\n"]],[9653,0,["    { extern void ma2_bot_vtol_lift(uint32_t actor); ma2_bot_vtol_lift(esi); }   /* ModClimb: a bot pilot's climb demand, after the input pass (sub_113478) and before the flight step */\r\n"]],[28651,0,["    ma2_input_context(ebx);\r\n"]]]

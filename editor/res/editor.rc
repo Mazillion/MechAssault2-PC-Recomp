@@ -1,0 +1,33 @@
+#include <windows.h>
+// The project icon (kit/source/game/src/app.ico, original art) with a yellow "SE" badge.
+// Rebuild ma2se.ico from that icon with make_se_icon.py; it keeps the game icon's sizes and adds 256.
+101 ICON "ma2se.ico"
+// The MA2 dictionary (snapshot of dictionary/catalog.json; refresh data/catalog.json).
+201 RCDATA "..\data\catalog.json"
+// Palette audit verdicts (template uid -> kind), from dictionary/audit.json.
+202 RCDATA "..\data\palette_kinds.tsv"
+// Same number as src/app/version.h.
+1 VERSIONINFO
+ FILEVERSION 1,0,9,0
+ PRODUCTVERSION 1,0,9,0
+ FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+ FILEFLAGS 0
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+BEGIN
+ BLOCK "StringFileInfo"
+ BEGIN
+  BLOCK "040904B0"
+  BEGIN
+   VALUE "FileDescription", "MA2 Scenario Editor\0"
+   VALUE "FileVersion", "1.0.9\0"
+   VALUE "ProductName", "MechAssault 2 PC Recomp (unofficial)\0"
+   VALUE "ProductVersion", "1.0.9\0"
+   VALUE "OriginalFilename", "MA2 Scenario Editor.exe\0"
+  END
+ END
+ BLOCK "VarFileInfo"
+ BEGIN
+  VALUE "Translation", 0x409, 1200
+ END
+END

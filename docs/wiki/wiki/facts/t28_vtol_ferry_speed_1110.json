@@ -1,0 +1,134 @@
+{
+ "pack": "t28_vtol_ferry_speed_1110",
+ "title": "VTOL ferry crawl: stale AI forward speed in the body integrator (2026-11-10)",
+ "facts": [
+  {
+   "id": "vtol-ferry-stale-ai-forward-speed",
+   "title": "Bot VTOL ferry crawl/overspeed = stale AI forward-speed target comp+0x98 added to the stick flight velocity",
+   "subject": {
+    "kind": "function",
+    "id": "002AD940"
+   },
+   "addresses": [
+    "002AD940",
+    "002AD800",
+    "002ACCA0",
+    "002AD120",
+    "002AD5C0"
+   ],
+   "related": [
+    "ma2_bot_ctrl.c",
+    "vtol_stick_take",
+    "vtol_manual",
+    "body_moveto",
+    "vt_edge_recover",
+    "vtol-bot-rider-crawl-1101",
+    "open-film-items-1108"
+   ],
+   "fact": "The body integrator sub_002AD940 (reached from the comp step sub_002AEC20 when comp+0x140 == 0) stores the body velocity (state comp+0x40, SetVel 0x2B2810 at 0x2ADAB9) as slot5(dt) + the flight model velocity comp+0x10C. slot5 = comp vt+0x14 sub_192A72 -> sub_176A4E -> sub_002AD800, which (with comp+0x144 bit 8 set, as on every flying VTOL) returns heading(yaw, sub_002AD120) x a ground speed: sub_002ACCA0 ramps the current speed comp+0x5C (state +0x40 slot +0x18 = [+0x1C]) toward the target comp+0x98 (state +0x7C [+0x1C], written by SetForwardSpeed sub_002AD5C0 = pct x comp+0xBC x 0.01, clamped to +-comp+0xC0) at comp+0xC4 per second. An AI MoveTo (bot body_moveto) sets comp+0x98; the human/stick flight model never clears it. Fix (v26-vtol b91f768): vtol_stick_take zeroes the target through sub_2AD5C0 whenever the stick takes the craft.",
+   "how_to_use": "[C7] stickspeed0 zeroed; switch StickSpeed0 / RECOMP_BOT_VTOL_STICK_SPEED0 (default on, 0 = old behaviour). botrec: g('comp',0x98,'f') and g('comp',0x5C,'f') on the craft; [BOT-VTOL] stick takes . (RECOMP_BOT_DIAG).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 2822
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "ctf",
+    "physics",
+    "fix"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "vtol-ferry-stale-speed-proof",
+   "title": "Proof of the VTOL forward-speed fix: recording state and live NRC/Bogged Down CTF runs",
+   "subject": {
+    "kind": "concept",
+    "id": "VTOL ferry crawl"
+   },
+   "addresses": [
+    "002AD5C0"
+   ],
+   "related": [
+    "vtol-ferry-stale-ai-forward-speed"
+   ],
+   "fact": "Recording 2026-11-10 bot 3 (red ferry): 815 of 857 frames from 12.04 s are stick-flown (branch S, comp+0x144 bit0 clear) with comp+0x98 = -53.4, so vtol_stick_take fires from 12.04 s and the integrator term ramps to 0 within 0.8 s (70 m/s^2). Live (exe v13-v26vtol-f1/f2): NRC CTF red ferry with rider reached the enemy flag in 3 of 3 runs (vtf1 50.9 s, vtf2 58 s, vtf3 32 s then captured), flying 50-68 m/s in clear air; blue ferries 53-59 m/s instead of 90-117. Bogged Down CTF (vtbd1): no crawl_s, ferries 40-52 m/s, blue captured. A/B with StickSpeed0=0 (vtoff1): ferry frames with current ground speed <= -15 had body 36 m/s vs flight model 55; with +45 body 98 vs 39.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "proof"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "vtol-edge-stick-out",
+   "title": "EdgeStickOut: VtolEdgeAll recovery no longer MoveTo-fights a stick that already flies out of the edge band",
+   "subject": {
+    "kind": "concept",
+    "id": "vt_edge_recover"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_ctrl.c",
+    "VtolEdgeAll",
+    "vtol-ferry-stale-ai-forward-speed"
+   ],
+   "fact": "vt_edge_recover (called at the end of every VTOL control tick) ran body_moveto toward a point 32 m inside whenever the craft was within 24 m of out-of-bounds, in the same tick the stick (vtol_manual) flew it, so AI and stick frames alternated and neither kept a velocity: the red ferry hung 15-30 s at 0-2 m/s over NRC's base (it lies in the band) with the stick full forward (v26 runs vtf1 t=16-34, vtf2 t=13-43). Now it returns when this tick's forward stick (axis 4 > 0.3) points the nose inward (edge distance 24 m ahead > here + 2).",
+   "how_to_use": "[C7] edgestickout stick_out_s; EdgeStickOut / RECOMP_BOT_VTOL_EDGE_STICK_OUT (default on).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 5600
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "edge"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "xbox-watch-arm-va",
+   "title": "xbox_WatchArmVa: arm the guest write watch at run time (RECOMP_TEST_VTOL_VELWATCH)",
+   "subject": {
+    "kind": "concept",
+    "id": "xbox_WatchArmVa"
+   },
+   "addresses": [],
+   "related": [
+    "xbox_memory_layout.c",
+    "RECOMP_TEST_VTOL_VELWATCH"
+   ],
+   "fact": "xbox_WatchArmVa(va, n) (kit/source/game/src/kernel/xbox_memory_layout.c) moves the page-protect write watch to a guest address at run time and reports every write covering that dword (value, esp, host RIP offset) up to n times, then disarms and leaves the page writable. RECOMP_TEST_VTOL_VELWATCH=<n> arms it on comp+0x50 (body velocity x) of the first VTOL that carries a rider 10 m up; that is how the integrator sub_002AD940 was found as the writer.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "tool",
+    "debug"
+   ],
+   "date": "2026-11-10"
+  }
+ ]
+}

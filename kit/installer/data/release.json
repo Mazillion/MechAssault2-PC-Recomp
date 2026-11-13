@@ -1,0 +1,9 @@
+{
+ "game": "MechAssault 2",
+ "version": "1.0.9",
+ "date": "2026.11.13",
+ "xbe": "ma2.xbe",
+ "xbe_sha256": "e508d1e932ddbf786d0b1c4556c71cdf692382cc7ba9c06be5aef4eb6bd9be6a",
+ "xbe_bytes": 5201920,
+ "release_executable_sha256": "2ecf405092194ee6b12606f5e6ae17e1282afe68d056e378f82689a90f5bdbc6"
+}

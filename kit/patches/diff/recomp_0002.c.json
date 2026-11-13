@@ -1,0 +1,1 @@
+[[8,0,["void ma2_asset_error(uint32_t record,uint32_t file,uint32_t error);\r\n","void ma2_asset_status(uint32_t manager,uint32_t record);\r\n"]],[17182,0,["    ma2_asset_status(esi,eax);\r\n"]],[19586,0,["    ma2_asset_error(eax,ebx,edi);\r\n"]]]

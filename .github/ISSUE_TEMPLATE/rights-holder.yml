@@ -1,0 +1,16 @@
+name: Rights holder contact
+description: For Microsoft or other rights holders. Open this with no details; we will reply and arrange a private channel.
+title: "Rights holder contact"
+labels: ["rights-holder"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for getting in touch. You do not need to put anything confidential here: submit this
+        form and a maintainer will reply in this issue within a few days to set up private contact. We will
+        comply with any reasonable request, including taking the project down, without a formal notice.
+        You can also use GitHub's DMCA process: https://docs.github.com/en/site-policy/content-removal-policies/dmca-takedown-policy
+  - type: input
+    id: org
+    attributes:
+      label: Organisation (optional)

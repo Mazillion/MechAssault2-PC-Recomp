@@ -1,0 +1,1 @@
+[[8,0,["void ma2_cpuid_pin_note(uint32_t site, uint32_t stale_edx); /* B11 E4, recomp_manual.c */\r\n"]],[20344,0,["    ma2_cpuid_pin_note(0x0026D68Bu, edx); edx = 0; ebx = 0; ecx = 0; /* B11 E4: cpuid is a no-op, so pin the outputs instead of reading the caller's stale edx */\r\n"]]]

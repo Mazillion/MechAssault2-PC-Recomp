@@ -1,0 +1,543 @@
+{
+ "pack": "t18_ctf_vtol_1104",
+ "title": "Bot CTF VTOL flag runs: route, boarding, opening pair (2026-11-04)",
+ "facts": [
+  {
+   "id": "ctfvtol-clampf2-implicit-bow",
+   "title": "BeelineVary bow point ~35 km off the map: clampf2 used before its definition (implicit int)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "In ma2_bot_ctrl.c, ctrl_plan's FlagBeeline bow (BeelineVary) called clampf2 about 600 lines before its static float definition. MSVC C compiled it as an implicit int clampf2, so the bow offset was garbage and every flag-run bow point landed ~35 km off the map (vl2 bot 5 at t=12.6: path pt[13] = -27174,-21748). The only build hint was warning C4142 'clampf2: benign redefinition of type'. VtolEdgeAll then inserted its 12-bend cap on that leg at every 0.5 s replan (path n=15: the 'beeline rejected, n=15' symptom), and the VTOL with its rider shuttled ~50 m by its base for 25 s. Fixed by defining clampf2 above vtol_direct_path.",
+   "how_to_use": "Treat C4142 / C4013 in the bot sources as errors: an implicitly declared float helper returns garbage. Check a VTOL route's points (botrec at T --full: bot.ctrl.path.pt) before tuning climb logic.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "vtol",
+    "ctf",
+    "flag-run",
+    "bug"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-climb-not-the-cause",
+   "title": "VTOL+rider 'cannot climb' on NRC CTF was the broken route, not the flight model",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The 11-04 report 'a VTOL with a rider holds 39-56 m while vt_alt / vt_need want 88-110 m' (vl2 bot 5, t=16-57): ModClimb's demand (vt_lift_demand 30) came and went in 0.1-1.5 s bursts because vt_manual_need samples the route ahead, and the route was 13 ping-ponging bend points plus an off-map point. At t=29 the same craft climbed at +13 m/s with the demand held. The recorded comp+0x90 reads 0 almost always, even while climbing: the recorder samples it after the flyer tick's input pass has rewritten it, so it is not evidence that the hook failed.",
+   "how_to_use": "Before suspecting the climb hook, check the path (n, pt[]) and whether vt_lift_demand is steady; comp+0x90 in a .botrec is not a view of the hook's write.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "vtol",
+    "climb",
+    "botrec"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-nrc-vtol-offer-spots",
+   "title": "Where the game offers the NRC CTF VTOL to a pilot (player+0x428)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Both New River City CTF VTOLs (A at 1325.3,729.2 yaw 0.436; B at 332.2,1209.2 yaw 0.89) have their entry zone (r 4.1) centred 2.95-3.0 m straight ahead of the hull centre along the yaw (bearing atan2(dx,dz) = yaw) and 1.9 m above the ground, so the reach at a pilot's feet is ~3.63 m. Observed offers (player+0x428 = the VTOL's UID): 5.81 m out at +27 deg off the nose (vl2 bot 5 at 1329.9,732.8), 5.10 m at -39/-40 deg (vi2, vl1 bot 0), 5.07 m at +45 deg (vh2). The zone centre itself is under the hull. A pilot at +15 deg, 6.98 m out (1329.8,734.6) is pinned by the wing and never offered (vl1 bot 5, 7 s).",
+   "how_to_use": "Aim boarding pilots 5-6 m out, 27-45 deg either side of the nose; RimSlide learns these spots per model at run time.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "boarding",
+    "vtol",
+    "entry-zone"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-hull-sector-max-overstates",
+   "title": "The measured hull (sector max) puts a VTOL's whole entry zone inside the hull",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Ma2VehicleView.ext is the furthest collision hit per 22.5 deg sector at pilot head height. For the NRC VTOL the sectors toward its entry zone read 6.6 m (the wing), so hull_at rejected all 25 candidate spots of ctrl_board (the centre, 8 at 0.55 r, 16 at 0.85 r) and the aim fell back to the fixed far-side point ep + u*(zr-0.4) = 1327.9,734.9. Every WedgeRetry try reused that aim (its skip list filters candidates, not the fallback).",
+   "how_to_use": "Do not trust hull_at near a VTOL's wing for standing room; use the game's offers (learned spots) or a slide round the zone.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "boarding",
+    "hull"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-wedgeretry-no-stepback",
+   "title": "WedgeRetry retries never stepped back from a VTOL (pilot_escape reach 5 m)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "ctrl_board's WedgeRetry called pilot_escape(c, w, me, retry ? 5: 12). pilot_escape only backs off from the nearest unoccupied hull whose centre is within `reach`; a pilot pinned by a VTOL's wing stands ~7 m from the hull centre, so retries 1-2 did nothing (vl1 bot 5: esc_until 0 from t=10.7 to 17.5 on the same spot) and only the give-up (12 m) moved it. The retry reach is now max(5, hull_r + 3) (RimSlide switch).",
+   "how_to_use": "pilot_escape's reach is a centre distance, not a gap: size it from hull_r for long hulls.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "boarding",
+    "bug"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-rimslide",
+   "title": "RimSlide: boarding pilots slide round the entry zone and go to learned offer spots",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RECOMP_BOT_RIM_SLIDE / [Bots] RimSlide (default on), ma2_bot_ctrl.c ctrl_board. Pressed at the zone rim (no 0.4 m headway in 1.2 s), the pilot walks 34 deg round the zone centre and in to 1.2 m inside the reach (1.8 s a step, up to 6 steps, flips direction once if a step gets nowhere): first toward the side nearer a learned offer spot (else the side with more measured hull room), and straight to a learned spot within 3.5 m. offer_learn records every offer a bot pilot gets on a non-BattleArmor vehicle as (zone r, zone distance ahead, bearing off the heading, distance), per match, mirrored for the other side. Logs [BOT-RIMSLIDE]; [C7] rimslide: steps, flips, learned, side_learned, to_learned.",
+   "how_to_use": "If a bot pilot stands outside a VTOL zone for seconds, check [BOT-RIMSLIDE] lines and whether a spot was learned that match.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "boarding",
+    "switch"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-ctfpair",
+   "title": "CtfPair: the opening CTF push pairs one VTOL pilot and one BattleArmor pilot per team",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RECOMP_BOT_CTF_PAIR / [Bots] CtfPair (default on), ma2_bot_brain.c pair_update / pair_veh_value / pair_eval (playtest 11-04). In the first 20 s of a team CTF match each team picks the free VTOL nearest a teammate on foot (120 m), the free BattleArmor nearest it (150 m), and the two bots on foot that reach them soonest together (cost 2 x the later arrival + the sum). The paired pilots get +6 for their vehicle, everyone else -6 for both (CtfVtolPick, CtfBaPick and the partner-ask bonus are off meanwhile), so the rest take the strong 'Mechs. frun_consider starts the run as soon as the paired BattleArmor is in its suit (no p_try roll, no lone cover, no ask); the BattleArmor holds where it stands (OP_HOLD 2.2) until the VTOL's pickup or muster ride outbids it. The player counts: or heading for (human_claim), the VTOL -> the bot pilot is freed and the bot BattleArmor waits for the player's VTOL and latches on by BaBoardPlayer; it gives up at 250 m, 80 m beyond the nearest approach, or 30 s ('the player flew off'). In the BattleArmor -> the bot VTOL's muster holds 25 s for him. The pair ends when the run is on, the player is aboard, a role is lost, or after 60 s; the emergent picking runs for the rest of the match. Logs [BOT-PAIR]; [C7] ctfpair: assigned, human_vtol, human_ba, vtol_waits_n, ba_hold_n, run_started, player_flew_off, ended.",
+   "how_to_use": "RECOMP_BOT_CTF_PAIR=0 gives the old emergent opening for comparison.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "ctf",
+    "flag-run",
+    "switch"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-edge-bend-repeat",
+   "title": "VtolEdgeAll piled one bend 12 times and put it behind the craft at every replan (EdgeBendAhead)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "vt_route_keep (VtolEdgeAll) inserts a bend wherever a leg dips into the 25 m edge band, pushed out by vt_keep_in along the edge field's slope, and re-checks the new leg a -> bend. Near New River City's blue base the push always landed on the same spot (349.99,1169.79): the leg up to it still dipped, so that point went in 12 times (the cap; path n=15), and once the craft had passed it each 0.5 s replan put the bend back behind it. The flag-run VTOL with its rider shuttled round its base for 70 s (vm1 11-04, bot 0, t=22-91), even with the bow fixed. EdgeBendAhead (RECOMP_BOT_EDGE_BEND_AHEAD / [Bots] EdgeBendAhead, default on) refuses a bend more than 60 deg off the leg's heading, past 95 % of the leg, or within 10 m of either end; the leg is then left as it is ([C7] vtedgeall: bend_off_leg).",
+   "how_to_use": "A VTOL circling near its start with path n = 3 + 12 is this; check bends= in [C7] vtedgeall.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "vtol",
+    "edge",
+    "bug"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-inside-zone-no-offer",
+   "title": "Standing 'inside' a VTOL's entry sphere in front of its nose gets no offer",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "vn1 11-04: bot 9 stood 3.46 m from the NRC VTOL's zone centre (within the 3.63 m reach at the feet), -19 deg off the nose and 6.1 m from the hull centre, for 3 s; player+0x428 never named the VTOL, ctrl_board marked it enter_failed and the bot took a tank, so its team made no opening run. Offers seen were all from the sides (+-27-45 deg, 4.7-5.8 m from the hull centre), so the offer is not just the sphere distance (something in front of the nose, the gun or the hull's own shape, is in the way: inferred). RimSlide now also steps inside the zone after 1 s without an offer (to a learned spot within 3.5 m, else 34 deg round); [C7] rimslide: inside_steps.",
+   "how_to_use": "Being inside entry_r is necessary, not sufficient: check player+0x428, and move to the sides of a VTOL's nose.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "boarding",
+    "vtol",
+    "entry-zone"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-world-empty-at-t0",
+   "title": "At match time 0.0 the bots' world view has no vehicles yet",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "On New River City CTF the first brain tick (t=0.0) can see no vehicles (vm2 11-04: CtfPair found 'no free VTOL by the spawn' for both teams at t=0.0, while vm1 paired both at t=1.8). Start-of-match logic that looks at vehicles must keep looking for the first seconds (CtfPair retries until 8 s).",
+   "how_to_use": "Do not make a once-per-match decision from the first tick's vehicle list.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "world-view"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-hold-outbids-ride",
+   "title": "A held BattleArmor goal outbids the VtolMuster ride (ride_margin is 0.05)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The muster ride is scored max(1.6, objective + ride_margin + 0.3), and ride_margin is 0.05 except for a flag carrier. A BattleArmor whose running goal is an objective (with the goal hysteresis) therefore stays on it: with CtfPair's OP_HOLD 2.2 the paired BattleArmor stood 9 s beside its VTOL hovering 7.6 m over it (vm1 11-04, t=12.6-21.7). The hold is now dropped once its VTOL is up within 90 m (the player's within 30 m).",
+   "how_to_use": "Any new objective-level goal for a BattleArmor must stand down near a waiting VTOL, or the ride never wins.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "ride",
+    "scoring"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-ab-1104",
+   "title": "NRC CTF Elite A/B: v13l vs the route + boarding + pair fixes",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "New River City CTF, Elite (RECOMP_BOTS_SKILL=3, 5 v 6), no test hooks, 240 s, sweep_cell.py NAME 6 4 240. Baseline v13l 9b9e4818 (vl1, vl2): opening runs started 9.4-13.1 s but no run reached the enemy flag (0 of 5; inbound flights of 47-70 s ended 'too badly damaged' or 'someone else has their flag'), 0 captures, 8 boarding wedges (enemy VTOL pilot gave up in vl1), VtolEdgeAll 710-3986 bends a match. 2cff8b2 builds v13n a125c86e / v13o 3d951abd / v13p c518e914 (vn1-2, vo1-2, vp1-2): 9 runs reached the flag (inbound 9, 18, 19, 19, 21, 33, 36, 57, 57 s), 3 captures, 0 wedges; with v13o+ both teams' opening runs started at 7.5-13.4 s in 6 of 8 team-matches; the 2 misses were NRC's red BattleArmor pilot whose route circled the suit 5 m away and took a 'Mech (separate follow-up; CtfPair now hands off at once). Slow inbounds left: a 5-8 s VtolTwoRiders hold at pickup and 15-30 m/s cruise under fire (vp2 bot 8).",
+   "how_to_use": "Repeat with the same recipe to compare; frun / ctfpair / rimslide / vtedgeall [C7] lines and [BOT-FLAGRUN] / [BOT-PAIR] / [BOT-RIMSLIDE] in stderr.txt.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "ctf",
+    "flag-run",
+    "test"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-carrot-keepin-corner",
+   "title": "VtolEdgeAll's carrot keep-in parked the blue VTOL in its base corner",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The VtolEdgeAll keep-off widens with height (vt_keep_m: 25 m + (height over ground - 20), up to 55 m; 53 m at 48 m up). By NRC's blue base, a map corner, vt_keep_in pulled every carrot ahead back to 1-4 m from the craft ([BOT-VCRAWL] dest=1-4 m, vtedgeall.dest_in_s every frame), so the flag-run VTOL hovered with its rider for 90 s and the run timed out (r1 11-04 bot 4, t=18-102). EdgeBendAhead now refuses a kept-in carrot within 10 m of the craft or over 60 deg off the original ([C7] vtedgeall: dest_in_refused_s). With v13s blue's inbound was 27-29 s.",
+   "how_to_use": "A VTOL hovering by the map edge with a carrot a few metres off is this; check dest_in_s / dest_in_refused_s.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "vtol",
+    "edge",
+    "bug"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-maxvtolheight",
+   "title": "MaxVTOLHeight (MAFlyer actor+0x4E0) caps stick-flown VTOLs at the terrain height + (cap - ~6.6 m): 48 m on NRC, 28 m over Bogged Down's bog; MoveTo can exceed it and is pulled back down",
+   "subject": {
+    "kind": "topic",
+    "id": "MAFlyer"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "MAFlyer actor+0x4E0 = MaxVTOLHeight (property loaded/saved by sub_111D6C and sub_10F59C; default 55; actor+0x4B4 also reads 55 and is copied to the FlyerAI at ai+0x18C by sub_110EE9). No runtime code was found that compares against +0x4E0 directly, so the cap rule is measured: with the stick climb (ModClimb comp+0x90 = +30) held, bot VTOLs level off at the terrain height-map height under them + ~48.4 m (55 - 6.6): 48.0-48.7 m over NRC's flat terrain (~0) round the blue base (r1, 306 samples), 28.2-28.4 m over Bogged Down's bog (terrain -19/-20; vv2 t=66-69 at 600-720,1340-1430, vu2 at 916,1326), ~46 m over its plateau. The surface_height (walk grid / buildings) does not matter; terrain_height does. Crossing from the plateau to the bog the ceiling falls ~20 m at once and the game pulls the craft down at 21-27 m/s (with the stick climb held or not): a rider ~9 m under it hits the plateau rim -- the Bogged Down knock-offs at 916-933,~1240, at first taken for collisions with buildings. MoveTo (the FlyerAI) climbs past it (95 m, r1 t=42-48) but once the stick demand is on again the craft is pulled back down at about -30 m/s (95 -> 43 m). StickCeil (RECOMP_BOT_VTOL_STICK_CEIL / [Bots] StickCeil, 6f1d1cf) keeps vt_ceil_agl = +0x4E0 - 6.6 (lowered only by a learnt plateau, measured over the terrain and within 5 m of that), vt_ceil_at(x,z) = terrain_height + agl: the lane A* (ag_shut) shuts a cell whose own ceiling is below the tallest surface of it and its 8 neighbours + clearance (13 m with a rider), the straight leg is refused where any 25 m+ sample's ceiling is under its surface + 20 (ground_ceiling, [C7] stickceil leg_refused), the cruise and MoveTo altitude are capped at the ceiling under the craft.",
+   "how_to_use": "Plan stick-flown VTOL legs under cap - 6.5 m; with a rider, the rider hangs ~8-9 m under the craft.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "vtol",
+    "ceiling",
+    "MAFlyer",
+    "bots"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-tall-areas",
+   "title": "Per map: what stands above a ridered VTOL's reach (ceiling minus the rider's hang), so its flag run must go round",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "With a BattleArmor on the claw the lowest point is ~9 m under the craft, so anything above (terrain + 48 - 9) blocks the run: ~39 m on NRC, ~19 m over Bogged Down's bog. New River City: the towers beside the blue base (from ~322-340,1198-1211 toward the red flag 1077,797 the surface ahead reads 75-76 m, need 95 m; [VTCLIMB] vs1/vs2) -- blue's straight leg is refused (ground_ceiling) and the lane route goes round; on the red side the way toward 805,1423 reads 51 m from 1323,727. Bogged Down: the middle -- the plateau (rim 20-25 m) falls to the bog (terrain -20) where the ceiling is ~28 m, so a ridered VTOL may not cross from the plateau out over the bog near the rim (916-933,~1240; RiderRay hits at 19 m: 851,1334 and 689,1364, vw1); its middle buildings are destructible (dynamic colliders: a static-only ray misses them). NRC RiderRay hits at 39 m: 1141,1104; 852,1370; 969,868; 1090,866; 810,1337 (vw2). Walk-grid surface heights (surface_height, g_ag.hg) do not see every roof; RiderRay casts collision rays (static + dynamic) at the lowest ceiling along the leg - 9 m and learns hits as shut airspace.",
+   "how_to_use": "If a ridered VTOL loses its rider over a town, look for [BOT-RIDERRAY] lines and compare surface_height with the real roofs.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "vtol",
+    "maps",
+    "new-river-city",
+    "bogged-down",
+    "bots"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-rider-ray",
+   "title": "RiderRay: ridered VTOL legs are checked with real collision rays at the rider's lowest reachable height",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RECOMP_BOT_VTOL_RIDER_RAY / [Bots] RiderRay (on), ma2_bot_ctrl.c vt_rider_ray_shut. With a rider and a known ceiling, a collision ray (ray_cast_as, self = the craft, static and dynamic layers) runs from 12 m ahead along the leg at the lowest vt_ceil_at along it - 9 m: in vtol_direct_path over 400 m (a hit refuses the straight leg, why ground_riderray) and in flight twice a second along the next leg (speed x 4 + 40 m, at least 80; a hit forces a replan). A hit is added as learnt shut airspace (airblk_add, 25 m), which the lane A* (ag_shut) and the straight-leg check already avoid. [C7] riderray: casts / shut / replans; [BOT-RIDERRAY].",
+   "how_to_use": "RECOMP_BOT_VTOL_RIDER_RAY=0 to compare.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "vtol",
+    "bots",
+    "switch"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-run-repick-commit",
+   "title": "RunRepick and RunCommit: a flag run is not dropped for a knocked-off rider, and takes no side trips",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "In a playtest (11-04) a VTOL and its BattleArmor on a flag run broke off to fight. In rec 2026-11-04 the run itself flew straight; the detour came after the rider was knocked off over Bogged Down's middle buildings: the run ended ('let go short'), the lift then ferried the BattleArmor to its own guard point and a support goal turned the VTOL on the player. RunRepick (RECOMP_BOT_RUN_REPICK, on): a rider that comes off on the way more than 150 m short is fetched again and the run goes on (twice a run; then it ends as before). RunCommit (RECOMP_BOT_RUN_COMMIT, on): while a run is at pickup or inbound, its VTOL and BattleArmor score no support / attack / cover / power-up goals (they still fire on the way; damage still ends the run). [C7] runrepick: repicks; runcommit: side_goals_dropped.",
+   "how_to_use": "A run member wandering off mid-run: check [C7] runcommit and frun phases.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "ctf",
+    "flag-run",
+    "switch"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-drop-latch",
+   "title": "DropLatch: a rider's decided drop is carried out even after its order changes",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A riding BattleArmor lets go only in the ride order (MA2_ORD_IDLE, ma2_bot_ctrl.c, o->detach -> ba_release, retried each 1 s). At a flag run's FR_GRAB the BattleArmor's goal turns to the grab objective (a TRAVEL to the flag) within ~0.4 s of order_ride deciding 'flagrun-drop', so the release never ran: it hung on 7 s while its VTOL went to 94 m/s and fell 85 m past the flag (au3_64 bots 0/4, t=35.7-42.9). DropLatch (RECOMP_BOT_DROP_LATCH / [Bots] DropLatch, on): a per-bot latch keeps releasing for 3 s after a detach was ordered, whatever the order now is ([C7] droplatch: releases; [BOT-LIFT] '. (the drop it decided, order now N)'). Proven vx1 t=31.8, vx2 t=32.3 / 156.1.",
+   "how_to_use": "A rider dropped late / past its target: check droplatch releases.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "ride",
+    "flag-run",
+    "switch"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-eject-sink",
+   "title": "EjectSink: an ejecting bot VTOL sinks with the -30 demand (the stick's vertical does nothing under ModClimb)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The VTOL exit (MA2_ORD_EJECT) pushed the stick full down and held Y, but under ModClimb the stick's vertical axis does not move the craft (a player sinks with Ctrl = comp+0x90 -30) and holding exit does not set it down from high up: a swap-eject VTOL hung 48 m over the Bogged Down base for 6 s, y flat, then the 'stuck high' lift-off retry climbed it to 71 m (au3_60 bot 10, t=100.1-106.4). EjectSink (RECOMP_BOT_EJECT_SINK / [Bots] EjectSink, on) sets vt_lift_demand -30 down to 3 m over what is under it (+30 during the retry lift), counts sinking as headway for the stuck test, and clears the demand when the order stops being an eject. [C7] ejectsink: sink_s. Proven vx2 (from 28.5 m).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "vtol",
+    "eject",
+    "switch"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-bd-crossing-open",
+   "title": "Fixed: on Bogged Down a ridered VTOL crossing from the plateau to the bog met obstructions above the rider (route ray-checked before flying)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "With the terrain-relative ceiling the plateau (terrain ~20) allows ~68 m and the bog (terrain -20) ~28 m, so a rider ~9 m under the craft is at ~19 m over the bog -- below the plateau rim (20-25 m) and whatever stands at ~19 m near 854,1332 / 886,1325 (RiderRay hits, vx2). In vx2 red's lane route (via 830,1290) crossed there, RiderRay learnt the hit (25 m circle) at t=19.6, but the replanned lane route (20 m cells, pulled tight) still passed it; the craft was dragged from 47 to 25 m as the terrain fell, stalled at 877,1317 and lost the rider; RunRepick fetched it twice, then the run ended. Next: give learnt shut air a cell-sized margin in ag_shut / the tightening, or route the crossing where the terrain slopes down gradually. FIXED 2e1bed5: every leg of a ridered lane route is now ray-checked at the rider's lowest reachable height before it is flown (hits -> shut air, replan, 4 tries; [C7] riderray route_replans), and shut air reaches 0.75 cell further for ridered routes. Bogged Down CTF Elite v13z 49a5df94: red's opening run reached the flag in both matches (20 / 22 s), no rider knocked off (route_replans 1 / 8).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "vtol",
+    "bogged-down",
+    "open"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-ceiling-seed-order",
+   "title": "A VTOL's first route could be planned before StickCeil knew the ceiling (NRC blue base stall)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "StickCeil set vt_ceiling only in vtol_prepare's twice-a-second refresh; ctrl_plan could plan a flight's first route before it, with no ceiling, so New River City's blue flag run took the lane over the towers beside its base (a 92 m need) and pressed at its 48 m stick ceiling for up to 90 s (ze2 / zc2 / zd1 / zb2 11-04; whether it happened depended on call order, which is why v13w crossed once). Fixed in 31ecd56: the ceiling is seeded in ctrl_plan before any VTOL plan ([C7] stickceil seeded_at_plan). Also: the straight-leg ceiling check now samples every 6 m from 8 m out (12 m from 25 m let a 74 m tower beside the pad through), RiderRay casts in 60 m pieces at each piece's own ceiling (one ray at a long leg's lowest ceiling shut every exit), from 4 m out (from 12 m it began past the wall it was pressed against), and learns 18 m circles (25 m + a cell closed NRC's 30-40 m streets). Diag [BOT-VDIRECT] (RECOMP_BOT_DIAG) prints what a ridered straight leg was taken on.",
+   "how_to_use": "A VTOL stuck at its start pressing at ~48 m: check stickceil seeded_at_plan and [BOT-VDIRECT].",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "vtol",
+    "ceiling",
+    "bug"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-extract-hp-sync",
+   "title": "ExtractHpSync and DropSooner: flag-run extract and drop timing",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The carrier lets go of a VTOL under 30 % hp (order_ride) but the run's extract held on to half the give-up hp (Elite 14 %) and kept sending it back to ride: it re-boarded and dropped for 25 s, 64 m from its own stand with the flag, while the VTOL hovered 8.5 m over it 'air shut' every way (au5_60 b1/b2, t=50.3-75.7). ExtractHpSync (RECOMP_BOT_EXTRACT_HP_SYNC, on): off the claw with the VTOL under 30 % the run ends and the carrier walks the flag home ([C7] frun ends_carry_hp); a carrier does not board a VTOL that weak. DropSooner (RECOMP_BOT_DROP_SOONER, on): held within 30 m of their flag 4 s (was 10) without getting low, the rider lets go (b2 hovered 11 s over the stand, 1000 -> 400 hp). The au5_60 5 s release delay was a build without DropLatch (v13au2 predates it).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "flag-run",
+    "switch"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-run-needs-home",
+   "title": "RunNeedsHome and GrabNoRide",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RunNeedsHome (RECOMP_BOT_RUN_NEEDS_HOME, on): frun_consider starts no run (no partner ask, no lone cover) while our own flag is carried -- a capture needs it on its stand (au16_61 runs 4/5 could not score; run 5's VTOL died re-picking). [C7] frun no_run_flag_away (3 / 7 in zi1 / zi2). GrabNoRide (RECOMP_BOT_GRAB_NO_RIDE, on): in FR_GRAB a dropped BattleArmor is not offered the VTOL hovering low over it as a ride (drop/ride flapped 3 times, 8.5 s, au16_61 run 3); [C7] grabnoride rides_dropped.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "flag-run",
+    "switch"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-slow-cruise-open",
+   "title": "Open: some ridered stick flights hold ~20 m/s at full thrust",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "NRC zi2 11-04 (v13zh): both opening flag runs flew the stick branch with forward thrust 1.00 sent (cmds 4:1.00) yet held ~20 m/s at 26-31 m up for 20 s (closing ~14 m/s), against 40-90 m/s in other runs the same day; no bot code scales thrust (vtol_stick's thrust_max is not on this path). They cruised low (vt_mneed 13.7 below the craft: no climb asked) while fast runs cruised near the 46-48 m ceiling -- whether the flight model's top speed depends on height (or something else) is not known.",
+   "how_to_use": "Compare the craft's comp speed fields between a slow and a fast stick flight at full thrust.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "vtol",
+    "speed",
+    "open"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "ctfvtol-carry-hold-on",
+   "title": "CarryHoldOn: a flag carrier holds on to a damaged VTOL down to 15 %",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "order_ride's carry branch let go of a VTOL under 30 % hp (the plain-lift rule) even when riding home with their flag: the carrier fell mid-map, 420 m from home, and died on foot with the flag (ad1_64 b9 t=46.8, b7 t=221). CarryHoldOn (RECOMP_BOT_CARRY_HOLD_ON / [Bots] CarryHoldOn, on; 0189785): carrying, the rider holds on to 15 % (the run's extract give-up, half of Elite's 28 %); carry_let_go_hp is shared with ExtractHpSync and the carry boarding gate so they cannot disagree. [C7] carryhold: held_s.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "flag-run",
+    "switch"
+   ],
+   "date": "2026-11-04"
+  }
+ ]
+}

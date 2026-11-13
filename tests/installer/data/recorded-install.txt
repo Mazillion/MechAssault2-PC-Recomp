@@ -1,0 +1,769 @@
+MechAssault 2 Recomp 1.0.7 (build 260a3489) installer, release 2026.11.12, kit 260a3489146cceee, 2026-11-12 12:00
+  log file: C:\Users\Player\AppData\Local\MechAssault2\Logs\install-20261112-120000.log
+[1/11] Checking requirements
+  C++ compiler: C:\Program Files\Microsoft Visual Studio\18\BuildTools
+  CMake: C:\Program Files\Microsoft Visual Studio\18\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe
+  Ninja: C:\Program Files\Microsoft Visual Studio\18\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe
+  Free space on the install drive: 250.0 GB (needs about 4.5 GB)
+    done in 0s
+[2/11] Checking the disc image
+  MechAssault 2 extracted.xiso: Disc image OK: 2.2 GB, ma2.xbe matches the supported version.
+  ma2.xbe matches the supported MechAssault 2 release.
+    done in 0s
+[3/11] Extracting game files
+> unpack the disc image
+  extracted 883 files to D:\Games\MechAssault 2\game_files
+  checking 883 disc files (2.2 GB)
+  checked 0.2 of 2.2 GB
+  checked 0.4 of 2.2 GB
+  checked 0.6 of 2.2 GB
+  checked 0.8 of 2.2 GB
+  checked 1.0 of 2.2 GB
+  checked 1.2 of 2.2 GB
+  checked 1.4 of 2.2 GB
+  checked 1.6 of 2.2 GB
+  checked 1.8 of 2.2 GB
+  checked 2.0 of 2.2 GB
+  checked 2.1 of 2.2 GB
+  all 883 disc files match the supported disc.
+    done in 11s
+[4/11] Analysing the game program
+> xbe_parser
+  ======================================================================
+    XBE Analysis Report
+  ======================================================================
+  
+    File: MechAssault2
+    Title ID: 0x4D53006B
+    Type: Retail
+    Build Date: 2004-11-21 03:53:52 UTC
+    Certificate Date: 2004-11-24 19:38:11 UTC
+    Region: North America, Japan, Rest of World
+    Media: DVD_X2
+    Disc: 0, Version: 6
+  
+  --- Memory Layout ---
+    Base Address: 0x00010000
+    Image Size: 0x005595C0 (5.35 MB)
+    Entry Point: 0x002B94F2 (raw: 0xA8D7C359)
+    Kernel Thunks: 0x004258A0 (raw: 0x5B2F1816)
+    Stack Commit: 0x20000
+    Heap: reserve=0x100000 commit=0x1000
+  
+  --- TLS ---
+    Data: 0x00000000 - 0x00000000
+    Index Addr: 0x004BB680
+    Zero Fill: 144 bytes
+  
+  --- Sections (45) ---
+     #  Name           VirtAddr   VirtSize    RawAddr    RawSize  Flags
+    --  ------------ ---------- ---------- ---------- ----------  --------------------
+     0  .text        0x00012000 0x003159C8 0x00002000 0x003159C8  PRE, X, HRO
+     1  D3DX         0x003279E0 0x0001A240 0x00318000 0x0001A238  W, PRE, X
+     2       NAL     0x00341C20 0x00011D44 0x00333000 0x00011D44  PRE, X, TRO
+     3  XNET         0x00353980 0x000133C8 0x00345000 0x000133C8  PRE, X, HRO, TRO
+     4  XONLINE      0x00366D60 0x00028A68 0x00359000 0x00028A68  PRE, X, HRO, TRO
+     5    mgCore     0x0038F7E0 0x000010D8 0x00382000 0x000010D8  PRE, X, HRO, TRO
+     6  BINK         0x003908C0 0x0000DA7C 0x00384000 0x0000DA7C  PRE, X, HRO, TRO
+     7  BINK32       0x0039E340 0x00001175 0x00392000 0x00001174  PRE, X, HRO, TRO
+     8  BINK32A      0x0039F4C0 0x00001489 0x00394000 0x00001488  PRE, X, HRO, TRO
+     9  BINK16       0x003A0960 0x0000123C 0x00396000 0x0000123C  PRE, X, HRO, TRO
+    10  BINK4444     0x003A1BA0 0x000014C0 0x00398000 0x000014C0  PRE, X, HRO, TRO
+    11  BINK5551     0x003A3060 0x00001514 0x0039A000 0x00001514  PRE, X, HRO, TRO
+    12  BINKYUY2     0x003A4580 0x00000CAC 0x0039C000 0x00000CAC  PRE, X, HRO, TRO
+    13  BINKYUY2     0x003A5240 0x0000009C 0x0039D000 0x0000009C  PRE, X, HRO, TRO
+    14  BINKYUY2     0x003A52E0 0x000000B8 0x0039E000 0x000000B8  PRE, X, HRO, TRO
+    15  BINKYUY2     0x003A53A0 0x00000088 0x0039F000 0x00000088  PRE, X, HRO, TRO
+    16  BINK16MX     0x003A5440 0x00000130 0x003A0000 0x00000130  PRE, X, HRO, TRO
+    17  BINK16X2     0x003A5580 0x00000558 0x003A1000 0x00000558  PRE, X, HRO, TRO
+    18  BINK16M      0x003A5AE0 0x000001F8 0x003A2000 0x000001F8  PRE, X, HRO, TRO
+    19  BINK32MX     0x003A5CE0 0x000001BC 0x003A3000 0x000001BC  PRE, X, HRO, TRO
+    20  BINK32X2     0x003A5EA0 0x0000058C 0x003A4000 0x0000058C  PRE, X, HRO
+    21  BINK32M      0x003A6440 0x0000014C 0x003A5000 0x0000014C  PRE, X
+    22  DSOUND       0x003A65A0 0x0001E85C 0x003A6000 0x0001E5EC  W, PRE, X
+    23  WMADEC       0x003C4E00 0x0001907C 0x003C5000 0x0001907C  W, PRE, X
+    24  XACTENG      0x003DDE80 0x0000AAE0 0x003DF000 0x0000AA90  W, PRE, X
+    25  XGRPH        0x003E8960 0x0002086C 0x003EA000 0x00020860  W, PRE, X
+    26  D3D          0x004091E0 0x00013994 0x0040B000 0x000100D0  W, PRE, X
+    27  XPP          0x0041CB80 0x00008D0C 0x0041C000 0x00008D0C  W, PRE, X
+    28  .rdata       0x004258A0 0x0007049C 0x00425000 0x0007048C  PRE, X
+    29  .data        0x00495D40 0x000A3AF4 0x00496000 0x0002593C  W, PRE, X
+    30       NAL     0x00539840 0x00002F34 0x004BC000 0x00002F30  W, PRE, X
+    31  XON_RD       0x0053C780 0x00001B5D 0x004BF000 0x00001B5C  PRE, X
+    32  .data1       0x0053E2E0 0x000000E0 0x004C1000 0x000000B0  W, PRE, X
+    33    mgCore     0x0053E3C0 0x00004081 0x004C2000 0x00004080  W, PRE, X
+    34  BINKDATA     0x00542460 0x0000F9E0 0x004C7000 0x0000F9D4  W, PRE, X
+    35  DOLBY        0x00551E40 0x00007180 0x004D7000 0x0000716C  PRE, X, TRO
+    36  $$XTIMAGE    0x00558FC0 0x00002800 0x004F1000 0x00002800  INS, HRO, TRO
+    37  $$XSIMAGE    0x0055B7C0 0x00001000 0x004F4000 0x00001000  INS, HRO, TRO
+    38  IOERR_EN     0x0055C7C0 0x00002095 0x004DF000 0x00002095  PRE, INS, HRO, TRO
+    39  IOERR_JA     0x0055E860 0x00002095 0x004E2000 0x00002095  PRE, INS, HRO, TRO
+    40  IOERR_FR     0x00560900 0x00002095 0x004E5000 0x00002095  PRE, INS, HRO, TRO
+    41  IOERR_DE     0x005629A0 0x00002095 0x004E8000 0x00002095  PRE, INS, HRO, TRO
+    42  IOERR_IT     0x00564A40 0x00002095 0x004EB000 0x00002095  PRE, INS, HRO, TRO
+    43  IOERR_SP     0x00566AE0 0x00002095 0x004EE000 0x00002095  PRE, INS, HRO, TRO
+    44  .XTLID       0x00568B80 0x00000A40 0x004F5000 0x00000A40  INS, HRO, TRO
+  
+  --- Libraries (12) ---
+    XAPILIB      1.0.5849  flags=0x4001
+    D3DX8        1.0.5849  flags=0x4001
+    XONLINES     1.0.5849  flags=0x200D
+    XVOICE       1.0.5849  flags=0x4004
+    LIBCMT       1.0.5849  flags=0x4001
+    LIBCPMT      1.0.5849  flags=0x4001
+    XBOXKRNL     1.0.5849  flags=0x4001
+    DSOUND       1.0.5849  flags=0x400B
+    VOICMAIL     1.0.5849  flags=0x4804
+    D3D8LTCG     1.0.5849  flags=0x4001
+    XGRAPHCL     1.0.5849  flags=0x4009
+    XACTENLT     1.0.5849  flags=0x4006
+  
+  --- Kernel Imports (154) ---
+  
+    [Av] (4 imports)
+  
+    [Ex] (5 imports)
+  
+    [Hal] (10 imports)
+  
+    [Io] (13 imports)
+  
+    [Ke] (26 imports)
+  
+    [Kf] (2 imports)
+  
+    [Mm] (16 imports)
+  
+    [Nt] (31 imports)
+  
+    [Ob] (3 imports)
+  
+    [Other] (6 imports)
+  
+    [Ps] (3 imports)
+  
+    [Rtl] (14 imports)
+  
+    [Xbox] (10 imports)
+  
+    [Xc] (11 imports)
+  
+  --- Certificate ---
+    Game Ratings: 0x00000003
+  
+  ======================================================================
+  JSON exported to: D:\Games\MechAssault 2\_work\toolkit\MechAssault2\game_files\ma2_analysis.json
+> disasm (about a minute)
+    Realigned 5 call targets the sweep stepped over (0 rejected: bytes do not decode as a function)
+    48 function address(es) installed into indirect-call slots
+    conditional-branch orphans recovered as alias entries
+    tail-jump pass 0: +140 standalone, 30 aliases
+    tail-jump pass 1: +10 standalone, 30 aliases
+    tail-jump pass 2: +1 standalone, 30 aliases
+    379 function address(es) taken as an immediate
+    functions recovered that follow a ret with no padding
+    3487 function address(es) found in data tables
+  Done in 46.99s
+> func_id
+> abi_analysis
+  Wrote 25850 ABI entries to D:\Games\MechAssault 2\_work\toolkit\tools\abi_analysis\output\abi_functions.json (5636 detected as thiscall)
+    done in 1m 01s
+[5/11] Translating the game program to C
+> recomp (a few minutes)
+  Loading data files...
+    SEH helpers: __SEH_prolog 0x00309514, 0x0031D468, __SEH_epilog 0x0030954F
+    CRT non-local jumps: setjmp 0x0030A6B4, longjmp 0x0030A638
+  Loaded 25850 functions, 26004 labels, 29708 classifications, 25850 ABI entries in 54.0s
+  
+  Translating 25850 functions...
+    wrote recomp_types.h (runtime register model)
+  
+  === Split Translation Complete (64.5s) ===
+  25850/25850 functions (0 failed), 3182323 lines of C, 104 source files
+  249 unresolved call targets stubbed (addresses called but not detected as functions)
+  8546 instruction(s) unimplemented, emitted as no-op comments (38 distinct mnemonics):
+      ... and 18 more
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_funcs.h
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0000.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0001.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0002.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0003.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0004.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0005.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0006.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0007.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0008.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0009.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0010.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0011.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0012.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0013.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0014.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0015.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0016.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0017.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0018.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0019.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0020.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0021.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0022.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0023.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0024.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0025.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0026.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0027.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0028.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0029.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0030.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0031.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0032.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0033.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0034.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0035.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0036.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0037.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0038.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0039.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0040.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0041.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0042.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0043.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0044.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0045.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0046.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0047.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0048.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0049.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0050.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0051.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0052.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0053.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0054.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0055.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0056.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0057.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0058.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0059.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0060.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0061.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0062.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0063.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0064.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0065.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0066.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0067.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0068.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0069.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0070.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0071.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0072.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0073.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0074.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0075.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0076.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0077.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0078.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0079.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0080.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0081.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0082.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0083.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0084.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0085.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0086.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0087.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0088.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0089.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0090.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0091.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0092.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0093.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0094.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0095.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0096.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0097.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0098.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0099.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0100.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0101.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0102.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_0103.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_stubs_unresolved.c
+    D:\Games\MechAssault 2\_work\toolkit\MechAssault2\src\recomp\gen\recomp_dispatch.c
+  
+  Summary: D:\Games\MechAssault 2\_work\toolkit\tools\recomp\output\summary.json
+    done in 1m 59s
+[6/11] Generating helper code
+> recover_callbacks
+    SEH helpers: __SEH_prolog 0x00309514, 0x0031D468, __SEH_epilog 0x0030954F
+    CRT non-local jumps: setjmp 0x0030A6B4, longjmp 0x0030A638
+  Recovered 205 callbacks and shared tails; original 25850 compiled owners retained.
+> optimize_leafs
+  Retained non-leaf sub_0039D1D0
+  Optimized 2 measured codec leaves with complete register publication.
+    done in 56s
+[7/11] Applying the PC fixes and features
+  Generated code patched: 59 files edited, 3 added; all 116 verified.
+> fastcode
+  total fast=4026 denied=12829 reasons={'body:ma2_': 28, 'header': 2, 'body:xbox_save_probe': 1, 'fpu': 3, 'cold': 12795}
+  tier2 (RECOMP_FAST_REGS): {'ok': 3986, 'sync': 39460, 'noregs': 39, 'sync-stmt': 1}
+  post-FastCode: Generated code patched: 4 files edited, 0 added; all 4 verified.
+  FastCode copies written: 135 files, all verified.
+    done in 20s
+[8/11] Compiling the game
+  copying the source tree
+  8 parallel compiles (16 CPU threads, 32 GB RAM); usually 5-40 minutes
+> CMake + Ninja
+  -- The C compiler identification is MSVC 19.52.37029.0
+  -- The CXX compiler identification is MSVC 19.52.37029.0
+  -- Detecting C compiler ABI info
+  -- Detecting C compiler ABI info - done
+  -- Check for working C compiler: C:/Program Files/Microsoft Visual Studio/18/BuildTools/VC/Tools/MSVC/14.52.37025/bin/Hostx64/x64/cl.exe - skipped
+  -- Detecting C compile features
+  -- Detecting C compile features - done
+  -- Detecting CXX compiler ABI info
+  -- Detecting CXX compiler ABI info - done
+  -- Check for working CXX compiler: C:/Program Files/Microsoft Visual Studio/18/BuildTools/VC/Tools/MSVC/14.52.37025/bin/Hostx64/x64/cl.exe - skipped
+  -- Detecting CXX compile features
+  -- Detecting CXX compile features - done
+  -- Configuring done (3.1s)
+  -- Generating done (0.1s)
+  -- Build files have been written to: D:/Games/MechAssault 2/_work/build
+  ninja: Entering directory `D:\Games\MechAssault 2\_work\build'
+  [0/2] Re-checking globbed directories...
+  [1/283] Building C object xboxrecomp\src\apu\libsamplerate\CMakeFiles\apu_samplerate.dir\src_zoh.c.obj
+  [2/283] Building C object xboxrecomp\src\apu\libsamplerate\CMakeFiles\apu_samplerate.dir\samplerate.c.obj
+  [3/283] Building C object xboxrecomp\src\apu\libsamplerate\CMakeFiles\apu_samplerate.dir\src_linear.c.obj
+  [4/283] Building C object xboxrecomp\src\apu\libsamplerate\CMakeFiles\apu_samplerate.dir\src_sinc.c.obj
+  [5/283] Building C object xboxrecomp\src\platform\CMakeFiles\platform.dir\pc_frontend.c.obj
+  [6/283] Linking C static library xboxrecomp\src\platform\platform.lib
+  [7/283] Building C object xboxrecomp\src\d3d\CMakeFiles\xbox_d3d8.dir\d3d8_gamma.c.obj
+  [8/283] Building C object xboxrecomp\src\d3d\CMakeFiles\xbox_d3d8.dir\d3d8_device.c.obj
+  D:\Games\MechAssault 2\_work\src\runtime\src\d3d\d3d8_device.c(120): warning C4132: 'g_device_vtbl': const object should be initialized
+  D:\Games\MechAssault 2\_work\src\runtime\src\d3d\d3d8_device.c(468): warning C4456: declaration of 'now' hides previous local declaration
+  D:\Games\MechAssault 2\_work\src\runtime\src\d3d\d3d8_device.c(442): note: see declaration of 'now'
+  [9/283] Building C object xboxrecomp\src\d3d\CMakeFiles\xbox_d3d8.dir\d3d8_resources.c.obj
+  [10/283] Building C object xboxrecomp\src\d3d\CMakeFiles\xbox_d3d8.dir\d3d8_states.c.obj
+  [11/283] Building C object xboxrecomp\src\d3d\CMakeFiles\xbox_d3d8.dir\d3d8_shaders.c.obj
+  [12/283] Building C object xboxrecomp\src\d3d\CMakeFiles\xbox_d3d8.dir\d3d8_vsh.c.obj
+  [13/283] Building C object xboxrecomp\src\apu\CMakeFiles\xbox_apu.dir\apu_core.c.obj
+  [14/283] Building C object xboxrecomp\src\apu\CMakeFiles\xbox_apu.dir\dsp\dsp_dma.c.obj
+  D:\Games\MechAssault 2\_work\src\runtime\src\apu\dsp\dsp_dma.c(228): warning C4018: '<': signed/unsigned mismatch
+  D:\Games\MechAssault 2\_work\src\runtime\src\apu\dsp\dsp_dma.c(229): warning C4018: '<': signed/unsigned mismatch
+  D:\Games\MechAssault 2\_work\src\runtime\src\apu\dsp\dsp_dma.c(246): warning C4018: '<': signed/unsigned mismatch
+  D:\Games\MechAssault 2\_work\src\runtime\src\apu\dsp\dsp_dma.c(294): warning C4018: '<': signed/unsigned mismatch
+  [15/283] Building C object xboxrecomp\src\d3d\CMakeFiles\xbox_d3d8.dir\d3d8_combiners.c.obj
+  D:\Games\MechAssault 2\_work\src\runtime\src\d3d\d3d8_combiners.c(185): warning C4101: 'i': unreferenced local variable
+  [16/283] Building C object xboxrecomp\src\apu\CMakeFiles\xbox_apu.dir\apu_dsp.c.obj
+  [17/283] Building C object xboxrecomp\src\apu\CMakeFiles\xbox_apu.dir\dsp\interp\dsp_cpu.c.obj
+  [18/283] Building C object xboxrecomp\src\apu\CMakeFiles\xbox_apu.dir\apu_dsp_runtime.c.obj
+  [19/283] Linking C static library xboxrecomp\src\apu\libsamplerate\apu_samplerate.lib
+  [20/283] Building C object xboxrecomp\src\apu\CMakeFiles\xbox_apu.dir\apu_mmio_hook.c.obj
+  [21/283] Building C object xboxrecomp\src\apu\CMakeFiles\xbox_apu.dir\apu_vp.c.obj
+  [22/283] Building C object xboxrecomp\src\apu\CMakeFiles\xbox_apu.dir\apu_xaudio2.c.obj
+  [23/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\kernel_pool.c.obj
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_pool.c(20): warning C4100: 'Tag': unreferenced parameter
+  [24/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\kernel_memory.c.obj
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_memory.c(53): warning C4100: 'HighestAcceptableAddress': unreferenced parameter
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_memory.c(52): warning C4100: 'LowestAcceptableAddress': unreferenced parameter
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_memory.c(118): warning C4100: 'NumberOfBytes': unreferenced parameter
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_memory.c(153): warning C4100: 'Protect': unreferenced parameter
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_memory.c(153): warning C4100: 'PhysicalAddress': unreferenced parameter
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_memory.c(161): warning C4100: 'NumberOfBytes': unreferenced parameter
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_memory.c(195): warning C4100: 'Persist': unreferenced parameter
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_memory.c(195): warning C4100: 'NumberOfBytes': unreferenced parameter
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_memory.c(195): warning C4100: 'BaseAddress': unreferenced parameter
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_memory.c(238): warning C4100: 'UnlockPages': unreferenced parameter
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_memory.c(238): warning C4100: 'NumberOfBytes': unreferenced parameter
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_memory.c(238): warning C4100: 'BaseAddress': unreferenced parameter
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_memory.c(244): warning C4100: 'UnlockPage': unreferenced parameter
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_memory.c(244): warning C4100: 'PhysicalAddress': unreferenced parameter
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_memory.c(253): warning C4100: 'DebuggerThread': unreferenced parameter
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_memory.c(266): warning C4100: 'StackBase': unreferenced parameter
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_memory.c(280): warning C4100: 'ZeroBits': unreferenced parameter
+  [25/283] Building C object xboxrecomp\src\input\CMakeFiles\xbox_input.dir\xinput_device.c.obj
+  D:\Games\MechAssault 2\_work\src\runtime\src\input\xinput_device.c(573): warning C4456: declaration of 'b' hides previous local declaration
+  D:\Games\MechAssault 2\_work\src\runtime\src\input\xinput_device.c(514): note: see declaration of 'b'
+  [26/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\kernel_rtl.c.obj
+  [27/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\kernel_file.c.obj
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_file.c(1512): warning C4100: 'ObjectAttributes': unreferenced parameter
+  [28/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\kernel_thread.c.obj
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_thread.c(144) : warning C4702: unreachable code
+  [29/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\kernel_sync.c.obj
+  [30/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\kernel_path.c.obj
+  [31/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\kernel_ob.c.obj
+  [32/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\kernel_xbox.c.obj
+  [33/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\kernel_hal.c.obj
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_hal.c(847): warning C4100: 'SystemTime': unreferenced parameter
+  [34/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\icall_feedback.c.obj
+  [35/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\kernel_io.c.obj
+  [36/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\kernel_thunks.c.obj
+  [37/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\kernel_crypto.c.obj
+  [38/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\nv2a_pb_scan.c.obj
+  [39/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\nv2a_pb_objects.c.obj
+  [40/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\guest_vmem.c.obj
+  [41/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\recomp_trace.c.obj
+  [42/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\nv2a_vsh_interp.c.obj
+  [43/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\nv2a_combiner.c.obj
+  [44/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\nv2a_gpu_vsh.c.obj
+  [45/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\kernel_bridge.c.obj
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_bridge.c(661): warning C4245: '=': conversion from 'NTSTATUS' to 'uint32_t', signed/unsigned mismatch
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_bridge.c(1178): warning C4189: 'zero_bits': local variable is initialized but not referenced
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_bridge.c(1707): warning C4210: nonstandard extension used: function given file scope
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_bridge.c(1844): warning C4244: 'function': conversion from 'uint32_t' to 'BOOLEAN', possible loss of data
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_bridge.c(1918): warning C4244: 'function': conversion from 'uint32_t' to 'KPROCESSOR_MODE', possible loss of data
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_bridge.c(1933): warning C4244: 'function': conversion from 'uint32_t' to 'KPROCESSOR_MODE', possible loss of data
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_bridge.c(2240): warning C4210: nonstandard extension used: function given file scope
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_bridge.c(2241): warning C4210: nonstandard extension used: function given file scope
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_bridge.c(3598): warning C4210: nonstandard extension used: function given file scope
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_bridge.c(3621): warning C4210: nonstandard extension used: function given file scope
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_bridge.c(4284): warning C4245: '=': conversion from 'NTSTATUS' to 'uint32_t', signed/unsigned mismatch
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_bridge.c(4310): warning C4245: '=': conversion from 'NTSTATUS' to 'uint32_t', signed/unsigned mismatch
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_bridge.c(4647): warning C4189: 'handle': local variable is initialized but not referenced
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_bridge.c(4648): warning C4189: 'obj_type': local variable is initialized but not referenced
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_bridge.c(4701): warning C4189: 'protect': local variable is initialized but not referenced
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_bridge.c(8562): warning C4245: '=': conversion from 'NTSTATUS' to 'uint32_t', signed/unsigned mismatch
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\kernel_bridge.c(10437): warning C4018: '<': signed/unsigned mismatch
+  [46/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\xbox_memory_layout.c.obj
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\xbox_memory_layout.c(1145): warning C4210: nonstandard extension used: function given file scope
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\xbox_memory_layout.c(1146): warning C4210: nonstandard extension used: function given file scope
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\xbox_memory_layout.c(1177): warning C4210: nonstandard extension used: function given file scope
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\xbox_memory_layout.c(1404): warning C4324: '<unnamed-tag>': structure was padded due to alignment specifier
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\xbox_memory_layout.c(2093): warning C4456: declaration of 'old_protect' hides previous local declaration
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\xbox_memory_layout.c(1939): note: see declaration of 'old_protect'
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\xbox_memory_layout.c(2187): warning C4210: nonstandard extension used: function given file scope
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\xbox_memory_layout.c(2655): warning C4456: declaration of 'old_protect' hides previous local declaration
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\xbox_memory_layout.c(1939): note: see declaration of 'old_protect'
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\xbox_memory_layout.c(1884) : warning C4702: unreachable code
+  [47/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\nv2a_texture.c.obj
+  [48/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\nv2a_gpu_memory.c.obj
+  [49/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\nv2a_gpu_wait.c.obj
+  [50/283] Linking C static library xboxrecomp\src\d3d\xbox_d3d8.lib
+  [51/283] Linking C static library xboxrecomp\src\apu\xbox_apu.lib
+  [52/283] Building C object xboxrecomp\src\audio\CMakeFiles\xbox_dsound.dir\dsound_device.c.obj
+  [53/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\nv2a_shader_cache.c.obj
+  C:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\um\d3dcompiler.h(570): warning C4115: 'ID3D10Effect': named type definition in parentheses
+  [54/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\nv2a_pb_exec.c.obj
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\nv2a_pb_exec.c(983): warning C4210: nonstandard extension used: function given file scope
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\nv2a_pb_exec.c(4128): warning C4210: nonstandard extension used: function given file scope
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\nv2a_pb_exec.c(4134): warning C4210: nonstandard extension used: function given file scope
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\nv2a_pb_exec.c(4140): warning C4210: nonstandard extension used: function given file scope
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\nv2a_pb_exec.c(4141): warning C4210: nonstandard extension used: function given file scope
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\nv2a_pb_exec.c(212) : warning C4702: unreachable code
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\nv2a_pb_exec.c(2254) : warning C4702: unreachable code
+  [55/283] Building C object xboxrecomp\src\nv2a\CMakeFiles\xbox_nv2a.dir\nv2a_core.c.obj
+  [56/283] Building C object xboxrecomp\src\audio\CMakeFiles\xbox_dsound.dir\wma_decoder.c.obj
+  [57/283] Building C object xboxrecomp\src\nv2a\CMakeFiles\xbox_nv2a.dir\nv2a_pgraph_d3d11.c.obj
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_pgraph_d3d11.c(75): warning C4005: 'NV097_SET_BEGIN_END': macro redefinition
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_regs.h(1159): note: see previous definition of 'NV097_SET_BEGIN_END'
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_pgraph_d3d11.c(76): warning C4005: 'NV097_INLINE_ARRAY': macro redefinition
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_regs.h(1176): note: see previous definition of 'NV097_INLINE_ARRAY'
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_pgraph_d3d11.c(77): warning C4005: 'NV097_CLEAR_SURFACE': macro redefinition
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_regs.h(1278): note: see previous definition of 'NV097_CLEAR_SURFACE'
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_pgraph_d3d11.c(78): warning C4005: 'NV097_SET_COLOR_CLEAR_VALUE': macro redefinition
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_regs.h(1277): note: see previous definition of 'NV097_SET_COLOR_CLEAR_VALUE'
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_pgraph_d3d11.c(79): warning C4005: 'NV097_SET_CLEAR_RECT_HORIZONTAL': macro redefinition
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_regs.h(1286): note: see previous definition of 'NV097_SET_CLEAR_RECT_HORIZONTAL'
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_pgraph_d3d11.c(80): warning C4005: 'NV097_SET_CLEAR_RECT_VERTICAL': macro redefinition
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_regs.h(1287): note: see previous definition of 'NV097_SET_CLEAR_RECT_VERTICAL'
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_pgraph_d3d11.c(82): warning C4005: 'NV097_SET_DEPTH_TEST_ENABLE': macro redefinition
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_regs.h(937): note: see previous definition of 'NV097_SET_DEPTH_TEST_ENABLE'
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_pgraph_d3d11.c(83): warning C4005: 'NV097_SET_BLEND_ENABLE': macro redefinition
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_regs.h(935): note: see previous definition of 'NV097_SET_BLEND_ENABLE'
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_pgraph_d3d11.c(84): warning C4005: 'NV097_SET_BLEND_FUNC_SFACTOR': macro redefinition
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_regs.h(958): note: see previous definition of 'NV097_SET_BLEND_FUNC_SFACTOR'
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_pgraph_d3d11.c(85): warning C4005: 'NV097_SET_BLEND_FUNC_DFACTOR': macro redefinition
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_regs.h(974): note: see previous definition of 'NV097_SET_BLEND_FUNC_DFACTOR'
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_pgraph_d3d11.c(86): warning C4005: 'NV097_SET_CULL_FACE_ENABLE': macro redefinition
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_regs.h(936): note: see previous definition of 'NV097_SET_CULL_FACE_ENABLE'
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_pgraph_d3d11.c(87): warning C4005: 'NV097_SET_ALPHA_TEST_ENABLE': macro redefinition
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_regs.h(934): note: see previous definition of 'NV097_SET_ALPHA_TEST_ENABLE'
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_pgraph_d3d11.c(88): warning C4005: 'NV097_SET_COLOR_MASK': macro redefinition
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_regs.h(1000): note: see previous definition of 'NV097_SET_COLOR_MASK'
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_pgraph_d3d11.c(89): warning C4005: 'NV097_SET_SHADE_MODE': macro redefinition
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_regs.h(1021): note: see previous definition of 'NV097_SET_SHADE_MODE'
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_pgraph_d3d11.c(91): warning C4005: 'NV097_SET_VIEWPORT_OFFSET': macro redefinition
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_regs.h(1081): note: see previous definition of 'NV097_SET_VIEWPORT_OFFSET'
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_pgraph_d3d11.c(92): warning C4005: 'NV097_SET_VIEWPORT_SCALE': macro redefinition
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_regs.h(1089): note: see previous definition of 'NV097_SET_VIEWPORT_SCALE'
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_pgraph_d3d11.c(93): warning C4005: 'NV097_SET_SURFACE_CLIP_HORIZONTAL': macro redefinition
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_regs.h(863): note: see previous definition of 'NV097_SET_SURFACE_CLIP_HORIZONTAL'
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_pgraph_d3d11.c(94): warning C4005: 'NV097_SET_SURFACE_CLIP_VERTICAL': macro redefinition
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_regs.h(866): note: see previous definition of 'NV097_SET_SURFACE_CLIP_VERTICAL'
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_pgraph_d3d11.c(96): warning C4005: 'NV097_SET_TEXTURE_OFFSET': macro redefinition
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_regs.h(1183): note: see previous definition of 'NV097_SET_TEXTURE_OFFSET'
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_pgraph_d3d11.c(97): warning C4005: 'NV097_SET_TEXTURE_FORMAT': macro redefinition
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_regs.h(1184): note: see previous definition of 'NV097_SET_TEXTURE_FORMAT'
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_pgraph_d3d11.c(98): warning C4005: 'NV097_SET_TEXTURE_CONTROL0': macro redefinition
+  D:\Games\MechAssault 2\_work\src\runtime\src\nv2a\nv2a_regs.h(1239): note: see previous definition of 'NV097_SET_TEXTURE_CONTROL0'
+  [58/283] Building C object xboxrecomp\src\nv2a\CMakeFiles\xbox_nv2a.dir\nv2a_pb_replay.c.obj
+  [59/283] Building CXX object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\vendor\directxtex\DDSTextureLoader11.cpp.obj
+  [60/283] Building C object xboxrecomp\src\nv2a\CMakeFiles\xbox_nv2a.dir\nv2a_mmio_hook.c.obj
+  [61/283] Building C object xboxrecomp\src\nv2a\CMakeFiles\xbox_nv2a.dir\nv2a_pb_test.c.obj
+  [62/283] Linking C static library xboxrecomp\src\input\xbox_input.lib
+  [63/283] Building C object xboxrecomp\src\usb\CMakeFiles\xbox_usb.dir\ohci.c.obj
+  D:\Games\MechAssault 2\_work\src\runtime\src\usb\ohci.c(825): warning C4996: 'getenv': This function or variable may be unsafe. Consider using _dupenv_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+  D:\Games\MechAssault 2\_work\src\runtime\src\usb\ohci.c(1296): warning C4996: 'getenv': This function or variable may be unsafe. Consider using _dupenv_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+  D:\Games\MechAssault 2\_work\src\runtime\src\usb\ohci.c(1300): warning C4996: 'getenv': This function or variable may be unsafe. Consider using _dupenv_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+  [64/283] Building C object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\nv2a_gpu_d3d11.c.obj
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\nv2a_gpu_d3d11.c(1825): warning C4244: '=': conversion from 'int' to 'float', possible loss of data
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\nv2a_gpu_d3d11.c(1877): warning C4456: declaration of 'trace_start' hides previous local declaration
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\nv2a_gpu_d3d11.c(1762): note: see declaration of 'trace_start'
+  D:\Games\MechAssault 2\_work\src\runtime\src\kernel\nv2a_gpu_d3d11.c(2495) : warning C4701: potentially uninitialized local variable 'vc' used
+  [65/283] Building C object xboxrecomp\src\usb\CMakeFiles\xbox_usb.dir\usb_gamepad.c.obj
+  D:\Games\MechAssault 2\_work\src\runtime\src\usb\usb_gamepad.c(477): warning C4996: 'getenv': This function or variable may be unsafe. Consider using _dupenv_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+  D:\Games\MechAssault 2\_work\src\runtime\src\usb\usb_gamepad.c(486): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+  D:\Games\MechAssault 2\_work\src\runtime\src\usb\usb_gamepad.c(606): warning C4210: nonstandard extension used: function given file scope
+  D:\Games\MechAssault 2\_work\src\runtime\src\usb\usb_gamepad.c(604): warning C4996: 'getenv': This function or variable may be unsafe. Consider using _dupenv_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+  D:\Games\MechAssault 2\_work\src\runtime\src\usb\usb_gamepad.c(615): warning C4996: 'getenv': This function or variable may be unsafe. Consider using _dupenv_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+  [66/283] Building C object xboxrecomp\src\video\CMakeFiles\xbox_video.dir\video_pump.c.obj
+  [67/283] Building C object xboxrecomp\src\video\CMakeFiles\xbox_video.dir\fb_present.c.obj
+  [68/283] Building C object xboxrecomp\src\video\CMakeFiles\xbox_video.dir\video_player.c.obj
+  [69/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\audio_lifetime.c.obj
+  [70/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\pc_draw_distance.c.obj
+  [71/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp_manual.c.obj
+  [72/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\main.c.obj
+  [73/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\ma2_tank_fixedstep.c.obj
+  [74/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\ma2_cinematic.c.obj
+  [75/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\bink_native.c.obj
+  [76/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\ma2_tank_trace.c.obj
+  [77/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\bots\ma2_bot_mapid.c.obj
+  [78/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\pc_storage.c.obj
+  [79/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\pc_gui_bridge.c.obj
+  [80/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\bots\ma2_bot_content.c.obj
+  [81/283] Building CXX object CMakeFiles\mechassault2_recomp.dir\src\pc_native_settings.cpp.obj
+  [82/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\bots\ma2_bots_ui.c.obj
+  [83/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\bots\ma2_bot_nav.c.obj
+  [84/283] Building CXX object xboxrecomp\src\kernel\CMakeFiles\xbox_kernel.dir\nv2a_texture_pack.cpp.obj
+  [85/283] Building CXX object CMakeFiles\mechassault2_recomp.dir\src\pc_prompts.cpp.obj
+  [86/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\bots\ma2_bot_terrain.c.obj
+  [87/283] Building RC object CMakeFiles\mechassault2_recomp.dir\src\app.rc.res
+  [88/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\bots\ma2_bot_path.c.obj
+  [89/283] Building CXX object CMakeFiles\mechassault2_recomp.dir\src\scenario\ma2_scenario_audio.cpp.obj
+  D:\Games\MechAssault 2\_work\src\game\src\scenario\ma2_scenario_audio.cpp(9): warning C4005: 'WIN32_LEAN_AND_MEAN': macro redefinition
+  D:\Games\MechAssault 2\_work\src\game\src\scenario\ma2_scenario_audio.cpp(9): note: 'WIN32_LEAN_AND_MEAN' previously declared on the command line
+  [90/283] Building CXX object CMakeFiles\mechassault2_recomp.dir\vendor\imgui-1.92.5\imgui_tables.cpp.obj
+  [91/283] Building CXX object CMakeFiles\mechassault2_recomp.dir\vendor\imgui-1.92.5\imgui_draw.cpp.obj
+  [92/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\scenario\ma2_scenario.c.obj
+  D:\Games\MechAssault 2\_work\src\game\src\scenario\ma2_scenario.c(33): warning C4005: 'WIN32_LEAN_AND_MEAN': macro redefinition
+  D:\Games\MechAssault 2\_work\src\game\src\scenario\ma2_scenario.c(33): note: 'WIN32_LEAN_AND_MEAN' previously declared on the command line
+  [93/283] Building CXX object CMakeFiles\mechassault2_recomp.dir\vendor\imgui-1.92.5\backends\imgui_impl_win32.cpp.obj
+  [94/283] Building CXX object CMakeFiles\mechassault2_recomp.dir\vendor\imgui-1.92.5\backends\imgui_impl_dx11.cpp.obj
+  [95/283] Building CXX object CMakeFiles\mechassault2_recomp.dir\vendor\imgui-1.92.5\imgui_widgets.cpp.obj
+  [96/283] Building CXX object CMakeFiles\mechassault2_recomp.dir\vendor\imgui-1.92.5\imgui.cpp.obj
+  [97/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0001.c.obj
+  [98/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\bots\ma2_bot_brain.c.obj
+  [99/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0002.c.obj
+  [100/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0004.c.obj
+  [101/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0003.c.obj
+  [102/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0006.c.obj
+  [103/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0010.c.obj
+  [104/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0000.c.obj
+  [105/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0009.c.obj
+  [106/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0011.c.obj
+  [107/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0007.c.obj
+  [108/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\bots\ma2_bots_core.c.obj
+  D:\Games\MechAssault 2\_work\src\game\src\bots\ma2_bots_core.c(30): warning C4005: 'WIN32_LEAN_AND_MEAN': macro redefinition
+  D:\Games\MechAssault 2\_work\src\game\src\bots\ma2_bots_core.c(30): note: 'WIN32_LEAN_AND_MEAN' previously declared on the command line
+  D:\Games\MechAssault 2\_work\src\game\src\bots\ma2_bots_core.c(5744): warning C4133: ':': incompatible types - from 'const *' to 'const *'
+  D:\Games\MechAssault 2\_work\src\game\src\bots\ma2_bots_core.c(5745): warning C4133: ':': incompatible types - from 'const *' to 'const *'
+  D:\Games\MechAssault 2\_work\src\game\src\bots\ma2_bots_core.c(5746): warning C4133: ':': incompatible types - from 'const *' to 'const *'
+  D:\Games\MechAssault 2\_work\src\game\src\bots\ma2_bots_core.c(5746): warning C4133: ':': incompatible types - from 'const *' to 'const *'
+  D:\Games\MechAssault 2\_work\src\game\src\bots\ma2_bots_core.c(5746): warning C4133: ':': incompatible types - from 'const *' to 'const *'
+  D:\Games\MechAssault 2\_work\src\game\src\bots\ma2_bots_core.c(5746): warning C4133: ':': incompatible types - from 'const *' to 'const *'
+  D:\Games\MechAssault 2\_work\src\game\src\bots\ma2_bots_core.c(5748): warning C4133: ':': incompatible types - from 'const *' to 'const *'
+  D:\Games\MechAssault 2\_work\src\game\src\bots\ma2_bots_core.c(5752): warning C4133: ':': incompatible types - from 'const *' to 'const *'
+  [109/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0008.c.obj
+  [110/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0005.c.obj
+  [111/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0013.c.obj
+  [112/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0012.c.obj
+  [113/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0018.c.obj
+  [114/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0014.c.obj
+  [115/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0017.c.obj
+  [116/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0019.c.obj
+  [117/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0020.c.obj
+  [118/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0016.c.obj
+  [119/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0015.c.obj
+  [120/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0026.c.obj
+  [121/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0029.c.obj
+  [122/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0030.c.obj
+  [123/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0031.c.obj
+  [124/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0032.c.obj
+  [125/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0023.c.obj
+  [126/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0027.c.obj
+  [127/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0033.c.obj
+  [128/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0036.c.obj
+  [129/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0037.c.obj
+  [130/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0034.c.obj
+  [131/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0035.c.obj
+  [132/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0021.c.obj
+  [133/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0039.c.obj
+  [134/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0038.c.obj
+  [135/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0043.c.obj
+  [136/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0040.c.obj
+  [137/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0042.c.obj
+  [138/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0022.c.obj
+  [139/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0028.c.obj
+  [140/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0024.c.obj
+  [141/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0044.c.obj
+  [142/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0045.c.obj
+  [143/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0048.c.obj
+  [144/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0049.c.obj
+  [145/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0046.c.obj
+  [146/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0052.c.obj
+  [147/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0041.c.obj
+  D:\Games\MechAssault 2\_work\src\game\src\recomp\gen\recomp_0041.c(18219): warning C4090: 'function': different 'volatile' qualifiers
+  [148/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0055.c.obj
+  [149/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0050.c.obj
+  [150/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0057.c.obj
+  cl : Command line warning D9025 : overriding '/Ob2' with '/Ob0'
+  [151/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0059.c.obj
+  cl : Command line warning D9025 : overriding '/Ob2' with '/Ob0'
+  [152/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0054.c.obj
+  [153/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0060.c.obj
+  [154/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0061.c.obj
+  [155/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0025.c.obj
+  [156/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0053.c.obj
+  [157/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0063.c.obj
+  [158/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0056.c.obj
+  [159/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0062.c.obj
+  [160/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0047.c.obj
+  [161/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0067.c.obj
+  [162/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0058.c.obj
+  [163/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0066.c.obj
+  [164/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0070.c.obj
+  [165/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0068.c.obj
+  [166/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0071.c.obj
+  [167/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0073.c.obj
+  [168/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0069.c.obj
+  [169/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0065.c.obj
+  [170/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0064.c.obj
+  [171/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0051.c.obj
+  [172/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0080.c.obj
+  [173/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0081.c.obj
+  [174/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0082.c.obj
+  [175/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0083.c.obj
+  [176/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0084.c.obj
+  [177/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0077.c.obj
+  [178/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0072.c.obj
+  [179/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0074.c.obj
+  [180/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0078.c.obj
+  [181/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0087.c.obj
+  [182/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0088.c.obj
+  [183/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0075.c.obj
+  [184/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0086.c.obj
+  [185/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0089.c.obj
+  [186/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0085.c.obj
+  [187/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0092.c.obj
+  [188/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0095.c.obj
+  [189/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0091.c.obj
+  [190/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0096.c.obj
+  [191/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0093.c.obj
+  [192/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0098.c.obj
+  [193/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0099.c.obj
+  [194/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0090.c.obj
+  [195/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0103.c.obj
+  [196/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_bringup.c.obj
+  [197/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0102.c.obj
+  [198/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0100.c.obj
+  [199/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_dispatch.c.obj
+  [200/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0079.c.obj
+  [201/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0001.c.obj
+  [202/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0003.c.obj
+  [203/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0004.c.obj
+  [204/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_bringup_0001.c.obj
+  [205/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0000.c.obj
+  [206/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0005.c.obj
+  [207/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0007.c.obj
+  [208/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0009.c.obj
+  [209/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0010.c.obj
+  [210/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0011.c.obj
+  [211/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0012.c.obj
+  [212/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0013.c.obj
+  [213/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0008.c.obj
+  [214/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0006.c.obj
+  [215/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0016.c.obj
+  [216/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0097.c.obj
+  [217/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0018.c.obj
+  [218/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0017.c.obj
+  [219/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0019.c.obj
+  [220/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0020.c.obj
+  [221/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0022.c.obj
+  [222/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0023.c.obj
+  [223/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0014.c.obj
+  [224/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0024.c.obj
+  [225/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0025.c.obj
+  [226/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0027.c.obj
+  [227/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0021.c.obj
+  [228/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0029.c.obj
+  [229/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0030.c.obj
+  [230/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0026.c.obj
+  [231/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0031.c.obj
+  [232/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0033.c.obj
+  [233/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0032.c.obj
+  [234/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0036.c.obj
+  [235/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0028.c.obj
+  [236/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0037.c.obj
+  [237/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0015.c.obj
+  [238/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0040.c.obj
+  [239/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0041.c.obj
+  [240/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0039.c.obj
+  [241/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0042.c.obj
+  [242/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0045.c.obj
+  [243/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0044.c.obj
+  [244/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0047.c.obj
+  [245/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0048.c.obj
+  [246/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0052.c.obj
+  [247/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0053.c.obj
+  [248/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0046.c.obj
+  [249/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0055.c.obj
+  [250/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0056.c.obj
+  [251/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0038.c.obj
+  [252/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0062.c.obj
+  [253/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0065.c.obj
+  [254/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0063.c.obj
+  [255/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0067.c.obj
+  [256/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0035.c.obj
+  [257/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0064.c.obj
+  [258/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_bringup_0000.c.obj
+  [259/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0076.c.obj
+  [260/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0071.c.obj
+  [261/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0072.c.obj
+  [262/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0068.c.obj
+  [263/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0070.c.obj
+  [264/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0073.c.obj
+  [265/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0077.c.obj
+  [266/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0078.c.obj
+  [267/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0102.c.obj
+  [268/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0066.c.obj
+  [269/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0103.c.obj
+  [270/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_stubs_unresolved.c.obj
+  [271/283] Linking CXX static library xboxrecomp\src\kernel\xbox_kernel.lib
+  [272/283] Linking C static library xboxrecomp\src\audio\xbox_dsound.lib
+  [273/283] Linking C static library xboxrecomp\src\nv2a\xbox_nv2a.lib
+  [274/283] Linking C static library xboxrecomp\src\usb\xbox_usb.lib
+  [275/283] Linking C static library xboxrecomp\src\video\xbox_video.lib
+  [276/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fastpaths.c.obj
+  [277/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0094.c.obj
+  [278/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0101.c.obj
+  [279/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0079.c.obj
+  [280/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_fast_0069.c.obj
+  [281/283] Building C object CMakeFiles\mechassault2_recomp.dir\src\recomp\gen\recomp_0101.c.obj
+  [282/283] Linking CXX executable mechassault2_recomp.exe
+    done in 8m 59s
+[9/11] Building the PC menus
+Built 149 native forms in D:\Games\MechAssault 2\pc_assets\common.mgf (163,152,328 bytes)
+  PC menu overlay built: 173 files changed or added, all match the release.
+  (shader-seed.pack is not part of this installer; the game builds its shaders as it plays)
+  (shader-levels.txt is not part of this installer; the game builds its shaders as it plays)
+    done in 5s
+[10/11] Installing the game files
+  MSVC runtime from C:\Program Files\Microsoft Visual Studio\18\BuildTools\VC\Redist\MSVC\14.52.37025\x64\Microsoft.VC145.CRT
+  MA2 Scenario Editor.exe
+    done in 0s
+[11/11] Finishing
+  install log: C:\Users\Player\AppData\Local\MechAssault2\Logs\install-20261112-120000.log
+  work folder removed
+    done in 0s
+
+MechAssault 2 is installed in D:\Games\MechAssault 2. Run "MechAssault 2.exe".

@@ -1,0 +1,59 @@
+name: Bug report
+description: Something does not work in the installer, the game or the scenario editor.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Attach logs only.** Never attach or link game files, disc images, extracted
+        assets, texture packs or the game exe: such issues are deleted. Requests for the game are closed.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where
+      options: [Installer, Game - campaign, Game - bot match, Game - menus / settings / input, Scenario editor, Enhanced textures / videos, Other]
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Shown on the installer's first page, in the game's title screen, or in recomp-install.json in the install folder.
+      placeholder: "1.0.9"
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what happened instead. For bot or campaign problems, the map / mission and roughly when.
+    validations: { required: true }
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        1. Run the installer again and press **Collect diagnostics** (on its first page; command line: `--diagnostics`).
+           It puts one zip on your Desktop with the game and installer logs, your settings and basic PC facts,
+           with your Windows user name removed. Drag that zip in here.
+        2. If the installer itself failed, press **Copy log** on the failure page and paste it (it is redacted the same way).
+        - Crash or freeze: the game also writes `crash-<number>.dmp` / `hang-<number>.dmp`. A dump can contain folder
+          names and your Windows user name, so don't attach it unless a maintainer asks; then tick *Include the newest
+          crash or hang dump* in **Collect diagnostics**.
+        - Bot problems: a maintainer may ask for a bot recording; the Bots guide in your install explains how.
+        - Attach the **Collect diagnostics** zip, not raw `.log` files.
+    validations: { required: true }
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: Windows version, graphics card and driver version, RAM.
+      placeholder: "Windows 11 24H2, RTX 3070 driver 572.16, 32 GB"
+    validations: { required: true }
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I own the US (NTSC) retail MechAssault 2 disc this was built from.
+          required: true
+        - label: I attached logs only, no game files.
+          required: true

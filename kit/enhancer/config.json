@@ -1,0 +1,16 @@
+{
+  "scale": 2,
+  "device": "cuda",
+  "half_precision": true,
+  "tile_size": 192,
+  "tile_overlap": 32,
+  "boundary_padding": 16,
+  "alpha_mode": "lanczos",
+  "generate_dds": true,
+  "generate_preview": true,
+  "models": {
+    "2": "models/RealESRGAN_x2plus.pth",
+    "4": "models/RealESRGAN_x4plus.pth"
+  },
+  "processing_overrides": {}
+}

@@ -1,0 +1,22 @@
+[
+  {"archive":"mission_01b.mgf","path":"Texture_Dump/Concrete/Concrete_001.tif","category":"Concrete surface","edge_mode":"wrap"},
+  {"archive":"mission_01b.mgf","path":"Texture_Dump/Concrete/Concrete_009_redcheck.tif","category":"Rectangular painted concrete","edge_mode":"wrap"},
+  {"archive":"mission_01b.mgf","path":"Texture_Dump/Concrete/concrete_057_spclr.tif","category":"Swizzled surface with alpha"},
+  {"archive":"mission_01b.mgf","path":"Texture_Dump/Concrete/concrete_107_metalbands_spclr.tif","category":"DXT3 surface"},
+  {"archive":"mission_01b.mgf","path":"Texture_Dump/Metal/Metal_002.tif","category":"Metal surface","edge_mode":"wrap"},
+  {"archive":"mission_01b.mgf","path":"Texture_Dump/Metal/Metal_006_spclr.tif","category":"Wide metal strip"},
+  {"archive":"mission_01b.mgf","path":"Terrain/Mission_01_LIGHTMAP.tif","category":"Luminance and alpha lightmap","processing":"resample_data"},
+  {"archive":"mission_01b.mgf","path":"Texture_Dump/Mechs/BattleArmor.tif","category":"Mech armor atlas"},
+  {"archive":"mission_01b.mgf","path":"Texture_Dump/Mechs/BattleArmor_Cracks.tif","category":"Damage overlay"},
+  {"archive":"mission_01b.mgf","path":"Texture_Dump/People/Characters/Pilot_SP_body.TIF","category":"Pilot clothing atlas"},
+  {"archive":"mission_01b.mgf","path":"Texture_Dump/People/Characters/Pilot_SP_head.tif","category":"Pilot head atlas"},
+  {"archive":"mission_01b.mgf","path":"Texture_Dump/Environment/Trees/Tree_003_grass.tif","category":"Vegetation with transparency"},
+  {"archive":"mission_01b.mgf","path":"Texture_Dump/Environment/Rocks/Rock_013_mtnsSky.tif","category":"Wide mountain background"},
+  {"archive":"mission_02.mgf","path":"Texture_Dump/Environment/Sky/Sky_010_Galaxy.tif","category":"Swizzled RGB565 sky"},
+  {"archive":"mission_02.mgf","path":"Texture_Dump/Environment/Sky/Sky_042_Clouds_Citynight.tif","category":"Cloud layer"},
+  {"archive":"mission_01b.mgf","path":"Interface/Sprites/HUD/Compass/compass 01.tif","category":"HUD compass"},
+  {"archive":"common.mgf","path":"interface/Sprites/avatar_locker/Color/icon_B_active.tif","category":"Small interface icon"},
+  {"archive":"common.mgf","path":"interface/Sprites/Controls/LiveIcons/ready.tif","category":"Linear ARGB4444 interface image"},
+  {"archive":"mission_01b.mgf","path":"Texture_Dump/SpecialEffects/VD_Tank_Smoke.tif","category":"Smoke sprite"},
+  {"archive":"text.mgf","path":"interface/Fonts/English/ArialReg20_01.tif","category":"Alpha-only font atlas","processing":"ai_alpha"}
+]

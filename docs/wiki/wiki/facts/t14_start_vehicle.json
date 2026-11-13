@@ -1,0 +1,272 @@
+{
+ "pack": "t14_start_vehicle",
+ "title": "Mission start vehicles",
+ "facts": [
+  {
+   "id": "start-chain-structure",
+   "title": "A start container resolves through four templates before the body",
+   "subject": {
+    "kind": "property",
+    "id": "MARoot.StartVehicles<GameType>"
+   },
+   "addresses": [],
+   "related": [
+    "MAPlayerConfigurationContainer",
+    "MAPlayerConfiguration",
+    "MAOwnerController"
+   ],
+   "fact": "MARoot has 18 StartVehicles* keys (retail, one per game type; 1F13DE84 is StartVehiclesGeneric, the one single player uses). Each holds an MAPlayerConfigurationContainer UID. Its child MoeEntityReference (ReferenceUID) names an MAPlayerConfiguration. The config holds CameraTemplateUID, CorporealTemplateUID and OwnerControllerTemplateUID. For vehicles and mechs the body is the MAOwnerController's MoverTemplateUID (an MAMech or MATank); the body has children MAWeaponLoadout, MAPowerupDrop and effect templates. On-foot avatar containers (123726, 123999) point through a second container to several configs (Nemesis, Alera, Pilot, Natalia, Foster) whose CorporealTemplateUID is an MAMech and whose OwnerControllerTemplateUID is 0.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "start",
+    "templates"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "start-chain-ba",
+   "title": "Battle Armor container 124001 chain (62 templates)",
+   "subject": {
+    "kind": "asset",
+    "id": "124001"
+   },
+   "addresses": [],
+   "related": [
+    "125894",
+    "32956"
+   ],
+   "fact": "124001 BattleArmor Container -> child 124013 MoeEntityReference -> 33072 MAPlayerConfiguration (ControlBehavior 1, HUDType 1, CameraTemplateUID 35954 'Camera - BattleArmor' MACameraThird, OwnerControllerTemplateUID 35962, CorporealTemplateUID 32956, EntryAnimation BAEnter, ExitAnimation BAExit, TransitionModel PilotToPowerArmor.node, AbandonedModel AbandonedPowerArmor.MGMODEL) -> 35962 MAOwnerController (MoverTemplateUID 32956) -> 32956 MAMech 'BattleArmor' (Corporal3DObj powerarmor.node, Nation 6, ForceUseLowDetail 1, IsBattleArmor 1) -> 55 more templates: weapon loadout 32955, VTOL / jack laser / cannon / mortar groups, barrels, projectiles, hit and fire effects, salvage drop 33123 -> 125161, explosion 125569, destroyed corporeal 40023. NearClip BA 125894 is the same chain: ref 125900, config 125897, owner controller 125895, mover 125891, camera 125888 'Camera - BattleArmor - NearClip'.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "start",
+    "battle-armor"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "start-chain-rommel",
+   "title": "Rommel container 124052 chain (58 templates)",
+   "subject": {
+    "kind": "asset",
+    "id": "124052"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "124052 RommelMk2 Container -> 124108 ref -> 33071 config (ControlBehavior 5, HUDType 5, AlternateHUDType 7, CameraTemplateUID 35956 'Camera - Tank', AlternateCameraTemplateUID 124163 'Camera - Tank - Zoom', EntryAnimation vehicleEnter, no TransitionModel) -> 35971 MAOwnerController -> 35997 MATank (Corporal3DObj VMil_RommelMK2.MGMODEL, Nation 0, m_bAIEnabled 0, ForceUseLowDetail 1) -> weapon loadout 36642, machine-gun groups, salvage drops 124182 and 116599, destroyed corporeal 125298, explosion 125708.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "start",
+    "rommel"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "start-chain-stiletto-foot",
+   "title": "Stiletto 124698 and low-rez avatar 123999 chains",
+   "subject": {
+    "kind": "asset",
+    "id": "124698"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "124698 Stiletto Container -> 124881 ref -> 124694 config (ControlBehavior 0, HUDType 0, CameraTemplateUID 35948 \"Mech Camera - Raptor, Stiletto\", FriendlyBARidingCamTemplateUID 123619, OwnerControllerTemplateUID 124696, EntryAnimation mechEnter-powerdown, no TransitionModel) -> 124696 -> 124691 MAMech Stiletto (Corporal3DObj Stiletto.NODE, Nation 5, ForceUseLowDetail 1) -> 62 more templates (65 in all). 123999 __Low Rez Avatar Container -> 123998 -> 123726 Avatar Ingame Container -> Nemesis 125604 and others: 50 templates, all in the 09b culled set.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "start",
+    "stiletto"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "start-culled-not-gate",
+   "title": "The Base level's culled template set does not decide what a scenario can start in",
+   "subject": {
+    "kind": "concept",
+    "id": "CulledTemplates/globalentities.mission_09b.wdf"
+   },
+   "addresses": [],
+   "related": [
+    "templates-wdf-ignored",
+    "culled-templates-fallback",
+    "start-vehicle-hud-forms"
+   ],
+   "fact": "Templates.mgf CulledTemplates/globalentities.mission_09b.wdf holds 417 templates. Of the Stiletto chain (65 templates) 46 are absent from it, including the container 124698, ref 124881, config 124694, owner controller 124696 and body 124691, yet a Stiletto start works in a 09b scenario. The scenario's index archive leaves templates.wdf out and writes no culled file for the scenario, so templates fall back to the full Templates/GlobalEntities.wdf (3,449 templates). So '[text omitted]' is NOT the rule, and a missing UID does not explain the failure. The t14b logs agree: the BA and Rommel runs build the right vehicle HUD forms (FS_PowerArmor, FS_Mover), so the templates are found.",
+   "how_to_use": "Walk container -> ref -> config -> owner controller -> mover -> all UID props and children, then compare to the culled set. That shows what a RETAIL level preloads, not what a scenario can use.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 856
+    }
+   ],
+   "tags": [
+    "start",
+    "templates",
+    "culled"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "start-retail-coverage",
+   "title": "Retail missions: the start container's chain is wholly in that mission's own culled set",
+   "subject": {
+    "kind": "concept",
+    "id": "MARoot.StartVehicles in retail missions"
+   },
+   "addresses": [],
+   "related": [
+    "start-culled-not-gate"
+   ],
+   "fact": "For each retail mission whose start names a vehicle, the whole chain is in its own culled set: Mission_05 Stiletto 124698 (65 templates, 0 missing), Mission_07 BA 124001 (0), Mission_16 BA 124001 (0), Mission_13a Rommel 124052 (0), Mission_01b NearClip BA 125894 (0), Mission_08 Mad Dog, 09A Uziel, 10 MadCat, 12/14/15 Blood Asp (all 0). Mission_02 puts NearClip 125894 on key 1F13DE84 (0 missing); its other 17 keys point to 124001, which has 7 templates absent from that culled set (124001, 124013, 33072, 35962, 32956, 33123, camera 35954), so unused keys may point outside the culled set. Mixed missions (04, 11a, 13b, 17a, 17b) list a second container missing from the culled set (13b Rommel: 39 missing), again unused in single player. This is how the retail cull was built (the start template and all it reaches), not a loader requirement.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "start",
+    "retail"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "start-test-maps",
+   "title": "Editor test maps differ only in MARoot StartVehicles values",
+   "subject": {
+    "kind": "file",
+    "id": "S_ba.ma2map / S_rommel.ma2map / S_stil.ma2map / S_foot.ma2map"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "All four world.wdf files have 94 objects and are identical except MARoot. scenario.ini: Base = mission_09b.mgf, PlayerStart = 143623. MALevelStart 143623 'Player Spawner' is the same in all four (Nation 0, StartArea 0, SetMember0 124463, TeamIndex 0). All 18 StartVehicles keys are set. S_rommel: all 18 = 124052. S_stil: all 18 = 124698. S_foot: all 18 = 123999. S_ba: 17 keys = 124001 but 1F13DE84 (StartVehiclesGeneric, the key single player uses) = 125894 NearClip BA, the Mission_02 container. No other MARoot key and no other object points at the old container. UseVehicleFromPreviousMission is 0 in all. So nothing in the map except the chosen chain explains the difference. Retail vehicle missions have a spawner with Nation 6 where 09b has Nation 0, but Stiletto (body Nation 5) works with Nation 0, so spawner nation is not the cause.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "start",
+    "editor"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "start-bad-runs-camera",
+   "title": "Failing starts install a MACameraLock; good starts get a MACameraThird",
+   "subject": {
+    "kind": "concept",
+    "id": "MACameraLock"
+   },
+   "addresses": [],
+   "related": [
+    "start-vehicle-cam-set-only-bad"
+   ],
+   "fact": "From the t14b logs: Stiletto and on-foot starts log 'cam=. Third owner=<player>'. BA and Rommel starts log one [CAM-SET] with camera class 7594AFD6, which the XBE class-key table maps to MACameraLock, from caller 000C92DA, and the view camera has owner 0. No player look/control component is created. Both BA (ControlBehavior 1, entry animation BAEnter) and Rommel (ControlBehavior 5, entry animation vehicleEnter) begin with an enter-vehicle sequence in the config; Stiletto (ControlBehavior 0) is a plain mech start. A locked camera with no owner is what a stalled enter sequence would leave. This link is a reading of the data, not traced.",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "start",
+    "camera"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "start-missing-body-model",
+   "title": "BA and Rommel starts name body models that the scenario does not mount; Stiletto and on-foot have no such gap",
+   "subject": {
+    "kind": "asset",
+    "id": "Corporal3DObj / TransitionModel / AbandonedModel"
+   },
+   "addresses": [],
+   "related": [
+    "start-culled-not-gate"
+   ],
+   "fact": "Checking every model path (.node,MGMODEL) in each chain against what a 09b scenario mounts (mission_09b.mgf + common.mgf + the editor's [Assets]): the Stiletto and avatar chains miss nothing (only the dev placeholder /tmpDev/claw/claw.mat). BA chain (124001 and 125894): PowerArmor\\powerarmor.node (body), PilotToPowerArmor\\PilotToPowerArmor.node (TransitionModel) and AbandonedPowerArmor\\AbandonedPowerArmor.MGMODEL are not mounted. Rommel chain: VMil_RommelMK2\\VMil_RommelMK2.MGMODEL is not mounted. mission_09b.mgf holds no Stiletto, PowerArmor or Rommel files. The editor's [Assets] ships these only as _low variants from boggeddown.mgf (powerarmor_low.node, Model_Low/powerarmor.mgmodel, PilotToPowerArmor_low.node, VMil_RommelMK2_low.MGMODEL), while Stiletto ships under its exact names (Stiletto.NODE, Model/Stiletto.mgmodel from cinema_1_1a.mgf). The high-detail files exist in retail mission archives (BA: mission_01b, 02, 07, 08. Rommel: mission_05, mission_13a). The editor already documents the mechanism for placed units (USABILITY G1): the game draws the template's Corporal3DObj and only an instance with ForceUseLowDetail=1 tries <name>_low first. A player body is spawned from the template, so a body mounted only as _low is a missing file. Size of the missing exact files: BA 115 files, 0.64 MB graphics; Rommel 55 files, 0.12 MB. The estimated graphics total of S_ba is 25.6 MB (limit ~63.5), so the memory budget is not the cause.",
+   "how_to_use": "Add to [Assets] from mission_07.mgf (or 01b/02): everything under Models/Mechs/PowerArmor/PowerArmor/Model, PilotToPowerArmor/Model, AbandonedPowerArmor plus the two .node files; from mission_13a.mgf (or 05): every VMil_RommelMK2.MGMODEL entry with its {sub-buffer} entries. Rerun S_ba / S_rommel. That is the decisive test.",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [
+    {
+     "file": "editor/src/core/scenario.cpp",
+     "line": 851
+    }
+   ],
+   "tags": [
+    "start",
+    "assets",
+    "models"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "start-rule",
+   "title": "Rule for which containers a scenario Base can start in",
+   "subject": {
+    "kind": "concept",
+    "id": "start container validity"
+   },
+   "addresses": [],
+   "related": [
+    "start-missing-body-model",
+    "start-bad-runs-camera"
+   ],
+   "fact": "1) The Base's culled set is irrelevant (templates come from the full GlobalEntities). 2) A container is usable if every model file its chain names, by the exact template path, is mounted: in the Base .mgf, common.mgf or the scenario's [Assets]. A _low variant counts only for instances carrying ForceUseLowDetail, which a player body does not have. 3) Containers with an enter sequence (ControlBehavior 1 Battle Armor/Elemental, 5 tanks, 3 VTOL) also need their TransitionModel, and their animations come from the body's .mtb. ControlBehavior 0 mechs and 2 avatars start directly. Not proven in game: that the missing model is the actual cause of the BA/Rommel failure; the add-exact-files test above is the check.",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "start",
+    "rule"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "start-valid-09b",
+   "title": "Containers valid for a mission_09b scenario",
+   "subject": {
+    "kind": "concept",
+    "id": "mission_09b start containers"
+   },
+   "addresses": [],
+   "related": [
+    "start-rule"
+   ],
+   "fact": "Verified in game (playtest): 123999 Low Rez Avatar (foot) and 124698 Stiletto work; 124001 BA, 124052 Rommel fail (and 125894 NearClip BA, same chain, fails). Predicted valid with no extra assets (body model mounted by exact name, ControlBehavior 0 or 2; inferred): 123726 Avatar Ingame, 125553 Pilot - NoBomb, 124036 MadCat, 124048 Uziel (MadCat and Uziel are also in the 09b culled set). Predicted to need extra exact-named files in [Assets] (their high-detail .NODE is not mounted): every other mech container (Belial 124021, Atlas 124022, Blood Asp 124023, Bowman 124026, Catapult 124027, Corvus 124028, Cougar 124029, Hackman 124031, Hellbringer 124032, Kit Fox 124033, Loki 124034, Mad Dog 124035, NovaCat 124037 and 126000, Owens 124038, Prometheus 124039, Puma 124040, Ragnarok 124041, Raptor 124042, Raven 124043, Summoner 124044, Thor 124045, Timber Wolf 124046, Uller 124047, Vulture 124049, Ymir 124050, Wendigo 124672, Star Adder 124687). Vehicle-type containers (Rommel variants 125370 and 126165, VTOL 124051, Turret 124334, Elemental 125292) need the same fix as BA/Rommel plus the enter sequence. Cinema, lobby and High Rez containers (123997, 124495, 125942 to 125946, 125780) are not playable starts: their models are not mounted and they have no gameplay HUD.",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "start",
+    "09b"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "start-how-to-compute",
+   "title": "How to compute valid start containers for any Base",
+   "subject": {
+    "kind": "tool",
+    "id": "start_container_check"
+   },
+   "addresses": [],
+   "related": [
+    "start-rule"
+   ],
+   "fact": "For Base B: build the mounted set M = files of B.mgf + common.mgf + the scenario's [Assets] (case-insensitive, backslash equals slash). For each MAPlayerConfigurationContainer U in GlobalEntities, walk U -> child MoeEntityReference.ReferenceUID -> config(s) -> CameraTemplateUID, OwnerControllerTemplateUID, CorporealTemplateUID and the alternate camera UIDs -> mover (owner controller MoverTemplateUID) -> every UID-valued property and every child (weapon loadouts, drops, effects, destroyed corporeals). Collect the string properties Corporal3DObj, TransitionModel, AbandonedModel and effect models. U is usable when every exact path is in M; otherwise list the missing files so the editor can add them from the first retail archive that has them (high-detail names live in mission_xx.mgf, low-detail ones in multiplayer maps). The culled set of B can be ignored. Practical shortcut: restrict the start picker to ControlBehavior 0 and 2 containers whose body Corporal3DObj is in M, and offer BA and vehicles only once the exact files are added.",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "start",
+    "tool"
+   ],
+   "date": "2026-10-21"
+  }
+ ]
+}

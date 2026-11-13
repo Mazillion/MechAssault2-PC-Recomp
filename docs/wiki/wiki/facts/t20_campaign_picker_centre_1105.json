@@ -1,0 +1,134 @@
+{
+ "pack": "t20_campaign_picker_centre_1105",
+ "title": "Mission picker barrel: Custom Scenarios shift and Campaign centring (2026-11-05)",
+ "facts": [
+  {
+   "id": "barrel-shift-custom-only",
+   "title": "The mission picker barrel moves 50 units right only on Custom Scenarios",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_barrel_offset"
+   },
+   "addresses": [
+    "0048F3E0"
+   ],
+   "related": [
+    "pc_native_settings.cpp",
+    "ma2_bots_ui.c",
+    "ma2_scn_custom_active"
+   ],
+   "fact": "ma2_pc_menu_pulse calls ma2_barrel_offset(50) on every menu pulse when the menu vtable is 0x48F3E0 (the mission picker) and Custom Scenarios mode is on (ma2_scn_custom_active), and ma2_barrel_offset(0) everywhere else. The 50 640x480 units make room for the Scenario Editor button drawn to the left (EDITOR_X0.X1 = 65.113). place_one -> shift_barrel moves the barrel title and its text children (the description); the arrows are re-placed from the barrel every frame.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 518
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_ui.c",
+     "line": 518
+    }
+   ],
+   "tags": [
+    "menu",
+    "scenario",
+    "editor-button",
+    "barrel"
+   ],
+   "date": "2026-11-05"
+  },
+  {
+   "id": "campaign-picker-stayed-shifted",
+   "title": "Bug: Campaign level select stayed shifted right after visiting Custom Scenarios",
+   "subject": {
+    "kind": "function",
+    "id": "shift_widget"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bots_ui.c",
+    "shift_barrel",
+    "ma2_barrel_offset"
+   ],
+   "fact": "The Campaign mission picker's level selector was off centre, shifted right as if the Editor button were there. Root cause: shift_widget only ever added the offset, and with the offset back at 0 shift_barrel returned early, so nothing moved the widgets back. The Campaign picker reuses the Custom Scenarios barrel widget, so it kept the +50 x at +0x4C and +0x5C. Fix (the game source tree, ma2_bots_ui.c, on top of e4a03a9): each tracked widget stores its base x and the offset applied (g_shifted[16]: w, x[2], dx); when the offset changes, including back to 0, x is rewritten to base + new offset. g_shifted_live counts entries still offset, so with offset 0 shift_barrel does nothing unless a shifted widget needs restoring. A widget whose +0x4C no longer equals base + applied is treated as new and re-based.",
+   "how_to_use": "Open Custom Scenarios (selector shifted right, Editor button on the left), back out to the hub, open Campaign: the level selector must be centred.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_ui.c",
+     "line": 523
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_ui.c",
+     "line": 542
+    }
+   ],
+   "tags": [
+    "menu",
+    "campaign",
+    "scenario",
+    "barrel",
+    "bug",
+    "fix"
+   ],
+   "date": "2026-11-05"
+  },
+  {
+   "id": "custom-mode-ends-on-other-hub-items",
+   "title": "Custom Scenarios mode ends when any other hub item is chosen",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_scn_hub_action"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_scenario.c",
+    "ma2_scn_custom_leave",
+    "ma2_scn_custom_active"
+   ],
+   "fact": "ma2_scn_hub_action calls ma2_scn_custom_leave for every hub action except 8 (Custom Scenarios), so the Campaign picker sees ma2_scn_custom_active == 0, gets barrel offset 0 and shows no Editor button. The mode is not ended when the hub is merely rebuilt (quitting a custom mission passes through the hub on the way back to the picker).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 2226
+    }
+   ],
+   "tags": [
+    "menu",
+    "scenario",
+    "campaign"
+   ],
+   "date": "2026-11-05"
+  },
+  {
+   "id": "shipped-pc-release-1105",
+   "title": "Centring fix shipped to PC Release on 2026-11-05 (exe 1446948D.8800)",
+   "subject": {
+    "kind": "file",
+    "id": "PC Release\\MechAssault 2.exe"
+   },
+   "addresses": [],
+   "related": [
+    "MechAssault 2 v13au28.exe"
+   ],
+   "fact": "build-\\mechassault2_recomp.exe with the shift_widget restore was built (only ma2_bots_ui.c recompiled) and copied to PC Release as 'MechAssault 2.exe' with mechassault2_recomp.map. SHA-256 1446948DD3B1E970A832F2DF19DAB7E012EEA1979CAF26CC8D4D1517E45A8800. It is v13au28 (A046C9FC.62E4, a test folder, 11-05, the Bots audit build) plus this fix; v13au28 itself does NOT have the fix. Not yet checked in-game at the time of writing.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_ui.c",
+     "line": 523
+    }
+   ],
+   "tags": [
+    "release",
+    "menu"
+   ],
+   "date": "2026-11-05"
+  }
+ ]
+}

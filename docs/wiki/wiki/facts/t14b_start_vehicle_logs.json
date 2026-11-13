@@ -1,0 +1,170 @@
+{
+ "pack": "t14b_start_vehicle_logs",
+ "title": "Mission start vehicles: run-log evidence",
+ "facts": [
+  {
+   "id": "start-vehicle-first-divergence",
+   "title": "Bad start vehicles first differ at the in-mission camera: no owner, unknown class",
+   "subject": {
+    "kind": "concept",
+    "id": "ST_* mission start (StartVehicles bad runs)"
+   },
+   "addresses": [],
+   "related": [
+    "MARoot.StartVehicles<GameType>",
+    "MAPlayerConfigurationContainer"
+   ],
+   "fact": "All four runs are identical through the menu, Custom Scenarios hub, scenario mount and mission_09b resource redirect (no errors, no 'not found', no assert, no fault, no exception in any of them; every run ends only with a WM_CLOSE exit). The first difference is the camera line printed when the mission's view is first drawn. Good runs (Stiletto, on-foot) print 'cam=. Third owner=<player object> target=3E800000'. Bad runs (Battle Armor, Rommel) print 'cam=. ? owner=00000000 target=30000000' (Battle Armor) or 'target=00000000' (Rommel): the camera class is not one of the known camera vtables and it has no owner. The mission loaded and the vehicle HUD loaded, so the failure is after template load, in attaching a camera/controller to the new player.",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "camera",
+    "mission-start",
+    "divergence"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "start-vehicle-cam-watch-lines",
+   "title": "CAM-WATCH lines, good vs bad, quoted",
+   "subject": {
+    "kind": "tool",
+    "id": "[CAM-WATCH]"
+   },
+   "addresses": [
+    "0046D348",
+    "0046D208"
+   ],
+   "related": [
+    "ma2_bots_core.c"
+   ],
+   "fact": "Stiletto: '[CAM-WATCH] t=0.0 view=0227FB40 vvt=00463518 cam=0227F940 Third owner=01991560 target=3E800000'. On foot: '. cam=02266E10 Third owner=011452A0 target=3E800000'. Battle Armor: '[CAM-WATCH] t=0.0 view=022BB570 vvt=00463518 cam=022BB370 ? owner=00000000 target=30000000'. Rommel: '. view=022C1800 cam=022C1600 ? owner=00000000 target=00000000'. The label comes from cam_vt_name in ma2_bots_core.c, which knows Third 0046D348, First 0046D208 and others; '?' means the camera's vtable is none of them. The line after it (BOT-TRACE site=30) shows the player object (a=) exists in all four runs.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 3301
+    }
+   ],
+   "tags": [
+    "camera",
+    "diag"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "00463518"
+   ]
+  },
+  {
+   "id": "start-vehicle-cam-set-only-bad",
+   "title": "[CAM-SET] fires only in the bad runs",
+   "subject": {
+    "kind": "tool",
+    "id": "[CAM-SET] / ma2_bot_cam_set"
+   },
+   "addresses": [
+    "000C9084",
+    "000C9113",
+    "0016B2F1"
+   ],
+   "related": [
+    "bots-vtol-camera-hijack",
+    "ma2_bot_cam_set"
+   ],
+   "fact": "Both bad runs log exactly one '[CAM-SET] t=0.0 slot=1 table=0052A280 cam=. cls=7594AFD6 owner=. caller=000C92DA' just before the camera-watch line. Neither good run has a CAM-SET line at all. Caller 000C92DA is the vehicle-camera block (sub_C9084/sub_C9113) that installs a camera into the player's screen slot. cls=7594AFD6 is not the third-person (7ECA8E3B) or first-person (C8894008) class named in the wiki, and the CAM-WATCH camera (cam=.370/600) is a different object from the CAM-SET camera (cam=.3E0/670). So for Battle Armor and Rommel a different camera class is built and installed, and the camera the view draws from has no owner. Not refused as a bot camera (no '(BOT: refused)' suffix). Which class 7594AFD6 is and why the owner field stays 0 is not yet known. Note: CAM-SET only prints when RECOMP_BOT_DIAG is set, so the good runs having none means the call never ran or was not logged; not checked whether DIAG was on in them (it must have been, since the same binary printed it for the bad runs, but verify).",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "camera",
+    "diag"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "000C92DA",
+    "00463518"
+   ]
+  },
+  {
+   "id": "start-vehicle-hud-forms",
+   "title": "HUD form set follows the vehicle type; the vehicle is created in the bad runs",
+   "subject": {
+    "kind": "concept",
+    "id": "HUD forms loaded at mission start"
+   },
+   "addresses": [],
+   "related": [
+    "HUD_FS_PowerArmor.ggf",
+    "HUD_FS_Mover.ggf",
+    "HUD_FS_Sniper_Zoom.ggf"
+   ],
+   "fact": "After the mission mounts, the HUD forms loaded show the player's vehicle type was resolved. Stiletto and on-foot load HUD_Blank, FS_Rocket, FS_Pilot, FS_Mech, HUD_Text, TimeLimit. Battle Armor loads FS_Rocket, FS_Pilot, FS_Mech, FS_PowerArmor, HUD_Text, TimeLimit. Rommel loads FS_Rocket, FS_Pilot, FS_Mech, FS_Mover, FS_Sniper_Zoom, HUD_Text, TimeLimit. So the container UIDs 124001 and 124052 resolve to real templates and their vehicle HUDs are built; the template is found. The bad runs do not fail on a missing UID.",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "hud",
+    "vehicles"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "start-vehicle-look-component",
+   "title": "Player look/mouse component never replaced in the bad runs",
+   "subject": {
+    "kind": "tool",
+    "id": "[MOUSE-DIAG]"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Good runs log 17 '[MOUSE-DIAG] look component=.' lines; after the mission starts the look component changes from the menu's 01C4DC80 to a new one (022A79C0 in the Stiletto run, line 1439), i.e. a player control component is created. The bad runs log only one look line (the menu one, ST_ba line 990, ST_rommel line 1036) and every later 'context mapping' line still shows component=01C4DC80. No player look/control component ever exists, consistent with a player with no controller-owned camera and no HUD.",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "input",
+    "camera"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "start-vehicle-no-errors-in-log",
+   "title": "The bad-run stderr has no error, assert or fault text",
+   "subject": {
+    "kind": "concept",
+    "id": "ST_ba / ST_rommel stderr"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A grep of the four stderr files for fault, exception, assert, not found and MISSING finds only the usual ERROR_PATH_NOT_FOUND for TDATA contentmeta.xbx (line 513 ST_ba, same in all four, harmless). The scenario assets mount reports 'ok' and '0 missing' (ST_rommel 909). The bad runs are therefore a silent logic failure; more evidence needs a trace on the camera install (sub_C9084/sub_C9113) or the player-controller attach, not just stderr.",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "no-error",
+    "next-step"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "start-vehicle-run-setup",
+   "title": "Run setup and what differs between the four runs",
+   "subject": {
+    "kind": "concept",
+    "id": "ST_ba ST_rommel ST_stil ST_foot"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "All four use the same base mission (mission_09b.mgf, scenario 629EFA27 'test', Custom Scenarios entry 0) and identical pc_settings.ini sizes; only the scenario assets .mgf hash differs (_8A1AA11C ba, _D9B52BDE rommel, _2916A1C1 stil and foot). Autostart reaches 'in the mission' at 73 s in each. The only commands sent are key 87, two clicks and close.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "setup"
+   ],
+   "date": "2026-10-21"
+  }
+ ]
+}

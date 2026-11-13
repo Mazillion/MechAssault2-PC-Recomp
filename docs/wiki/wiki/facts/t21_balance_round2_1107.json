@@ -1,0 +1,303 @@
+{
+ "pack": "t21_balance_round2_1107",
+ "title": "Side-balance sweep round 2 (11-07): open items closed",
+ "facts": [
+  {
+   "id": "bal-gc-ctf-jet-over-flag",
+   "title": "CTF Going Commando: 0 grabs because a retreat jet hop carried BattleArmor over the flag",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "On Going Commando (all BattleArmor) bots did reach both flags (bs62b b0 22 m from blue at 196.2 s; bs62a b7 12 m from red at 53.8 s) but crossed them 6-7 m up at 25-30 m/s: a retreat order 0.5 s earlier started a 2 s jet hop (ord 5, jump command held), the brain switched to the grab (FlagTouch walk) and the burn carried on over the flag. 20-30 m out a power-up (1.25) or retreat (1.20) also out-scored the grab (1.15) because the 2.6 commit started at 20 m. Fixes in 6cbb7a9: TouchJetCut (a touch order inside 30 m ends a running jump: ai+0x240 = 0, actor+0x268 bit 15 and thrust +0x4E4/+0x4E8 cleared) and GrabReach (commit from 30 m). Proof runs: 1 and 7 grabs (rc2 0 and 0), a capture each side.",
+   "how_to_use": "audit/gc_jet.py SRC REC BOT T0 T1 [STEP] prints pos/vel/cmd/drv/order per step; gc_near.py lists frames near the enemy flag.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "balance",
+    "ctf",
+    "going-commando",
+    "jets"
+   ]
+  },
+  {
+   "id": "bal-gc-audio-crash",
+   "title": "Going Commando: APU MMIO crash at guest 0x3A8A02 and a sim freeze, both in the first minute",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "4th sighting of the DSOUND APU MMIO read at 0xFE000268 (guest 0x3A8A02, edi=0xFE000264), every one on Going Commando (bs62a, gc6b first try at 44 s). A separate try (gc6a) froze at 51 s game time: the process stayed alive, only [PC-UI] and [KERNEL] summary lines after, no CRASH line. Neither run had the new touch jet cut near the event. Logs: NOTES audit/balance/crash/.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "balance",
+    "crash",
+    "audio",
+    "going-commando"
+   ]
+  },
+  {
+   "id": "bal-bw-del-headcount",
+   "title": "Base War Deliverance: the middle follows head count (the idle sweep human = 5 v 6)",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Kills by tenth of the plant-to-plant line (audit/killfrac.py): with the idle test human on team 1 (bs91a, bw7a) the fights land in team 1's half (tenths 1-4); with it on team 2 (bs91b, bw7b) in team 2's half (4-9). bw7b (team 1 with six bots) won 1735-0. Scores come from a few lone runs: bs91b team 2's 1395 = one BattleArmor at team 1's plant 306-321 s. Attackers past the middle were alone 85-100 % of the time (bw_push.py); BwGroup (6cbb7a9) stages them at the main lane's 45 % point for up to 12 s.",
+   "how_to_use": "audit/killfrac.py STDERR x1 z1 x2 z2; bw_push.py; bw_hits.py.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "balance",
+    "base-war",
+    "deliverance"
+   ]
+  },
+  {
+   "id": "bal-bw-del-stands",
+   "title": "Base War Deliverance: the rc3 objective stands (59 s vs 32 s) are guards standing at posts, same total",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "All long stands in rc2_91 and rc3_91 are defenders at their guard posts (objective, ord 2). Total defender still time is the same (296 vs 301 bot-s, threatnear.py); nobody reached either plant in either 240 s run (enemy bot-s within 400 m: 16 and 7), so it is split into more >= 1.5 s pieces, not more standing.",
+   "how_to_use": "audit/longstand_bybot.py; threatnear.py.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "balance",
+    "base-war",
+    "stands"
+   ]
+  },
+  {
+   "id": "bal-bw-bd-close",
+   "title": "Base War Bogged Down: team 1 wins on damage per close 'Mech-second, no pathing fault",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Team 1's 'Mechs get to 63-68 m of team 2's plant and stream damage (66-110 per tick): 151 and 91 hp per second with a 'Mech within 150 m; team 2's 'Mechs stood at 140 m in run a (13 hp/s) and 69 m in run b (60 hp/s) (bw_close.py). Team 2's damage is mostly BattleArmor (5183 of 7287 in bs90a). Vehicle picks are even, line-of-sight blocks to the plants the same both sides (BOT-OBJFIRE no-line 18/19, 17/12). Below the 2x flag.",
+   "how_to_use": "audit/bw_close.py, bw_bykind.py.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "balance",
+    "base-war",
+    "bogged-down"
+   ]
+  },
+  {
+   "id": "bal-iw-lowwall",
+   "title": "Snatch It Ill Wind basin: a low wall the obstacle grid reads open; PocketBail and LowWallLearn",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A bot already in the basin (912,-2,1595) stalled 16 times against one low structure (BOT-BLOCK: 1 m ray hits 00CF40D0 cls 49BB7821, 3/6/10 m clear), each logged 'stall 1' 8-12 m from the last, so neither the unseen-obstacle learning (2 stalls within 10 m) nor 'trapped' (4) ran. 6cbb7a9: LowWallLearn (a 'Mech/tank stall with the 1 m ray blocked within 6 m and the 3 m ray clear is learned at once) and PocketBail (4 stalls within 25 m inside 90 s = trapped). There is also a way out to the south-east (iw11b b6 left at about 135 s).",
+   "how_to_use": "audit/pocketbail_check.py STDERR. simulates PocketBail offline.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "balance",
+    "snatch",
+    "ill-wind",
+    "pathing"
+   ]
+  },
+  {
+   "id": "bal-iw-route-clearance",
+   "title": "Snatch It Ill Wind: team 2's short way to the cores needs 3 m clearance; big 'Mechs loop south",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RECOMP_BOT_PATHTEST (grid planner) from team 2's base 1218,1475 to the pile 719,1296: r=2.5 585 m, r=3.0 559 m, r=3.5 743 m, r=4.0 747 m (south loop via 1044,1222 and 832,1148). Team 1's base to the pile is 450-500 m at r=4. The pile back to team 2's base is 574 m at r=4 down a one-way drop at 750,1386. A 'Mech plans with 0.6 x its hull (2.6-4.0 m), so small 'Mechs, BattleArmor and pilots already take the short way; the gap at team 2's base exit (1146,1492 -> 1130,1476) is 6-7 m wide. Map design.",
+   "how_to_use": "RECOMP_BOT_PATHTEST='x0,z0,x1,z1,radius,crush,drop|.' prints [PATHTEST] lines once the nav is up (test hook).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "balance",
+    "snatch",
+    "ill-wind",
+    "map-design"
+   ]
+  },
+  {
+   "id": "bal-choke-touch-dither",
+   "title": "Choke points kept the objective's touch walk: tanks dithered and one crept into a hole",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "choke_flow (keep right, wait at the mouth, file in behind) moved out->point but left FlagTouch/exact set, so the controller walked onto the point and past it: pg81b b8's tank went to its file-in points by the direct walk (W4718) and shuttled 1195,1423 <-> 1217,1411 at choke 2 (63-79 s); the file-in point (leader minus spacing) was behind it with the leader 2-8 m ahead. With a hold at its own spot it crept 25 m over the edge at 1178,1414 into a hole at 1167,3,1410 where no eject could set the pilot down (iw9b). 6cbb7a9: ChokePlain (choke points are plain stops), FollowHold (a file-in point not ahead = hold), TankOrbit (a shuttle/churn stall of a tank 30 deg+ off its carrot pivots on the spot).",
+   "how_to_use": "Look for drv W47xx (direct walk) on a tank with note choke-follow.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "balance",
+    "chokes",
+    "tank"
+   ]
+  },
+  {
+   "id": "bal-weak-side",
+   "title": "Bots on the side that is behind kept their plan; WeakSide changes it",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Check It Deliverance (bs70a/b): the side behind kept spreading attackers by rank over 3-4 terminals (ck_targets.py). 6cbb7a9 WeakSide: behind = Check It more terminals held by them / Snatch It more cores in their base / Base War plant 10 points lower (biggest building hp share). Check It attackers pair up on the two nearest terminals; Snatch It attackers pair up and count cores in the other base as near as free ones; Base War flex players guard the plant. ck11a: the behind side concentrated on terminals 1 and 3.",
+   "how_to_use": "audit/ck_targets.py SRC REC.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "balance",
+    "check-it",
+    "snatch",
+    "base-war"
+   ]
+  },
+  {
+   "id": "bal-matrix-rc4",
+   "title": "Side-swap matrix rc4 (22 cells x 2): side bias gone, head count decides",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "rc2: team 1 won 21 of 29 decided runs; rc4 (6cbb7a9): 18 of 36. The sweep's test human idles, so its side plays 5 v 6: the 6-bot side won 26 of 36 decided rc4 runs (rc2 15 of 29). With two runs a cell, the 'same side wins both' flag fires on any cell where the 5-bot side wins one run: 5 new rc4 flags (Snatch It On the Rocks and Rush Hour, Check It Ill Wind and Killing Fields, Base War Rush Hour) are that. Carried over and measured as map design: Snatch It Ill Wind, Base War Bogged Down and No Man's Land.",
+   "how_to_use": "audit/balance/compare.py bs rc4_ prints the before/after table; table.py PREFIX OUT TITLE.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "balance",
+    "matrix"
+   ]
+  },
+  {
+   "id": "bal-tank-wedge-dips",
+   "title": "Tank wedge dips (Ill Wind base exits, On the Rocks 1513,1507): eject refused; PocketMark and WedgeFight",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Tanks drive into dips they cannot leave and the game refuses the eject (no room to set the pilot down): Ill Wind 331-338,11,994-1006 by team 1's base (rc4_63b: two tanks in one match), 1167,3,1410 by team 2's (iw9b), CTF On the Rocks 1509,59,1503 (rc4_65b; vertical speed jitters +-20-55 m/s). The bot asked for the bail-out every 15 s to the end. 96990bd WedgeFight: after two bail-outs from the same hull it fights from there. ec66392 PocketMark: when PocketBail fires for a tank, its spot (5 m) becomes a learned obstacle (rc5 test: one wedge, no second tank).",
+   "how_to_use": "grep BOT-POCKETBAIL / BOT-TRAPPED; C7 trapbail wedge_fight, pocketbail marked.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "balance",
+    "tank",
+    "pathing"
+   ]
+  },
+  {
+   "id": "objreach-audit",
+   "title": "Objective-reach audit: every objective order a bot takes, classified from the botrec",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "audit/objreach.py reads a .botrec + stderr and splits each bot's goal=objective stretches (grab, carry, return, claim, hold, destroy, chase-it; split on op or target change) into reached / resolved / died / no_route (status.no_path 2 s+ in the last 10 s) / stall (stalled, trapped or AiKick in the last 10 s AND < 15 m moved) / orbit (8 s+ inside 30 m) / gave_up (30 s+, < 30 m closer) / retarget (with the next goal) / open. objreach_table.py builds OBJECTIVE-REACH.md. rc2 -> rc6 full matrix: no_route 33/842 s -> 12/457 s, gave_up 5/204 -> 1/42.",
+   "how_to_use": "python objreach.py SRC REC STDERR --json OUT; objreach_table.py OUT.md",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "objective-reach",
+    "audit"
+   ]
+  },
+  {
+   "id": "objreach-kf-terminal2",
+   "title": "Check It Killing Fields terminal 2 (558,52,1262) is on a platform 12 m up: vehicles must walk it",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "'Mechs circled below at 466-498,1196-1261 (y 40) with no route, 51-145 s per try, both teams, rc2 and rc4. A pilot route exists (PATHTEST r 0.8: 52 m from 487,1191). FootFallback (16b46a6 + a2423c0 + a25d8c9): no route to an on-foot terminal within 150 m -> get out (the EjectTurret hold's 8 s cap runs; a refused exit backs 20 m off first), keep the terminal as an on-foot candidate to 160 m, do not re-board.",
+   "how_to_use": "grep [BOT-OBJ] 'getting out to walk'; C7 footfallback n / eject_moves.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "objective-reach",
+    "check-it",
+    "killing-fields"
+   ]
+  },
+  {
+   "id": "objreach-rh-deck",
+   "title": "Snatch It Rush Hour core deck (y 55 over the y 30 street): only jet 'Mechs, BattleArmor and VTOLs get up",
+   "subject": {
+    "kind": "topic",
+    "id": "Bots"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "PATHTEST: no route at r >= 1.4; a pilot stair only. 'Mechs planned jet-ups of 8 m until they had measured a climb (b6 7 fuel -> 24 m): JetPrior plans 3.4 m per unit of the fullest tank; DeckJet jets at a raised goal from 60 m at a partial route's end; DeckSkip makes tanks and jetless 'Mechs (ma2_bot_has_jets keeps the fullest tank per body: fuel reads ~0 after a burn) skip cores 18 m+ above them.",
+   "how_to_use": "C7 jetprior plans, snatchdeck skipped_nojets.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "bots",
+    "objective-reach",
+    "snatch",
+    "rush-hour",
+    "jets"
+   ]
+  }
+ ]
+}

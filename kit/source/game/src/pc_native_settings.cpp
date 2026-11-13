@@ -1,0 +1,961 @@
+#include "pc_settings.h"
+#include "ma2_startup_policy.h"
+#include "platform/pc_frontend.h"
+#include <windows.h>
+#include <windowsx.h>
+#include <d3d11.h>
+#include <xinput.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <cmath>
+#include <string>
+#include <vector>
+#include <algorithm>
+#include <atomic>
+#include "imgui.h"
+#include "backends/imgui_impl_win32.h"
+#include "backends/imgui_impl_dx11.h"
+extern "C" ptrdiff_t g_xbox_mem_offset;
+// The active host pad (xinput_device.c): slot 0 if connected, else the lowest connected slot, switching on a new
+// button press, with empty slots probed once a second. The settings page and the Editor button read it too.
+extern "C" DWORD xbox_InputPollHostState(XINPUT_STATE *state);
+extern "C" BOOL xbox_InputAnyPadConnected(void);
+static uint32_t &guest(uint32_t address){return *(uint32_t *)(g_xbox_mem_offset+address);}
+static char ini_path[MAX_PATH];
+static std::atomic<DWORD> menu_time;
+static std::atomic<uint32_t> menu_kind,menu_object;
+static std::atomic<HWND> game_window;
+static std::atomic<bool> opened,request_exit;
+static std::atomic<uint32_t> exit_dialog;
+static DWORD opened_at;
+static uint32_t page_object,page_form;
+static int page,selection,binding_page,waiting_binding=-1;
+static unsigned last_revision;
+static bool page_dirty,settings_write_failed,fullscreen;
+static bool distance_dragging;
+static bool fps_context_initialized,fps_platform_initialized,fps_renderer_initialized;
+static bool renderer_error_handled;
+static int output_width=1280,output_height=960;
+static std::vector<std::pair<int,int>> resolutions;
+static const char *binding_names[PC_BINDING_COUNT]={"Start","Back","A","B","X","Y","White","Black","LeftTrigger","RightTrigger","MoveLeft","MoveRight","MoveBack","MoveForward","LeftThumb","RightThumb","MouseFire","MouseAltFire"};
+// W-05: rows are named by action; the pad button follows in brackets. The labels go through the prompt
+// rewriter (pc_prompts.cpp), so they must not contain "B button", "White button" and the like: those
+// would be replaced by the bound key.
+static const wchar_t *binding_labels[PC_BINDING_COUNT]={L"Pause / objectives (Start)",L"Back button",L"Jump jets / neurohack (A)",L"Pad B",L"Pad X",L"Enter / exit vehicle (Y)",L"White (RB)",L"Black (LB)",L"Next weapon, key (LT)",L"Fire, key (RT)",L"Move left",L"Move right",L"Move backward",L"Move forward",L"Left stick click",L"Right stick click",L"Fire, mouse (RT)",L"Next weapon, mouse (LT)"};
+static int default_keys[PC_BINDING_COUNT]={VK_RETURN,VK_BACK,VK_SPACE,'F','R','Q','1','2','C','V','A','D','S','W',VK_SHIFT,VK_CONTROL,VK_LBUTTON,VK_RBUTTON};
+// Default letter and digit bindings follow the physical keys of the QWERTY layout (W is scan 0x11), so an AZERTY or
+// Dvorak player gets WASD where WASD sits on their keyboard (easy-wins B1.13, D6). Mouse, Enter, Space etc. are fixed.
+static void init_default_keys(ma2_scan_mapper mapper){
+    static const struct{int index;unsigned scan;}letters[]={{4,0x13},{5,0x10},{6,0x02},{7,0x03},{3,0x21},{8,0x2E},{9,0x2F},{10,0x1E},{11,0x20},{12,0x1F},{13,0x11}};
+    for(const auto &l:letters)default_keys[l.index]=ma2_default_key_from_scan(l.scan,default_keys[l.index],mapper);
+}
+static int env_int(const char *name,int fallback){const char *s=getenv(name);return s&&*s?atoi(s):fallback;}
+static bool menu_available(){uint32_t kind=menu_kind.load();return kind&&kind!=0x481EF8&&GetTickCount()-menu_time.load()<250;}
+// Last menu/HUD pulse (every frame in play and in menus): the bots' freeze watchdog (ma2_bots_core.c).
+extern "C" DWORD ma2_pc_menu_pulse_ms(void){return menu_time.load();}
+static bool modal_available(){return g_xbox_mem_offset&&guest(0x5240D4)>guest(0x5240D0);}
+struct Event {UINT type;int key,x,y;uint32_t text_generation=0;};
+static SRWLOCK events_lock=SRWLOCK_INIT;
+static std::vector<Event> events;
+static void queue(Event e){AcquireSRWLockExclusive(&events_lock);if(events.size()<256)events.push_back(e);ReleaseSRWLockExclusive(&events_lock);}
+/* Guest-thread modal identity, published with the window event queue. The
+ * window thread never dereferences a guest object or edits the name vector. */
+static uint32_t text_record,text_object,text_generation=1;
+static bool text_focused=true,text_cancel_pending;
+static std::atomic<bool> text_closed;
+struct TextDecoder {
+    UINT code_page=0;char bytes[4]={};unsigned used=0,expected=0;
+    void clear(){used=expected=0;}
+    uint32_t decode(UINT cp,bool unicode,uintptr_t value){
+        if(unicode){clear();return value<=0xFFFF?(uint32_t)value:0;}
+        if(code_page!=cp){clear();code_page=cp;}
+        if(value>255){
+            clear();
+            if(value>0xFFFF||!IsDBCSLeadByteEx(cp,(BYTE)(value>>8)))return 0;
+            char packed[2]={(char)(value>>8),(char)value};wchar_t wide;
+            return MultiByteToWideChar(cp,MB_ERR_INVALID_CHARS,packed,2,&wide,1)==1?wide:0;
+        }
+        BYTE b=(BYTE)value;
+        if(used&&cp==CP_UTF8&&(b&0xC0)!=0x80)clear();
+        if(!used){
+            if(cp==CP_UTF8){
+                expected=b<0x80?1:b>=0xC2&&b<=0xDF?2:b>=0xE0&&b<=0xEF?3:b>=0xF0&&b<=0xF4?4:0;
+                if(!expected)return 0;
+            }else expected=IsDBCSLeadByteEx(cp,b)?2:1;
+        }
+        bytes[used++]=(char)b;
+        if(used<expected)return 0;
+        wchar_t wide[2]={};int count=MultiByteToWideChar(cp,MB_ERR_INVALID_CHARS,bytes,used,wide,2);
+        clear();return count==1?wide[0]:0; // The retail name editor stores BMP characters.
+    }
+};
+static TextDecoder text_decoder;
+static void invalidate_text_events_locked(){
+    if(!++text_generation)++text_generation;
+    events.erase(std::remove_if(events.begin(),events.end(),[](const Event &e){return e.text_generation!=0;}),events.end());
+    text_decoder.clear();
+}
+static void sync_text_dialog(){
+    uint32_t object=0,record=0;
+    if(g_xbox_mem_offset&&!opened&&!text_closed&&!pc_display_movie_active())record=ma2_gui_keyboard_dialog(&object);
+    AcquireSRWLockExclusive(&events_lock);
+    if(record!=text_record||object!=text_object){
+        invalidate_text_events_locked();text_record=record;text_object=object;text_cancel_pending=false;
+    }
+    bool changed=pc_input_text_captured()!=(record!=0);
+    pc_input_text_capture(record!=0);
+    ReleaseSRWLockExclusive(&events_lock);
+    if(changed){pc_input_camera_capture(0);PostMessageA(game_window,PC_WINDOW_CAPTURE_MESSAGE,0,0);}
+}
+static void text_focus_or_close(UINT message){
+    AcquireSRWLockExclusive(&events_lock);
+    invalidate_text_events_locked();
+    if(message==WM_SETFOCUS)text_focused=true;
+    else if(message==WM_KILLFOCUS)text_focused=false;
+    else {text_closed=true;text_record=text_object=0;text_cancel_pending=false;pc_input_text_capture(0);}
+    ReleaseSRWLockExclusive(&events_lock);
+}
+static int text_message(HWND window,UINT message,uintptr_t wparam,intptr_t lparam){
+    if(!pc_input_text_captured())return 0;
+    bool keyboard=false;int handled=0;
+    AcquireSRWLockExclusive(&events_lock);
+    auto add=[&](UINT type,int key,int x=0,int y=0,unsigned repeat=1){
+        if(!text_record||!text_focused||text_cancel_pending)return;
+        for(unsigned i=0;i<repeat&&events.size()<256;i++)events.push_back({type,key,x,y,text_generation});
+    };
+    unsigned repeat=std::clamp((unsigned)(lparam&0xFFFF),1u,32u);
+    if(message==WM_CHAR){
+        uint32_t code=text_decoder.decode(GetACP(),IsWindowUnicode(window)!=FALSE,wparam);
+        if(code>=0x20&&!(code>=0x7F&&code<0xA0)&&code<0xFFFE&&!(code>=0xD800&&code<=0xDFFF))
+            add(WM_CHAR,(int)code,0,0,repeat);
+        keyboard=true;handled=1;
+    }else if(message==WM_KEYDOWN){
+        if(wparam==VK_BACK||wparam==VK_LEFT||wparam==VK_RIGHT)add(WM_KEYDOWN,(int)wparam,0,0,repeat);
+        else if((wparam==VK_RETURN||wparam==VK_ESCAPE)&&!(lparam&(1LL<<30)))add(WM_KEYDOWN,(int)wparam);
+        keyboard=true;handled=1;
+    }else if(message==WM_MOUSEMOVE||message==WM_LBUTTONDOWN){
+        add(message,VK_LBUTTON,GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam));handled=1;
+    }else if(message==WM_KEYUP||message==WM_INPUT||(message>=WM_MOUSEFIRST&&message<=WM_MOUSELAST))handled=1;
+    ReleaseSRWLockExclusive(&events_lock);
+    if(keyboard)pc_input_note_keyboard();
+    return handled;
+}
+static bool current_text_event(const Event &e,uint32_t &record,uint32_t &object){
+    AcquireSRWLockShared(&events_lock);
+    bool valid=e.text_generation==text_generation&&text_record&&text_focused&&!text_cancel_pending;
+    record=text_record;object=text_object;
+    ReleaseSRWLockShared(&events_lock);
+    return valid;
+}
+static void text_cancel(){
+    AcquireSRWLockExclusive(&events_lock);invalidate_text_events_locked();text_cancel_pending=true;
+    ReleaseSRWLockExclusive(&events_lock);pc_input_menu_button(1);
+}
+static void menu_point(HWND window,int px,int py,float &x,float &y){
+    RECT r={};GetClientRect(window,&r);
+    float aspect=pc_display_aspect(4.f/3.f),height=std::min((float)r.bottom,r.right/aspect),width=height*aspect;
+    x=(px-(r.right-width)*.5f)/width;y=(py-(r.bottom-height)*.5f)/height;
+}
+/* Editor button on Custom Scenarios (ux\spec-ingame-editor.md): a square left of the scenario
+ * (the mission picker's barrel moves right for it, ma2_bots_ui.c), in the picker's 640x480 units.
+ * Click, E or pad Y opens the Scenario Editor (scenario/ma2_scenario.c ma2_scn_editor_open). */
+extern "C" int ma2_scn_custom_active(void);
+extern "C" int ma2_scn_editor_available(void);
+extern "C" int ma2_scn_editor_running(void);
+extern "C" void ma2_scn_editor_open(void);
+extern "C" const wchar_t *ma2_scn_editor_note(void);
+static const float EDITOR_X0=65,EDITOR_X1=113,EDITOR_Y0=330,EDITOR_Y1=378;
+static bool editor_button_shown(){return !opened&&!exit_dialog&&menu_available()&&menu_kind==0x48F3E0&&ma2_scn_custom_active()&&!ma2_scn_editor_running();}
+/* Pad / keyboard focus on the Editor button (spec section 0): Up, LB or Tab from the scenario row
+ * focuses it, A / Enter opens the editor, Right / Down / B / Esc / Tab return to the row; Y and E
+ * open it from anywhere on the screen. While the button has focus the guest reads an empty pad
+ * (pc_frontend_capture), so the A or Enter that opens the editor cannot also start the mission;
+ * the capture ends once the focus is gone and the pad buttons are up. */
+static std::atomic<bool> editor_focus{false},editor_capture{false};
+static void editor_focus_set(bool on){
+    if(editor_focus.exchange(on)==on)return;
+    fprintf(stderr,"[SCN] editor button focus %s\n",on?"on":"off");
+    if(on&&!editor_capture.exchange(true)){pc_frontend_capture(1);PostMessageA(game_window,PC_WINDOW_CAPTURE_MESSAGE,0,0);}
+}
+static void editor_capture_release(){if(editor_capture.exchange(false)){pc_frontend_capture(0);PostMessageA(game_window,PC_WINDOW_CAPTURE_MESSAGE,0,0);}}
+/* Tests (RECOMP_UI_LIVE): a scripted pad for the Editor button. The live channel's key=<vk> with the
+ * Windows VK_GAMEPAD_* codes (0xC3 A ... 0xCE D-pad right) holds / taps that pad button; a tap is kept
+ * until the next menu frame reads it. Only the native button logic sees it, never the guest. */
+static std::atomic<unsigned> test_pad_held{0},test_pad_tapped{0};
+static unsigned test_pad_bit(uintptr_t vk){
+    switch(vk){case 0xC3:return XINPUT_GAMEPAD_A;case 0xC4:return XINPUT_GAMEPAD_B;case 0xC5:return XINPUT_GAMEPAD_X;
+    case 0xC6:return XINPUT_GAMEPAD_Y;case 0xC7:return XINPUT_GAMEPAD_RIGHT_SHOULDER;case 0xC8:return XINPUT_GAMEPAD_LEFT_SHOULDER;
+    case 0xCB:return XINPUT_GAMEPAD_DPAD_UP;case 0xCC:return XINPUT_GAMEPAD_DPAD_DOWN;case 0xCD:return XINPUT_GAMEPAD_DPAD_LEFT;
+    case 0xCE:return XINPUT_GAMEPAD_DPAD_RIGHT;}
+    return 0;
+}
+// ma2_scenario.c, back from the editor: focus returns to the scenario row before it posts any key.
+extern "C" void ma2_pc_editor_focus_clear(void){editor_focus_set(false);editor_capture_release();}
+static bool menu_widescreen(){return pc_display_aspect(4.f/3.f)>4.f/3.f+.01f;}
+// A normalised menu point (menu_point) in the picker's 640x480 units: widescreen menus are
+// 480*aspect units across with the 4:3 panel centred (ma2_bots_ui.c LAYOUT_*).
+static float menu_layout_w(){return menu_widescreen()?480.f*pc_display_aspect(4.f/3.f):640.f;}
+static void menu_units(float nx,float ny,float &x,float &y){float lw=menu_layout_w();x=nx*lw-(lw-640.f)*.5f;y=ny*480.f;}
+static bool editor_button_hit(float nx,float ny){float x,y;menu_units(nx,ny,x,y);return x>=EDITOR_X0-4&&x<EDITOR_X1+4&&y>=EDITOR_Y0-4&&y<EDITOR_Y1+20;}
+// A box in the picker's 640x480 units, in client pixels.
+static void menu_box(HWND window,float x0,float y0,float x1,float y1,float box[4]){
+    RECT r={};GetClientRect(window,&r);
+    float aspect=pc_display_aspect(4.f/3.f),height=std::min((float)r.bottom,r.right/aspect),width=height*aspect;
+    float ox=(r.right-width)*.5f,oy=(r.bottom-height)*.5f;
+    auto nx=[&](float x){float lw=menu_layout_w();return (x+(lw-640.f)*.5f)/lw;};
+    box[0]=ox+nx(x0)*width;box[2]=ox+nx(x1)*width;box[1]=oy+y0/480.f*height;box[3]=oy+y1/480.f*height;
+}
+static void editor_button_box(HWND window,float box[4]){menu_box(window,EDITOR_X0,EDITOR_Y0,EDITOR_X1,EDITOR_Y1,box);}
+// Footer hint between the retail footer's left ('1 Player Options') and right groups.
+static const float EDITOR_HINT_X0=198,EDITOR_HINT_X1=274,EDITOR_HINT_Y0=412,EDITOR_HINT_Y1=433;
+/* Editor button art for Custom Scenarios (4B, ux\spec-ingame-editor.md section 0).
+ * Drop-in for pc_native_settings.cpp: replaces the body of draw_editor_button(); same arguments,
+ * plus `pressed` (one frame of #326378 fill after the click / A / Enter). Needs <algorithm>, <cmath>
+ * and imgui.h (1.92.5); only ImDrawList primitives, no texture.
+ * Box b = {x0,y0,x1,y1} in back-buffer pixels (96x96 at 1280x960); everything scales with its width.
+ * Look: dark fill, white L corner brackets (editor theme::bracket_frame math), a 3x3 blueprint grid,
+ * a yellow pencil lying across it with the line it just drew. Focus = cyan 2 px outline + soft fade. */
+static void draw_editor_button(ImDrawList *list,const float b[4],bool hover,bool enabled,bool pressed=false){
+    const float w=b[2]-b[0],h=b[3]-b[1],s=w/96.f;const int a=enabled?255:128;
+    auto col=[&](int r,int g,int bl,float alpha=1.f){return IM_COL32(r,g,bl,(int)(alpha*a));};
+    auto P=[&](float fx,float fy){return ImVec2(b[0]+fx*w,b[1]+fy*h);};
+    // focus glow: 2 px cyan outline, then a #2F586D fade over ~6 px
+    if(hover&&enabled){
+        for(int i=3;i>=1;i--){float o=2.f*s+2.f*i*s;list->AddRect(ImVec2(b[0]-o,b[1]-o),ImVec2(b[2]+o,b[3]+o),col(47,88,109,.75f/i),3*s,0,2.f*s);}
+        list->AddRect(ImVec2(b[0]-2*s,b[1]-2*s),ImVec2(b[2]+2*s,b[3]+2*s),col(73,151,179),2*s,0,2.f*s);
+    }
+    // fill (70 % navy, so the room shows through like the panel)
+    list->AddRectFilled(ImVec2(b[0],b[1]),ImVec2(b[2],b[3]),pressed?col(50,99,120,.9f):col(15,26,38,.7f));
+    // corner brackets: 3 px, arms a third of the side
+    {const ImU32 white=col(252,251,248);const float th=3*s,ax=w/3,ay=h/3;
+        auto L=[&](float cx,float cy,float sx,float sy){
+            list->AddRectFilled(ImVec2(std::min(cx,cx+sx*ax),std::min(cy,cy+sy*th)),ImVec2(std::max(cx,cx+sx*ax),std::max(cy,cy+sy*th)),white,1.5f*s);
+            list->AddRectFilled(ImVec2(std::min(cx,cx+sx*th),std::min(cy,cy+sy*ay)),ImVec2(std::max(cx,cx+sx*th),std::max(cy,cy+sy*ay)),white,1.5f*s);};
+        L(b[0],b[1],1,1);L(b[2],b[1],-1,1);L(b[0],b[3],1,-1);L(b[2],b[3],-1,-1);}
+    // blueprint grid, 3x3 cells
+    {const ImU32 grid=col(70,118,147);const float g0=.2f,g1=.8f,t=std::max(1.f,1.5f*s);
+        for(int i=0;i<4;i++){float f=g0+(g1-g0)*i/3.f;list->AddLine(P(f,g0),P(f,g1),grid,t);list->AddLine(P(g0,f),P(g1,f),grid,t);}}
+    // the line the pencil just drew, along the bottom grid row
+    const ImU32 yellow=hover?col(220,220,106):col(206,206,72);
+    list->AddLine(P(.29f,.71f),P(.76f,.71f),yellow,std::max(2.f,3.f*s));
+    // pencil: tip at (.29,.71), lying up-right at 45 degrees, length .62 of the side
+    {const ImVec2 T=P(.29f,.71f);const float len=.62f*w,r=.068f*w,k=.70710678f;
+        const ImVec2 d(k,-k),n(k,k);  // along the pencil, across it
+        auto Q=[&](float along,float across){return ImVec2(T.x+d.x*along+n.x*across,T.y+d.y*along+n.y*across);};
+        const float cone=.22f*len,lead=.08f*len,ferrule=.86f*len,eraser=.90f*len;
+        list->AddTriangleFilled(T,Q(cone,-r),Q(cone,r),col(233,221,180));                       // sharpened wood
+        list->AddTriangleFilled(T,Q(lead,-r*lead/cone),Q(lead,r*lead/cone),col(15,26,38));      // lead
+        ImVec2 body[4]={Q(cone,-r),Q(ferrule,-r),Q(ferrule,r),Q(cone,r)};
+        list->AddConvexPolyFilled(body,4,yellow);
+        ImVec2 facet[4]={Q(cone,r*.35f),Q(ferrule,r*.35f),Q(ferrule,r),Q(cone,r)};            // shaded side
+        list->AddConvexPolyFilled(facet,4,col(150,150,48));
+        ImVec2 band[4]={Q(ferrule,-r),Q(eraser,-r),Q(eraser,r),Q(ferrule,r)};
+        list->AddConvexPolyFilled(band,4,col(215,216,217));
+        ImVec2 rub[4]={Q(eraser,-r),Q(len,-r),Q(len,r),Q(eraser,r)};
+        list->AddConvexPolyFilled(rub,4,col(98,174,206));}
+    // caption under the button: yellow when focused (the footer carries the key hint)
+    const char *caption=enabled?"Editor":"Editor not installed";
+    float size=std::max(13.f,h*.22f);ImFont *font=ImGui::GetFont();
+    ImVec2 ts=font->CalcTextSizeA(size,FLT_MAX,0,caption);
+    ImVec2 at((b[0]+b[2]-ts.x)*.5f,b[3]+h*.12f);
+    list->AddText(font,size,ImVec2(at.x+1.5f*s,at.y+1.5f*s),IM_COL32(0,0,0,(int)(.63f*a)),caption);
+    list->AddText(font,size,at,hover&&enabled?col(206,206,72):col(252,251,248),caption);
+}
+// 'E  Editor' with the keyboard and mouse, the yellow Y button + 'Editor' with a pad (like the
+// retail footer legends, which also follow the last device used). Box b in back-buffer pixels.
+static void draw_editor_hint(ImDrawList *list,const float b[4],bool pad){
+    const float h=b[3]-b[1],size=h*.66f;ImFont *font=ImGui::GetFont();
+    const ImU32 text=IM_COL32(160,190,214,255),shadow=IM_COL32(0,0,0,160);
+    const char *label="Editor";ImVec2 ls=font->CalcTextSizeA(size,FLT_MAX,0,label);
+    float key_w=pad?h*.68f:font->CalcTextSizeA(size,FLT_MAX,0,"E").x,gap=h*.45f,total=key_w+gap+ls.x;
+    float x=(b[0]+b[2]-total)*.5f,y=(b[1]+b[3]-ls.y)*.5f;
+    if(pad){ImVec2 c(x+key_w*.5f,(b[1]+b[3])*.5f);float r=key_w*.5f;
+        list->AddCircleFilled(c,r,IM_COL32(206,190,40,255),24);
+        ImVec2 ys=font->CalcTextSizeA(size*.8f,FLT_MAX,0,"Y");
+        list->AddText(font,size*.8f,ImVec2(c.x-ys.x*.5f,c.y-ys.y*.5f),IM_COL32(15,26,38,255),"Y");}
+    else {list->AddText(font,size,ImVec2(x+1,y+1),shadow,"E");list->AddText(font,size,ImVec2(x,y),text,"E");}
+    list->AddText(font,size,ImVec2(x+key_w+gap+1,y+1),shadow,label);list->AddText(font,size,ImVec2(x+key_w+gap,y),text,label);
+}
+static void draw_editor_note(ImDrawList *list,float width,float height,const wchar_t *note){
+    char text[400];WideCharToMultiByte(CP_UTF8,0,note,-1,text,sizeof(text),nullptr,nullptr);
+    // wrapped to 70% of the screen, centred near the top
+    float size=std::max(16.f,height/48.f),wrap=width*.7f;ImFont *font=ImGui::GetFont();ImVec2 ts=font->CalcTextSizeA(size,FLT_MAX,wrap,text);
+    float x=(width-ts.x)*.5f,y=height*.08f;
+    list->AddRectFilled(ImVec2(x-14,y-8),ImVec2(x+ts.x+14,y+ts.y+8),IM_COL32(15,26,38,220));
+    list->AddText(font,size,ImVec2(x,y),IM_COL32(252,251,248,255),text,nullptr,wrap);
+}
+// "Esc: Back" at the end of the settings pages' hint line (keyboard text): its
+// glyphs in 640x480 units (x), and relative to the hint row top (y). It is the
+// clickable part of the line, with a small margin.
+static const float ESC_BACK_X0=392,ESC_BACK_X1=466,ESC_BACK_Y0=3,ESC_BACK_Y1=24;
+static bool esc_back_hit(float x,float y){return x>=ESC_BACK_X0-8&&x<ESC_BACK_X1+8&&y>=(page==0?412:400)&&y<448;}
+/* Hover glow behind the footer prompt (Esc Back, Enter Select...) under the
+ * mouse. The guest thread publishes its box in client pixels every menu frame;
+ * render() fades it in and out. */
+static SRWLOCK glow_lock=SRWLOCK_INIT;
+// Last WM_MOUSEMOVE (client lparam): the pointer of a hidden test window.
+static std::atomic<uint32_t> mouse_position{0xFFFFFFFFu};
+static float glow_box[4];static DWORD glow_time;static bool glow_hover;
+static void publish_glow(bool hover,const float box[4]){
+    static int trace=-1;if(trace<0)trace=getenv("RECOMP_MENU_TRACE")!=nullptr;
+    if(trace&&hover!=glow_hover){
+        if(hover)fprintf(stderr,"[PC-GLOW] footer %.0f,%.0f - %.0f,%.0f\n",box[0],box[1],box[2],box[3]);
+        else fprintf(stderr,"[PC-GLOW] none (device=%d camera=%d text=%d movie=%d)\n",(int)pc_input_device(),pc_input_camera_captured(),pc_input_text_captured(),(int)pc_display_movie_active());
+    }
+    AcquireSRWLockExclusive(&glow_lock);
+    glow_hover=hover;glow_time=GetTickCount();if(hover)memcpy(glow_box,box,sizeof(glow_box));
+    ReleaseSRWLockExclusive(&glow_lock);
+}
+static void update_glow(uint32_t object){
+    HWND window=game_window.load();POINT p={};RECT r={};float box[4];
+    bool pointer=false;
+    static const bool scripted=getenv("RECOMP_UI_LIVE")!=nullptr;
+    if(window&&scripted){uint32_t m=mouse_position.load();p.x=GET_X_LPARAM(m);p.y=GET_Y_LPARAM(m);pointer=m!=0xFFFFFFFFu;}
+    else if(window&&GetForegroundWindow()==window)pointer=GetCursorPos(&p)&&ScreenToClient(window,&p);
+    if(!pointer||pc_input_device()!=PC_INPUT_KEYBOARD_MOUSE||pc_input_camera_captured()||pc_input_text_captured()||
+       pc_display_movie_active()||!GetClientRect(window,&r)||p.x<0||p.y<0||p.x>=r.right||p.y>=r.bottom){publish_glow(false,nullptr);return;}
+    if(opened){
+        // Settings pages: the clickable "Esc: Back" end of the hint line (see ma2_pc_submenu_update).
+        float scale=std::min(r.right/640.0f,r.bottom/480.0f),ox=(r.right-640*scale)*.5f,oy=(r.bottom-480*scale)*.5f;
+        float x=(p.x-ox)/scale,y=(p.y-oy)/scale;
+        bool hover=esc_back_hit(x,y);
+        float text_y=page==0?416.f:406.f;
+        box[0]=ox+ESC_BACK_X0*scale;box[1]=oy+(text_y+ESC_BACK_Y0)*scale;box[2]=ox+ESC_BACK_X1*scale;box[3]=oy+(text_y+ESC_BACK_Y1)*scale;
+        publish_glow(hover,box);return;
+    }
+    float aspect=pc_display_aspect(4.f/3.f),height=std::min((float)r.bottom,r.right/aspect),width=height*aspect;
+    float ox=(r.right-width)*.5f,oy=(r.bottom-height)*.5f,n[4];
+    bool hover=ma2_gui_footer_at(modal_available()?0:object,(p.x-ox)/width,(p.y-oy)/height,aspect,n)!=0;
+    if(getenv("RECOMP_MENU_TRACE")){static LONG lx=-1,ly=-1;if(p.x!=lx||p.y!=ly){lx=p.x;ly=p.y;
+        fprintf(stderr,"[PC-GLOW] pointer %ld,%ld -> %.3f,%.3f owner=%08X modal=%d hover=%d\n",p.x,p.y,(p.x-ox)/width,(p.y-oy)/height,object,(int)modal_available(),(int)hover);}}
+    if(hover){
+        // Legend rows are taller than their text: keep the glow on the glyphs (22 of 480 lines).
+        float unit=height/480.f,cy=oy+(n[1]+n[3]*.5f)*height,half=std::min(n[3]*height,22.f*unit)*.5f;
+        box[0]=ox+n[0]*width;box[1]=cy-half;box[2]=ox+(n[0]+n[2])*width;box[3]=cy+half;
+    }
+    publish_glow(hover,box);
+}
+static float glow_alpha(float box[4]){
+    static float alpha,shown[4];static LARGE_INTEGER last;LARGE_INTEGER now,frequency;
+    QueryPerformanceCounter(&now);QueryPerformanceFrequency(&frequency);
+    float dt=last.QuadPart?std::min((float)(now.QuadPart-last.QuadPart)/frequency.QuadPart,.1f):0.f;last=now;
+    AcquireSRWLockShared(&glow_lock);
+    // A menu that stopped pulsing (closed, loading, in play) drops its glow.
+    bool hover=glow_hover&&GetTickCount()-glow_time<200;
+    if(hover){if(alpha<=0.f)memcpy(shown,glow_box,sizeof(shown));
+        else for(int i=0;i<4;i++)shown[i]+=(glow_box[i]-shown[i])*std::min(1.f,dt*30.f);}
+    ReleaseSRWLockShared(&glow_lock);
+    alpha=std::clamp(alpha+(hover?dt/.10f:-dt/.16f),0.f,1.f);
+    memcpy(box,shown,sizeof(shown));return alpha;
+}
+static void draw_glow(ImDrawList *list,const float b[4],float alpha){
+    // Soft blue-white halo: stacked rounded boxes fading outwards, densest on the text.
+    // Reach and opacity halved after playtesting (2026-10-15); the vertical reach is half again.
+    float h=b[3]-b[1],spread=h*.375f;const int layers=14;
+    for(int i=layers;i>=0;i--){
+        float t=(float)i/layers,ex=h*.15f+spread*t,ey=spread*t*.3f,a=alpha*(i?.0225f:.03f);
+        list->AddRectFilled(ImVec2(b[0]-ex,b[1]-ey),ImVec2(b[2]+ex,b[3]+ey),
+            IM_COL32(165,210,255,(int)(a*255.f+.5f)),(h*.5f+ey));
+    }
+}
+static DWORD settings_write_error;
+static void write_int(const char *section,const char *name,int value){char text[32];snprintf(text,sizeof(text),"%d",value);
+    if(!WritePrivateProfileStringA(section,name,text,ini_path)){DWORD error=GetLastError();if(!settings_write_failed)settings_write_error=error;settings_write_failed=true;
+        fprintf(stderr,"[PC-MENU] cannot save [%s] %s (error %lu)\n",section,name,error);}}
+extern "C" int ma2_pc_ini_get_int(const char *section,const char *key,int fallback){return (int)GetPrivateProfileIntA(section,key,fallback,ini_path);}
+extern "C" void ma2_pc_ini_set_int(const char *section,const char *key,int value){char text[32];snprintf(text,sizeof(text),"%d",value);WritePrivateProfileStringA(section,key,text,ini_path);}
+static void read_window_state(){
+    HWND window=game_window.load();if(!window)return;
+    fullscreen=(GetWindowLongPtrA(window,GWL_STYLE)&WS_OVERLAPPEDWINDOW)==0;
+    RECT client={};GetClientRect(window,&client);
+    unsigned width,height;pc_render_size_get(&width,&height);output_width=width;output_height=height;
+    page_dirty=true;
+}
+static void save_settings(bool apply_window)
+{
+    settings_write_failed=false;
+    write_int("Display","WindowWidth",output_width);write_int("Display","WindowHeight",output_height);
+    write_int("Display","Fullscreen",fullscreen);write_int("Display","VSync",pc_setting_get(PC_VSYNC,0));
+    write_int("Display","FrameLimit",pc_setting_get(PC_FRAME_LIMIT,0));WritePrivateProfileStringA("Display","RenderScale",nullptr,ini_path);
+    write_int("Display","PreserveAspect",pc_setting_get(PC_ASPECT,1));write_int("Display","SmoothScaling",pc_setting_get(PC_FILTER,1));
+    write_int("Display","ShowFPS",pc_setting_get(PC_SHOW_FPS,0));write_int("Audio","Volume",pc_setting_get(PC_VOLUME,100));
+    write_int("Display","DrawDistance",pc_setting_get(PC_DRAW_DISTANCE,50));
+    write_int("Display","TextureQuality",pc_setting_get(PC_TEXTURE_QUALITY,0));
+    write_int("Display","FMVQuality",pc_setting_get(PC_FMV_QUALITY,0));
+    write_int("Display","PreloadShaders",pc_setting_get(PC_SHADER_PRELOAD,1));
+    write_int("Input","Keyboard",pc_setting_get(PC_KEYBOARD,1));write_int("Input","MouseAim",pc_setting_get(PC_MOUSE_AIM,1));
+    write_int("Input","MouseSensitivity",pc_setting_get(PC_MOUSE_SENSITIVITY,100));write_int("Input","InvertY",pc_setting_get(PC_INVERT_Y,0));
+    write_int("Input","InvertFlight",pc_setting_get(PC_INVERT_FLIGHT,0));
+    write_int("Input","PauseOnFocusLoss",ma2_pc_ini_get_int("Input","PauseOnFocusLoss",1)!=0);   /* W-10: keep the keys visible */
+    write_int("Audio","MuteInBackground",ma2_pc_ini_get_int("Audio","MuteInBackground",1)!=0);
+    for(int i=0;i<PC_BINDING_COUNT;i++)write_int("Bindings",binding_names[i],pc_binding_get((PcBinding)i,default_keys[i]));
+    if(apply_window)PostMessageA(game_window,PC_WINDOW_CONFIG_MESSAGE,fullscreen,MAKELPARAM(output_width,output_height));
+    fprintf(stderr,"[PC-MENU] %s settings %dx%d fullscreen=%d",settings_write_failed?"failed to save":"saved",output_width,output_height,fullscreen);
+    if(settings_write_failed)fprintf(stderr," (error %lu)",settings_write_error);
+    fprintf(stderr,"\n");
+}
+static std::wstring key_name(int key)
+{
+    switch(key){case VK_LBUTTON:return L"Left mouse";case VK_RBUTTON:return L"Right mouse";case VK_MBUTTON:return L"Middle mouse";
+    case VK_XBUTTON1:return L"Mouse 4";case VK_XBUTTON2:return L"Mouse 5";case VK_RETURN:return L"Enter";case VK_ESCAPE:return L"Esc";}
+    wchar_t name[48];UINT scan=ma2_key_name_scan(key);
+    if(!GetKeyNameTextW(scan<<16,name,48))swprintf_s(name,L"Key %d",key);return name;
+}
+static bool gamepad_connected(){
+    return xbox_InputAnyPadConnected()!=FALSE;
+}
+static const wchar_t *yesno(PcSetting s,int fallback){return pc_setting_get(s,fallback)?L"On":L"Off";}
+/* Optional content the installer may not have produced: the Enhancer's 2x/4x texture packs and
+ * its 2x cutscene videos. Only installed choices are offered (same paths as the loaders:
+ * nv2a_texture_pack.cpp load_index, bink_native.c enhanced_name). Checked when the page opens. */
+extern "C" BOOL xbox_translate_path(const char *xbox_path,WCHAR *host_path_buf,DWORD buf_size);
+static bool texture_installed[3]={true,false,false},videos_installed;
+static void check_optional_content(){
+    const char *root=getenv("RECOMP_TEXTURE_PACK_DIR");
+    for(int quality=1;quality<=2;quality++){
+        char path[MAX_PATH];snprintf(path,sizeof(path),"%s\\%dx\\index.json",root&&*root?root:"game_files\\texture_packs",quality==1?2:4);
+        texture_installed[quality]=GetFileAttributesA(path)!=INVALID_FILE_ATTRIBUTES;
+    }
+    WCHAR host[MAX_PATH];videos_installed=false;
+    if(xbox_translate_path("D:\\Movie\\Enhanced\\2x",host,MAX_PATH)){
+        DWORD a=GetFileAttributesW(host);videos_installed=a!=INVALID_FILE_ATTRIBUTES&&(a&FILE_ATTRIBUTE_DIRECTORY);
+    }
+    // A saved choice whose content is missing shows (and is) the original.
+    if(!texture_installed[std::clamp(pc_setting_get(PC_TEXTURE_QUALITY,0),0,2)])pc_setting_set(PC_TEXTURE_QUALITY,0);
+    if(!videos_installed&&pc_setting_get(PC_FMV_QUALITY,0))pc_setting_set(PC_FMV_QUALITY,0);
+}
+static int row_count(){return page==0?13:page==1?5:page==2?9:page==4?4:10;}
+// Row geometry of the native pages (640x480 units), as laid out by build_pc_assets.py.
+static float row_top(){return page==0?90.f:99.f;}
+static float row_step(){return page==0?23.f:28.f;}
+static bool valid_row(int row){return row>=0&&row<row_count()&&!(page==3&&row<8&&binding_page*8+row>=PC_BINDING_COUNT);}
+static std::wstring row_text(int row)
+{
+    wchar_t text[180];text[0]=0;
+    if(page==0) switch(row){
+    case 0:swprintf_s(text,L"Window mode:  %s",fullscreen?L"Borderless fullscreen":L"Windowed");break;
+    case 1:if(output_width==640&&output_height==480)wcscpy_s(text,L"Resolution:  640x480 (Xbox original)");
+        else swprintf_s(text,L"Resolution:  %d x %d",output_width,output_height);break;
+    case 2:{const wchar_t *values[]={L"Original",L"2x Enhanced",L"4x Enhanced"};
+        swprintf_s(text,L"Textures:  %s%s",values[std::clamp(pc_setting_get(PC_TEXTURE_QUALITY,0),0,2)],
+            texture_installed[1]||texture_installed[2]?L"":L"   (enhanced packs not installed)");break;}
+    case 3:swprintf_s(text,L"VSync:  %s",yesno(PC_VSYNC,0));break;
+    case 4:if(pc_setting_get(PC_FRAME_LIMIT,0))swprintf_s(text,L"Frame limit:  %d FPS",pc_setting_get(PC_FRAME_LIMIT,0));else wcscpy_s(text,L"Frame limit:  Unlimited");break;
+    case 5:swprintf_s(text,L"Aspect ratio:  %s",pc_setting_get(PC_ASPECT,1)?L"Automatic":L"Original 4:3");break;
+    case 6:swprintf_s(text,L"Smooth scaling:  %s",yesno(PC_FILTER,1));break;
+    case 7:swprintf_s(text,L"Draw distance:  %d",pc_setting_get(PC_DRAW_DISTANCE,50));break;
+    case 8:swprintf_s(text,L"Show frame rate:  %s",yesno(PC_SHOW_FPS,0));break;
+    case 9:swprintf_s(text,L"Cutscene videos:  %s%s",pc_setting_get(PC_FMV_QUALITY,0)?L"Enhanced":L"Original",
+        videos_installed?L"":L"   (enhanced not installed)");break;
+    case 10:swprintf_s(text,L"Pre-load shaders on loading screens:  %s",yesno(PC_SHADER_PRELOAD,1));break;
+    case 11:wcscpy_s(text,settings_write_failed?L"Save failed - try again":L"Apply display settings");break;
+    case 12:wcscpy_s(text,L"Restore display defaults");break;
+    }
+    else if(page==1)switch(row){
+    case 0:swprintf_s(text,L"Master volume:  %d%%",pc_setting_get(PC_VOLUME,100));break;
+    case 1:case 2:case 3:swprintf_s(text,L"%s volume:  %u%%",row==1?L"Effects":row==2?L"Speech":L"Music",page_object?(guest(page_object+0x84+(row-1)*4)*100+32767)/65535:100);break;
+    case 4:wcscpy_s(text,L"Back");break;}
+    else if(page==2)switch(row){
+    case 0:swprintf_s(text,L"Keyboard controls:  %s%s",yesno(PC_KEYBOARD,1),pc_setting_get(PC_KEYBOARD,1)&&!gamepad_connected()?L" (no controller connected)":L"");break;
+    case 1:swprintf_s(text,L"Mouse aiming:  %s",yesno(PC_MOUSE_AIM,1));break;
+    case 2:swprintf_s(text,L"Mouse sensitivity:  %d%%",pc_setting_get(PC_MOUSE_SENSITIVITY,100));break;
+    case 3:swprintf_s(text,L"Invert mouse Y:  %s",yesno(PC_INVERT_Y,0));break;
+    case 4:swprintf_s(text,L"Invert flight controls (VTOL):  %s",yesno(PC_INVERT_FLIGHT,0));break;
+    case 5:wcscpy_s(text,L"Keyboard and mouse bindings...");break;
+    case 6:wcscpy_s(text,L"Restore control defaults");break;
+    case 7:wcscpy_s(text,L"Controller settings...");break;
+    case 8:wcscpy_s(text,L"Back");break;}
+    else if(page==3){
+        int b=binding_page*8+row;
+        if(row<8&&b<PC_BINDING_COUNT)swprintf_s(text,L"%s:  %s",binding_labels[b],waiting_binding==b?L"Press any key or mouse button...":key_name(pc_binding_get((PcBinding)b,default_keys[b])).c_str());
+        else if(row==8)swprintf_s(text,L"Next page  (%d / 3)",binding_page+1);
+        else if(row==9)wcscpy_s(text,L"Back to controls");
+    }
+    else if(page==4)switch(row){
+    case 0:swprintf_s(text,L"Invert right stick Y:  %s",ma2_gui_controller_option(page_object,0)?L"On":L"Off");break;
+    case 1:swprintf_s(text,L"Vibration:  %s",ma2_gui_controller_option(page_object,1)?L"On":L"Off");break;
+    case 2:wcscpy_s(text,L"Keyboard and mouse settings...");break;
+    case 3:wcscpy_s(text,L"Back");break;}
+    if(!*text)return L"";
+    return std::wstring(row==selection?L">  ":L"   ")+text;
+}
+extern "C" uint32_t ma2_pc_page_text(uint32_t id)
+{
+    unsigned group=(id-0x70000000)/100,entry=(id-0x70000000)%100;
+    if(entry==0)return ma2_pc_wide(group==0?L"DISPLAY SETTINGS":group==1?L"AUDIO SETTINGS":L"CONTROLS");
+    if(entry>=1&&entry<=13)return ma2_pc_wide(row_text(entry-1).c_str());
+    if(entry==18)return ma2_pc_wide(L"Distance:  0 = 0.5x     50 = Original     100 = 2x");
+    return ma2_pc_wide(pc_input_device()==PC_INPUT_GAMEPAD?L"D-pad: Navigate / Adjust     A: Select     B: Back":L"Arrows: Navigate / Adjust    Enter: Select    Esc: Back");
+}
+extern "C" void ma2_pc_input_context_update(void)
+{
+    auto context=pc_display_movie_active()?PC_INPUT_MOVIE:modal_available()?PC_INPUT_MENU:!menu_available()?PC_INPUT_GAMEPLAY:menu_kind.load()==0x482170?PC_INPUT_TITLE:PC_INPUT_MENU;
+    auto previous=pc_input_context();pc_input_set_context(context);
+    // Preserve early skip taps on entry. Clear input before the next menu.
+    if(previous!=context && context!=PC_INPUT_GAMEPLAY && context!=PC_INPUT_MOVIE)PostMessageA(game_window,PC_WINDOW_CAPTURE_MESSAGE,0,0);
+    // Back in play from a menu on keyboard/mouse: aim with the mouse straight away.
+    if(previous!=context && context==PC_INPUT_GAMEPLAY && pc_input_device()==PC_INPUT_KEYBOARD_MOUSE &&
+       pc_setting_get(PC_KEYBOARD,1) && pc_setting_get(PC_MOUSE_AIM,1))PostMessageA(game_window,PC_WINDOW_AIM_MESSAGE,0,0);
+}
+extern "C" void ma2_pc_form_loading(uint32_t object,uint32_t filename)
+{
+    if(filename<0x10000||filename>=0x04000000)return;
+    static const char name_form[]="interface\\menus\\dialogs\\dlg_keyboard.ggf";
+    if(g_xbox_mem_offset&&!text_closed&&object>=0x10000&&object<0x03FFF000&&guest(object)==0x48F7D0&&
+       filename<=0x04000000-sizeof(name_form)&&!_strnicmp((char *)(g_xbox_mem_offset+filename),name_form,sizeof(name_form))){
+        // Capture before form initialization finishes, so a held key cannot
+        // leak through a USB poll before the top modal record is published.
+        AcquireSRWLockExclusive(&events_lock);invalidate_text_events_locked();
+        text_record=text_object=0;text_cancel_pending=false;pc_input_text_capture(1);
+        ReleaseSRWLockExclusive(&events_lock);
+        pc_input_camera_capture(0);PostMessageA(game_window,PC_WINDOW_CAPTURE_MESSAGE,0,0);
+    }
+    if(getenv("RECOMP_MENU_TRACE"))fprintf(stderr,"[PC-MENU] form owner=%08X path=%s\n",object,(char *)(g_xbox_mem_offset+filename));
+}
+extern "C" void ma2_pc_menu_selection(uint32_t object,uint32_t selected,int activated)
+{if(getenv("RECOMP_MENU_TRACE")&&activated)fprintf(stderr,"[PC-MENU] activate %08X id=%u\n",object,selected);}
+extern "C" void ma2_pc_menu_pulse(uint32_t object,uint32_t vtable)
+{
+    uint32_t old=menu_kind.exchange(vtable);menu_object=object;menu_time=GetTickCount();
+    if(old!=vtable)fprintf(stderr,"[PC-MENU] menu=%08X object=%08X\n",vtable,object);
+    // Every menu: barrel arrows follow the selected value (see ma2_bots_ui.c).
+    ma2_barrel_offset(vtable==0x48F3E0&&ma2_scn_custom_active()?50:0);
+    if(!opened&&object>=0x10000&&object<0x03FFF000&&!pc_display_movie_active()&&!getenv("RECOMP_NO_BARREL_ARROWS"))ma2_barrel_arrows_pulse(object,pc_display_aspect(4.f/3.f)>4.f/3.f+.01f);
+    // Unavailable features (Xbox Live, System Link, guests) are shown disabled (ma2_bots_ui.c menu policy).
+    if(object>=0x10000&&object<0x03FFF000)ma2_menu_policy_pulse(object,vtable);
+    ma2_pc_input_context_update();
+    sync_text_dialog();
+    if(!opened){
+        std::vector<Event> pending;AcquireSRWLockExclusive(&events_lock);pending.swap(events);ReleaseSRWLockExclusive(&events_lock);
+        for(auto e:pending){
+            if(e.text_generation){
+                uint32_t record,owner,current;
+                if(!current_text_event(e,record,owner)||ma2_gui_keyboard_dialog(&current)!=record||current!=owner)continue;
+                if(e.type==WM_CHAR)ma2_gui_keyboard_action(record,owner,(uint32_t)e.key,1);
+                else if(e.type==WM_KEYDOWN){
+                    if(e.key==VK_ESCAPE)text_cancel();
+                    else {uint32_t code=e.key==VK_BACK?0x10002:e.key==VK_LEFT?0x10004:e.key==VK_RIGHT?0x10005:0x1000B;
+                        ma2_gui_keyboard_action(record,owner,code,0);}
+                }else if(e.type==WM_MOUSEMOVE||e.type==WM_LBUTTONDOWN){
+                    float x,y;menu_point(game_window,e.x,e.y,x,y);
+                    uint32_t hit=ma2_gui_keyboard_pointer(record,owner,x,y,e.type==WM_LBUTTONDOWN);
+                    if((hit&0x80000000u)&&e.type==WM_LBUTTONDOWN){
+                        if((hit&7)==1)text_cancel();else pc_input_menu_button(hit&7);
+                    }
+                }
+                sync_text_dialog();continue;
+            }
+            if(pc_input_text_captured())continue;
+            if(e.type==WM_MOUSEMOVE||e.type==WM_LBUTTONDOWN){
+                float x,y;menu_point(game_window,e.x,e.y,x,y);
+                if(vtable==0x48F3E0&&!modal_available()&&editor_button_shown()&&editor_button_hit(x,y)){
+                    if(e.type==WM_LBUTTONDOWN&&ma2_scn_editor_available())ma2_scn_editor_open();
+                    continue;
+                }
+                if(e.type==WM_LBUTTONDOWN)editor_focus_set(false);   // a click on the row, arrows or footer
+                if(e.type==WM_LBUTTONDOWN&&!modal_available()&&!getenv("RECOMP_NO_BARREL_ARROWS")){
+                    // New Game barrel arrows: focus the row, then step it like Left/Right.
+                    float row_x,row_y;int dir=ma2_barrel_arrow_click(object,pc_display_aspect(4.f/3.f)>4.f/3.f+.01f,x,y,&row_x,&row_y);
+                    if(dir){
+                        uint32_t focused=ma2_gui_hover(object,row_x,row_y);
+                        if(getenv("RECOMP_MENU_TRACE"))fprintf(stderr,"[PC-ARROWS] step %d: row %.3f,%.3f focused %08X\n",dir,row_x,row_y,focused);
+                        int key=dir<0?VK_LEFT:VK_RIGHT;
+                        PostMessageA(game_window,WM_KEYDOWN,key,1);
+                        PostMessageA(game_window,WM_KEYUP,key,(LPARAM)3<<30);
+                        continue;
+                    }
+                }
+                float footer_box[4];
+                uint32_t hit=ma2_gui_footer_at(modal_available()?0:object,x,y,pc_display_aspect(4.f/3.f),footer_box);
+                if(!hit)hit=modal_available()?ma2_gui_dialog_pointer(0,x,y):ma2_gui_hover(object,x,y);
+                // A click on a value row (map, mode, bots...) only focuses it: it must not act as
+                // Enter and start the game -- that is the Enter key's and the select button's job.
+                bool row=!modal_available()&&!(hit&0x80000000u)&&!getenv("RECOMP_NO_BARREL_ARROWS")&&
+                         ma2_barrel_row_hit(object,pc_display_aspect(4.f/3.f)>4.f/3.f+.01f,x,y);
+                if(row&&e.type==WM_LBUTTONDOWN&&getenv("RECOMP_MENU_TRACE"))fprintf(stderr,"[PC-MOUSE] click on a value row: focus only\n");
+                if(hit&&e.type==WM_LBUTTONDOWN&&!row){
+                    if(hit&0x80000000u)pc_input_menu_button(hit&7);else pc_input_menu_click();
+                    if(getenv("RECOMP_MENU_TRACE"))fprintf(stderr,"[PC-MOUSE] click owner=%08X widget=%08X action=%u\n",object,hit,(hit&0x80000000u)?hit&7:guest(hit+0x70));
+                }
+            }
+        }
+    }
+    {   // The Editor button by pad: Y opens it; Up / LB focus it, then A opens, Right / Down / B leave.
+        static WORD last_pad;
+        if(vtable!=0x48F3E0||opened||!ma2_scn_custom_active()){last_pad=0;editor_focus_set(false);editor_capture_release();}
+        else {
+            XINPUT_STATE pad={};WORD buttons=(WORD)(test_pad_held|test_pad_tapped.exchange(0));
+            if(xbox_InputPollHostState(&pad)==ERROR_SUCCESS){const auto &g=pad.Gamepad;buttons|=g.wButtons;
+                // the guest's pad read (which notes the device) is blanked while the button has focus
+                if(editor_capture&&g.wButtons)pc_input_note_gamepad(g.wButtons,g.bLeftTrigger,g.bRightTrigger,g.sThumbLX,g.sThumbLY,g.sThumbRX,g.sThumbRY);}
+            WORD pressed=buttons&~last_pad;last_pad=buttons;
+            if(!modal_available()&&editor_button_shown()){
+                if(pressed&XINPUT_GAMEPAD_Y){if(ma2_scn_editor_available())ma2_scn_editor_open();}
+                else if(!editor_focus){if(pressed&(XINPUT_GAMEPAD_DPAD_UP|XINPUT_GAMEPAD_LEFT_SHOULDER))editor_focus_set(true);}
+                else if(pressed&XINPUT_GAMEPAD_A){if(ma2_scn_editor_available())ma2_scn_editor_open();}
+                else if(pressed&(XINPUT_GAMEPAD_DPAD_RIGHT|XINPUT_GAMEPAD_DPAD_DOWN|XINPUT_GAMEPAD_B))editor_focus_set(false);
+            }
+            if(!editor_focus&&!buttons&&!ma2_scn_editor_running())editor_capture_release();
+        }
+    }
+    update_glow(object);
+    {   // RECOMP_MENU_DUMP: each menu's widget tree once it has settled, and each modal dialog's.
+        static int dump=-1;if(dump<0)dump=getenv("RECOMP_MENU_DUMP")!=nullptr;
+        if(dump){
+            static uint32_t dumped_object,dumped_modal;static DWORD menu_since,modal_since;DWORD now=GetTickCount();
+            if(object!=dumped_object){if(!menu_since)menu_since=now;else if(now-menu_since>800){ma2_gui_dump(object,"menu");dumped_object=object;menu_since=0;}}
+            uint32_t top=modal_available()?guest(guest(0x5240D4)-4):0;
+            if(!top){dumped_modal=0;modal_since=0;}
+            else if(top!=dumped_modal){if(!modal_since)modal_since=now;else if(now-modal_since>500){ma2_gui_dump(0,"modal");dumped_modal=top;modal_since=0;}}
+        }
+    }
+    if(exit_dialog.load()) {
+        uint32_t result=ma2_gui_dialog_result(exit_dialog);
+        if(result){exit_dialog=0;fprintf(stderr,"[PC-MENU] exit confirmation result=%u\n",result);
+            if(result==1||result==3) {
+                LARGE_INTEGER now={},frequency={};
+                QueryPerformanceCounter(&now);QueryPerformanceFrequency(&frequency);
+                fprintf(stderr,"[EXIT] phase=post_request source=ma2_pc_menu_pulse reason=confirmed_quit pid=%lu tid=%lu qpc=%lld frequency=%lld message=0x%04X wparam=0 lparam=0 dialog_result=%u\n",
+                    GetCurrentProcessId(),GetCurrentThreadId(),(long long)now.QuadPart,(long long)frequency.QuadPart,WM_CLOSE,result);
+                fflush(stderr);
+                PostMessageA(game_window,WM_CLOSE,0,0);
+            }}
+    } else if(request_exit.exchange(false)) {
+        exit_dialog=ma2_gui_dialog(ma2_pc_wide(L"EXIT GAME"),ma2_pc_wide(L"Exit MechAssault 2 and return to the desktop?"));
+        fprintf(stderr,"[PC-MENU] exit confirmation opened handle=%08X\n",exit_dialog.load());
+    }
+}
+extern "C" void ma2_pc_modal_pulse(void){
+    // A modal suspends the underlying menu update, but keeps its input context
+    // and cursor alive. In particular, Escape must never become Start/confirm.
+    sync_text_dialog();
+    if(modal_available())ma2_pc_menu_pulse(menu_object,menu_kind);
+}
+static void refresh_page()
+{
+    if(!page_form)return;
+    ma2_gui_text(ma2_gui_find(page_form,9000),ma2_pc_wide(page==0?L"DISPLAY SETTINGS":page==1?L"AUDIO SETTINGS":page==4?L"CONTROLLER":L"KEYBOARD AND MOUSE"));
+    for(int i=0;i<(page==0?13:10);i++)ma2_gui_text(ma2_gui_find(page_form,9100+i),ma2_pc_wide(row_text(i).c_str()));
+    if(page==0)ma2_gui_slider(ma2_gui_find(page_form,9302),pc_setting_get(PC_DRAW_DISTANCE,50)/100.f);
+    ma2_gui_text(ma2_gui_find(page_form,9200),ma2_pc_page_text(0x70000011));
+    page_dirty=false;last_revision=pc_input_revision();
+}
+static void change(PcSetting setting,int low,int high,int amount){pc_setting_set(setting,std::clamp(pc_setting_get(setting,low)+amount,low,high));}
+static void toggle(PcSetting setting,int fallback){pc_setting_set(setting,!pc_setting_get(setting,fallback));}
+static int activate(int direction,bool confirm)
+{
+    if(waiting_binding>=0)return 0;
+    if(page==0)switch(selection){
+    case 0:fullscreen=!fullscreen;break;
+    case 1:{auto it=std::find(resolutions.begin(),resolutions.end(),std::make_pair(output_width,output_height));int i=it==resolutions.end()?0:(int)(it-resolutions.begin());
+        i=(i+direction+(int)resolutions.size())%(int)resolutions.size();output_width=resolutions[i].first;output_height=resolutions[i].second;break;}
+    case 2:{int q=std::clamp(pc_setting_get(PC_TEXTURE_QUALITY,0),0,2);   // next installed choice
+        for(int step=0;step<3;step++){q=(q+direction+3)%3;if(texture_installed[q])break;}
+        pc_setting_set(PC_TEXTURE_QUALITY,q);break;}
+    case 3:toggle(PC_VSYNC,0);break;
+    case 4:{int values[]={30,60,90,120,144,165,180,240,360};int index=0,value=pc_setting_get(PC_FRAME_LIMIT,144);while(index<9&&values[index]!=value)index++;if(index==9)index=4;index=(index+direction+9)%9;pc_setting_set(PC_FRAME_LIMIT,values[index]);break;}
+    case 5:toggle(PC_ASPECT,1);break;
+    case 6:toggle(PC_FILTER,1);break;
+    case 7:change(PC_DRAW_DISTANCE,0,100,direction*5);break;
+    case 8:toggle(PC_SHOW_FPS,0);break;
+    case 9:if(videos_installed)toggle(PC_FMV_QUALITY,0);break;
+    case 10:toggle(PC_SHADER_PRELOAD,1);break;
+    case 11:pc_setting_set(PC_RENDER_SCALE,0);save_settings(true);break;
+    case 12:pc_setting_set(PC_SHADER_PRELOAD,1);pc_setting_set(PC_VSYNC,0);pc_setting_set(PC_FRAME_LIMIT,144);pc_setting_set(PC_RENDER_SCALE,0);pc_setting_set(PC_ASPECT,1);pc_setting_set(PC_FILTER,1);pc_setting_set(PC_SHOW_FPS,0);pc_setting_set(PC_DRAW_DISTANCE,50);pc_setting_set(PC_TEXTURE_QUALITY,0);pc_setting_set(PC_FMV_QUALITY,0);break;}
+    else if(page==1){if(selection==0)change(PC_VOLUME,0,100,direction*5);else if(selection==4)return 2;
+        else if(selection<4){int &value=*(int *)(g_xbox_mem_offset+page_object+0x84+(selection-1)*4);value=std::clamp(value+direction*3277,0,65535);ma2_gui_volume(page_object,selection-1,value);}}
+    else if(page==2)switch(selection){
+    case 0:if(pc_setting_get(PC_KEYBOARD,1)&&!gamepad_connected())break;/* never leave the player with no input device */toggle(PC_KEYBOARD,1);break;case 1:toggle(PC_MOUSE_AIM,1);break;case 2:change(PC_MOUSE_SENSITIVITY,10,500,direction*10);break;case 3:toggle(PC_INVERT_Y,0);break;
+    case 4:toggle(PC_INVERT_FLIGHT,0);break;
+    case 5:if(confirm){page=3;selection=0;binding_page=0;}break;
+    case 6:for(int i=0;i<PC_BINDING_COUNT;i++)pc_binding_set((PcBinding)i,default_keys[i]);pc_setting_set(PC_MOUSE_SENSITIVITY,100);pc_setting_set(PC_INVERT_Y,0);pc_setting_set(PC_INVERT_FLIGHT,0);pc_setting_set(PC_MOUSE_AIM,1);pc_setting_set(PC_KEYBOARD,1);break;
+    case 7:if(confirm){page=4;selection=0;}break;
+    case 8:return 2;}
+    else if(page==3&&confirm){if(selection==8){binding_page=(binding_page+1)%3;selection=0;}else if(selection==9){page=2;selection=4;}else if(binding_page*8+selection<PC_BINDING_COUNT)waiting_binding=binding_page*8+selection;}
+    else if(page==4){
+        if(selection<2)ma2_gui_controller_set(page_object,selection,!ma2_gui_controller_option(page_object,selection));
+        else if(selection==2&&confirm){page=2;selection=0;}
+        else if(selection==3)return 2;
+    }
+    page_dirty=true;return 0;
+}
+static int page_key(int key)
+{
+    if(waiting_binding>=0){if(key!=VK_ESCAPE&&key>0&&key<256)pc_binding_set((PcBinding)waiting_binding,key);waiting_binding=-1;page_dirty=true;return 0;}
+    if(key==VK_ESCAPE||key==VK_BACK){if(page==3){page=2;selection=4;page_dirty=true;return 0;}return 2;}
+    if(key==VK_UP||key==VK_DOWN){do {selection=(selection+(key==VK_UP?-1:1)+row_count())%row_count();}while(!valid_row(selection));page_dirty=true;return 0;}
+    if(key==VK_LEFT||key==VK_RIGHT||key==VK_RETURN||key==VK_SPACE)return activate(key==VK_LEFT?-1:1,key==VK_RETURN||key==VK_SPACE);
+    return 0;
+}
+extern "C" int ma2_pc_submenu_update(uint32_t object,uint32_t vtable)
+{
+    int type=vtable==0x48B360?0:vtable==0x48BE60?1:vtable==0x48BF20?2:-1;if(type<0)return -1;
+    ma2_pc_menu_pulse(object,vtable);
+    bool entering=page_object!=object;
+    if(entering){
+        check_optional_content();
+        page_object=object;page_form=guest(object+0x68);page=type==2&&pc_input_device()==PC_INPUT_GAMEPAD?4:type;selection=0;waiting_binding=-1;page_dirty=true;opened=true;opened_at=GetTickCount();distance_dragging=false;
+        read_window_state();
+        pc_frontend_capture(1);PostMessageA(game_window,PC_WINDOW_CAPTURE_MESSAGE,0,0);
+        fprintf(stderr,"[PC-MENU] original settings page=%d form=%08X\n",page,page_form);
+        ma2_gui_inspect(page_form);
+        AcquireSRWLockExclusive(&events_lock);events.clear();ReleaseSRWLockExclusive(&events_lock);
+    }
+    std::vector<Event> pending;AcquireSRWLockExclusive(&events_lock);pending.swap(events);ReleaseSRWLockExclusive(&events_lock);
+    int result=0;
+    for(auto e:pending){
+        if(e.type==WM_SIZE){read_window_state();continue;}
+        if(e.type==WM_LBUTTONUP||e.type==WM_KILLFOCUS||e.type==WM_CAPTURECHANGED){distance_dragging=false;continue;}
+        if(e.type==WM_KEYDOWN)result=page_key(e.key);
+        else if(e.type>=WM_MOUSEFIRST&&e.type<=WM_MOUSELAST){
+            if(waiting_binding>=0&&e.type!=WM_MOUSEMOVE)result=page_key(e.key);
+            else {
+                RECT r;GetClientRect(game_window,&r);float scale=std::min(r.right/640.0f,r.bottom/480.0f);
+                float x=(e.x-(r.right-640*scale)*.5f)/scale,y=(e.y-(r.bottom-480*scale)*.5f)/scale;
+                int row=y>=row_top()?(int)((y-row_top())/row_step()):-1;
+                if(page==0&&((e.type==WM_LBUTTONDOWN&&x>=315&&x<566&&row==7)||(distance_dragging&&e.type==WM_MOUSEMOVE))){
+                    distance_dragging=true;selection=7;
+                    pc_setting_set(PC_DRAW_DISTANCE,std::clamp((int)((x-325)*100/230+.5f),0,100));page_dirty=true;continue;
+                }
+                if(x>=70&&x<570&&valid_row(row)){
+                    if(selection!=row){selection=row;page_dirty=true;}
+                    if(e.type!=WM_MOUSEMOVE)result=activate(e.type==WM_RBUTTONDOWN?-1:1,true);
+                }
+                if(e.type==WM_LBUTTONDOWN&&esc_back_hit(x,y))result=page_key(VK_ESCAPE);
+            }
+        }
+        if(result)break;
+    }
+    static WORD last_buttons;static int last_axis;static DWORD repeat_at;
+    XINPUT_STATE pad={};
+    if(xbox_InputPollHostState(&pad)==ERROR_SUCCESS){
+        const auto &g=pad.Gamepad;pc_input_note_gamepad(g.wButtons,g.bLeftTrigger,g.bRightTrigger,g.sThumbLX,g.sThumbLY,g.sThumbRX,g.sThumbRY);
+        // The A press that opened Controls must not toggle its first option.
+        WORD pressed=entering?0:g.wButtons&~last_buttons;last_buttons=g.wButtons;
+        // Physical menu navigation must not become a captured keyboard binding.
+        const bool capturing_binding=waiting_binding>=0;
+        int axis=g.sThumbLY>16000?VK_UP:g.sThumbLY<-16000?VK_DOWN:g.sThumbLX<-16000?VK_LEFT:g.sThumbLX>16000?VK_RIGHT:0;
+        if(entering)repeat_at=GetTickCount()+350;
+        else if(axis&&(axis!=last_axis||GetTickCount()>=repeat_at)){if(!capturing_binding)page_key(axis);repeat_at=GetTickCount()+(axis!=last_axis?350:100);}last_axis=axis;
+        if(!capturing_binding){
+                if(pressed&XINPUT_GAMEPAD_DPAD_UP)page_key(VK_UP);if(pressed&XINPUT_GAMEPAD_DPAD_DOWN)page_key(VK_DOWN);
+                if(pressed&XINPUT_GAMEPAD_DPAD_LEFT)page_key(VK_LEFT);if(pressed&XINPUT_GAMEPAD_DPAD_RIGHT)page_key(VK_RIGHT);
+                if(pressed&XINPUT_GAMEPAD_A)result=page_key(VK_RETURN);
+        }
+        if(pressed&XINPUT_GAMEPAD_B)result=page_key(VK_ESCAPE);
+    }else last_buttons=0;
+    if(result==2){
+        if(type==1)ma2_gui_volume_commit(object);
+        if(type==2)ma2_gui_controller_commit(object);
+        save_settings(false);opened=false;page_object=page_form=0;pc_frontend_capture(0);PostMessageA(game_window,PC_WINDOW_CAPTURE_MESSAGE,0,0);return 2;
+    }
+    if(page_dirty||last_revision!=pc_input_revision())refresh_page();return 0;
+}
+extern "C" int ma2_pc_video_menu_update(uint32_t object){return ma2_pc_submenu_update(object,0x48B360);}
+extern "C" void ma2_pc_submenu_destroyed(uint32_t object){if(page_object==object){page_object=page_form=0;opened=false;pc_frontend_capture(0);}}
+extern "C" void ma2_pc_submenu_result(uint32_t object,int result){if(result==2)ma2_pc_submenu_destroyed(object);}
+// Sticky Keys hotkey (five Shift presses) is off only while the game window has focus (easy-wins D8). Follows Microsoft's
+// "Disabling Shortcut Keys in Games": remember the user's setting, clear only the hotkey bits, put the remembered value
+// back on focus loss, window destroy, exit (main.c atexit) and crash (main.c filter). Not written to the user's profile
+// (no SPIF_UPDATEINIFILE), so even a hard kill is undone by the next sign-out.
+static STICKYKEYS sticky_saved;
+static std::atomic<int> sticky_suppressed,sticky_have_saved;
+extern "C" void ma2_pc_sticky_keys(int suppress){
+    if(suppress){
+        int expected=0;if(!sticky_suppressed.compare_exchange_strong(expected,1))return;
+        STICKYKEYS now={};now.cbSize=sizeof(now);
+        if(!SystemParametersInfoA(SPI_GETSTICKYKEYS,sizeof(now),&now,0)){sticky_suppressed=0;return;}
+        sticky_saved=now;sticky_have_saved=1;
+        // Self-heal (W-02): a kill or power loss skips every restore path, and the next start would then save the
+        // already-cleared flags as "the user's setting". Keep the original flags in the ini while suppressed.
+        if(ini_path[0]){
+            int left=(int)GetPrivateProfileIntA("Internal","StickyKeysSaved",-1,ini_path);
+            if(left>=0){sticky_saved.dwFlags=(DWORD)left;
+                fprintf(stderr,"[PC-INPUT] Sticky Keys: restoring flags 0x%lX left by an unclean exit\n",(unsigned long)sticky_saved.dwFlags);}
+            else{char text[32];snprintf(text,sizeof(text),"%lu",(unsigned long)now.dwFlags);WritePrivateProfileStringA("Internal","StickyKeysSaved",text,ini_path);}
+        }
+        if(!(now.dwFlags&SKF_STICKYKEYSON)){
+            now.dwFlags&=~(DWORD)(SKF_HOTKEYACTIVE|SKF_CONFIRMHOTKEY);
+            SystemParametersInfoA(SPI_SETSTICKYKEYS,sizeof(now),&now,0);
+        }
+        fprintf(stderr,"[PC-INPUT] Sticky Keys hotkey suppressed (was flags 0x%lX)\n",(unsigned long)sticky_saved.dwFlags);
+    }else{
+        int expected=1;if(!sticky_suppressed.compare_exchange_strong(expected,0))return;
+        int saved=1;if(sticky_have_saved.compare_exchange_strong(saved,0)){
+            SystemParametersInfoA(SPI_SETSTICKYKEYS,sizeof(sticky_saved),&sticky_saved,0);
+            if(ini_path[0])WritePrivateProfileStringA("Internal","StickyKeysSaved",nullptr,ini_path);
+            fprintf(stderr,"[PC-INPUT] Sticky Keys hotkey restored (flags 0x%lX)\n",(unsigned long)sticky_saved.dwFlags);
+        }
+    }
+}
+static int window_message(void *window,unsigned message,uintptr_t wparam,intptr_t lparam)
+{
+    game_window=(HWND)window;
+    if(message==WM_SETFOCUS&&!env_int("RECOMP_KEEP_STICKY_HOTKEY",0))ma2_pc_sticky_keys(1);
+    else if(message==WM_KILLFOCUS||message==WM_CLOSE||message==WM_DESTROY)ma2_pc_sticky_keys(0);
+    if(message==WM_MOUSEMOVE)mouse_position=(uint32_t)lparam;
+    if(message==WM_SETFOCUS||message==WM_KILLFOCUS||message==WM_CLOSE||message==WM_DESTROY||message==PC_WINDOW_RENDERER_ERROR_MESSAGE)
+        text_focus_or_close(message);
+    if(message==PC_WINDOW_RENDERER_ERROR_MESSAGE) {
+        // A terminal renderer cannot draw another guest dialog or settings
+        // page. Handle this on the window thread even when a movie owns input.
+        if(renderer_error_handled)return 1;
+        renderer_error_handled=true;
+        pc_frontend_capture(0);pc_input_camera_capture(0);distance_dragging=false;
+        PostMessageA((HWND)window,PC_WINDOW_CAPTURE_MESSAGE,0,0);
+        wchar_t text[256];
+        if((unsigned)wparam==0x887A0004u)
+            swprintf_s(text,L"MechAssault 2 needs a DirectX 11 (feature level 11.0) graphics card.\n"
+                L"Update the graphics driver and start the game again (0x%08X).",(unsigned)wparam);
+        else if((unsigned)wparam==0x8007000Eu)
+            swprintf_s(text,L"MechAssault 2 ran out of graphics memory.\n"
+                L"Lower Texture quality or Resolution in Display settings and start the game again (0x%08X).",(unsigned)wparam);
+        else
+            swprintf_s(text,L"MechAssault 2 cannot continue rendering (0x%08X).\n"
+                L"The game will close. Try restarting the game.",(unsigned)wparam);
+        if(!env_int("RECOMP_GPU_RECOVERY_TEST",0))
+            MessageBoxW((HWND)window,text,L"MechAssault 2",MB_OK|MB_ICONERROR);
+        LARGE_INTEGER now={},frequency={};
+        QueryPerformanceCounter(&now);QueryPerformanceFrequency(&frequency);
+        fprintf(stderr,"[EXIT] phase=post_request source=window_message reason=terminal_renderer_error pid=%lu tid=%lu qpc=%lld frequency=%lld message=0x%04X wparam=0 lparam=0 renderer_error=0x%08X\n",
+            GetCurrentProcessId(),GetCurrentThreadId(),(long long)now.QuadPart,(long long)frequency.QuadPart,WM_CLOSE,(unsigned)wparam);
+        fflush(stderr);
+        PostMessageW((HWND)window,WM_CLOSE,0,0);
+        return 1;
+    }
+    if((message==WM_KEYDOWN||message==WM_KEYUP)&&test_pad_bit(wparam)&&getenv("RECOMP_UI_LIVE")){
+        unsigned bit=test_pad_bit(wparam);
+        if(message==WM_KEYDOWN){test_pad_held|=bit;test_pad_tapped|=bit;pc_input_note_gamepad(bit,0,0,0,0,0,0);}
+        else test_pad_held&=~bit;
+        fprintf(stderr,"[PC-UI] test pad %s %04X\n",message==WM_KEYDOWN?"down":"up",bit);
+        return 1;
+    }
+    // The launching menu may still have a recent pulse. The movie owns input.
+    if(pc_display_movie_active())return 0;
+    if(message==WM_SIZE&&opened&&wparam!=SIZE_MINIMIZED)queue({WM_SIZE,0,0,0});
+    // Window shortcuts remain available while a settings page owns input.
+    if((message==WM_KEYDOWN||message==WM_KEYUP)&&(wparam==VK_F11||wparam==VK_F8))return 0;
+    if(text_message((HWND)window,message,wparam,lparam))return 1;
+    if(message==WM_LBUTTONDOWN&&getenv("RECOMP_MENU_TRACE")){
+        RECT r={};GetClientRect((HWND)window,&r);
+        fprintf(stderr,"[PC-POINTER] menu=%08X age=%u opened=%d camera=%d point=%d,%d client=%ld,%ld\n",
+            menu_kind.load(),GetTickCount()-menu_time.load(),(int)opened.load(),pc_input_camera_captured(),GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam),r.right,r.bottom);
+    }
+    if(message==WM_KILLFOCUS)pc_input_camera_capture(0);
+    if(message==WM_KEYDOWN&&wparam==VK_ESCAPE&&pc_input_camera_captured()){
+        pc_input_camera_capture(0);PostMessageA((HWND)window,PC_WINDOW_CAPTURE_MESSAGE,0,0);return 1;
+    }
+    if(message==WM_KEYDOWN&&editor_button_shown()&&!modal_available()&&!pc_input_text_captured()){
+        // Keyboard focus on the Editor button: Up / Tab from the scenario row; Enter / Space open it.
+        const bool first=!(lparam&(1LL<<30));
+        if(!editor_focus){if(wparam==VK_UP||wparam==VK_TAB){if(first)editor_focus_set(true);return 1;}}
+        else if(wparam==VK_RETURN||wparam==VK_SPACE){if(first&&ma2_scn_editor_available())ma2_scn_editor_open();return 1;}
+        else if(wparam==VK_RIGHT||wparam==VK_DOWN||wparam==VK_ESCAPE||wparam==VK_BACK||wparam==VK_TAB){if(first)editor_focus_set(false);return 1;}
+        else if(wparam==VK_LEFT||wparam==VK_UP)return 1;
+    }
+    if(message==WM_KEYDOWN&&!(lparam&(1LL<<30))&&wparam=='E'&&editor_button_shown()&&!modal_available()&&!pc_input_text_captured()){
+        if(ma2_scn_editor_available())ma2_scn_editor_open();
+        return 1;
+    }
+    if(message==WM_KEYDOWN&&!(lparam&(1LL<<30))&&wparam==VK_ESCAPE&&!opened&&!exit_dialog&&menu_available()&&!modal_available()&&
+        (menu_kind==0x481B70||menu_kind==0x482170)){request_exit=true;return 1;}
+    if(opened){
+        if(message==WM_KEYDOWN&&!(lparam&(1LL<<30))){queue({WM_KEYDOWN,(int)wparam,0,0});return 1;}
+        if(message==WM_KILLFOCUS||message==WM_CAPTURECHANGED){queue({message,0,0,0});return 0;}
+        if(message==WM_MOUSEMOVE||message==WM_LBUTTONDOWN||message==WM_LBUTTONUP||message==WM_RBUTTONDOWN||message==WM_MBUTTONDOWN||message==WM_XBUTTONDOWN){
+            if(message==WM_LBUTTONDOWN)SetCapture((HWND)window);
+            if(message==WM_LBUTTONUP&&GetCapture()==(HWND)window)ReleaseCapture();
+            int key=message==WM_RBUTTONDOWN?VK_RBUTTON:message==WM_MBUTTONDOWN?VK_MBUTTON:message==WM_XBUTTONDOWN?(GET_XBUTTON_WPARAM(wparam)==XBUTTON1?VK_XBUTTON1:VK_XBUTTON2):VK_LBUTTON;
+            queue({message,key,GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)});return 1;}
+        if(message==WM_KEYUP||message==WM_INPUT||(message>=WM_MOUSEFIRST&&message<=WM_MOUSELAST))return 1;
+    }
+    else if(menu_available()&&(menu_kind!=0x482170||exit_dialog)&&!pc_input_camera_captured()&&
+            (message==WM_MOUSEMOVE||message==WM_LBUTTONDOWN)){
+        float x,y;menu_point((HWND)window,GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam),x,y);
+        if(message==WM_LBUTTONDOWN&&!exit_dialog&&menu_kind==0x481B70&&x>=0&&x<=1&&y>=0&&y<.64f){
+            pc_input_camera_capture(1);PostMessageA((HWND)window,PC_WINDOW_CAMERA_MESSAGE,1,0);return 1;
+        }
+        queue({message,VK_LBUTTON,GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)});return 1;
+    }
+    return 0;
+}
+#include "pc_capture.inl"
+static void device_lost()
+{
+    // Called by the immediate-context owner before it releases the device.
+    // The CPU context/fonts/preferences and Win32 backend remain reusable.
+    if(fps_renderer_initialized) {
+        ImGui_ImplDX11_Shutdown();fps_renderer_initialized=false;
+    }
+}
+static void render(void *device_ptr,void *context_ptr,void *window_ptr,unsigned width,unsigned height)
+{
+    game_window=(HWND)window_ptr;
+    auto device=(ID3D11Device *)device_ptr;auto context=(ID3D11DeviceContext *)context_ptr;
+    static unsigned frames;static DWORD started;static float fps;
+    DWORD now=GetTickCount();frames++;if(!started)started=now;
+    if(now-started>=500){fps=frames*1000.f/(now-started);frames=0;started=now;}
+    float glow_rect[4];float glow=glow_alpha(glow_rect);
+    bool show_fps=pc_setting_get(PC_SHOW_FPS,0)!=0;
+    bool editor_button=editor_button_shown();const wchar_t *editor_note=ma2_scn_editor_note();
+    if(show_fps||glow>0.f||editor_button||editor_note){
+        if(!fps_context_initialized){ImGui::CreateContext();ImGui::GetIO().IniFilename=nullptr;ImGui::GetIO().LogFilename=nullptr;
+            // The overlay never owns the cursor: menus and mouse aim set it.
+            ImGui::GetIO().ConfigFlags|=ImGuiConfigFlags_NoMouseCursorChange;fps_context_initialized=true;}
+        if(!fps_platform_initialized)fps_platform_initialized=ImGui_ImplWin32_Init(window_ptr);
+        if(fps_platform_initialized&&!fps_renderer_initialized)fps_renderer_initialized=ImGui_ImplDX11_Init(device,context);
+        if(fps_renderer_initialized){
+            ImGui_ImplDX11_NewFrame();ImGui_ImplWin32_NewFrame();
+            // Draw in back-buffer pixels; the glow box is in client pixels.
+            RECT client={};GetClientRect((HWND)window_ptr,&client);
+            if(width&&height&&client.right>0&&client.bottom>0){
+                ImGui::GetIO().DisplaySize=ImVec2((float)width,(float)height);
+                float sx=(float)width/client.right,sy=(float)height/client.bottom;
+                glow_rect[0]*=sx;glow_rect[2]*=sx;glow_rect[1]*=sy;glow_rect[3]*=sy;
+            }
+            ImGui::NewFrame();
+            if(glow>0.f)draw_glow(ImGui::GetBackgroundDrawList(),glow_rect,glow);
+            if(editor_button&&client.right>0&&client.bottom>0){
+                float box[4];editor_button_box((HWND)window_ptr,box);
+                POINT p={};static const bool scripted=getenv("RECOMP_UI_LIVE")!=nullptr;bool pointer;
+                if(scripted){uint32_t m=mouse_position.load();p.x=GET_X_LPARAM(m);p.y=GET_Y_LPARAM(m);pointer=m!=0xFFFFFFFFu;}
+                else pointer=GetForegroundWindow()==(HWND)window_ptr&&GetCursorPos(&p)&&ScreenToClient((HWND)window_ptr,&p);
+                bool hover=editor_focus||(pointer&&p.x>=box[0]&&p.x<box[2]&&p.y>=box[1]&&p.y<box[3]);
+                float sx=(float)width/client.right,sy=(float)height/client.bottom;
+                box[0]*=sx;box[2]*=sx;box[1]*=sy;box[3]*=sy;
+                draw_editor_button(ImGui::GetBackgroundDrawList(),box,hover,ma2_scn_editor_available()!=0);
+                if(ma2_scn_editor_available()){
+                    float hint[4];menu_box((HWND)window_ptr,EDITOR_HINT_X0,EDITOR_HINT_Y0,EDITOR_HINT_X1,EDITOR_HINT_Y1,hint);
+                    hint[0]*=sx;hint[2]*=sx;hint[1]*=sy;hint[3]*=sy;
+                    draw_editor_hint(ImGui::GetBackgroundDrawList(),hint,pc_input_device()==PC_INPUT_GAMEPAD);
+                }
+            }
+            if(editor_note)draw_editor_note(ImGui::GetForegroundDrawList(),(float)width,(float)height,editor_note);
+            if(show_fps){
+                ImGui::SetNextWindowPos(ImVec2(16,16));ImGui::SetNextWindowBgAlpha(.55f);
+                ImGui::Begin("Frame rate",nullptr,ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoInputs|ImGuiWindowFlags_NoSavedSettings);
+                ImGui::Text("%.0f FPS",fps);ImGui::End();
+            }
+            ImGui::Render();ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+        }
+    }
+    capture_panel(device,context);
+}
+extern "C" void ma2_pc_settings_initialize(const char *ini)
+{
+    GetFullPathNameA(ini,MAX_PATH,ini_path,nullptr);output_width=env_int("RECOMP_WINDOW_WIDTH",1280);output_height=env_int("RECOMP_WINDOW_HEIGHT",960);fullscreen=env_int("RECOMP_FULLSCREEN",0)!=0;pc_render_size(output_width,output_height);
+    const char *env_names[PC_SETTING_COUNT]={"RECOMP_VSYNC","RECOMP_FRAME_LIMIT","RECOMP_PRESERVE_ASPECT","RECOMP_SCALE_FILTER","RECOMP_AUDIO_VOLUME","RECOMP_MOUSE_AIM","RECOMP_MOUSE_SENSITIVITY","RECOMP_INVERT_Y","RECOMP_KEYBOARD","RECOMP_RENDER_SCALE","RECOMP_SHOW_FPS","RECOMP_DRAW_DISTANCE","RECOMP_TEXTURE_QUALITY","RECOMP_FMV_QUALITY","RECOMP_INVERT_FLIGHT","RECOMP_SHADER_PRELOAD"};
+    const int values[PC_SETTING_COUNT]={0,144,1,1,100,1,100,0,1,0,0,50,0,0,0,1};for(int i=0;i<PC_SETTING_COUNT;i++)pc_setting_set((PcSetting)i,env_int(env_names[i],values[i]));
+    pc_setting_set(PC_DRAW_DISTANCE,std::clamp(pc_setting_get(PC_DRAW_DISTANCE,50),0,100));
+    pc_setting_set(PC_TEXTURE_QUALITY,std::clamp(pc_setting_get(PC_TEXTURE_QUALITY,0),0,2));
+    pc_setting_set(PC_FMV_QUALITY,std::clamp(pc_setting_get(PC_FMV_QUALITY,0),0,1));
+    init_default_keys(nullptr);
+    {int f=pc_setting_get(PC_FRAME_LIMIT,144);if(f<=0)pc_setting_set(PC_FRAME_LIMIT,144);else if(f<30)pc_setting_set(PC_FRAME_LIMIT,30);} // a typo in the ini must not run the game at 5 fps; Unlimited (0) is gone (playtest 11-04: high step rates broke VTOL thrust) -> 144
+    for(int i=0;i<PC_BINDING_COUNT;i++){int key=GetPrivateProfileIntA("Bindings",binding_names[i],default_keys[i],ini_path);pc_binding_set((PcBinding)i,key>0&&key<256?key:default_keys[i]);}
+    resolutions={{640,480},{960,720},{1280,960},{1280,720},{1920,1080},{2560,1440},{3440,1440},{3840,1600},{3840,2160},{5120,1440},{output_width,output_height}};
+    DEVMODEA mode={};mode.dmSize=sizeof(mode);for(DWORD i=0;EnumDisplaySettingsA(nullptr,i,&mode);i++)if(mode.dmPelsWidth>=960&&mode.dmPelsHeight>=600)resolutions.emplace_back(mode.dmPelsWidth,mode.dmPelsHeight);
+    std::sort(resolutions.begin(),resolutions.end());resolutions.erase(std::unique(resolutions.begin(),resolutions.end()),resolutions.end());
+    pc_frontend_register(render,window_message);
+    pc_frontend_register_device_lost(device_lost);
+}

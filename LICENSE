@@ -1,0 +1,39 @@
+MIT License
+
+Copyright (c) 2026 The MechAssault 2 PC Recomp contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---------------------------------------------------------------------------
+Scope
+
+This licence covers the project's own code and artwork: the PC layer of the
+game (menus, settings, input, display, audio and file handling written for
+the PC), the offline bots, the custom-scenario support, the installer and its
+scripts, the MA2 Scenario Editor, the build tools and the documentation.
+
+It does not cover:
+- the screenshots in docs/img, which show MechAssault 2: Lone Wolf and are
+  included under Microsoft's Game Content Usage Rules (see LEGAL.md);
+- MechAssault 2: Lone Wolf itself, which is not part of this repository, comes
+  from the user's own disc and belongs to its rights holders;
+- third-party components, which keep their own licences (files copied from
+  them keep their original headers). See THIRD-PARTY-NOTICES.md. Some of
+  them are GPL or LGPL, so a game executable built from this source together
+  with them is, as a whole, subject to those licences as well.

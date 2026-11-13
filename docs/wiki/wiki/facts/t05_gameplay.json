@@ -1,0 +1,2436 @@
+{
+ "pack": "t05_gameplay",
+ "title": "Gameplay systems: vehicles, physics timing, QTE, aiming, missions, checkpoints",
+ "facts": [
+  {
+   "id": "tank-vtable-and-update-slot",
+   "title": "MATank actor vtable 0046AE48 dispatches its update through slot +1C to 00109536",
+   "subject": {
+    "kind": "vtable",
+    "id": "MATank 0046AE48"
+   },
+   "addresses": [
+    "0046AE48",
+    "00109536",
+    "001085F7",
+    "001753BF"
+   ],
+   "related": [
+    "MATank",
+    "MAActorTank",
+    "ma2_tank_fixedstep.c"
+   ],
+   "fact": "The MATank actor vtable is 0x46AE48 and its slot at +1C is the full actor update 0x109536. The constructor 0x1085F7 writes the vtable, the class descriptor 0x4AF670 names MATank, and the control factory 0xC9182 picks the Tank Behavior constructor 0x1753BF (vtable 0x477850) for it. Every tank-specific wrapper keys on 0x46AE48 and 0x109536.",
+   "how_to_use": "Check [0x46AE64] == 0x109536 to confirm the update slot before wrapping it.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/ma2_tank_fixedstep.c",
+     "line": 20
+    }
+   ],
+   "tags": [
+    "vehicle",
+    "tank",
+    "vtable"
+   ],
+   "date": "2026-10-11",
+   "addresses_unverified": [
+    "004AF670",
+    "000C9182",
+    "00477850"
+   ]
+  },
+  {
+   "id": "tank-action9-noop-consumes-mouse",
+   "title": "Tank action9 consumes mouse X at a no-op callback, so the turret never turns",
+   "subject": {
+    "kind": "function",
+    "id": "0017537D"
+   },
+   "addresses": [
+    "0017537D",
+    "0017BCC1"
+   ],
+   "related": [
+    "MATank",
+    "recomp_manual.c"
+   ],
+   "fact": "Tank logical action 9 dispatches to 0x17537D, which calls actor vtable +234 = 0x17BCC1. That target is an original RET8 no-op. The translated handler injected and consumed mouse X just before this call, so mouse X was lost for the turret.",
+   "how_to_use": "Use the RECOMP_AIM trace in recomp_manual.c to see whether X is consumed at 0x17537D.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "aiming",
+    "tank",
+    "mouse"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tank-turret-yaw-route",
+   "title": "Tank turret yaw path runs 1753E6 to 109FF4 to inline angular velocity",
+   "subject": {
+    "kind": "function",
+    "id": "001753E6"
+   },
+   "addresses": [
+    "001753DC",
+    "001753E6",
+    "00175466",
+    "001754BC",
+    "00109FF4",
+    "002ADC10",
+    "002B28D0"
+   ],
+   "related": [
+    "MATank",
+    "ma2_mouse_tank_yaw"
+   ],
+   "fact": "Component 0x477850 action 9 reaches 0x1753DC, which calls 0x1753E6. That function reads action9+118 through 0x175466, applies the controller curve at 0x1754BC, and passes the result as the fourth float to the turret setter 0x109FF4. The setter goes through 0x2ADC10 to the angular vector setter 0x2B28D0 on the inline physics object actor+488, so the turret rate is stored at actor+538. The first three arguments control hull movement and are not the turret.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "aiming",
+    "tank",
+    "turret"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tank-mouse-yaw-hook",
+   "title": "Mouse yaw for the stolen Tank is added as the turret yaw argument",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_mouse_tank_yaw"
+   },
+   "addresses": [
+    "00477850",
+    "0046AE48",
+    "004930B8"
+   ],
+   "related": [
+    "recomp_manual.c",
+    "recomp_0039.c",
+    "MATank"
+   ],
+   "fact": "ma2_mouse_tank_yaw in recomp_manual.c adds the frame mouse X to the fourth argument of 0x109FF4 after the controller curve, and it does so only for the exact Tank component 0x477850 with actor 0x46AE48, inline physics 0x4930B8, health > 0 and no actor+5CC bit1 suppression. Mouse consumption at 0x17537D is removed for that actor only, so other actors keep the old route. The hull arguments are unchanged. The human run of build 1ABC reported horizontal Tank aiming working.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 849
+    }
+   ],
+   "tags": [
+    "aiming",
+    "mouse",
+    "tank",
+    "manual-override"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tank-mouse-injection-order",
+   "title": "The mouse yaw must be injected after the first hull argument is pushed",
+   "subject": {
+    "kind": "function",
+    "id": "001753E6"
+   },
+   "addresses": [
+    "001753E6"
+   ],
+   "related": [
+    "recomp_0039.c"
+   ],
+   "fact": "An earlier preview injected mouse yaw at 0x175455 before the movement argument push, so it wrote over saved EBX and left the yaw unchanged. The accepted candidate injects after the push and store, so esp+C is the fourth argument just before the call to 0x109FF4. That preserves the first three hull arguments.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "aiming",
+    "tank",
+    "bug"
+   ],
+   "date": "2026-10-11",
+   "addresses_unverified": [
+    "00175455"
+   ]
+  },
+  {
+   "id": "tank-mouse-selection-object-primary",
+   "title": "A primary mouse-selected component is found through object+2F0 and the human MAInput child",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_object_primary"
+   },
+   "addresses": [
+    "004EAFA4"
+   ],
+   "related": [
+    "ma2_input_command",
+    "ma2_bot_is_player"
+   ],
+   "fact": "ma2_object_primary returns 1 only when object+244 bit 2 is set, the object is not a bot, and one of its MAInput children (class *0x4EAFA4, child +7C clear) has its primary slot (+80) equal to the primary controller slot. ma2_input_command then sets ma2_mouse_component to object+2F0 for action 5 or 9. Bots never qualify.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 878
+    },
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 889
+    }
+   ],
+   "tags": [
+    "input",
+    "aiming",
+    "primary-player"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "mouse-look-frame-rate-divide",
+   "title": "Mouse look divides pixel displacement by the simulation step, so degrees per count do not depend on frame rate",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_mouse_look_value"
+   },
+   "addresses": [
+    "004E2428"
+   ],
+   "related": [
+    "ma2_mouse_look",
+    "ma2_mouse_commit"
+   ],
+   "fact": "ma2_mouse_look_value adds the raw mouse displacement to the controller value. It divides by the title's simulation step (double at 0x4E2428) and only does so when the step is between 0 and 1 and the component is the primary one with its +6E4 byte clear. The division is the frame-rate fix: the same mouse count gives the same turn at any frame rate.",
+   "how_to_use": "RECOMP_INPUT_DIAG=1 logs [MOUSE-LOOK] with pad, mouse and dt values.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 806
+    },
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 818
+    }
+   ],
+   "tags": [
+    "mouse",
+    "frame-rate",
+    "aiming"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "mouse-commit-once-per-frame",
+   "title": "Mouse displacement is read once per input commit with a fixed 0.01 unit and cleared after use",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_mouse_commit"
+   },
+   "addresses": [],
+   "related": [
+    "xbox_InputReadMouseAxes",
+    "ma2_mouse_look_value"
+   ],
+   "fact": "ma2_mouse_commit clears the used flags and frame mouse values, then reads the raw mouse axes with a fixed elapsed of 0.01 and stores displacement x 0.01. Each axis is consumed once (used_x / used_y flags) until the next commit, so a second call in the same frame receives only the pad value. The actual step division is done later in ma2_mouse_look_value.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 950
+    },
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 959
+    }
+   ],
+   "tags": [
+    "mouse",
+    "input"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "mouse-look-gates",
+   "title": "Mouse look is only applied to the one primary component in the expected state",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_mouse_look_value"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_mouse_look"
+   ],
+   "fact": "The mouse is applied only when the component equals ma2_mouse_component and its +6E4 byte (input mode) is zero. Otherwise the pad value passes through unchanged. A component with +6E4 true (the manual-camera mode) is therefore excluded, which is why the original manual-camera yaw path 0x1B0297 never receives mouse X.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 816
+    }
+   ],
+   "tags": [
+    "mouse",
+    "input"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "pov-pitch-mouse-candidate",
+   "title": "Default POV pitch bypasses manual dispatch, so a manual adapter adds mouse Y",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_mouse_pov_pitch"
+   },
+   "addresses": [
+    "004772A0",
+    "00172989",
+    "000F065C",
+    "002ADD30",
+    "002B28C0"
+   ],
+   "related": [
+    "recomp_bringup_0000.c",
+    "ma2_mouse_look"
+   ],
+   "fact": "The original POV pitch action 5 at 0x172989 tail-calls 0xF065C directly, and the translated 0x172989 calls it without going through manual dispatch, so the mouse Y was never added. The candidate adapter ma2_mouse_pov_pitch adds Y when the primary component is in mode 0 and owns the actor. It applies only to the Default POV vtable 0x4772A0, and it is called after the root-nonnull check and before the original multiply by 100 (0x493B48). Controller inversion stays in the original path.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 863
+    }
+   ],
+   "how_to_use": "Not accepted as the stolen-tank fix.",
+   "tags": [
+    "aiming",
+    "pov",
+    "camera"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "pov-yaw-and-pitch-routes",
+   "title": "POV and turret routes: X goes to yaw, Y to pitch",
+   "subject": {
+    "kind": "function",
+    "id": "00172989"
+   },
+   "addresses": [
+    "001729DE",
+    "000E9B3B",
+    "002ADC10",
+    "002B28D0",
+    "00172989",
+    "002ADD30",
+    "002B28C0",
+    "00175CA4",
+    "00175AD1",
+    "00120EBD"
+   ],
+   "related": [
+    "MATurret",
+    "DefaultPOV"
+   ],
+   "fact": "For Default POV (0x4772A0) and MATurret (0x46B130), X reaches 0x1729DE to 0xE9B3B to 0x2ADC10 to 0x2B28D0, the root yaw setter. Y reaches 0x172989 (pitch) to 0x2ADD30 to 0x2B28C0. The tank class uses a different route: Y goes to the generic camera pitch 0x175CA4 to 0x175AD1 to 0x120EBD. A POV example gives root yaw 67.5 and root pitch -22.5 while the camera stays at 0.5.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "aiming",
+    "pov",
+    "turret"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "vtol-yaw-candidate",
+   "title": "VTOL yaw candidate adds mouse yaw to MAFlyer action 9",
+   "subject": {
+    "kind": "function",
+    "id": "0001745B9"
+   },
+   "addresses": [
+    "001745B9",
+    "00113EA0",
+    "0006C790",
+    "00175194",
+    "00110B55"
+   ],
+   "related": [
+    "MAFlyer",
+    "recomp_0039.c"
+   ],
+   "fact": "The VTOL component 0x477570 action 9 is 0x1745B9. Its MAFlyer constructor 0x110B55 writes vtable 0x46BC38, actor+260 is 0x113EA0, and the root transform+44 setter is 0x6C790. The candidate adds ma2_mouse_look at 0x174664 for input layouts 0 and 1, and at 0x1746BF after the 0x175194 response curve for layout 3 when the curve branch runs (UCOMISS on component+460 vs 0). It gives 880 original cases and 1,111 yaw cases with 0 mismatches. It is not accepted.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "vehicle",
+    "vtol",
+    "aiming"
+   ],
+   "date": "2026-10-11",
+   "addresses_unverified": [
+    "00477570",
+    "0046BC38"
+   ]
+  },
+  {
+   "id": "tank-hull-rate-spring-clock",
+   "title": "Tank attitude spring 1718ED is stepped at 30 Hz per transform with a phase accumulator",
+   "subject": {
+    "kind": "function",
+    "id": "001718ED"
+   },
+   "addresses": [
+    "001718ED"
+   ],
+   "related": [
+    "ma2_spring_rate.h",
+    "recomp_0038.c",
+    "F0A76"
+   ],
+   "fact": "The attitude spring 0x1718ED has a 30 Hz discrete map and a sign-crossing clamp. The candidate ma2_spring_rate.h keeps a per-transform phase (no pose or velocity), so 0 or more 1/30 ticks run per call and the rest is kept as remainder. An exact dt of 1/30 or a zero dt runs the original arithmetic. Parameters are unchanged: defaults 300/300 (0x4BAEF4/0x4BAEF0), secondary 100/20 (0x4BACC4/0x4BACC0), fast-normal 100/100 (0x4BAF14/0x4BAF10). Up to 2048 active clocks; more falls back to the original.",
+   "how_to_use": "Enable with RECOMP_TANK_FIXEDSTEP=1 (opt-, default off).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "physics",
+    "tank",
+    "timing"
+   ],
+   "date": "2026-10-11",
+   "addresses_unverified": [
+    "004BAEF4",
+    "004BAEF0",
+    "004BACC4",
+    "004BACC0",
+    "004BAF14",
+    "004BAF10"
+   ]
+  },
+  {
+   "id": "tank-fixedstep-wrapper-current",
+   "title": "Current tank fixed-step wrapper calls the full 109536 body once per host update",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_tank_fixed_update"
+   },
+   "addresses": [
+    "0046AE48",
+    "00109536"
+   ],
+   "related": [
+    "ma2_tank_fixedstep.c",
+    "gen0026",
+    "gen0038"
+   ],
+   "fact": "ma2_tank_fixed_update(body) sets a temporary context_actor only when RECOMP_TANK_FIXEDSTEP is set and the actor passes live, then calls the original body exactly once with the original registers and clock. It does not skip any actor tick, buffer input or overwrite angularY. The spring work is scheduled inside 1718ED by ma2_spring_rate.h. Same-epoch duplicate calls do not add phase.",
+   "how_to_use": "RECOMP_TANK_FIXEDSTEP=1 selects this experiment; absent or 0 keeps normal physics. Inherited RECOMP variables are stripped by the capture launcher.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/ma2_tank_fixedstep.c",
+     "line": 16
+    },
+    {
+     "file": "kit/source/game/src/ma2_tank_fixedstep.c",
+     "line": 26
+    }
+   ],
+   "tags": [
+    "physics",
+    "tank",
+    "fixed-step",
+    "env"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tank-fixedstep-live-guard",
+   "title": "Tank fixed-step only applies to a validated MATank with the original inline layout",
+   "subject": {
+    "kind": "function",
+    "id": "live"
+   },
+   "addresses": [
+    "0046AE48",
+    "00109536",
+    "0046AE64",
+    "004930B8",
+    "004934B8"
+   ],
+   "related": [
+    "ma2_tank_fixedstep.c"
+   ],
+   "fact": "live(a) requires that the span covers 0x9A4 bytes, the vtable is 0x46AE48, [0x46AE64] is 0x109536, health (a+184) is positive, the root (a+8C) and model (a+94) spans are readable, the inline physics (a+488) is 0x4930B8, and the velocity transform (a+504) is 0x4934B8. Only then does the wrapper run. Any other actor, including the Mech with 0x469CD0, keeps the original body.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/ma2_tank_fixedstep.c",
+     "line": 20
+    }
+   ],
+   "tags": [
+    "physics",
+    "tank",
+    "guard"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tank-fixedstep-phase-accumulator",
+   "title": "Fixed-step phase accumulator: 1/30 ticks, remainder kept, dt capped at 0.2 s",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_tank_response_tick"
+   },
+   "addresses": [
+    "004E2420",
+    "004E2428",
+    "004E2440"
+   ],
+   "related": [
+    "ma2_tank_fixedstep.c",
+    "ma2_spring_rate.h"
+   ],
+   "fact": "ma2_tank_response_tick reads dt from 0x4E2428 and time from 0x4E2440 and frame from 0x4E2420. It accepts dt in (0, 0.2] and rejects non-finite time. The key is (actor, key, vtable, uid, parent, root, model), with 2048 slots. A time or frame rewind clears the table. Each call computes ticks = floor((remainder + dt)/h + 1e-10) with h = 1/30 and keeps the remainder. Exact dt equal to 1/30 returns -1, so the original arithmetic runs.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/ma2_tank_fixedstep.c",
+     "line": 34
+    },
+    {
+     "file": "kit/source/game/src/ma2_tank_fixedstep.c",
+     "line": 49
+    }
+   ],
+   "tags": [
+    "physics",
+    "timing",
+    "fixed-step"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tank-contact-clock-unused",
+   "title": "The contact-phase clock API in ma2_tank_fixedstep.c is not called by the current candidate",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_tank_contact_begin"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_tank_fixedstep.c",
+    "split-v2"
+   ],
+   "fact": "ma2_tank_contact_begin and ma2_tank_contact_end copy the clock scope for a contact region and set the step to 1/30. The split-v2 candidate has no contact hook in gen0038, and nothing calls the contact API. The live path is the whole-body wrapper plus the spring clock only.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/ma2_tank_fixedstep.c",
+     "line": 52
+    }
+   ],
+   "tags": [
+    "physics",
+    "tank"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tank-fixedstep-human-results",
+   "title": "Human tests: whole-body 30 Hz fixes pitch but makes aim choppy, spring-only does not fix pitch",
+   "subject": {
+    "kind": "concept",
+    "id": "tank-rate-dependence"
+   },
+   "addresses": [],
+   "related": [
+    "109536",
+    "1718ED",
+    "10A3DA"
+   ],
+   "fact": "Build 2959 stepped all of 109536 at 30 Hz (up to 6 ticks): pitch was correct but aim and camera were choppy. Build 8DF1 stepped only the springs: pitch was excessive again and the aim was smooth. So the rate-dependent state is outside the springs, in the physical-root contact and wheel chain (170ECA, 170FD8, 171010, 171369, 1713E5). Control, camera and animation must run at native cadence.",
+   "status": "superseded",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "physics",
+    "tank",
+    "human-test"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tank-flat-fixture-rate-peaks",
+   "title": "Flat-terrain CPU fixture: installed build peaks 121 deg at 60 Hz, spring-only candidate 1.4 deg",
+   "subject": {
+    "kind": "function",
+    "id": "00170C08"
+   },
+   "addresses": [
+    "00170C08"
+   ],
+   "related": [
+    "170C08 full caller",
+    "1718ED"
+   ],
+   "fact": "In the 170C08 caller fixture (2,856 updates per variant), the installed build BA6C peaked at 121.2 deg at 60 Hz, 110.7 at 144 Hz and 106.7 at 480 Hz, while the original at 30 Hz peaked at 1.45 deg. The spring-only candidate peaked at 1.42, 1.52 and 1.43 deg. This shows the rate dependence is real in the controlled fixture, but the fixture is flat and is not native proof.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "physics",
+    "tank",
+    "fixture"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tank-root-update-chain",
+   "title": "Root update chain: 109536 to E9A5F to DBBCA to root vtable +10 (170C08)",
+   "subject": {
+    "kind": "function",
+    "id": "00170C08"
+   },
+   "addresses": [
+    "000E9A5F",
+    "000DBBCA",
+    "00170C08"
+   ],
+   "related": [
+    "MATank",
+    "root vtable 4770B8"
+   ],
+   "fact": "Inside 109536 the integer step at [ebp+8] is pushed to 0xE9A5F (1096DF), which calls 0xDBBCA. That calls root actor+8C virtual +10 (the 170C08 root update) with the same integer. Root vtable 0x4770B8 +10 is 0x170C08. 170C08 multiplies the uint32 millisecond argument by the float 0x493AC4 (0.001) to get seconds. The pure forwarding of the integer is original.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "physics",
+    "tank",
+    "timing"
+   ],
+   "date": "2026-10-11",
+   "addresses_unverified": [
+    "001096D2",
+    "001096DF",
+    "000DBF04",
+    "004770B8",
+    "00493AC4"
+   ]
+  },
+  {
+   "id": "tank-physics-root-substeps",
+   "title": "Physical root 170C08 runs wheel geometry, gravity, contact, normal and spring in order",
+   "subject": {
+    "kind": "function",
+    "id": "00170C08"
+   },
+   "addresses": [
+    "00170D91",
+    "00177775",
+    "00170ECA",
+    "00170FD8",
+    "00171010",
+    "00171369",
+    "001713E5",
+    "001716B1",
+    "00171839",
+    "001718ED",
+    "00170C08"
+   ],
+   "related": [
+    "ma2_tank_trace.c"
+   ],
+   "fact": "When root+144 flags select the slow branch (not the cached fast branch 170D91), 170C08 calls 170ECA (wheel transforms from the model's C0.E8 matrix), 170FD8 (wheel vertical velocity and height), 171010 (contact resolution), 171369 (mean root height), and 1713E5 (triangle contact normal). The contact-basis call reaches attitude virtual +6C, which is 1718ED with zero stiffness and damping replaced by 300/300. The partial-contact timer and force are at 1716B1 and 171839.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "physics",
+    "tank",
+    "contact"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tank-normal-cache-fast-path",
+   "title": "170D91 reuses the cached contact normal unless the root moved more than 0.0002 on any axis",
+   "subject": {
+    "kind": "function",
+    "id": "00170D91"
+   },
+   "addresses": [
+    "00170D91",
+    "00084430",
+    "0017687C",
+    "000F70FC",
+    "002AAB80"
+   ],
+   "related": [
+    "recomp_0038.c",
+    "4770B8"
+   ],
+   "fact": "170D91 compares previous root+8 with current root+44 using epsilon 0x45AF34 (0.0002) in 84430. If the root has not moved beyond epsilon and the cached normal at +154 is nonzero, the normal provider is skipped. The provider is 17687C through vtable +2C, which calls F70FC and 2AAB80. A zero or NaN cache forces a refresh. A one-line candidate (W4, SHA 8caae791) replaces 170E07 with an unconditional goto to 170E48 so that stationary updates also refresh. It is not integrated.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "physics",
+    "tank",
+    "terrain"
+   ],
+   "date": "2026-10-11",
+   "addresses_unverified": [
+    "00170E07",
+    "00170E48",
+    "0045AF34"
+   ]
+  },
+  {
+   "id": "tank-prev-position-overwrite",
+   "title": "2AEC20 copies current root position into the previous block every update",
+   "subject": {
+    "kind": "function",
+    "id": "0002AEC20"
+   },
+   "addresses": [
+    "001769F9",
+    "002AEC20"
+   ],
+   "related": [
+    "170D91"
+   ],
+   "fact": "170C08 calls 1769F9 before choosing the fast 170D91 branch. When root+160 bit 0x400 is set, 1769F9 calls 2AEC20, which copies current +44/+48/+4C into previous +8/+C/+10 and then calls virtual +44. The previous block is therefore a previous-update block, not a last-normal sample. This copy happens regardless of whether the normal is refreshed.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "physics",
+    "tank",
+    "terrain"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "tank-clock-producers",
+   "title": "Clock producers 1DE70 and 1DD80 publish a double dt and a truncated integer millisecond step",
+   "subject": {
+    "kind": "function",
+    "id": "0001DE70"
+   },
+   "addresses": [
+    "0001DE70",
+    "0001DD80",
+    "0030A5C0"
+   ],
+   "related": [
+    "15AF0",
+    "4E2420"
+   ],
+   "fact": "The real-clock producer 0x1DE70 (or the alternate 0x1DD80) takes the elapsed time, clamps the raw value at 0.2 s (stored at 0x4E2418) and publishes the double step 0x4E2428 = scale(0x4A14F0) x elapsed. It then multiplies by 1000.0 (0x493B58) and converts with 0x30A5C0 into the integer ms 0x4E2424. There is no fractional carry. Cumulative milliseconds at 0x4E2430 are converted separately.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "timing",
+    "clock",
+    "physics"
+   ],
+   "date": "2026-10-11",
+   "addresses_unverified": [
+    "004E2428",
+    "004E2424",
+    "004E2430",
+    "004E2418",
+    "004A14F0",
+    "00493B58"
+   ]
+  },
+  {
+   "id": "clock-integer-ms-truncation",
+   "title": "Integer ms truncation is real but is not the tank cause (contact steps pass exactly 1/30)",
+   "subject": {
+    "kind": "concept",
+    "id": "integer-ms-step"
+   },
+   "addresses": [],
+   "related": [
+    "170C08",
+    "170C30"
+   ],
+   "fact": "The per-frame integer step truncates: 6 ms at 144 Hz, 16 ms at 60 Hz, 33 ms at 30 Hz. The 170C08 contact work receives 1/30 in the wrapper, so the 6 ms loss was tested and is not the cause. The rounding is a real quirk of the original clock, but no native fix is supported.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "timing",
+    "clock"
+   ],
+   "date": "2026-10-11",
+   "addresses_unverified": [
+    "004E2424"
+   ]
+  },
+  {
+   "id": "tank-10a3da-tilt",
+   "title": "10A3DA accel/brake tilt uses the native dt and shows no rate error in isolation",
+   "subject": {
+    "kind": "function",
+    "id": "0010A3DA"
+   },
+   "addresses": [
+    "0010A3DA",
+    "0024EF00"
+   ],
+   "related": [
+    "10B7F5",
+    "4E2428"
+   ],
+   "fact": "10A3DA normalizes the +97C/+980 target offsets by 7, bounds the input, calls 24EF00, scales by 25, integrates with the native dt (double 0x4E2428) and clamps overshoot. Its isolated peak tilt is 4.74 deg at 30, 60, 144 and 480 Hz with zero byte mismatches, so no producer fix is justified. Its root +60 setter does not establish hull pitch.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "physics",
+    "tank"
+   ],
+   "date": "2026-10-11",
+   "addresses_unverified": [
+    "0010A602",
+    "0010A666"
+   ]
+  },
+  {
+   "id": "tank-secondary-spring-limit",
+   "title": "Secondary root (actor+5D0) spring uses 100/20 and limits relative pitch to 5 degrees",
+   "subject": {
+    "kind": "function",
+    "id": "00010B7F5"
+   },
+   "addresses": [
+    "0010B7F5"
+   ],
+   "related": [
+    "actor+5D0"
+   ],
+   "fact": "The secondary root is actor+5D0 (vtable 0x4770B8). The initialization 0x108698 calls 0x170A05 to set it up, and 10B8F7 uses the 100/20 spring pair. 10B7F5 runs only when actor+804 is nonzero, and it limits the secondary-to-primary relative pitch to the authored 5 deg (0x4BACBC).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "physics",
+    "tank"
+   ],
+   "date": "2026-10-10",
+   "addresses_unverified": [
+    "0010B8F7",
+    "004BACC4",
+    "004BACC0",
+    "004BACBC",
+    "004770B8"
+   ]
+  },
+  {
+   "id": "tank-cc083-one-shot",
+   "title": "Vehicle transition CC083 clears parent+3E0 before notifying, so repeat calls do nothing",
+   "subject": {
+    "kind": "function",
+    "id": "000CC083"
+   },
+   "addresses": [
+    "000CC083",
+    "000DE453",
+    "000EBE1E",
+    "000E43AF"
+   ],
+   "related": [
+    "109536"
+   ],
+   "fact": "CC083 checks parent+3E0, clears it before the notifications and returns straight away on a repeat call. The original CPU fixture shows one notification path on call 1 and none on call 2. The wrapper relies on this and does not suppress the nested call.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "vehicle",
+    "transition",
+    "events"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tank-dispatch-gates",
+   "title": "The manager dispatches actor 1C updates only through pause, bit4 and actor flag gates",
+   "subject": {
+    "kind": "function",
+    "id": "00015D8F"
+   },
+   "addresses": [
+    "00015AF0",
+    "0015D4C7",
+    "0015CEE6"
+   ],
+   "related": [
+    "manager 15AF0",
+    "scene node"
+   ],
+   "fact": "The manager frame loop 0x15AF0 calls the clock producer, then 15D8F dispatches the step and cumulative values to the manager+18 callback 0x15D4C7. Dispatch is skipped if the pause byte 0x4D382A is set, the local flag is set, or app+10 is null. 0x15D4C7 skips the whole actor block when 0x4EB210 bit4 is zero (the constructor 0x15CEE6 sets it with OR 0x3F). The actor is then ticked only if actor+1C bit11 is set and bit13 is clear. 524B93 selects scene or list mode.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "dispatch",
+    "timing",
+    "mission"
+   ],
+   "date": "2026-10-10",
+   "addresses_unverified": [
+    "00015C2B",
+    "00015C4A",
+    "00015D8F",
+    "004D382A",
+    "004EB210",
+    "00524B93"
+   ]
+  },
+  {
+   "id": "tank-dispatch-no-proven-cinema-exit",
+   "title": "No code writer restoring the dispatch bits after the shoreline cinema is proven",
+   "subject": {
+    "kind": "concept",
+    "id": "shoreline-cinema-freeze"
+   },
+   "addresses": [
+    "000B2790",
+    "000B27C0",
+    "000E06FB"
+   ],
+   "related": [
+    "cinema41226"
+   ],
+   "fact": "The actor+1C bit11 and bit13 setters are 0xB2790 and 0xB27C0. The only caller found is 0xE06FB at 0xE07D6, which passes BL only when the 0x18F10 object's +69 byte is zero. No callback from cinema 41226's exit into these setters was proven. The question remains open. CORRECTION 2026-10-24: the 'only caller found' 0xE06FB @0xE07D6 calls the bit-13 setter 0xB27C0 (inverted), not the bit-11 setter 0xB2790 (actor-1c-bit-13-setter-b27c0-inverted-bit-11-setter-b2790-callers-resolved). NOTE 2026-10-24: bit 11 = ACTIVE (SetActive 0xB2790), see maentity-plus-1c-bit-11-is-active-setactive-b2790-gates-per-frame-update-b4650-retracts-deferred-delete.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "dispatch",
+    "mission",
+    "shoreline"
+   ],
+   "date": "2026-10-10",
+   "addresses_unverified": [
+    "000E07D6"
+   ]
+  },
+  {
+   "id": "tank-shoreline-symptom",
+   "title": "Shoreline symptom: three tanks stay pitched uphill when uncapped, and level at 30 FPS",
+   "subject": {
+    "kind": "concept",
+    "id": "shoreline-tank-attitude"
+   },
+   "addresses": [],
+   "related": [
+    "cinema41226",
+    "set130110",
+    "132500",
+    "132555",
+    "132557"
+   ],
+   "fact": "The cinema is 8 s, with exit action 132157. The authored Mission_01b set has only two cinematic tanks (133496 and 133503). The third visible tank is not mapped to a UID. The cause is open.",
+   "how_to_use": "Interim workaround: frame limit 30 for tank segments.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "tank",
+    "shoreline",
+    "physics"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "tank-mission01b-cinema-uids",
+   "title": "Mission_01b cinematic tanks are UIDs 133496 and 133503, with waypoint groups 133499 and 133502",
+   "subject": {
+    "kind": "asset",
+    "id": "Mission_01b authored tank cinema"
+   },
+   "addresses": [],
+   "related": [
+    "133496",
+    "133503",
+    "133499",
+    "133502",
+    "133504"
+   ],
+   "fact": "The authored Mission_01b cinema names two tanks: UIDs 133496 and 133503, template 40026, set 133504, waypoint groups 133499 and 133502, speeds 11 and 12, StayOnPath 1, IgnoreCollisions 1, non-spline. All 15 MATank records in that mission have CorporalPitch 0, CorporalRoll 0 and CorporalForceLandHeight 1. These are authored values and do not prove the runtime hull basis.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "mission",
+    "tank",
+    "asset"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "tank-trace-diagnostic",
+   "title": "Opt-in tank trace records actor, root and spring stages in a bounded binary",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_TANK_TRACE_SCENE"
+   },
+   "addresses": [
+    "00170D91",
+    "001718ED",
+    "00109536",
+    "000EB555",
+    "000EB624",
+    "00170FD8",
+    "001713E5"
+   ],
+   "related": [
+    "ma2_tank_trace.c",
+    "decode_trace_v2.py",
+    "read_trace.py"
+   ],
+   "fact": "ma2_tank_trace.c records MATank update, root update, normal and spring stages into a bounded binary. It is off unless RECOMP_TANK_TRACE_SCENE=Mission_01b, RECOMP_TANK_TRACE_UIDS (2 or 3 UIDs including both cinematic tanks) and RECOMP_TANK_TRACE_FILE (a new file under the logs folder) are all set. It samples at most 5 frames a second per actor, stops after 10 host seconds or 512 detailed records per actor (1,536 total), and writes once with exclusive create. Guest state is not changed. Decode with decode_trace_v2.py.",
+   "how_to_use": "RECOMP_TANK_TRACE_SCENE=Mission_01b RECOMP_TANK_TRACE_UIDS=133496,133503 RECOMP_TANK_TRACE_FILE=<new file>",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "tank",
+    "diagnostic",
+    "env"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tank-aim-transition-diagnostic",
+   "title": "Aim transition diagnostic logs the controlled component, actor, root and camera",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_TANK_AIM_DIAG"
+   },
+   "addresses": [
+    "004B296C"
+   ],
+   "related": [
+    "[AIM-TRANSITION]",
+    "[TANK-AIM-ROUTE]"
+   ],
+   "fact": "With RECOMP_TANK_AIM_DIAG=1, recomp_manual.c writes [AIM-TRANSITION] rows with the selected component, actor vtable and UID, parent, root flags, camera, input layout (global 0x4B296C), and raw and used mouse values. The original [TANK-AIM-ROUTE] rows are capped at 240, and the transition rows are capped at 512 more, over at most 128 keys. The probe does not sample input or change mouse state.",
+   "how_to_use": "Set RECOMP_TANK_AIM_DIAG=1 before launch; search stderr for AIM-TRANSITION.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 705
+    }
+   ],
+   "tags": [
+    "aiming",
+    "diagnostic",
+    "env"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tank-stolen-identity-open",
+   "title": "The stolen tank in Mission03 is not identified as a UID; no turret-to-hull parent exists in authored data",
+   "subject": {
+    "kind": "concept",
+    "id": "stolen-tank-identity"
+   },
+   "addresses": [],
+   "related": [
+    "Mission_03",
+    "MAPlayer",
+    "attach"
+   ],
+   "fact": "Authored Mission_03 has 16 MATank and 20 MATurret records, and no turret row has a direct authored parent equal to a tank UID. Attachment code (0xD2AD7, 0xC8D95, 0xCB27A) copies the attached UID into MAPlayer+248 and sets player+244 bit13 when actor+260 bit1 is set. This does not prove which actor the human controls. Until a live selection capture exists, the controlled tank is open.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "tank",
+    "identity",
+    "open"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "player-factory-camera-route",
+   "title": "The camera factory chooses the aim route from player flags and the actor class",
+   "subject": {
+    "kind": "function",
+    "id": "000C9084"
+   },
+   "addresses": [
+    "000C9084",
+    "001753BF",
+    "00172967",
+    "00172639",
+    "000CB4EF"
+   ],
+   "related": [
+    "Default POV",
+    "MATank"
+   ],
+   "fact": "The control-behaviour factory C9084 selects the generic MATank constructor 0x1753BF. When player bit13 is set it selects Default POV 0x172967. Player flags 9 or 10 keep the fallback 0x172639. Null attachment makes the camera lookup 0xCB4EF return null.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "camera",
+    "aiming",
+    "factory"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "turret-gun-emplacement-fix",
+   "title": "MATank with zero drive limits is a gun emplacement, not a ride",
+   "subject": {
+    "kind": "function",
+    "id": "tank_fixed"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bots_core.c",
+    "ma2_bot_brain.c",
+    "patch_turret_slide.py"
+   ],
+   "fact": "Some base guns are MATank instances with zero physics drive limits (root +BC and +C0 both 0). A bot that boarded one drove the whole gun across the map because tank_repair wrote drive values into it. tank_fixed returns true for these and actor_kind returns MA2_KIND_TURRET. The turret has vehicle_pref 0, ctrl_tick never drives it, a bot in it gets out, and tank_repair was removed. The G_EJECT step skips TURRET.",
+   "how_to_use": "Run patch_turret_slide.py (idempotent). RECOMP_BOT_DIAG prints [BOT-FIXEDGUN] once per gun.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "bots",
+    "vehicle",
+    "turret",
+    "bug"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "pilot-think-hold",
+   "title": "A driven pilot stutters when its asleep AI thinks, so the think time is held one second ahead",
+   "subject": {
+    "kind": "function",
+    "id": "ai_hold_think"
+   },
+   "addresses": [
+    "00178757",
+    "002AE860",
+    "002AD3A0"
+   ],
+   "related": [
+    "patch_pilot_nothink.py",
+    "ma2_bot_ctrl.c",
+    "MechAI"
+   ],
+   "fact": "A bot-driven pilot has its MechAI asleep. The AI tick still thinks every 0.2 to 0.28 s and each think ORs comp+144 with 0x60 (at 0x18346A). The walker body update then zeroes velocity and skips the step, so the pilot stopped 4 to 5 times a second. ai_hold_think sets ai+1C4 to the game time (double 0x4E2440) plus 1.0 while the controller drives an on-foot pilot. RECOMP_BOT_PILOT_NOTHINK=0 restores the old behaviour.",
+   "how_to_use": "patch_pilot_nothink.py --check to verify anchors; RECOMP_BOT_PILOT_NOTHINK=0 for A/B.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "bots",
+    "pilot",
+    "animation"
+   ],
+   "date": "2026-10-14",
+   "addresses_unverified": [
+    "0018346A",
+    "004E2440"
+   ]
+  },
+  {
+   "id": "cinematic-mode-by-cache",
+   "title": "Cinematic-only levels switch to a pillarboxed 30 FPS view by their .cache file name",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_cinematic_path"
+   },
+   "addresses": [],
+   "related": [
+    "pc_display_cinematic",
+    "Cinema_*.mgf"
+   ],
+   "fact": "Each level load opens \\Device\\Harddisk0\\Partition5\\XXXXXXXX.cache, where the name is the CRC32 of the lower-case d:\\archive path. ma2_cinematic_path matches 20 known cinema_*.mgf cache hashes and calls pc_display_cinematic(1) (pillarbox and 30 FPS cap). Any other level cache calls pc_display_cinematic(0). Control.cache and other files are ignored. Regular missions keep their cutscenes in their own archive and are not affected.",
+   "how_to_use": "RECOMP_CINEMATIC_MODE=0 disables the mode.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/ma2_cinematic.c",
+     "line": 1
+    },
+    {
+     "file": "kit/source/game/src/ma2_cinematic.c",
+     "line": 71
+    }
+   ],
+   "tags": [
+    "cinematic",
+    "display",
+    "env"
+   ],
+   "date": "2026-10-14"
+  },
+  {
+   "id": "cinematic-cache-example",
+   "title": "Example cache hashes: cinema_2_1.mgf is 52EDEEE3, mission_04.mgf is 1EEF6E28",
+   "subject": {
+    "kind": "asset",
+    "id": "cinema_2_1.mgf cache hash"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_cinematic.c"
+   ],
+   "fact": "The cache name for cinema_2_1.mgf is 52EDEEE3 and for mission_04.mgf it is 1EEF6E28. The front end loads 46229B6E after save-and-quit.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/ma2_cinematic.c",
+     "line": 9
+    }
+   ],
+   "tags": [
+    "cinematic",
+    "asset"
+   ],
+   "date": "2026-10-14",
+   "addresses_unverified": [
+    "52EDEEE3",
+    "1EEF6E28",
+    "46229B6E"
+   ]
+  },
+  {
+   "id": "qte-widget-class",
+   "title": "Jacking QTE buttons are 56 image widgets of class 88D55AF4 with vtable 48A828",
+   "subject": {
+    "kind": "class",
+    "id": "MAComponentJackingGameButton"
+   },
+   "addresses": [
+    "001FE68D",
+    "0021E7D8",
+    "0021E3A9"
+   ],
+   "related": [
+    "HUD_FS_PowerArmor.ggf",
+    "MAComponentJackingFlashText"
+   ],
+   "fact": "The jacking/NeuroHack buttons are MAComponentJackingGameButton widgets: class CRC 88D55AF4, factory 0x21E3A9, vtable 0x48A828, draw virtual +34 at 0x1FE68D, and visibility virtual +68 at 0x21E7D8. There are 24 PowerArmor, 16 Pilot and 16 Mech widgets. They are image sprites, not text, so a text-only prompt patch does not change them.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "qte",
+    "hud",
+    "class"
+   ],
+   "date": "2026-10-10",
+   "addresses_unverified": [
+    "0048A828"
+   ]
+  },
+  {
+   "id": "qte-widget-fields",
+   "title": "QTE widget fields: mask at +EC, status at +F0, player +E0, session +E8",
+   "subject": {
+    "kind": "class",
+    "id": "MAComponentJackingGameButton"
+   },
+   "addresses": [],
+   "related": [
+    "qte-state-query"
+   ],
+   "fact": "Mask values: A 0x04, X 0x01, Y 0x02, B 0x40, LT 0x10, RT 0x20. Status: 0 Normal, 1 Active, 2 Pressed, 3 Wrong. These are not Xbox button bit indices.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "qte",
+    "hud"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "qte-state-query",
+   "title": "The 67-byte query at 0x18EC9D checks the requested mask against a required byte at session + (phase+2)*36 (pha",
+   "subject": {
+    "kind": "function",
+    "id": "0018EC9D"
+   },
+   "addresses": [
+    "0018EC9D",
+    "0021E7D8",
+    "0021E85C"
+   ],
+   "related": [
+    "QteStateOracle.cs"
+   ],
+   "fact": "The 67-byte query at 0x18EC9D checks the requested mask against a required byte at session + (phase+2)*36 (phase at +0C). NaN and negative-zero timers take the non-positive branch. The caller 0x21E7D8 loads session +E8 and mask +EC and compares to variant +F0; an owner at +8C with byte +48 set bypasses the query.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "qte",
+    "state"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "qte-cue-timing",
+   "title": "QTE cue timing: cue select at 18F27B, countdown at 18ED25, budgets from common.mgf",
+   "subject": {
+    "kind": "function",
+    "id": "0018F27B"
+   },
+   "addresses": [
+    "0018F27B",
+    "0018ED25",
+    "0018EEBB",
+    "0018ED18",
+    "0018F039",
+    "0018C554"
+   ],
+   "related": [
+    "JackEventDuration",
+    "common.mgf"
+   ],
+   "fact": "0x18F27B picks the next cue and copies the cue's duration (session + phase*36 + 4C) into session+4. 0x18ED25 counts the active response timer +4 down using double 0x4E2428, and expiry goes through 18EEBB and 18ED18. The idle gap at +8 uses 0x18F039. The serializer 0x18C554 names the authored keys JackEventDuration0-2 and BuckEventDuration0-2. common.mgf has 1,177 duration records with budgets 0.5, 0.55, 0.65 and 0.75 s.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "qte",
+    "timing"
+   ],
+   "date": "2026-10-10",
+   "addresses_unverified": [
+    "0018F296"
+   ]
+  },
+  {
+   "id": "qte-keyboard-response-forgiveness",
+   "title": "Keyboard and mouse QTE cues get 25 percent more response time; controllers keep the original",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_qte_response_window"
+   },
+   "addresses": [
+    "0018F27B"
+   ],
+   "related": [
+    "ma2_qte_response.h",
+    "recomp_0041.c"
+   ],
+   "fact": "ma2_qte_response_window runs after the original cue write at 0x18F27B. It reads pc_input_device once. Only KEYBOARD_MOUSE with a positive finite budget is multiplied by 1.25f; controller, unknown, zero, negative, non-finite and overflowing values keep the original float. Removing the two added generated lines restores the baseline. CPU checks: 602 cases, 3010 checks, 0 failures.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/ma2_qte_response.h",
+     "line": 8
+    }
+   ],
+   "tags": [
+    "qte",
+    "input",
+    "timing"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "qte-authored-id-fix",
+   "title": "QTE trigger eligibility uses authored ID at +8, not the runtime ID at +4",
+   "subject": {
+    "kind": "bug",
+    "id": "qte-trigger-legend-kind"
+   },
+   "addresses": [
+    "000330C0",
+    "00032170",
+    "000320A0",
+    "00266110"
+   ],
+   "related": [
+    "pc_gui_bridge.c",
+    "tab_id"
+   ],
+   "fact": "The bridge read widget +6C as the authored ID, which is actually tab_id (zero for these controls). That made LT and RT (state IDs 207-214) fail as legend_kind with the QTE mask/state/rectangle valid. The original loader sets the authored ID at +8 and the runtime ID at +4 (which can change on collision). Eligibility and root/background exemptions (IDs 2, 189, 190, 215) use +8. The fix was CPU-checked against 114 original link cases and six captured rectangles within 1e-7.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "qte",
+    "bug",
+    "hud"
+   ],
+   "date": "2026-10-10",
+   "addresses_unverified": [
+    "001CC1D6"
+   ]
+  },
+  {
+   "id": "qte-geometry-guard-fix",
+   "title": "QTE widescreen size guard used the wrong width; corrected to the render width",
+   "subject": {
+    "kind": "bug",
+    "id": "qte-size-guard"
+   },
+   "addresses": [
+    "001CCC10"
+   ],
+   "related": [
+    "pc_display_render_width"
+   ],
+   "fact": "The 24 PowerArmor QTE sprites are 32x32 with widescreen mode 4. At 2.4 aspect the width is 0.02778, so the old guard (width * 640) measured 17.78 px and rejected them. The corrected guard uses the render width 1152, which gives 31.999998 px. 72 original cases and 76 checks pass.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "qte",
+    "bug",
+    "geometry"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "qte-draw-hook",
+   "title": "QTE draw hook after visibility and texture gates, with fallback to the original bitmap draw",
+   "subject": {
+    "kind": "function",
+    "id": "0001FE68D"
+   },
+   "addresses": [
+    "001FE68D",
+    "0021E7D8"
+   ],
+   "related": [
+    "recomp_0053.c",
+    "pc_gui_bridge.c"
+   ],
+   "fact": "The draw function 0x1FE68D is hooked at 0x1FE6B2, after virtual +68 AL (visibility) and the +B8 texture check. A complete keyboard or mouse replacement jumps to the original epilogue 0x1FE81F. Gamepad, a stale or null resource, an unsafe layout, class or mask, or a font failure continues the original bitmap path. Status, timers and sequencing are untouched.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "qte",
+    "hud",
+    "hook"
+   ],
+   "date": "2026-10-10",
+   "addresses_unverified": [
+    "001FE6B2",
+    "001FE81F"
+   ]
+  },
+  {
+   "id": "qte-draw-proof",
+   "title": "QTE original draw interface proof: 2820 assertions, 786 Unicorn records, 0 mismatches",
+   "subject": {
+    "kind": "tool",
+    "id": "mission_agent_qte_draw_verify.py"
+   },
+   "addresses": [
+    "001FE68D",
+    "001FF94C",
+    "001FF709",
+    "001FF569"
+   ],
+   "related": [
+    "original-comparison.json"
+   ],
+   "fact": "mission_agent_qte_draw_verify.py runs the original 0x1FE68D and text draw 0x1FF94C under Unicorn for 768 image gate cases and 18 text cases. The image gate covers six masks, four widget statuses, four actual statuses, active and inactive, texture and missing, normal and debug. It proves interface and visibility semantics, not live font existence, glyph fit or GPU output.",
+   "how_to_use": "python \"kit/source/game/bringup/mission_agent_qte_draw_verify.py\"",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "qte",
+    "test"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "qte-font-text-path",
+   "title": "QTE caption text uses the 1FF94C text path through font wrapper C1640; style +34 is alpha",
+   "subject": {
+    "kind": "function",
+    "id": "0001FF94C"
+   },
+   "addresses": [
+    "001FF94C",
+    "0011D75C",
+    "001FF91A",
+    "00018E40",
+    "000C1640",
+    "000C0FD0",
+    "001FF709",
+    "000C2470",
+    "000C2500"
+   ],
+   "related": [
+    "JackingFlashText",
+    "C0FD0 raster"
+   ],
+   "fact": "0x1FF94C prepares colour through 11D75C, copies the UTF-16 string, and calls the font wrapper C1640 with the destination rectangle, clip rectangle, style and string. C1640 queries device virtual +170 and calls the rasterizer C0FD0. Style +34 is alpha (float times 128 into the vertex alpha byte), not font size. Alignment at +38/+3C maps to left/top, centre, or right/bottom. The style is a 64-byte block (0x1FF709, via 0xC2470), and its resource comes from 0xC2500.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "qte",
+    "font",
+    "text"
+   ],
+   "date": "2026-10-10",
+   "addresses_unverified": [
+    "000C2035",
+    "000C2043"
+   ]
+  },
+  {
+   "id": "qte-font-metrics",
+   "title": "Caption width limits: Impact 18 advances and Arial Unicode 10 advances against a 32 px cell",
+   "subject": {
+    "kind": "concept",
+    "id": "qte-caption-fit"
+   },
+   "addresses": [],
+   "related": [
+    "ImpactReg18",
+    "ArialUnicodeMSBold10"
+   ],
+   "fact": "ImpactReg18 raw advances: Space 45, Spc 27, LMB 30, RMB 33, M1 20, M2 22, Shift 33, Ctrl 26 pixels. ArialUnicodeMSBold10 gives M1 16, Spc 21, RMB 25, Mouse 2 / C 67. The cell is 32 px and a 28 px inner budget is proposed. Full trigger labels do not fit a 28 px budget. This is a metric decision, not a native fit proof.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "qte",
+    "font",
+    "layout"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "qte-alternate-art-rejected",
+   "title": "Letter-free QTE art was reviewed but not shipped; re-encoded candidates fail visually",
+   "subject": {
+    "kind": "asset",
+    "id": "HUD QTE 32px state textures"
+   },
+   "addresses": [],
+   "related": [
+    "MGIC",
+    "BC3"
+   ],
+   "fact": "The 24 QTE state textures are MGIC containers (1,173 bytes each) with a 1,024-byte BC3 payload at 32x32. Letter-free atlases were generated but are not accepted. Quick Pillow re-encodes show border and glow degradation (RGBA mean error 2.9 to 15.4). Uncompressed substitution is not justified, and the original loader's format flag mapping is not proven.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "qte",
+    "asset",
+    "art"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "qte-caption-policy",
+   "title": "QTE captions: current bindings, compact names, original art on failure",
+   "subject": {
+    "kind": "concept",
+    "id": "qte-caption-policy"
+   },
+   "addresses": [],
+   "related": [
+    "pc_prompts.cpp",
+    "pc_binding_get",
+    "pc_gui_bridge.c"
+   ],
+   "fact": "Captions come from the current bindings (pc_binding_get). Default keyboard captions Spc, R, Q, F, M2 and M1 fit at three aspects. Trigger legends are Right mouse / C and Left mouse / V and fit a 108 px limit. A caption that does not fit (Pause at 35 px against a 28 px primary limit, or Right mouse / Backspace at 143 px) falls back to the original controller art. Unnamed VK codes show Kxx: Rebind, and invalid values show ?: Rebind. OEM names are spelled out. Non-ASCII labels fall back.",
+   "how_to_use": "Known limitation: a keyboard-only player can lose a usable label after a long rebind.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "qte",
+    "caption",
+    "binding"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "qte-mouse-legend-order",
+   "title": "Trigger legends swapped so Mouse 1 (left) is on the LT slot and Mouse 2 (right) on the RT slot",
+   "subject": {
+    "kind": "setting",
+    "id": "qte-mouse-order"
+   },
+   "addresses": [],
+   "related": [
+    "PowerArmor LT 207-210",
+    "RT 211-214"
+   ],
+   "fact": "W5 moved the keyboard and mouse legend for the original LT slot (207-210, right mouse / C) to the RT slot, and the RT legend (211-214, left mouse / V) to the LT slot. The authored delta of 76/80 is scaled by the 32 px icon width. All four states move together, and the mask and binding are unchanged. CPU checks: 1,696 checks, 0 failures. The native visual is pending.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "qte",
+    "caption"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "qte-compact-trigger-fallback",
+   "title": "Compact trigger legend fallback draws both bindings as two 16 px rows inside the icon",
+   "subject": {
+    "kind": "function",
+    "id": "qte_compact_in_icon"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_qte_response.h",
+    "pc_gui_bridge.c"
+   ],
+   "fact": "When an unrelated HUD rectangle blocks the external legend, the LT/RT icon shows both current bindings as centred 16 px rows inside its own 32 px icon. The default is LT M2/C and RT M1/V. Controller art is unchanged. Unknown or OEM keys still refuse the fallback. The candidate (SHA 76d4321a) passed 2,093 CPU checks with zero failures. The native case was not reached.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "qte",
+    "caption",
+    "fallback"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "qte-tree-rect-guard-open",
+   "title": "Native LT/RT failure: a QTE_TREE_BOX guard rejects the legend, offender still unidentified",
+   "subject": {
+    "kind": "bug",
+    "id": "qte-tree-rect"
+   },
+   "addresses": [],
+   "related": [
+    "qte_caption_box_reason",
+    "RECOMP_QTE_TRACE"
+   ],
+   "fact": "In the A868 capture, LT (207) and RT (211) stop at tree_rect rejection while the ABXY widgets draw. qte_caption_box_reason returns QTE_TREE_BOX when another visible linked non-background component (not the QTE box) is present, but the log names only the target rectangle, not the offender. All 113 static rectangles pass the original test, so the runtime offender is dynamic. RECOMP_QTE_TRACE=1 logs up to 16 unique offenders once each. The guard is kept intact.",
+   "how_to_use": "Set RECOMP_QTE_TRACE=1 and read the [PC-QTE] lines in stderr.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "qte",
+    "bug",
+    "native",
+    "open"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "qte-empty-bitmap-guard",
+   "title": "An empty untextured bitmap cannot block the QTE legend, because the original bitmap draw returns early",
+   "subject": {
+    "kind": "bug",
+    "id": "qte-empty-bitmap"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The original known bitmap renderer returns before painting when its texture is NULL. A bounded empty bitmap therefore cannot obstruct the legend. The guard was corrected to match that original semantics (W5 3DB8 patch, 237 checks, 0 failures). It is not proof that the whole LT/RT failure is resolved.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "qte",
+    "bug",
+    "guard"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "qte-stick-click-phrases",
+   "title": "Click Left thumbstick phrases resolve to the bound stick click, not W/A/S/D",
+   "subject": {
+    "kind": "bug",
+    "id": "jumpjet-prompt"
+   },
+   "addresses": [],
+   "related": [
+    "pc_prompts.cpp",
+    "PC_LEFT_THUMB"
+   ],
+   "fact": "The authored text 'Click Left thumbstick to jumpjet.' (offset 56368) was rewritten as W/A/S/D by a generic stick rule. The fix resolves Click/Press Left or Right thumbstick phrases first, using the current PC_LEFT_THUMB or PC_RIGHT_THUMB binding. Default jumpjet shows Press Shift. CPU checks: 41 of 41 pass against 7 failures before.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "prompt",
+    "bug"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "prompt-bare-press-fix",
+   "title": "Bare Press A/B/X/Y in authored prompts are rewritten to current bindings; Press Any is unchanged",
+   "subject": {
+    "kind": "bug",
+    "id": "bare-press-prompts"
+   },
+   "addresses": [],
+   "related": [
+    "pc_prompts.cpp",
+    "IDs 1112 1108 524754 524755 524909 524673 524958"
+   ],
+   "fact": "Authored prompts such as the NeuroHack, claw attach and BattleArmor exit lines use a bare Press A/B/X/Y (IDs 1112, 1108, 524754, 524755, 524909, 524673, 524958). A single bounded scan rewrites only the action token with current bindings and keeps casing and punctuation. The old unbounded Y substring also changed Press Any button. The fixture has 29 checks; 13 fail before and 0 after.",
+   "how_to_use": "tests: bringup/regression/prompt_text_test.cpp",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "prompt",
+    "text",
+    "bug"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "prompt-xbox-live-cancel",
+   "title": "Xbox Live dialog text 'or B to cancel' is rewritten to the bound cancel key",
+   "subject": {
+    "kind": "bug",
+    "id": "p6-cancel-clause"
+   },
+   "addresses": [],
+   "related": [
+    "pc_prompts.cpp"
+   ],
+   "fact": "Three authored Xbox Live dialogs say 'or B to cancel' with no repeated Press. The fix binds the rewrite to the same Press clause and to the exact standalone cancel alternative. Keyboard menus show Esc, and gameplay shows the current B binding. Controller output is unchanged. Native reachability on the current PC menus was not observed.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "prompt",
+    "bug"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "controller-invert-right-stick",
+   "title": "Invert right stick Y was wired to the vibration flag; fixed to camera-pitch flag +76",
+   "subject": {
+    "kind": "setting",
+    "id": "Invert right stick Y"
+   },
+   "addresses": [
+    "0021F989",
+    "00168464",
+    "0016842D",
+    "000EB9D4",
+    "0001FD30"
+   ],
+   "related": [
+    "pc_gui_bridge.c",
+    "profile +5C"
+   ],
+   "fact": "The native controller row Invert right stick Y wrote profile +75 (vibration) and the Vibration row wrote +76 (camera pitch). The fix maps option 0 (invert) to +76 and option 1 (vibration) to +75. Camera branches at 0x174B4A and 0x175B3F test +5C bit 0 (mask 1) and flip the pitch sign. The feedback gate 0xEB9D4 reads bit 1 (mask 2) and dispatches through 0x1FD30. Raw stick values are not negated.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "controller",
+    "settings",
+    "bug"
+   ],
+   "date": "2026-10-09",
+   "addresses_unverified": [
+    "00174B4A",
+    "00175B3F"
+   ]
+  },
+  {
+   "id": "controller-active-camera-inversion",
+   "title": "Native accept skipped the in-mission camera update, so inversion did not apply in play",
+   "subject": {
+    "kind": "function",
+    "id": "0021F989"
+   },
+   "addresses": [
+    "0021F989",
+    "00223DBC",
+    "000C98E7",
+    "000C9996",
+    "000C97BB",
+    "00172953"
+   ],
+   "related": [
+    "pc_gui_bridge.c"
+   ],
+   "fact": "The native commit called base 0x21F989 directly, which saved profile bit 0 but skipped the in-mission camera update 0x223DBC. The derived accept type 0x48BF20 calls C98E7, C9996, C97BB and indirect 0x172953 to set the active actor camera +6E8, then persists. The fix routes that type through the camera update. Base type 0x48AF58 and unknown types keep the base fallback. CPU: 3744 checks, 8 failures before and 0 after, 144 cases.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "controller",
+    "camera",
+    "bug"
+   ],
+   "date": "2026-10-10",
+   "addresses_unverified": [
+    "0048BF20",
+    "0048AF58"
+   ]
+  },
+  {
+   "id": "name-entry-keyboard",
+   "title": "Profile name entry uses MAKeyboardDlg; host text is queued and fed through the original handler",
+   "subject": {
+    "kind": "function",
+    "id": "00248F7D0"
+   },
+   "addresses": [
+    "00249E11",
+    "00249EA0",
+    "0024A564",
+    "0024A2E6",
+    "0024A071",
+    "001FB975"
+   ],
+   "related": [
+    "dlg_keyboard.ggf",
+    "pc_native_settings.cpp"
+   ],
+   "fact": "The name entry dialog is MAKeyboardDlg (vtable 0x48F7D0, constructor 0x249E11, form init 0x249EA0 loading dlg_keyboard.ggf, update 0x24A564, handler 0x24A2E6, case 0x24A071). It is reached from Avatar_locker 0x48C2F8 (event 0x224D27 action 1 through 0x1FB975). The name is at most 15 characters with a 55-slot grid. Host WM_CHAR text is decoded (ASCII, CP1252, CP932, UTF-8, Unicode) into a queue of 256 and fed to the original handler on the guest thread. Keyboard raw mouse is suppressed during text entry.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "name",
+    "input",
+    "ui"
+   ],
+   "date": "2026-10-10",
+   "addresses_unverified": [
+    "0248F7D0",
+    "0048C2F8",
+    "004EC344"
+   ]
+  },
+  {
+   "id": "name-entry-verification",
+   "title": "Name entry CPU verification: 4415 main checks and 200 original action comparisons",
+   "subject": {
+    "kind": "tool",
+    "id": "mission_agent_name_verify.py"
+   },
+   "addresses": [],
+   "related": [
+    "name_input_merge_test.c"
+   ],
+   "fact": "The name-entry source passed 4,323 bridge checks (actual bridge and original handlers), 40 native callback checks, 52 backend merge checks, and 200 original-XBE action comparisons with 0 mismatches. The total is 4,415 main checks. In-game typing, mouse and the packaged binary are still unconfirmed.",
+   "how_to_use": "python bringup/mission_agent_name_verify.py (standalone MSVC build; no game).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "name",
+    "test"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "controller-test-harness",
+   "title": "Controller and camera-inversion verifier: runtime-before/after and original opcode comparison",
+   "subject": {
+    "kind": "tool",
+    "id": "mission_agent_controller_verify.py"
+   },
+   "addresses": [],
+   "related": [
+    "mission_agent_controller_fixture.c"
+   ],
+   "fact": "mission_agent_controller_verify.py has modes before, after, input, native, evidence, runtime-before and runtime-after. It runs the actual bridge with the unchanged generated commit and setter code under Unicorn. It compares 284-byte profile payloads for four slots (163,584 bytes). Disk writes are mocked.",
+   "how_to_use": "python \"kit/source/game/bringup/mission_agent_controller_verify.py\" runtime-after",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "test",
+    "controller"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "vehicle-test-harness-tank-wrapper",
+   "title": "Tank wrapper CPU proof: 11921 checks over the full original 109536 body",
+   "subject": {
+    "kind": "tool",
+    "id": "prove.py"
+   },
+   "addresses": [
+    "00109536"
+   ],
+   "related": [
+    "ma2_tank_fixedstep.c"
+   ],
+   "fact": "The W3/W4 CPU proof runs the complete translated 109536 against the original at 30 Hz, 60, 144 and 480 Hz, and with 0.2 s hitches. It checks guest memory (8 MiB), registers, FP/SSE, and the 120 body/model/event boundary calls. It reports 11,921 checks with 0 failures. The child physics, weapon and collision bodies are substituted, so this is not a proof of their event safety.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "test",
+    "tank",
+    "fixed-step"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tank-input-buffer-test",
+   "title": "Input fixture: 61 cases, 144 Hz pulses preserved through catch-up ticks",
+   "subject": {
+    "kind": "tool",
+    "id": "prove.py (input)"
+   },
+   "addresses": [
+    "001753DC",
+    "001753E6",
+    "00175466",
+    "001754BC",
+    "002ADC10",
+    "002B28D0"
+   ],
+   "related": [
+    "input_verify.py"
+   ],
+   "fact": "The input fixture runs the accepted Tank setter chain with a valid primary selection at 144 Hz with 24 phases of mouse and controller pulses, plus 2, 3 and 6 tick hitches. The maximum integral error is 3.2e-8 degrees with 1e-6 tolerance. A 144 Hz pulse gives 100.8 deg/s on frame 0 and zero after, so the input must be integrated over the frame before any skip.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "test",
+    "tank",
+    "input"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "replay-intro-harness",
+   "title": "replay_intro.py defaults to plan-only",
+   "subject": {
+    "kind": "tool",
+    "id": "replay_intro.py"
+   },
+   "addresses": [],
+   "related": [
+    "decode_trace.py",
+    "run_probe.py"
+   ],
+   "fact": "replay_intro.py defaults to plan-only. Automated setup presses Space for at most 1.5 s, stops input when the Mission_01b scene appears, and waits for the HUD. The watchdog is 115 s, and the trace helper window is 10 s.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "test",
+    "tank",
+    "replay"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "navigator-harness",
+   "title": "Navigator.cs samples the player and Scout positions from guest memory without changing the game",
+   "subject": {
+    "kind": "tool",
+    "id": "Navigator.cs"
+   },
+   "addresses": [],
+   "related": [
+    "live_player.py",
+    "ReadOwnedNavigationPair"
+   ],
+   "fact": "Navigator.cs finds the single human player (class 0x4EAED0, input component 0x4EAFA4) through the membership list at 0x50E280, resolves the Scout by UID 27269 through the B4F70 hash table, and reads actor+4C0 world positions. Mech vtable 0x469CD0 is the class of the Scout, and the Mech string is 0x46A034. It reads only through the owned process handle. Camera heading and the Hack-active state are not verified by it.",
+   "how_to_use": "Add-Type Navigator.cs, then ReadOwned with the owned process handle.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "test",
+    "mission",
+    "navigation"
+   ],
+   "date": "2026-10-10",
+   "addresses_unverified": [
+    "004EAED0",
+    "00469CD0",
+    "004EAFA4",
+    "004B4F70",
+    "0050E280"
+   ]
+  },
+  {
+   "id": "save-write-path",
+   "title": "Checkpoint save path: 167B25 signs the 284-byte profile, then the WDF graph write runs",
+   "subject": {
+    "kind": "function",
+    "id": "000167B25"
+   },
+   "addresses": [
+    "00167B25",
+    "000B53E0",
+    "000B9400",
+    "000B97C0",
+    "000B9360",
+    "0015CED6",
+    "002BEA9B",
+    "00315D5A"
+   ],
+   "related": [
+    "WDF",
+    "MASave",
+    "XcSHAUpdate"
+   ],
+   "fact": "The original 0x167B25 signs and writes 24 + 284 profile bytes before close. On the checkpoint path (0x167D26 to 0x167D85) it calls B53E0 and B9400 to write the object graph, header and directory, then closes with B97C0. The progress callback 0x15CED6 is reached through B9360 and throttled to 100 ms. SHA updates go 0x2BEA9B to 0x315D5A to kernel ordinal 336 (XcSHAUpdate, native). Timing only the 308-byte file misses the main save.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "save",
+    "checkpoint",
+    "performance"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "save-progress-probe",
+   "title": "The save progress callback 0x15CED6 is wrapped by ma2_save_progress_probe",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_save_progress_probe"
+   },
+   "addresses": [
+    "0015CED6"
+   ],
+   "related": [
+    "xbox_save_probe_callback_begin",
+    "recomp_manual.c"
+   ],
+   "fact": "recomp_lookup_manual returns ma2_save_progress_probe for VA 0x15CED6. It brackets the original callback with xbox_save_probe_callback_begin and xbox_save_probe_callback_end, which record its wall time. The generated RECOMP_ABI_CALL route bypasses manual_lookup, so an indirect callback must be wrapped manually.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 398
+    }
+   ],
+   "tags": [
+    "save",
+    "tool",
+    "manual-override"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "save-stall-open",
+   "title": "Save and checkpoint stalls: 20.5 s frame gap in menu, 3.7 s in gameplay, cause not found",
+   "subject": {
+    "kind": "concept",
+    "id": "save-latency"
+   },
+   "addresses": [],
+   "related": [
+    "MASave",
+    "WDF"
+   ],
+   "fact": "MASave flags changed from 2 to 6 and back. The WDF file's mtime does not change when its hash does, so mtime cannot date writes. No storage or signature bug is shown. Diagnostic proposals instrument the kernel file calls (kernel_bridge.c 3023 to 3722), not the flush.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "save",
+    "performance",
+    "open"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "checkpoint-state-observed",
+   "title": "Captured checkpoint state: destination 3 (Mission_02), flag false, completed 0",
+   "subject": {
+    "kind": "save",
+    "id": "MASave checkpoint"
+   },
+   "addresses": [],
+   "related": [
+    "Mission_02.wdf",
+    "LEVEL050"
+   ],
+   "fact": "The captured profile records current, highest and checkpoint destination 3, which the catalog maps to LEVEL050 missions/Mission_02.wdf. checkpoint_flag is false and completed is 0. One captured checkpoint write returned 1 and changed the graph hash while the profile stayed at destination 3. A Continue from that copy loads Mission_02. The Mission_01b shoreline checkpoint is not in these saves.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "save",
+    "checkpoint",
+    "mission"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "campaign-probe-gate",
+   "title": "Campaign coverage overrides run only in a bounded probe with a logs save folder and a watchdog",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_WATCHDOG_SECS"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_SAVE_DIR",
+    "ma2_probe_campaign"
+   ],
+   "fact": "ma2_campaign_probe_enabled is true only when RECOMP_SAVE_DIR and RECOMP_WATCHDOG_SECS are set (above 0) and the save folder is under bringup/logs. Only then do the probe overrides for campaign and mission selection run. A normal player's progress and start-up are not affected.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 982
+    }
+   ],
+   "tags": [
+    "test",
+    "save",
+    "env"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "pulse-primary-class-offset",
+   "title": "Pulse weapon class is read at primary +17C; +15C is a heat float",
+   "subject": {
+    "kind": "function",
+    "id": "000CE027"
+   },
+   "addresses": [
+    "000CE027",
+    "000CC525",
+    "000D2035",
+    "000D3CD9"
+   ],
+   "related": [
+    "MABarrel",
+    "BarrelClassName"
+   ],
+   "fact": "The serialization interface at primary +20 (vtable 0x465A60) has a deserializer 0xCE027 that writes BarrelClassName at interface +15C, which is primary +17C. Primary +15C is a float heat value (default 5.0). The earlier diagnostic read +15C as the class and so rejected every real laser and mortar. The v5 diagnostic reads +17C.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "weapon",
+    "pulse",
+    "diagnostic",
+    "bug"
+   ],
+   "date": "2026-10-11",
+   "addresses_unverified": [
+    "000CEB2A",
+    "00465A68",
+    "00465A60"
+   ]
+  },
+  {
+   "id": "pulse-weapon-chain",
+   "title": "Pulse weapon chain: MAWpnGrp to MABarrel (class 7) to MAProjectile (type 1)",
+   "subject": {
+    "kind": "class",
+    "id": "MAWpnGrp / MABarrel / MAProjectile"
+   },
+   "addresses": [
+    "000CC525"
+   ],
+   "related": [
+    "sub_000D2035",
+    "sub_000CFE30"
+   ],
+   "fact": "The pulse laser chain is MAWpnGrp (class id 31855) to MABarrel (31856, class 7) to MAProjectile (31857, type 1). The mortar uses class 12 and projectile 36048 and differs. The pulse body is 24 indexed-list vertices and the tip is 4 indexed-strip vertices, and the renderer expands them correctly (6 CPU index checks).",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "weapon",
+    "pulse"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "pulse-invisible-laser-open",
+   "title": "Invisible pulse laser: alpha may be discarded, cause and fix still open",
+   "subject": {
+    "kind": "bug",
+    "id": "pulse-invisible"
+   },
+   "addresses": [],
+   "related": [
+    "GREATER224 alpha test",
+    "64x64 ARGB8888 textures"
+   ],
+   "fact": "The pulse body and tip materials are additive, material-only and two-sided, with 64x64 swizzled ARGB8888 textures. The body alpha max is 181, so a GREATER224 alpha test would discard it unless the final combiner alpha is larger. The shader state is unknown, so no alpha patch is justified. The next step is to bind one laser and one mortar event to the weapon class and texture digest with bounded logs.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "weapon",
+    "pulse",
+    "render",
+    "open"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "mech-scout-navigation-state",
+   "title": "A Mech (Scout) actor is 469CD0 and its world position is actor+4C0",
+   "subject": {
+    "kind": "class",
+    "id": "Mech 469CD0"
+   },
+   "addresses": [],
+   "related": [
+    "Navigator.cs"
+   ],
+   "fact": "The Mech constructor F7EA6 sets vtable 0x469CD0 and its name vt+10 returns the string at 0x46A034. The Scout is UID 27269 in Mission02. Cached world XYZ is at actor+4C0 (not the authored start position). Positions can span game updates.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "mission",
+    "class"
+   ],
+   "date": "2026-10-10",
+   "addresses_unverified": [
+    "00469CD0"
+   ]
+  },
+  {
+   "id": "rumble-normal-provider-note",
+   "title": "Terrain normal provider chain: 17687C to F70FC to 2AAB80 (null terrain gives zero)",
+   "subject": {
+    "kind": "function",
+    "id": "0017687C"
+   },
+   "addresses": [
+    "0017687C",
+    "000F70FC",
+    "002AAB80",
+    "000464C0",
+    "002AC9A0"
+   ],
+   "related": [
+    "terrain height",
+    "4770B8"
+   ],
+   "fact": "The root normal provider is vtable 0x4770B8 +2C, which is 0x17687C. It calls F70FC, which reads the global terrain pointer 0x4EAF64, copies the position and calls 2AAB80. A null terrain returns zero. An out-of-bounds position returns the flat normal. No world matrix refresh is in this path.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "terrain",
+    "tank",
+    "provider"
+   ],
+   "date": "2026-10-10",
+   "addresses_unverified": [
+    "004EAF64"
+   ]
+  },
+  {
+   "id": "timing-frame-limit-vblank",
+   "title": "Frame limiter and vblank: a limit of 0 does not wait; a 60 Hz vblank runs even when uncapped",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_VBLANK"
+   },
+   "addresses": [],
+   "related": [
+    "D3D11 frame limit",
+    "main.c"
+   ],
+   "fact": "The D3D11 frame limiter waits after Present only when the limit is above 0, and a limit of 0 clears the deadline. main.c sets RECOMP_VBLANK=1 by default, so a 60 Hz vblank interrupt runs even when uncapped. No host fixed simulation accumulator was found. The simulation step therefore follows the real clock producers.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "timing",
+    "frame-limit"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "manual-override-dispatch-note",
+   "title": "recomp_lookup_manual is checked first, but RECOMP_ABI_CALL bypasses it",
+   "subject": {
+    "kind": "function",
+    "id": "recomp_lookup_manual"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_ABI_CALL",
+    "recomp_lookup_bringup"
+   ],
+   "fact": "recomp_lookup_manual is the first override point. It returns the save probe for 0x15CED6, then the bringup lookup, and returns null otherwise. Generated direct calls made through RECOMP_ABI_CALL do not go through manual lookup, so a function like 0x1FE68D or the pulse function must be hooked at its generated body or wrapped at an indirect call site. The POV pitch adapter is called from the recovered F065C body for this reason.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 396
+    }
+   ],
+   "tags": [
+    "manual-override",
+    "tool"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "input-test-autopilot-hook",
+   "title": "RECOMP_TEST_HUMAN_AUTOPILOT feeds the test pad through ma2_bot_test_human_pad",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_TEST_HUMAN_AUTOPILOT"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_input_read",
+    "ma2_bot_test_human_pad"
+   ],
+   "fact": "In ma2_input_read, when the host pad is 0 (the test harness), the test hook ma2_bot_test_human_pad can supply the pad values. It is set by the RECOMP_TEST_HUMAN_AUTOPILOT test setting in ma2_bots_core.c. Real pads are unchanged.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 570
+    }
+   ],
+   "tags": [
+    "test",
+    "input",
+    "env"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "apu-register-route",
+   "title": "APU register access goes through the guest read/write routes, not raw memory",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_store32"
+   },
+   "addresses": [],
+   "related": [
+    "recomp_apu_io.h"
+   ],
+   "fact": "ma2_apu_register returns true for the APU MMIO ranges (offset 0x30000 from 0xFE800000, 0x3F000 and 0x5F000 with 0x1000 spans). Such stores and loads go through apu_guest_write32 and apu_guest_read32. Other addresses use MEM32 directly. This avoids an access violation on every hardware access.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/recomp/recomp_apu_io.h",
+     "line": 8
+    }
+   ],
+   "tags": [
+    "audio",
+    "apu",
+    "io"
+   ],
+   "date": "2026-10-11",
+   "addresses_unverified": [
+    "FE800000",
+    "FE83F000",
+    "FE85F000"
+   ]
+  },
+  {
+   "id": "scope-note-no-dropack",
+   "title": "DropPack does not appear in this pack's files or in the bots source",
+   "subject": {
+    "kind": "concept",
+    "id": "DropPack"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The brief lists DropPack for this pack. No facts about DropPack are recorded here.",
+   "status": "open-question",
+   "confidence": "inferred",
+   "source": [
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "scope"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "scope-note-campaign-pipeline-reports",
+   "title": "Campaign pipeline reports in the pack are audio statistics, not checkpoints",
+   "subject": {
+    "kind": "file",
+    "id": "campaign-index-02 pipeline-report.txt"
+   },
+   "addresses": [],
+   "related": [
+    "campaign-mission-03 pipeline-report.txt"
+   ],
+   "fact": "campaign-index-02 and campaign-mission-03 pipeline-report.txt hold per-phase audio RMS and step statistics (52,500 frames, 35 s). They contain no checkpoint or progression data.",
+   "status": "historical",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "scope",
+    "audio"
+   ],
+   "date": "2026-10-21"
+  }
+ ]
+}

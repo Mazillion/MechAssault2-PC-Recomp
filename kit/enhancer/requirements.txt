@@ -1,0 +1,5 @@
+# setup.py reuses matching packages already installed on this PC.
+# CUDA PyTorch is installed separately from its official cu124 wheel index.
+numpy==2.2.3
+Pillow==11.1.0
+torch==2.6.0

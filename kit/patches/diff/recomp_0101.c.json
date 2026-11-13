@@ -1,0 +1,1 @@
+[[8,1,["#include \"kernel/nv2a_gpu_wait.h\"\r\n"]],[216221,1,["    if (CMP_B(_fa, _fb)) {\r\n","        nv2a_gpu_wait_word((volatile uint32_t *)(g_xbox_mem_offset+edx),ecx);\r\n","        goto loc_0040F640;\r\n","    } /* jb: below (unsigned <) */\r\n"]],[216818,1,["void sub_0040F980_unused_lift(void)\r\n"]]]

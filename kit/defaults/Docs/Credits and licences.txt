@@ -1,0 +1,39 @@
+MechAssault 2 PC recompilation - credits and licences (version {{VERSION}})
+==========================================================================
+
+THE PROJECT
+-----------
+An unofficial fan project that turns your own MechAssault 2 disc into a PC
+game. It is not affiliated with or endorsed by Microsoft, Xbox, Day 1 Studios
+or the BattleTech/MechWarrior rights holders. MechAssault and Xbox are
+trademarks of their respective owners.
+
+No game data files are included: the game's program, art, sound and levels
+come from your own disc. Graphics shaders are compiled on your PC as the game
+meets them, so a level's first visit can hitch briefly; nothing compiled from
+the game is included.
+
+The project's own code (the PC layer, the offline bots, scenario support, the
+installer scripts and the MA2 Scenario Editor) is released under the MIT
+licence: Licenses\LICENSE.txt.
+
+
+BUILT WITH
+----------
+- xboxrecomp, the toolkit that translates the Xbox program to C and provides
+  the runtime (MIT): https://github.com/sp00nznet/xboxrecomp
+- Parts of xemu's audio and graphics emulation (LGPL 2.1 or later; espes,
+  Jannik Vogel, Matt Borgerson): https://github.com/xemu-project/xemu
+- A DSP56300 emulator for the audio DSP (GPL).
+- libsamplerate, xxHash, jsmn, DirectXTex's DDS loader, Dear ImGui.
+- FFmpeg 9.0.2 for cutscene playback (GPL version 3, full build by
+  gyan.dev; downloaded from gyan.dev during the install, not part of the
+  installer). Source: https://github.com/FFmpeg/FFmpeg/commit/946fcce07b ;
+  build scripts and library sources: https://www.gyan.dev/ffmpeg/builds/
+- The installer runs on Python 3.13 and uses Capstone; its window uses the
+  Rajdhani and Share Tech Mono fonts (SIL Open Font Licence).
+- Optional enhanced content uses Real-ESRGAN, BasicSR, RealBasicVSR, PyTorch
+  and texconv, downloaded during the install.
+
+Every component with its version, licence and licence file is listed in
+Licenses\THIRD-PARTY.txt; the licence texts are in the Licenses folder.

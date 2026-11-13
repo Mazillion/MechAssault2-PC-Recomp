@@ -1,0 +1,1769 @@
+{
+ "pack": "t15_pipeline",
+ "title": "Native pipeline performance: frame profile, render path, guest CPU, kernel and threading (2026-10-31)",
+ "facts": [
+  {
+   "id": "tank-scope-accessor-doubles-code",
+   "title": "The tank-step clock accessor doubles the overlay's lifted code",
+   "subject": {
+    "kind": "file",
+    "id": "ma2_tank_step_scope.h"
+   },
+   "addresses": [
+    "004E2420"
+   ],
+   "related": [],
+   "fact": "In the bots overlay, XBOX_PTR is ma2_tank_scoped_pointer. Every register-addressed MEM8/16/32/F/D range-checks 0x4E2420.0x4E2447 plus a TLS flag, and reloads g_xbox_mem_offset. The 59 prebuilt gen objects already use the plain form, so the scope only covers code in the 45 overlay files. No XDK, CRT, audio or D3D function (0x2B0000 and above) references the clock block by constant.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated ma2_tank_step_scope.h (made at install time, not in the repository)",
+     "line": 11
+    },
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 492
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "perf",
+    "codegen",
+    "tank"
+   ],
+   "date": "2026-10-30",
+   "how_to_use": "PIPELINE-B O1: use the plain pointer in fast bodies, and implement the scope by swapping the 48 clock bytes in ma2_tank_contact_begin/end."
+  },
+  {
+   "id": "guest-registers-tls-not-register-allocated",
+   "title": "Guest registers are TLS memory, and MSVC cannot keep them in host registers",
+   "subject": {
+    "kind": "concept",
+    "id": "guest-register-model"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "g_eax.g_edi, g_esp and the x87 stack are __declspec(thread) globals. In the /O2 asm, every guest register read or write is a [tls+offset] load or store, because MEM32 pointers are made from integers and may alias the registers. A /volatile:iso build produced an identical asm size, so the cause is aliasing, not volatile. The fix pattern is registers as function locals, published at calls and returns; bringup/optimize_leafs.py already does this for two Bink leaves in recomp_fastpaths.c. 5,245 of the 25,841 lifted functions are leaves.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 167
+    },
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 1205
+    },
+    {
+     "file": "kit/source/game/bringup/optimize_leafs.py",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "perf",
+    "codegen",
+    "registers"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "icall-shared-trace-globals",
+   "title": "Every ICALL writes three shared non-TLS globals",
+   "subject": {
+    "kind": "concept",
+    "id": "RECOMP_ICALL"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RECOMP_ICALL, _SAFE and _AT store into g_icall_trace[16], g_icall_trace_idx and g_icall_count (plain volatile globals) before they call recomp_lookup_manual (a compare plus the recomp_lookup_bringup switch) and then the flat dispatch table. Guest code runs on the game, guest-worker, timer/DPC and executor threads, so these cache lines bounce between cores. The overlay has 10,221 ICALL sites. The guarded-arm devirtualisation (RECOMP_ICALL_FEEDBACK) is unused in this generation: there are 0 GUARD_HIT sites.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_types.h (made at install time, not in the repository)",
+     "line": 1061
+    },
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 657
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 1735
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "perf",
+    "icall"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "no-ltcg-pgo",
+   "title": "The exe is built without LTCG or PGO",
+   "subject": {
+    "kind": "file",
+    "id": "combined.ninja"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The gen and runtime objects compile with /O2 /Ob2 -MD /bigobj and no /GL. There is no inlining across the 104 gen translation units, and no profile-guided layout for about 100 MB of code.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "perf",
+    "build"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "kernel-call-rate-6v6",
+   "title": "The kernel call rate in a 6v6 match is about 125k per second",
+   "subject": {
+    "kind": "concept",
+    "id": "kernel-thunk-dispatch"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "From the [KERNEL] summary deltas in an NRC 6v6 match: about 250k kernel calls per 2 s. RtlLeaveCriticalSection is 51k/s, RtlEnterCriticalSection 39k/s, KfLowerIrql 16k/s, KfRaiseIrql 14k/s and KeRaiseIrqlToDpcLevel 2.4k/s. That is about 1,400 calls per frame, roughly 1% of a core. Each call also runs GetTickCount, plus a 2 s summary that is not thread-safe, so two threads sometimes both print it.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/runtime/src/kernel/kernel_bridge.c",
+     "line": 10005
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "perf",
+    "kernel"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "shadow-cs-spin-zero",
+   "title": "Shadow critical sections are created with spin count 0",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_cs_create"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "kernel_rtl.c xbox_cs_create calls InitializeCriticalSectionEx(&slot->cs, 0, CRITICAL_SECTION_NO_DEBUG_INFO). So any contention on a guest lock goes straight to a kernel wait and a context switch. An example is the DirectSound API lock 0x3C4598, contended between the game thread and the DPC.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 332
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 570
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "perf",
+    "kernel",
+    "locks"
+   ],
+   "date": "2026-10-30",
+   "how_to_use": "PIPELINE-B O5: scale the spin count by logical CPUs (0 below 4).",
+   "addresses_unverified": [
+    "003C4598"
+   ]
+  },
+  {
+   "id": "guest-lock-off-ma2",
+   "title": "Guest threads run truly in parallel (RECOMP_GUEST_LOCK is off)",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_GUEST_LOCK"
+   },
+   "addresses": [
+    "00394790",
+    "002B8F54"
+   ],
+   "related": [],
+   "fact": "kernel_bridge.c has a guest CPU lock in the style of N64 ultramodern: one guest thread at a time, released for every kernel call. It is opt-in with RECOMP_GUEST_LOCK=1 and off for MA2.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/runtime/src/kernel/kernel_bridge.c",
+     "line": 9945
+    },
+    {
+     "file": "kit/source/runtime/src/kernel/kernel_bridge.c",
+     "line": 544
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "perf",
+    "threads"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "timer-thread-loop-current",
+   "title": "The kernel timer thread waits on a 1 ms high-resolution timer, then runs vblank, DPCs and timers",
+   "subject": {
+    "kind": "function",
+    "id": "kernel_timer_thread"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "kernel_timer_thread waits on a CREATE_WAITABLE_TIMER_HIGH_RESOLUTION timer (1 ms). It then runs kernel_vblank_tick (a 60 Hz QPC deadline, enabled by RECOMP_VBLANK=1 from main.c), kernel_drain_dpcs, and kernel_timer_fire_due over 32 timers. A DPC queued by KeInsertQueueDpc waits for the next pass, up to 1 ms. A DPC blocked on 0x3C4598 delays vblank and every timer. This supersedes the older wording that the thread sleeps with Sleep(1).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/runtime/src/kernel/kernel_bridge.c",
+     "line": 3034
+    },
+    {
+     "file": "kit/source/runtime/src/kernel/kernel_bridge.c",
+     "line": 2614
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 170
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "perf",
+    "kernel",
+    "timing"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "executor-runs-guest-code",
+   "title": "The NV2A executor thread also runs guest code",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_gpu_software_method"
+   },
+   "addresses": [
+    "004152E0"
+   ],
+   "related": [],
+   "fact": "NV097 software methods are delivered at FIFO exit by ma2_gpu_software_method. It allocates its own guest stack and TIB, and calls the XDK miniport handler sub_004152E0 (QueueFlip, fences, callbacks). So guest code runs on four host threads: game, guest worker, timer/DPC and executor.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 586
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "perf",
+    "threads",
+    "gpu"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "bots-cost-share-measured",
+   "title": "Bots cost 12-14% of the game thread in 6v6 matches",
+   "subject": {
+    "kind": "concept",
+    "id": "bots-perf"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "From [BOT-PERF] (t of 30 s or more) over three push-s1 matches: bots median 119-144 ms per second of play (p90 170-187). Brain 37-41, ctrl 44-55, rays 21-24 (920-1,190 rays/s), plans 4-20 (p90 up to 61) and world view 16-31 ms/s; 620-814 player ticks/s, about 70 fps with 11 bots. All of it runs on the game thread.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "perf",
+    "bots"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "process-qos-opt-out-correct",
+   "title": "The process opts out of EcoQoS and timer-resolution throttling correctly",
+   "subject": {
+    "kind": "file",
+    "id": "main.c"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "main.c sets ProcessPowerThrottling with ControlMask EXECUTION_SPEED|IGNORE_TIMER_RESOLUTION and StateMask 0 (an opt-out), then calls timeBeginPeriod(1). Per Microsoft's docs this keeps HighQoS, and keeps the 1 ms resolution on Windows 11 even when the window is occluded or minimised. The side effect is that every helper thread is HighQoS and competes for P-cores. Per-thread EcoQoS (THREAD_POWER_THROTTLING_EXECUTION_SPEED) is not used anywhere.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 545
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 560
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "perf",
+    "threads",
+    "qos"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "executor-sleep0-spin",
+   "title": "The executor spins Sleep(0) while PUT moves and for 2 ms after",
+   "subject": {
+    "kind": "function",
+    "id": "nv2a_idle_wait"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "nv2a_idle_wait yields with Sleep(0) whenever the last activity was less than 2 ms ago; otherwise it waits 250 us on a high-resolution timer. In play PUT moves several times per frame, so in effect it spins a logical core, which can be the game thread's Hyper-Threading sibling. The guest writes PUT with a plain store, so a WaitOnAddress design needs a wake hook at the XDK KickOff site.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 883
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 979
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "perf",
+    "gpu",
+    "threads"
+   ],
+   "date": "2026-10-30",
+   "how_to_use": "RECOMP_NV2A_SPIN=1 restores the always-spin behaviour."
+  },
+  {
+   "id": "fixed-dt-hook-candidate",
+   "title": "0x50BA70 is the candidate fixed-dt hook for determinism hashes",
+   "subject": {
+    "kind": "global",
+    "id": "0050BA70"
+   },
+   "addresses": [
+    "0050BA70",
+    "0001DD80"
+   ],
+   "related": [],
+   "fact": "The producer sub_0001DD80 takes the float at 0x50BA70 as the elapsed time when it is above 0 (wiki frame-delta-and-fps-ring). PIPELINE-B TH-2 proposes RECOMP_FIXED_DT plus a periodic state hash, so that codegen changes can be proven bit-exact across builds. Unverified: which producer runs live in each mode.",
+   "status": "open-question",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "perf",
+    "timing",
+    "test"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "prior-art-register-locals",
+   "title": "Prior art: registers as locals is the main static-recompiler speedup",
+   "subject": {
+    "kind": "concept",
+    "id": "prior-art"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "XenonRecomp's README calls its [optimizations] options (non_volatile_as_local, non_argument_as_local, cr/ctr/xer/reserved_as_local, skip_lr) its largest gain: in Unleashed the exe was about 20 MB smaller and frame time dropped by several ms. It recommends Clang or clang-cl. N64ModernRuntime runs each guest thread on a host thread, but passes a single run token so only one runs at a time. Cxbx-Reloaded polls guest dispatcher headers (WaitApc), and its KeDelayExecutionThread uses SleepPrecise: sleep the interval minus 2 ms, then spin.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "perf",
+    "research"
+   ],
+   "date": "2026-10-30"
+  },
+  {
+   "id": "pa-game-thread-critical-path",
+   "title": "The game thread is the frame-rate limit: its CPU time per frame equals the frame time",
+   "subject": {
+    "kind": "concept",
+    "id": "frame-time-profile"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "runs on ew-merge 97f02c3 at 3840x1600, TQ1, DrawDistance 100, uncapped, the main test desktop: UC 5v6 60 fps, frame p50 16.35 ms, game-thread CPU 15.86 ms per frame (97 %); Mission 01b 101 fps, 9.54 of 10.17 ms (94 %). The game thread is blocked only 0.2-1.4 % of its 1 kHz samples.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "perf",
+    "threads"
+   ],
+   "date": "2026-10-31",
+   "how_to_use": "Speeding up any other thread does not raise fps until the game thread gets faster; compare builds by ms per frame, not fps (run-to-run spread is about 10 %)."
+  },
+  {
+   "id": "pa-executor-second-bottleneck",
+   "title": "The NV2A executor is the second bottleneck and binds first near 120-130 fps",
+   "subject": {
+    "kind": "function",
+    "id": "nv2a_ack_thread"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Executor pushbuffer work (time inside nv2a_pb_consume) is 7.68 ms per frame in UC 5v6 and 6.83 ms in Mission 01b, plus 1.3-1.7 ms of Sleep(0) spin. Its idle wait is 6.6 ms per frame in UC but only 1.75 ms in M01b (busy about 83 %). At 144 fps the budget is 6.9 ms.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 915
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "perf",
+    "gpu",
+    "threads"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "pa-pushbuffer-words-per-frame",
+   "title": "MA2 sends 330-460 thousand pushbuffer words per frame, most of them 16-bit index pairs",
+   "subject": {
+    "kind": "concept",
+    "id": "pushbuffer-traffic"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Words per frame in UC 5v6 (M01b): ARRAY_ELEMENT16 0x1800 238,623 (128,552); vertex constants and program 0x0B00-0x0BFF 127,115 (170,722); INLINE_ARRAY 0x1818 46,799 (17,353); other 3D state 32,870 (24,327); immediate vertex attributes 7,975 (5,196); texture stage 6,855 (3,506); semaphore/software 1,276 (324); total 461,730 (353,033). There are 1,100 draws and 5 PUT kicks per frame.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "perf",
+    "gpu"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "pa-per-word-dispatch-cost",
+   "title": "Only constant uploads have a bulk path; every other pushbuffer word costs about 10 ns",
+   "subject": {
+    "kind": "function",
+    "id": "nv2a_pb_consume"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "nv2a_pb_consume does a volatile load, a 16-entry recent[] ring write, a volatile GET publish and one nv2a_pb_exec_method call per word. Only methods 0x0B00-0x0BFF are taken in 32-word bulk chunks (280-308). The roughly 335 k non-bulk words per frame in UC cost about 3.5-4 ms (nv2a_pb_exec_method 13 % plus nv2a_pb_consume 7 % of executor samples). ARRAY_ELEMENT16 just appends 2 indices through nv2a_index_stream_method.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/runtime/src/kernel/nv2a_pb_scan.c",
+     "line": 259
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 3801
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "perf",
+    "gpu"
+   ],
+   "date": "2026-10-31",
+   "how_to_use": "PIPELINE-A E1: bulk paths for 0x1800/0x1808/0x1818 payloads, exact by construction."
+  },
+  {
+   "id": "pa-draw-cost-small",
+   "title": "D3D11 submission is cheap: about 3 us per draw, and D3D11 plus the driver are 4 % of executor time",
+   "subject": {
+    "kind": "function",
+    "id": "draw_batch"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "BEGIN_END(0) to draw completion takes 3.37 ms per frame for 1,108 draws in UC (3.86 ms for 1,119 in M01b). By sample: d3d11.dll 2.3 %, nvwgf2umx 1.6 %, memcpy/memcmp 2.6 %, CPU vertex program (execute_program, from program_sprite_clamp and program_feedback_bounds) 1.3-2.2 %, texture_view 0.9 %, XXH64 0.8 %, fetch_attr 0.8 %. Present (blit, ImGui, Present) is 0.075 ms per frame.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 1658
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 2174
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "perf",
+    "gpu",
+    "d3d11"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "pa-gpu-headroom-3090",
+   "title": "The RTX 3090 is 37 % busy at 3840x1600 in a 5v6 match",
+   "subject": {
+    "kind": "concept",
+    "id": "gpu-utilisation"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "nvidia-smi sampled at 1 s for 60 s mid-match in UC 5v6 (3840x1600, TQ1, DrawDistance 100): utilisation mean 37 %, max 45 %, graphics clock 1,245-1,275 MHz, about 100 W. The game is CPU-bound on this PC. A D3D11 timestamp span per frame equals the frame time (it includes GPU bubbles), so it cannot be used as GPU busy time.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "perf",
+    "gpu"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "pa-guest-d3d-share",
+   "title": "The guest D3D section is only 6.7-7.3 % of the game thread, spread over many functions",
+   "subject": {
+    "kind": "concept",
+    "id": "guest-d3d8-cost"
+   },
+   "addresses": [
+    "004094F0",
+    "0040BF70",
+    "0040D2F0",
+    "00411180"
+   ],
+   "related": [],
+   "fact": "RIP samples on the game thread: guest .text 75-80 %, D3D section (0x004091E0-0x0041CB74) 6.7 % (UC) and 7.3 % (M01b), XGRPH and D3DX about 0. The top D3D functions are each 0.3-1.1 %: sub_004094F0 1.1, sub_0040BF70 0.7-1.0, sub_0040D2F0 0.4-0.6, sub_00411180 0.4-0.5, sub_004161C0 0.3, sub_0040BF20 0.3-0.5. This caps any D3D8-level HLE gain at about 7 %.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "perf",
+    "d3d8",
+    "hle"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "pa-xbe-libraries-d3d8ltcg",
+   "title": "ma2.xbe links XDK 5849 D3D8LTCG; the D3D, XGRPH and D3DX section addresses",
+   "subject": {
+    "kind": "file",
+    "id": "ma2.xbe"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "XBE library table: XAPILIB, D3DX8, XONLINES, XVOICE, LIBCMT, LIBCPMT, XBOXKRNL, DSOUND, VOICMAIL, D3D8LTCG, XGRAPHCL and XACTENLT, all 1.0.5849. Sections:text 0x00012000-0x003279C8, D3DX 0x003279E0-0x00341C20, DSOUND 0x003A65A0-0x003C4DFC, WMADEC 0x003C4E00-0x003DDE7C, XACTENG 0x003DDE80-0x003E8960, XGRPH 0x003E8960-0x004091CC, D3D 0x004091E0-0x0041CB74, XPP 0x0041CB80-0x0042588C. LTCG means much of D3D is inlined into game code, which is why Cxbx-style HLE struggles with these titles.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "perf",
+    "d3d8",
+    "xbe"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "pa-guest-fence-wait",
+   "title": "The guest D3D fence wait sub_0040F510 waits through nv2a_gpu_wait_word (WaitOnAddress, 2 ms)",
+   "subject": {
+    "kind": "function",
+    "id": "sub_0040F510"
+   },
+   "addresses": [
+    "0040F510"
+   ],
+   "related": [],
+   "fact": "recomp_0101.c:216223, inside sub_0040F510 in the D3D section, loops on the fence word and calls nv2a_gpu_wait_word, which does WaitOnAddress with a 2 ms timeout. The executor releases it at method 0x1D70 with nv2a_gpu_publish_word plus WakeByAddressAll (nv2a_pb_exec.c:3577-3585). Measured share of game-thread samples waiting here: 0.25 % in UC 5v6 and 1.3 % in M01b.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_0101.c (made at install time, not in the repository)",
+     "line": 216223
+    },
+    {
+     "file": "kit/source/runtime/src/kernel/nv2a_gpu_wait.c",
+     "line": 31
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 3577
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "perf",
+    "d3d8",
+    "sync"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "pa-game-thread-syscalls",
+   "title": "Game-thread syscalls: KeWaitForSingleObject and critical-section release are the largest",
+   "subject": {
+    "kind": "function",
+    "id": "xbox_KeWaitForSingleObject"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "ntdll time on the game thread by first exe caller. UC 5v6: kernel thunk to xbox_KeWaitForSingleObject 3.2 %, nv2a_gpu_wait_word 0.25 %. M01b: bridge_RtlLeaveCriticalSection 2.7 %, KeWaitForSingleObject 2.1 %, nv2a_gpu_wait_word 1.3 %, RtlEnterCriticalSection 0.7 %. These are short waits or wakes (the thread still ran in those 1 ms ticks), not long blocks. Which objects is open.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "perf",
+    "kernel",
+    "threads"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "pa-hot-guest-cluster-0066",
+   "title": "The hottest guest code is an SSE float-math cluster in recomp_0066.c",
+   "subject": {
+    "kind": "concept",
+    "id": "hot-guest-functions"
+   },
+   "addresses": [
+    "0027B8C0",
+    "0027C930",
+    "0027C5C0",
+    "0027E740",
+    "00298BE0"
+   ],
+   "related": [],
+   "fact": "Game-thread samples in UC 5v6: sub_0027B8C0 3.2 %, sub_0027C930 3.0 %, sub_0027C5C0 1.4 %, sub_0027E740 1.4 % (5.2 % in M01b), sub_0027C3E0 0.9 %, sub_0027C0A0 0.8 %. Others: sub_00298BE0 2.0 %, sub_00293D40 1.2 %, sub_00082550 1.1 %, sub_0004F930 1.1 % (129 callers). recomp_lookup plus recomp_lookup_bringup (indirect-call lookup) are 3 %. Purpose not yet identified; the bodies are mostly MEM32/MEMF loads with movss/mulss.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "generated recomp_0066.c (made at install time, not in the repository)",
+     "line": 7072
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "perf",
+    "recomp"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "pa-executor-spin-measured",
+   "title": "The executor makes 14-18 thousand Sleep(0) calls per frame in play",
+   "subject": {
+    "kind": "function",
+    "id": "nv2a_idle_wait"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Because PUT moves about 5 times per frame, the 2 ms active window in nv2a_idle_wait never closes: 14-18 k Sleep(0) per frame, 1.3-1.7 ms of wall time per frame mostly in the kernel, about 2.3 ms of executor CPU per frame together with polling. At 4 threads it competes with the game, DSP and VP threads.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 883
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "perf",
+    "threads"
+   ],
+   "date": "2026-10-31",
+   "how_to_use": "PIPELINE-A E2a: _mm_pause poll up to 20 us, then the 250 us timer; E2b: KickOff SetEvent wake."
+  },
+  {
+   "id": "pa-write-watch-faults-low",
+   "title": "Texture and vertex write-watch faults are about 5 per frame on the game thread",
+   "subject": {
+    "kind": "function",
+    "id": "write_fault"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A vectored continue handler counted 285-350 handled exceptions per second on the game thread (nv2a_gpu_memory.c write-watch faults, about 5 per frame) and 1.6-1.8 k per second on other threads (APU and AC97 MMIO traps). That is not a frame cost today.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/runtime/src/kernel/nv2a_gpu_memory.c",
+     "line": 34
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "perf",
+    "memory"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "pa-four-thread-shape",
+   "title": "Four cores without SMT cost 4 % fps but 13 % p99",
+   "subject": {
+    "kind": "concept",
+    "id": "low-end-shape"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "UC 5v6 with process affinity 0x55 (4 P-cores, no SMT): 57.8 fps against 60.1, p99 27.0 against 23.9 ms. Game thread 91 % of wall (preempted), executor 55 %, DSP 35 %, APU VP 12 %, host driver worker about 10 %, about 2.1 busy cores in total. Low-end frame rate is set by per-core speed, not core count.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "perf",
+    "threads",
+    "lowend"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "pa-pl-prof-tool",
+   "title": "per-thread CPU, 1 kHz RIP sampling and executor timers (dev-only profiler)",
+   "subject": {
+    "kind": "file",
+    "id": "pl_prof.c"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "(eace004 and 820bc2b on ew-merge), kit/source/game/src/pl_prof.c #included by main.c. Env: RECOMP_PROF=<dir> enables it (writes prof-<pid>.bin/.txt), RECOMP_PROF_HZ (default 1000, 0 = CPU times only), RECOMP_PROF_AFFINITY=<hex mask>. The log gets [PROF-FRAME] (fps, frame p50/p95/p99, game and executor CPU per frame), [PROF-EXEC] (consume, upload, draw, clear, present, spin, timer), [PROF-WORDS] (words per method class), [PROF-THR] and [PROF-EXC] every 5 s.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/pl_prof.c",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "perf",
+    "tools"
+   ],
+   "date": "2026-10-31",
+   "how_to_use": "Never merge. Keep a copy of the .map with each run: every rebuild moves addresses."
+  },
+  {
+   "id": "pa-vertex-buffer-whole-range",
+   "title": "A changed guest vertex range is re-uploaded whole",
+   "subject": {
+    "kind": "function",
+    "id": "vertex_buffer"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "vertex_buffer (nv2a_gpu_d3d11.c:1890) checks the page version, then memcmp's the whole page-rounded range against its snapshot. On any difference it calls UpdateSubresource on the whole range, where xemu uploads only dirty pages.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_gpu_d3d11.c",
+     "line": 1890
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "perf",
+    "gpu",
+    "d3d11"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "pa-mcp-launch-resolution",
+   "title": "The ini it copies (Profile/pc_settings.ini) has TextureQuality=1 and DrawDistance=100",
+   "subject": {
+    "kind": "concept",
+    "id": "mcp-game-launch"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The ini it copies (Profile/pc_settings.ini) has TextureQuality=1 and DrawDistance=100. The window is hidden (RECOMP_FB_HIDDEN=1) and audio silent.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "editor/tools/ma2_mcp.py",
+     "line": 222
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "perf",
+    "tools"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "pa-version-dll-proxy",
+   "title": "PC Release and the test folders carry a DLSS-G proxy version.dll",
+   "subject": {
+    "kind": "file",
+    "id": "version.dll"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "PC Release (and test folders copied from it) contains version.dll (30 MB, \"DLSSG SM86\" frame-generation proxy, config dlssg_sm86.ini Enabled=1) beside the exe. MechAssault 2.exe does not import version.dll by name, and it never appeared in any profile sample. If DXGI behaviour ever looks odd, check it first.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "perf",
+    "gpu"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "m0-audio-guest-inc",
+   "title": "Audio lock, ISR, stop assist and bounded waits live in apu/ma2_audio_guest.inc",
+   "subject": {
+    "kind": "file",
+    "id": "ma2_audio_guest.inc"
+   },
+   "addresses": [],
+   "related": [
+    "recomp_manual.c",
+    "0x3C4598"
+   ],
+   "fact": "Pipeline M0 (0517065) moved recomp_manual.c's guest audio helpers verbatim into kit/source/game/src/apu/ma2_audio_guest.inc ma2_audio_work_enter/leave (API lock 0x3C4598), ma2_audio_isr_try_enter, ma2_audio_note_core, ma2_audio_stop_assist(_done), and the B11 bounded waits ma2_voice_new_wait / ma2_xact_packet_wait. recomp_manual.c #includes the file twice, at the old places, with MA2_AUDIO_GUEST_PART 1 and 2; recomp_manual.c.obj came out byte-identical except the COFF timestamp. Track T2 owns the .inc, T1 owns recomp_manual.c; the .inc relies on GUEST32, g_xbox_mem_offset and ma2_diag(DIAG_AUDIO) defined above each include.",
+   "how_to_use": "Edit the .inc for audio waits; never re-add these functions to recomp_manual.c.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/ma2_audio_guest.inc",
+     "line": 1
+    },
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 74
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "m0",
+    "audio",
+    "build"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "m0-pc-switch-reader",
+   "title": "pc_switch: one reader for pipeline switches, env > ini > default",
+   "subject": {
+    "kind": "file",
+    "id": "pc_switch.h"
+   },
+   "addresses": [],
+   "related": [
+    "main.c"
+   ],
+   "fact": "kit/source/game/src/platform/pc_switch.h is header-only: pc_switch(env, section, key, default) for ints and booleans (decimal, 0x hex, on/off, true/false, yes/no), pc_switch_choice for named modes (sleep0|poll|auto style, case-insensitive, or an index) and pc_switch_text. A value that does not parse falls through to the next level. The ini step goes through the __declspec(selectany) pointer pc_switch_ini, set by main.c configure_pc to read the resolved pc_settings.ini; with it unset (lib-only tests, or before configure_pc) switches read only the environment and the default. Unit-tested in a scratch harness with a C lib, a C++ object and an ini.",
+   "how_to_use": "Read once at init and cache. Include \"platform/pc_switch.h\" from kit/source/game/src/*.c, \"./platform/pc_switch.h\" from kit/source/game/src/kernel or kit/source/game/src/apu",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/platform/pc_switch.h",
+     "line": 1
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 145
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "m0",
+    "settings",
+    "build"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "m0-cpu-topo-api",
+   "title": "pc_cpu_topo: CPU Sets under the process mask, P/E split, battery and a 4-thread-floor tier",
+   "subject": {
+    "kind": "file",
+    "id": "pc_cpu_topo.c"
+   },
+   "addresses": [],
+   "related": [
+    "main.c"
+   ],
+   "fact": "kit/source/game/src/platform/pc_cpu_topo.c (#included by main.c, no build edge) measures at startup: logical CPUs under the process affinity mask and default CPU Sets (GetSystemCpuSetInformation; fallback GetLogicalProcessorInformationEx, then the mask's bit count), distinct cores, EfficiencyClass split (highest class in the mask = P), last-level caches, groups, power source, battery and battery saver. Tier: floor below 4 logical, full at 6+ cores, else small. Library code reads it through the selectany table pc_cpu_topo_api (pc_cpu_topo, pc_cpu_logical, pc_cpu_tier); without main.c, pc_cpu_logical counts the process mask itself.",
+   "how_to_use": "Grep the log for [CPU-TOPO]. T1-5 adds the placement policy; until then detection only reads.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/platform/pc_cpu_topo.c",
+     "line": 289
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_cpu_topo.h",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "m0",
+    "threads",
+    "hardware"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "m0-cpu-topo-test-desktop",
+   "title": "What [CPU-TOPO] reports on the the main test desktop CPU and under the test masks",
+   "subject": {
+    "kind": "concept",
+    "id": "[CPU-TOPO]"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Masks: 55 -> logical=4 physical=4 tier=small; FF -> 8 logical on 4 cores (small); 5555 -> 8/8 (full); FF0000 -> the 8 E-cores, pclass=0/1 (only E-cores usable), tier full; 3 -> 2 logical on 1 core, tier floor plus a 'below 4-thread floor' line. A mask outside the system mask logs FAILED and leaves the affinity unchanged. In the game (0517065, a test folder) the 4T run logged logical=4 physical=4 tier=small mask=55 and the full run logical=24 physical=16 p=16/8 e=8/8 tier=full.",
+   "how_to_use": "RECOMP_AFFINITY=<hex> sets the mask (test only).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "m0",
+    "threads",
+    "hardware",
+    "test-hook"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "m0-recomp-affinity",
+   "title": "RECOMP_AFFINITY=<hex> restricts the whole game to a CPU mask (test only)",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_AFFINITY"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Applied by pc_cpu_affinity_from_env at the top of WinMain, before any other thread exists, with SetProcessAffinityMask on the primary group; logged as [CPU-TOPO] RECOMP_AFFINITY=. set/FAILED. Every later count (pc_cpu_logical, the tier) uses the masked numbers, so 4- and 8-thread machines can be simulated on the main test desktop. It replaces 's RECOMP_PROF_AFFINITY for pipeline runs.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/platform/pc_cpu_topo.c",
+     "line": 28
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 560
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "m0",
+    "test-hook",
+    "threads"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "m0-thread-role-registry",
+   "title": "pc_thread_role_enter(role): the thread registry for TH-1",
+   "subject": {
+    "kind": "function",
+    "id": "pc_thread_role_enter"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "pc_thread_role_enter(PC_ROLE_*) registers the calling thread (a duplicated handle, up to 64 threads) under one of 22 roles (game, guest, timer, vblank, dpc, clock, executor, raster, present, shader, preload, pack, apu, dsp, vp, audio_out, bot, io, usb, watchdog, diag, other) and runs pc_thread_role_policy, an empty hook until T1-5. pc_thread_role_leave drops it; pc_thread_role_foreach (main.c only) walks the table under a shared lock for the per-thread CPU report. In M0 no thread calls it yet: the role calls are T1-0 (game/timer/clock) and T2-0 (executor, shader, preload, pack, DSP, APU).",
+   "how_to_use": "Call once near the top of a thread function; leave before a short-lived thread exits.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/platform/pc_cpu_topo.c",
+     "line": 219
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_cpu_topo.h",
+     "line": 153
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "m0",
+    "threads"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "m0-kit-runtime-dirs",
+   "title": "Kit hazard: kit/source/game/src/kernel, kit/source/game/src/apu and kit/source/game/src/platform land in the runtime tree",
+   "subject": {
+    "kind": "file",
+    "id": "assemble.py"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The kit's assemble.py places every bots-tree file under kit/source/game/src/{apu,audio,d3d,input,kernel,nv2a,platform,usb,video} into runtime\\src, and the rest into game\\src. The xbox_kernel target only has -I runtime\\src\\kernel and runtime\\src, so a header kept at bots kit/source/game/src/ is invisible to kernel and apu code in the kit, while the game target does see runtime\\src. That is why the M0 headers sit in kit/source/game/src/platform and the .inc in kit/source/game/src/apu one include spelling works in both the bots ninja build and the kit.",
+   "how_to_use": "New shared headers go in a RUNTIME_DIRS folder; include them relative to the including file.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "m0",
+    "build",
+    "kit"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "m0-base-rebuild-matches-install",
+   "title": "A rebuild of ew-merge 97f02c3 in another worktree differs from 51A945F9 only by lambda order",
+   "subject": {
+    "kind": "concept",
+    "id": "51A945F9"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "build- built from the unchanged 97f02c3 tree gave an exe of the same size as the installed 51A945F9 with identical string literals; the 762 differing bytes are the PE timestamp, a 714-byte run of pc_native_settings.cpp lambdas,pdata and relocated pointers. MSVC names lambdas with a hash of the source path, so a new worktree path reorders those COMDATs; the code is the same.",
+   "how_to_use": "Compare builds by string literals and per-object bytes, not exe hashes, when the worktree path changed.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "m0",
+    "build"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "m0-baseline-uc5v6",
+   "title": "baseline: UC 5v6 at 3840x1600, full CPU and 4 P-cores (mask 55)",
+   "subject": {
+    "kind": "concept",
+    "id": "UC 5v6 baseline"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_AFFINITY"
+   ],
+   "fact": "0517065 (exe D53CC3BF), UC copy TeamDestruction 5v6 skill 4, MCP Bots Profile (TQ1, DrawDistance 100, uncapped), RECOMP_PERF, 310 s, windows after 60 s: FULL 71.2 fps mean, frame p50 13.9 ms, p99 20.0 ms; mask 55 (4 P-cores, no SMT) 75.6 fps, p50 13.1 ms, p99 19.3 ms. Both: no crash/fault/stall, [APU-TIME] 100 %, XAudio2 underruns 0, MS-CARRY 100.0 %, BOT-TRAPPED 0. Without the 1 kHz sampler these are 10-20 % faster than PROFILE.md's numbers, and the 4-P-core run was not slower than the full CPU (one run each, +-10 % noise).",
+   "how_to_use": "Per-frame reference for T1/T2 phase gates on; rerun on the track tip rather than comparing across builds with the profiler on.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "m0",
+    "perf",
+    "baseline"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "perf"
+   ],
+   "date": "2026-10-31",
+   "addresses": [
+    "0001DE70"
+   ],
+   "related": [],
+   "id": "t1-live-clock-producer-de70",
+   "title": "In play only sub_0001DE70 produces the frame clock (DD80/DDB4 never run)",
+   "subject": {
+    "kind": "function",
+    "id": "0001DE70"
+   },
+   "fact": "T1-0 TH-2 counted producer calls in M01b: DE70=4904, DD80=0, DDB4=0. So the 0x50BA70 fixed-elapsed override in DD80 is dead in play; DE70 has its own copy (0x50BA70 used only while frame 0x4E2420 < 0x50BA74). A fixed dt must be forced at DE70's elapsed store 0x4E2418 (ma2_frame_elapsed). The frame counter resets at level start and on a mission restart."
+  },
+  {
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "perf"
+   ],
+   "date": "2026-10-31",
+   "addresses": [],
+   "related": [],
+   "id": "t1-fixed-dt-state-hash",
+   "title": "RECOMP_FIXED_DT + RECOMP_STATE_HASH (7a12416): A==A holds for the clock, not for all of .data",
+   "subject": {
+    "kind": "concept",
+    "id": "RECOMP_STATE_HASH"
+   },
+   "fact": "RECOMP_FIXED_DT=<s> forces DE70's elapsed on the game thread; RECOMP_STATE_HASH=N hashes clock globals 0x4E2420.0x4E2447, the XBE .data (0x495000 + 165 x 4 KB, fps ring 0x4E2200.0x4E240F excluded) and 64 MB RAM (64 KB blocks) every N frames, about 7.5 ms each; RECOMP_STATE_HASH_FILE writes the blocks, compares. Two M01b quick-test runs at fixed dt 1/60: core equal 53/53 records (frames 0.2600); 48 of 165 .data blocks and 341 of 1024 RAM blocks differ, 10/27 already at frame 0, about 45/335 from frame 200 on, with no growth to 2600. Noise list:"
+  },
+  {
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "perf"
+   ],
+   "date": "2026-10-31",
+   "addresses": [],
+   "related": [],
+   "id": "t1-game-thread-placement-full",
+   "title": "At full CPU the game thread stays on P-cores but hops between about 8 of them",
+   "subject": {
+    "kind": "concept",
+    "id": "thread placement"
+   },
+   "fact": "RECOMP_PERF_CPU=1 [PERF-LP] on the main test desktop, M01b FULL: game thread on P-cores 99.5 % of frames, its SMT sibling 11 % busy (median), no core with both LPs over 50 %, executor (74-78 % of a core) on another core; the game's most-used LP has only 20-26 % of frames. So M0's mask-55 result was not SMT or E-core placement; migration (cold L1/L2) or run noise is the remaining explanation (T1-5)."
+  },
+  {
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "perf"
+   ],
+   "date": "2026-10-31",
+   "addresses": [],
+   "related": [],
+   "id": "t1-kernel-cs-rates-m01b",
+   "title": "M01b kernel/ICALL rates: 8 M ICALL/s, about 1,000 uncontended CS pairs per frame",
+   "subject": {
+    "kind": "concept",
+    "id": "kernel call rate"
+   },
+   "fact": "[PERF-RATE] M01b FULL at about 88 fps: ICALL 7.8-8.1 M/s; kernel 107-148 k/s, top ordinals 294 RtlLeaveCriticalSection 46-51 k/s, 277 RtlEnterCriticalSection 34-38 k/s, 161/160 KfLowerIrql/KfRaiseIrql 12-15 k/s. Contended guest CS enters only 3-4/s, 0.05-0.07 ms/s blocked, all on 0x3C4598 (DirectSound API lock) and on the game thread. The game thread's ntdll time under kernel_thunk_dispatch_body is uncontended Enter/Leave, not waits."
+  },
+  {
+   "id": "t2-bulk-words",
+   "title": "Bulk non-incrementing pushbuffer words decode in one call (2.48 M packets, 0 mismatches)",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_PB_BULK"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RECOMP_PB_BULK / [Render] PbBulk (nv2a_pb_scan.c bulk branch + nv2a_pb_exec.c nv2a_pb_exec_bulk) decodes whole non-incrementing 0x1800/0x1808/0x1818 payloads in one call; 2.48 M verified packets (UC + M01b), 0 mismatches; executor loop 8.95 -> 3.79 ns/word.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "nv2a_pb_scan.c",
+     "line": ""
+    },
+    {
+     "file": "nv2a_pb_exec.c",
+     "line": ""
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "perf",
+    "render",
+    "pushbuffer"
+   ],
+   "date": "2026-10-31",
+   "how_to_use": "Leave RECOMP_PB_BULK off until a bulk-only 4T run is at least as good as plm0a (the flip is its own commit). RECOMP_PB_BULK_VERIFY=N reports verified and mismatch counts in [PB-BULK]."
+  },
+  {
+   "id": "t2-words-per-frame-varies",
+   "title": "UC 5v6 pushbuffer words per frame vary 140-450 k between runs and windows",
+   "subject": {
+    "kind": "concept",
+    "id": "pushbuffer words per frame"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "UC 5v6 matches range 140-450 k pushbuffer words per frame between 5 s windows and runs (t2r0 median 363 k, t2b1 179 k); compare executor cost per word, not per frame.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "perf",
+    "render",
+    "pushbuffer"
+   ],
+   "date": "2026-10-31",
+   "how_to_use": "Compare executor cost per word (or per draw), not per frame, unless both runs show the same words per frame; use t2/t2words.py to normalise."
+  },
+  {
+   "id": "t2-word-mix",
+   "title": "Heavy UC 5v6 frame: index-16 words are about half of the pushbuffer",
+   "subject": {
+    "kind": "concept",
+    "id": "pushbuffer word mix"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "UC 5v6 heavy frame: idx16 178 k, const/program 104 k (already bulk), inline 39 k, state 24 k, immvtx 6 k, tex 5 k words; 872 draws; 4.3 kicks.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "perf",
+    "render",
+    "pushbuffer"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "t2-exec-wake",
+   "title": "Executor poll+timer wake cuts spin to 0.1 ms/frame but raises 4-thread p99",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_NV2A_WAKE"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RECOMP_NV2A_WAKE=sleep0|poll|auto ([Render] ExecWake, RECOMP_NV2A_ACTIVE_US) in xbox_memory_layout.c nv2a_idle_wait; poll+timer cuts executor spin from 1.67 to about 0.1 ms/frame, but at 4 logical CPUs the 250 us timer raised UC p99 +9 % and >33 ms frames 18 vs 4 (one run); default stays sleep0.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "xbox_memory_layout.c",
+     "line": ""
+    }
+   ],
+   "tags": [
+    "pipeline",
+    "perf",
+    "render",
+    "executor"
+   ],
+   "date": "2026-10-31",
+   "how_to_use": "Keep RECOMP_NV2A_WAKE at sleep0 (the default). Iteration 2 plans: auto = sleep0 at 4 or fewer logical CPUs (or a 50-100 us ACTIVE_US there), and a 100 us timer inside the 2 ms traffic window."
+  },
+  {
+   "id": "t2-a0-no-game-waits",
+   "title": "A 5 min UC 5v6 fight had no game-thread audio waits",
+   "subject": {
+    "kind": "concept",
+    "id": "game-thread audio waits"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "with RECOMP_AUDIO_WAIT_STATS, a 5 min UC 5v6 fight showed 0 NEW_VOICE, 0 DSP-CMD (0x3AA7DF), 0 XACT packet waits on the game thread; the APU thread sleeps in its throttle 3.3 s per 5 s and waits on the DSP join 1.2 s per 5 s.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "perf",
+    "audio"
+   ],
+   "date": "2026-10-31",
+   "how_to_use": "T2-5 (APU pacing) is worth p99 and spikes, not mean game-thread ms; consider T2-6/T2-7 (CPU on the audio threads) before it."
+  },
+  {
+   "id": "t2-a0-src-ratio",
+   "title": "Voice resampling runs at ratio above 1 on about 67% of voice-frames",
+   "subject": {
+    "kind": "concept",
+    "id": "APU-SRC ratio"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "[APU-SRC] in UC 5v6: about 67 % of voice-frames resample with ratio >1, 33 % at ratio 1, <1 % ramping, none <1.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "perf",
+    "audio"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "t2-gp-pram-static",
+   "title": "GP DSP program RAM was static during a fight",
+   "subject": {
+    "kind": "concept",
+    "id": "GP DSP program RAM"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "[APU-DSP] GP PRAM sampled every 8th APU frame showed 0 changed words during a fight (GP program static after load), which favours the T2-7 AOT hash gate.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "perf",
+    "audio",
+    "dsp"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "t2-capture-with-silent",
+   "title": "RECOMP_AUDIO_CAPTURE records audio under RECOMP_AUDIO_SILENT",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_AUDIO_CAPTURE"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RECOMP_AUDIO_CAPTURE writes the post-gain PCM in mcpx_apu_monitor_frame before RECOMP_AUDIO_SILENT zeroes the device buffer, so captures work in muted MCP runs.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "audio",
+    "tools"
+   ],
+   "date": "2026-10-31",
+   "how_to_use": "Use RECOMP_AUDIO_CAPTURE with RECOMP_AUDIO_SILENT in muted MCP runs; the capture is post-gain PCM."
+  },
+  {
+   "id": "t2-tex-row-decode",
+   "title": "[Render] TexRowDecode default 1 (e128b35): texture uploads decode a row at a time (nv2a_te",
+   "subject": {
+    "kind": "concept",
+    "id": "t2-tex-row-decode"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "[Render] TexRowDecode default 1 (e128b35): texture uploads decode a row at a time (nv2a_texture_decode_row, the pack's row decoder with canonical 0); UC 4T worst texture_prepare 21.16 -> 7.70 ms, total -70 %; mode 2 verified 4.67 M texels, 0 mismatches.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "lineage",
+    "build"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "t2-recovery-hidden",
+   "title": "[GPU-RECOVERY] healthy is printed only after presentations with IsWindowVisible true, so h",
+   "subject": {
+    "kind": "concept",
+    "id": "t2-recovery-hidden"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "[GPU-RECOVERY] healthy is printed only after presentations with IsWindowVisible true, so hidden MCP runs stay in VERIFYING after a RECOMP_GPU_RECOVERY_TEST recreation (rendering continues; the line needs a visible window).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "lineage",
+    "build"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "t2-tq-schedule",
+   "title": "RECOMP_PACK_TQ_SCHEDULE=\"sec:q,\" (nv2a_texture_pack.cpp) switches texture quality at th",
+   "subject": {
+    "kind": "concept",
+    "id": "t2-tq-schedule"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RECOMP_PACK_TQ_SCHEDULE=\"sec:q,\" (nv2a_texture_pack.cpp) switches texture quality at those seconds, a TQ-switch test without the settings menu.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "lineage",
+    "build"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "t2-cache-dir",
+   "title": "RECOMP_SHADER_CACHE_DIR=<dir> (nv2a_shader_cache.c) replaces %LOCALAPPDATA%\\xboxrecomp\\sha",
+   "subject": {
+    "kind": "concept",
+    "id": "t2-cache-dir"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RECOMP_SHADER_CACHE_DIR=<dir> (nv2a_shader_cache.c) replaces %LOCALAPPDATA%\\xboxrecomp\\shader-cache for a cold-cache run; the MCP launcher passes only RECOMP_*.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "lineage",
+    "build"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "t2-draw-cost-split",
+   "title": "UC FULL heavy scene: all D3D11 Maps 0.59 ms/f (2,834 Maps), guest vertex SRV uploads 0.034",
+   "subject": {
+    "kind": "concept",
+    "id": "t2-draw-cost-split"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "UC FULL heavy scene: all D3D11 Maps 0.59 ms/f (2,834 Maps), guest vertex SRV uploads 0.034 ms/f, draw 2.9 us per draw; E3 items (c)-(f) together are worth under 0.4 ms of executor CPU per frame.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "lineage",
+    "build"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "t2-bulk-on",
+   "title": "[Render] PbBulk default 1 since 4f41a53",
+   "subject": {
+    "kind": "concept",
+    "id": "t2-bulk-on"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "[Render] PbBulk default 1 since 4f41a53; same-exe 4T FL144 A/B (t2w3/t2w4) executor loop 4.6 vs 11.4 ns/word.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "lineage",
+    "build"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "t2-wake-auto",
+   "title": "[Render] ExecWake default auto since 388ce5f",
+   "subject": {
+    "kind": "concept",
+    "id": "t2-wake-auto"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "[Render] ExecWake default auto since 388ce5f; auto = sleep0 below 12 logical CPUs; at 24 logical spin 1.67 -> 0.19 ms/f with a 100 us in-window timer tail (RECOMP_NV2A_WINDOW_US); out of the 2 ms traffic window both modes always used the 250 us timer.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "lineage",
+    "build"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "t2-trap-noise",
+   "title": "UC 5v6 kind-2 BOT-TRAPPED \"bailing out\" repeats at one spot also occur in feature-OFF runs",
+   "subject": {
+    "kind": "concept",
+    "id": "t2-trap-noise"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "UC 5v6 kind-2 BOT-TRAPPED \"bailing out\" repeats at one spot also occur in feature-OFF runs (s1-runs/off1, s2runs/uc-off2, s1-runs/on2); executor changes cannot cause them.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "lineage",
+    "build"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "t2-seed-first",
+   "title": "nv2a_shader_cache.c checks the mapped shader-seed.pack before the user cache and no longer",
+   "subject": {
+    "kind": "concept",
+    "id": "t2-seed-first"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "nv2a_shader_cache.c checks the mapped shader-seed.pack before the user cache and no longer copies seed hits into it (B2.4); M01b program_miss worst frame 7.35 -> 0.36 ms.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "lineage",
+    "build"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "t2-src-fast",
+   "title": "RECOMP_APU_SRC default auto since 9cd0f04: bit-exact fast stereo sinc (SSE2) in the libsamplerate overlay; harness and 662 k in-game calls 0 mismatches; VP -35 % per voice-frame at 4T (2.19 -> 1.43 us).",
+   "subject": {
+    "kind": "concept",
+    "id": "t2-src-fast"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RECOMP_APU_SRC default auto since 9cd0f04: bit-exact fast stereo sinc (SSE2) in the libsamplerate overlay; harness and 662 k in-game calls 0 mismatches; VP -35 % per voice-frame at 4T (2.19 -> 1.43 us).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "audio",
+    "apu"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "t2-4t-audio-contention",
+   "title": "At 4 logical CPUs (RECOMP_AFFINITY=55) with both audio threads at MMCSS Pro Audio HIGH (priority 25), the game thread is runnable without a CPU about 3 % of the time, and the DSP and VP threads were running in about 70 % of those samples (t2p1).",
+   "subject": {
+    "kind": "concept",
+    "id": "t2-4t-audio-contention"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "At 4 logical CPUs (RECOMP_AFFINITY=55) with both audio threads at MMCSS Pro Audio HIGH (priority 25), the game thread is runnable without a CPU about 3 % of the time, and the DSP and VP threads were running in about 70 % of those samples (t2p1).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "audio",
+    "threads"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "t2-thsamp",
+   "title": "(pwsh Process.Threads snapshots at ~32 Hz, run on E-cores outside the game mask) plus thsum.py give per-thread running/READY shares and priorities without ETW.",
+   "subject": {
+    "kind": "concept",
+    "id": "t2-thsamp"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "(pwsh Process.Threads snapshots at ~32 Hz, run on E-cores outside the game mask) plus thsum.py give per-thread running/READY shares and priorities without ETW.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "tools",
+    "threads"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "t2-thread-plan",
+   "title": "[Audio] Threads / RECOMP_APU_THREADS=auto|high|low|inline (apu_dsp_runtime.c, T2-8 e8e857a, default auto): auto = low at <=4 logical CPUs (pc_cpu_logical), high above. low runs the GP/EP DSP thread at NORMAL priority with boosts off instead of MMCSS HIGH; a lag guard promotes it back while the APU is >2 EP blocks behind ([APU-THREADS] promotions=). The APU/VP thread stays MMCSS HIGH. Logged as [APU] threads: cpus= plan=.",
+   "subject": {
+    "kind": "concept",
+    "id": "t2-thread-plan"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "[Audio] Threads / RECOMP_APU_THREADS=auto|high|low|inline (apu_dsp_runtime.c, T2-8 e8e857a, default auto): auto = low at <=4 logical CPUs (pc_cpu_logical), high above. low runs the GP/EP DSP thread at NORMAL priority with boosts off instead of MMCSS HIGH; a lag guard promotes it back while the APU is >2 EP blocks behind ([APU-THREADS] promotions=). The APU/VP thread stays MMCSS HIGH. Logged as [APU] threads: cpus= plan=.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "audio",
+    "threads",
+    "switch"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "t2-thread-plan-result",
+   "title": "UC 5v6 4T FL144: plan low cut game-thread READY share from 2.4-3.0 % to 1.1-1.25 % and load-binned p99 by about 1.9 ms (150-250 k words/f 19.92 -> 18.02 ms; 250-360 k 23.52 -> 21.58 ms); 0 XA2 underruns, APU-TIME 100 %, 0 clipped runs, 0 guard promotions in 137 windows; DSP join max rose to 5-10 ms (buffer 64 ms).",
+   "subject": {
+    "kind": "concept",
+    "id": "t2-thread-plan-result"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "UC 5v6 4T FL144: plan low cut game-thread READY share from 2.4-3.0 % to 1.1-1.25 % and load-binned p99 by about 1.9 ms (150-250 k words/f 19.92 -> 18.02 ms; 250-360 k 23.52 -> 21.58 ms); 0 XA2 underruns, APU-TIME 100 %, 0 clipped runs, 0 guard promotions in 137 windows; DSP join max rose to 5-10 ms (buffer 64 ms).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "audio",
+    "perf"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "t2-dsp-programs",
+   "title": "MA2 GP runs two program images: a 371-word boot image then the main 2,633-word image (FNV hash 76c42efa9fbcaacd), static during play; the EP PRAM changes every second (44 distinct hashes in 330 s), so it holds data and an EP AOT needs a code-region hash, not a whole-PRAM hash.",
+   "subject": {
+    "kind": "concept",
+    "id": "t2-dsp-programs"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "MA2 GP runs two program images: a 371-word boot image then the main 2,633-word image (FNV hash 76c42efa9fbcaacd), static during play; the EP PRAM changes every second (44 distinct hashes in 330 s), so it holds data and an EP AOT needs a code-region hash, not a whole-PRAM hash.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "audio",
+    "dsp"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "t2-dsp-dump",
+   "title": "RECOMP_APU_DSP_DUMP=<dir> (apu_dsp_runtime.c dsp_program_dump, 08a9326) writes each distinct GP/EP PRAM image (DSP_PRAM_SIZE u32 words) on the first idle frame after a reset and every 1500th frame, logging [APU-DSP-DUMP].",
+   "subject": {
+    "kind": "concept",
+    "id": "t2-dsp-dump"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "RECOMP_APU_DSP_DUMP=<dir> (apu_dsp_runtime.c dsp_program_dump, 08a9326) writes each distinct GP/EP PRAM image (DSP_PRAM_SIZE u32 words) on the first idle frame after a reset and every 1500th frame, logging [APU-DSP-DUMP].",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "audio",
+    "dsp",
+    "tools"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "t2-dsp-trace-free",
+   "title": "dsp_shim.h defines trace_event_get_state as false, so the per-instruction trace/disassembly check in dsp_cpu.c is already compiled out; the GP costs about 42.5 k cycles (about 21 k instructions) per frame, about 10 ns per instruction, so interpreter tuning (A3a) has little left and the real gain needs AOT with constant-folded decode (A3b).",
+   "subject": {
+    "kind": "concept",
+    "id": "t2-dsp-trace-free"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "dsp_shim.h defines trace_event_get_state as false, so the per-instruction trace/disassembly check in dsp_cpu.c is already compiled out; the GP costs about 42.5 k cycles (about 21 k instructions) per frame, about 10 ns per instruction, so interpreter tuning (A3a) has little left and the real gain needs AOT with constant-folded decode (A3b).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "audio",
+    "dsp"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "t1-fastcode-hot-coverage",
+   "title": "FastCode T1-7: tools/fastcode.py --hot tools/fastcode_hot.txt gives hot-only fast copies (684 profile-hot functions in 54 more gen files, 4026 fast functions in all); M01b fixed-dt draw-normalised frame time -1.14 ms vs tier 2 alone; kit compile +9 %.",
+   "subject": {
+    "kind": "concept",
+    "id": "t1-fastcode-hot-coverage"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "FastCode T1-7: tools/fastcode.py --hot tools/fastcode_hot.txt gives hot-only fast copies (684 profile-hot functions in 54 more gen files, 4026 fast functions in all); M01b fixed-dt draw-normalised frame time -1.14 ms vs tier 2 alone; kit compile +9 %.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "track1",
+    "perf"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "t1-xmm-store-forward",
+   "title": "recomp_types.h XMM_ZERO/XMM_SCALAR/XMM_MEM built the RecompXmm union with 8- or 4-byte stores, so every 16-byte reload after movss/movsd/movups missed store forwarding; RECOMP_XMM_INTRIN (default 1 on x64) writes it with one 16-byte SSE store and cut M01b frame time by about 0.97 ms (draw-normalised).",
+   "subject": {
+    "kind": "concept",
+    "id": "t1-xmm-store-forward"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "recomp_types.h XMM_ZERO/XMM_SCALAR/XMM_MEM built the RecompXmm union with 8- or 4-byte stores, so every 16-byte reload after movss/movsd/movups missed store forwarding; RECOMP_XMM_INTRIN (default 1 on x64) writes it with one 16-byte SSE store and cut M01b frame time by about 0.97 ms (draw-normalised).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "track1",
+    "perf"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "t1-m01b-segments-vary",
+   "title": "M01b --quick-test with RECOMP_FIXED_DT restarts the mission at run-dependent frames (seg1 2950-8200 frames across runs of the same content), so frame-matched timing must compare the same segment (fdtime.py seg arg) or use the draw-normalised fit (drawnorm.py); later segments run 1-2 ms/frame faster than seg1.",
+   "subject": {
+    "kind": "concept",
+    "id": "t1-m01b-segments-vary"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "M01b --quick-test with RECOMP_FIXED_DT restarts the mission at run-dependent frames (seg1 2950-8200 frames across runs of the same content), so frame-matched timing must compare the same segment (fdtime.py seg arg) or use the draw-normalised fit (drawnorm.py); later segments run 1-2 ms/frame faster than seg1.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "pipeline",
+    "track1",
+    "perf"
+   ],
+   "date": "2026-10-31"
+  }
+ ]
+}

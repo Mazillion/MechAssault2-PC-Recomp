@@ -1,0 +1,16 @@
+{
+  "source": "<install folder>/game_files/Movie/60/English/SPIntro.bik",
+  "ffmpeg": "<ffmpeg-9.0.2-full_build-shared>/bin/ffmpeg.exe",
+  "ffprobe": "<ffmpeg-9.0.2-full_build-shared>/bin/ffprobe.exe",
+  "checkpoint": "models/RealBasicVSR_x4.pth",
+  "scale": 2,
+  "strength": 0.5,
+  "chunk_size": 8,
+  "context": 4,
+  "scene_cut_threshold": 0.2,
+  "extra_scene_cuts": [],
+  "display_aspect_ratio": "4/3",
+  "device": "cuda",
+  "crf": 16,
+  "preset": "medium"
+}

@@ -1,0 +1,1 @@
+[[12461,0,["    { uint32_t _sel = 0; if (ma2_bot_ai_select(ecx, &_sel)) { eax = _sel; esp += 4; return; } }   /* bot AI: threat-based target */\r\n"]]]

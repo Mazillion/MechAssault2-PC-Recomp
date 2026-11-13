@@ -1,0 +1,121 @@
+{
+ "pack": "t27_pink_placeholder_mtb_refs_1109",
+ "title": "Pink pole-and-cube placeholder in custom scenarios: templates named inside .mtb files",
+ "facts": [
+  {
+   "id": "pink-placeholder-is-failed-object-build",
+   "title": "The pink placeholder (40 m pole + 10 m cube) is drawn when an object's build fails, not only when its model file is missing: B4720 passes false to vtable slot 0 (sub_D8221), which attaches the marker built by sub_D8391",
+   "subject": {
+    "kind": "function",
+    "id": "sub_D8221"
+   },
+   "addresses": [
+    "000D8221",
+    "000D8391",
+    "000B4720",
+    "000B47B7",
+    "000B2790",
+    "0050C8C0",
+    "0050C8C4",
+    "00471450",
+    "00129490",
+    "00127ED7",
+    "000D7B3D",
+    "000B5E80",
+    "000B2B70"
+   ],
+   "related": [
+    "sub_D8221",
+    "sub_D8391",
+    "sub_B4720",
+    "sub_B2790",
+    "sub_129490",
+    "sub_127ED7",
+    "sub_D7B3D",
+    "sub_B5E80",
+    "sub_B2B70",
+    "unit-model-selection",
+    "pink-placeholder-mtb-template-refs"
+   ],
+   "fact": "sub_B4720(entity, flag) builds a world object: ok = vt+0x38 (resolve; MABuilding = sub_129490) then vt+0x2C (init; MABuilding = sub_127ED7, which first calls MACorporeal model load sub_D7B3D), then calls vtable slot 0 = sub_D8221(ok). sub_D8221 stores ok in entity+0x1C bit 0x800 (sub_B2790) , when ok is false, attaches a shared debug mesh made by sub_D8391 to entity+0x94: an untextured 4-sided prism 1 m wide and 40 m tall (globals 0x50C8C0, height = float 0x471450 = 40.0) plus a 10 m cube (0x50C8C4), colour 0xFFFE6BE8 (pink), placed at the entity position + 40 m. That is the 'pink pillar', 'pink cube on a pole' and 'pink Battle Armor'. MABuilding resolve sub_129490 creates its DestroyedBuilding template (+0x1B8) with sub_161D77 and runs sub_B5E80 (tree walk sub_B2B70 calling each node's resolve) over it; any failure down that chain (destroyed building, its collapse sequence, or an object its .mtb names) clears the result, so a building whose OWN model loads fine still draws as the pink pole. The instance's TemplateID decides; a different Corporal3DObj on an OverrideTemplate=1 instance and the instance's DestroyedBuilding value are not used (game-tested 11-09).",
+   "how_to_use": "To find why an object is pink: log sub_D8221 calls with arg 0 (caller 0xB47B7) and the steps of the class's resolve/init. RECOMP_FRAME_TRACE shows the marker as an untextured 'prim 5 n 24' plus 'prim 5 n 36' draw.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "scenario",
+    "editor",
+    "placeholder",
+    "pink",
+    "building",
+    "model"
+   ],
+   "date": "2026-11-09"
+  },
+  {
+   "id": "pink-placeholder-mtb-template-refs",
+   "title": "mtb files name templates (TemplateID of embedded objects, DestroyedEffect, MAEffectID); the editor's [Assets] closure did not follow them, so e.g. Dante office 18 (v2 and plain) drew as the pink pole on Bogged Down (FIXED editor d34766e)",
+   "subject": {
+    "kind": "file",
+    "id": "BldCom_DAN_Office18_WS_2_CS.mtb"
+   },
+   "addresses": [],
+   "related": [
+    "pink-placeholder-is-failed-object-build",
+    "fmt_test --mtb-sweep",
+    "t12.scenario-assets-entry-overrides-a-same-named-file-the-scenar"
+   ],
+   "fact": "A model's .mtb is a WDF of its pieces and the pieces can carry entity properties: TemplateID (objects embedded in the .mtb), DestroyedEffect and MAEffectID (rubble/dust/explosion effects). Survey of all 716 .mtb on the disc: 93 DestroyedEffect, 87 TemplateID and 149 MAEffectID values are GlobalEntities UIDs. City Fight case: placed BldCom_DAN_Office18_v2 (0x1ECB2) -> DestroyedBuilding v2_WS (0x1ECAE) -> v2_WS_CS (0x1ECAF), whose BldCom_DAN_Office18_WS_2_CS.mtb gives 12 chunks DestroyedEffect = 0x1E0DE 'BD_Debris_Crash_LG_01 - CRASH MODIFIERS ONLY!' (files SpecialEffects/BuildingDestruction/BD_Debris_Crash_LG_01/BD_Debris_Crash_LG_01.MGMODEL + .mtb, and BD_Debris_Crash_LG_01.mgparticle). Bogged Down and common.mgf lack them, the editor never shipped them, the game logged failed lookups for that .mtb/.MGMODEL/.mgparticle, the building build failed and drew the placeholder. All files of the building itself were found (lookup trace at sub_25D60 call sites). Shipping those 3 files (manual [Assets] edit, then the fixed editor's re-save) makes the building draw (shots in NOTES NOTES pink-shots). Office15/19 work on Bogged Down because their .mtb references (RubblePile_02, BD_DustCloud_LG) are in boggeddown.mgf.",
+   "how_to_use": "Editor fix d34766e: TemplateCatalog:mtb_refs reads a template's CorporalMTB (else <model>.mtb) and closure follows TemplateID/MAEffectID/learned reference keys found there; fresh_templates also ships closure templates known to the Base whose model the Base/common lack. Old saves need a re-save in the fixed editor (the game runtime is unchanged). Sweep: fmt_test.exe --game <install> --mtb-sweep OUT.tsv -> 102 of 918 palette templates reach templates only through .mtb references and would have drawn the placeholder on at least one of 36 Bases (Office18/v2/WS and Office07/WS on 32 Bases incl. Bogged Down; 24 templates on Bogged Down). DestroyedEffect path verified in game; MAEffectID/TemplateID paths are inferred from the same code (not each tested in game). UPDATE 11-09 evening: the turret path is proven too (Dual Laser Turret's .mtb names Expl_Tur_02; missing it failed the turret on Mission_08). Sweep with code-required files: 216 of 918 palette templates affected before, 0 after; editor d062003f in PC Release.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "scenario",
+    "editor",
+    "assets",
+    "mtb",
+    "placeholder",
+    "pink",
+    "building",
+    "closure"
+   ],
+   "date": "2026-11-09"
+  },
+  {
+   "id": "mabuilding-hardcoded-effect-files",
+   "title": "Every MABuilding needs 4 hard-coded effect files (BD_Holefire_Loop_01, BD_WindowShatter, BD_HoleDamage .mgparticle, BD_HoleDecal.mat); on a Base without them any placed building draws the pink placeholder",
+   "subject": {
+    "kind": "function",
+    "id": "sub_129490"
+   },
+   "addresses": [
+    "00129490",
+    "004B0030",
+    "004B0034",
+    "004B0038",
+    "004B003C",
+    "0016BA65",
+    "0016BC28"
+   ],
+   "related": [
+    "pink-placeholder-is-failed-object-build",
+    "pink-placeholder-mtb-template-refs"
+   ],
+   "fact": "MABuilding resolve sub_129490 checks \\SpecialEffects\\BuildingDestruction\\BD_WindowShatter.mgparticle (ptr 0x4B0034), BD_Holefire_Loop_01.mgparticle (0x4B0030), BD_HoleDamage.mgparticle (0x4B0038) via sub_16BA65 and \\SpecialEffects\\Effects_Decals\\BD_HoleDecal.mat (0x4B003C) via sub_16BC28; any miss clears the result. Game-observed 11-09: BldCom_DAN_Office15 placed on a Mission_08 copy draws the pink pole even with every .mtb-referenced file shipped (pinkfix editor 85b87342); the only failed lookups are these 4 paths (Mission_08 has no buildings). The editor's [Assets] closure does not know these code-named paths.",
+   "how_to_use": "FIXED editor dcdcad4 (TemplateCatalog:code_required, published to PC Release 11-09 as editor d062003f): ships the 4 files plus their closure when Base/common lack them (Mission_08, Mission_06b, In Your Face). XBE survey: no other class needs a code-named file that some Base lacks. Game proof: Office15 + Dual Laser Turret on a Mission_08 copy, 2 failed objects -> 0.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "scenario",
+    "editor",
+    "assets",
+    "building",
+    "placeholder",
+    "pink"
+   ],
+   "date": "2026-11-09"
+  }
+ ]
+}

@@ -1,0 +1,76 @@
+cmake_minimum_required(VERSION 3.20)
+
+# Xbox Kernel Replacement Layer
+# Replaces 147 Xbox kernel imports with Win32 equivalents.
+# Memory layout, file I/O, threading, synchronization, crypto, HAL.
+
+set(KERNEL_SOURCES
+    kernel_path.c
+    kernel_pool.c
+    kernel_rtl.c
+    kernel_memory.c
+    kernel_file.c
+    kernel_thread.c
+    kernel_sync.c
+    kernel_hal.c
+    kernel_xbox.c
+    kernel_ob.c
+    kernel_io.c
+    kernel_crypto.c
+    kernel_thunks.c
+    kernel_bridge.c
+    xbox_memory_layout.c
+    guest_vmem.c
+    icall_feedback.c
+    recomp_trace.c
+    nv2a_pb_scan.c
+    nv2a_pb_exec.c
+    nv2a_pb_objects.c
+    nv2a_vsh_interp.c
+    nv2a_combiner.c
+    nv2a_gpu_d3d11.c
+    nv2a_gpu_vsh.c
+    nv2a_gpu_memory.c
+    nv2a_gpu_wait.c
+    nv2a_texture.c
+    nv2a_shader_cache.c
+)
+
+add_library(xbox_kernel STATIC ${KERNEL_SOURCES})
+
+# See src/platform/CMakeLists.txt: resolve src/ relative to this file, not via
+# CMAKE_SOURCE_DIR, which is the consuming project's root under add_subdirectory().
+get_filename_component(XBOXRECOMP_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
+
+target_include_directories(xbox_kernel PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${XBOXRECOMP_SRC_DIR}
+)
+
+if(WIN32)
+    target_sources(xbox_kernel PRIVATE nv2a_texture_pack.cpp vendor/directxtex/DDSTextureLoader11.cpp)
+    target_compile_features(xbox_kernel PRIVATE cxx_std_17)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/nv2a_gpu.hlsl")
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/nv2a_gpu.hlsl" NV2A_GPU_SHADER_SOURCE)
+    string(REPLACE "\\" "\\\\" NV2A_GPU_SHADER_SOURCE "${NV2A_GPU_SHADER_SOURCE}")
+    string(REPLACE "\"" "\\\"" NV2A_GPU_SHADER_SOURCE "${NV2A_GPU_SHADER_SOURCE}")
+    string(REPLACE "\n" "\\n\"\n\"" NV2A_GPU_SHADER_SOURCE "${NV2A_GPU_SHADER_SOURCE}")
+    configure_file(nv2a_gpu_shader.h.in nv2a_gpu_shader.h @ONLY)
+    target_include_directories(xbox_kernel PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+    # platform is an INTERFACE target on Windows: it contributes the src/
+    # include path that "platform/xbox_winnt.h" resolves against.
+    target_link_libraries(xbox_kernel PUBLIC platform kernel32 bcrypt d3d11 dxgi d3dcompiler dxguid)
+else()
+    # Linux: platform layer (POSIX host primitives) + OpenSSL for crypto.
+    find_package(OpenSSL REQUIRED)
+    target_link_libraries(xbox_kernel PUBLIC platform OpenSSL::Crypto)
+endif()
+
+if(MSVC)
+    target_compile_options(xbox_kernel PRIVATE /W4 /WX- /O2 /GS- /Gy)
+    target_compile_definitions(xbox_kernel PRIVATE _CRT_SECURE_NO_WARNINGS)
+else()
+    target_compile_options(xbox_kernel PRIVATE -Wall -Wextra -Wno-unused-parameter -O2)
+endif()
+
+target_compile_definitions(xbox_kernel PRIVATE $<$<CONFIG:Debug>:_DEBUG>)

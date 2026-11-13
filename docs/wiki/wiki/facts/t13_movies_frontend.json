@@ -1,0 +1,305 @@
+{
+ "pack": "t13_movies_frontend",
+ "title": "Movies and front-end flow",
+ "facts": [
+  {
+   "id": "spintro-played-by-attract-screen",
+   "title": "SPIntro is played by the Attract Screen class, not the Title/Legal screen",
+   "subject": {
+    "kind": "class",
+    "id": "Attract Screen (vtable 004820C8)"
+   },
+   "addresses": [
+    "001F8439",
+    "004820C8",
+    "0050C9EC",
+    "00459FE8"
+   ],
+   "related": [
+    "Title/Legal Screen",
+    "Movie Component",
+    "movies.mgf"
+   ],
+   "fact": "Attract Screen init (vtable slot 14, sub_001F8439) opens its movie with sub_000B0CF0(path, &this+0x64), where path = 0x00459FE8 + [0x0050C9EC]*0x104. The table holds Interface\\Movie\\AttractMode\\AttractMode.mgv (index 0), Interface\\Movie\\Conquest\\ConquestIntro.mgv (index 1, set at 001F3EEA) and Interface\\Movie\\SPIntro\\SpIntro.mgv (index 2, string at 0045A1F0). The .mgv names the Movie\\60\\English\\SPIntro.bik clip. The idle attract loop uses the same class and the same movie-object slot (+0x64), so SPIntro is not driven by the Title/Legal player at 001F40B3.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_0052.c (made at install time, not in the repository)",
+     "line": 8623
+    }
+   ],
+   "tags": [
+    "movie",
+    "frontend",
+    "spintro"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "0045A1F0"
+   ]
+  },
+  {
+   "id": "spintro-start-mission-state",
+   "title": "Mission-start state 002439B7 selects SPIntro once for a mission with no loadmovie",
+   "subject": {
+    "kind": "function",
+    "id": "002439B7"
+   },
+   "addresses": [
+    "00168D4A",
+    "00224E15",
+    "00224F8C",
+    "002439B7",
+    "00243A2D",
+    "00243B3F",
+    "00243BC8",
+    "004EC04C",
+    "0050C949",
+    "0050C9EC",
+    "0050CA49",
+    "0050CA4A"
+   ],
+   "related": [
+    "campaign0.ini",
+    "hub action 8"
+   ],
+   "fact": "sub_002439B7 (mission-start state, recomp_0061.c) picks SPIntro at loc_00243BC8 when all three hold: [0x50C949]==0 (not demo), profile+0x90 (campaign index, in edi) ==0, and [0x50CA4A]==0. The checks are at loc_00243A2D.39 (first pass) and loc_00243B3F.4C (second pass). [0x50CA4A] and [0x50CA49] are cleared together at sub_00224E15 loc_00224F8C.",
+   "how_to_use": "To bypass instead of skip, preset the byte [0x0050CA4A]=1 before this state runs.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_0061.c (made at install time, not in the repository)",
+     "line": 0
+    },
+    {
+     "file": "generated recomp_0058.c (made at install time, not in the repository)",
+     "line": 5832
+    }
+   ],
+   "tags": [
+    "movie",
+    "campaign",
+    "spintro"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "attract-update-1f84de-skip-test",
+   "title": "Attract Screen update (slot 5, 001F84DE) ends on a button or key press and returns 2",
+   "subject": {
+    "kind": "function",
+    "id": "001F84DE"
+   },
+   "addresses": [
+    "001F84DE",
+    "0001EE70",
+    "0001EDD0",
+    "001F8521",
+    "001F84B3"
+   ],
+   "related": [
+    "Title/Legal Screen",
+    "sub_001F40B3"
+   ],
+   "fact": "Each frame sub_001F84DE does: if this+0x64 (movie) is 0 go to loc_001F8521; if sub_0001EE70(0) is true (any of the 16 buttons on pad 0 newer than the input stamp [0x4E3BAC]) go to loc_001F8521; if sub_0001EDD0(0,0) is true ([0x4E4BB8] or [0x4E4BBC] nonzero, the any-key words, which is why Enter works) go to loc_001F8521; if movie vtable +0x28 returns 0 (finished) go to loc_001F8521. Otherwise it calls movie vtable +0x4C and tail-jumps sub_001CAC30. loc_001F8521 is push 2 / pop eax / ret, the screen's done result; the exit handler (slot 15, 001F84B3) then releases the movie via sub_00208F42. There is no +0x68/+0x69 flag and no seek or stop call, unlike 001F40B3.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_0052.c (made at install time, not in the repository)",
+     "line": 8623
+    }
+   ],
+   "tags": [
+    "movie",
+    "input",
+    "skip"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "attract-screen-no-pc-skip-hook",
+   "title": "The PC movie_skip flag is never read by the Attract Screen, so SPIntro ignores it",
+   "subject": {
+    "kind": "function",
+    "id": "001F84DE"
+   },
+   "addresses": [
+    "001F84DE",
+    "001F40B3"
+   ],
+   "related": [
+    "pc_input_movie_skip_pending",
+    "pc_input_movie_skip",
+    "pc_display_movie_active"
+   ],
+   "fact": "The only consumer of pc_input_movie_skip_pending is the hook in sub_001F40B3 (Title/Legal Screen). recomp_manual.c:565 sets the flag on any pad 0 button while pc_display_movie_active, and the quick-test thread in ma2_scenario.c sets it as well, but sub_001F84DE never reads it. So pc_display_movie_active and the flag are true during SPIntro and the 2135-frame movie still plays to the end. The quick-test thread works around it by posting WM_KEYDOWN VK_RETURN after 1.5 s.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_0051.c (made at install time, not in the repository)",
+     "line": 33742
+    },
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 565
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1739
+    },
+    {
+     "file": "kit/source/game/src/platform/pc_frontend.c",
+     "line": 91
+    }
+   ],
+   "tags": [
+    "movie",
+    "skip",
+    "pc-hook"
+   ],
+   "date": "2026-10-21",
+   "addresses_unverified": [
+    "001F8521"
+   ]
+  },
+  {
+   "id": "attract-skip-hook-recommended",
+   "title": "Proposed hook: honour the skip flag in sub_001F84DE and jump to loc_001F8521",
+   "subject": {
+    "kind": "patch",
+    "id": "001F84DE"
+   },
+   "addresses": [
+    "001F84DE",
+    "001F8521",
+    "001F84E7"
+   ],
+   "related": [
+    "sub_001F40B3"
+   ],
+   "fact": "In recomp_0052.c sub_001F84DE, right after the movie-null check and before loc_001F84E7, add: if(pc_input_movie_skip_pending(1))goto loc_001F8521; That is exactly what a button press does (return 2), so the caller leaves the Attract Screen and slot 15 releases the movie. No seek or stop is needed because this class has none (the 001F40B3 hook uses loc_001F40F6 only because that class closes the movie itself). It also makes the idle attract demo and ConquestIntro skippable. Not applied yet.",
+   "status": "open-question",
+   "confidence": "inferred",
+   "source": [
+    {
+     "file": "generated recomp_0052.c (made at install time, not in the repository)",
+     "line": 8623
+    },
+    {
+     "file": "generated recomp_0051.c (made at install time, not in the repository)",
+     "line": 33742
+    }
+   ],
+   "tags": [
+    "movie",
+    "skip",
+    "proposal"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "title-legal-update-1f40b3-shape",
+   "title": "Title/Legal update 001F40B3: +0x68 skippable, +0x69 done latch, loc_001F40F6 seek/stop",
+   "subject": {
+    "kind": "function",
+    "id": "001F40B3"
+   },
+   "addresses": [
+    "001F40B3",
+    "001F40F6",
+    "001F4146",
+    "001F413E",
+    "0001EE10",
+    "000B0E70"
+   ],
+   "related": [
+    "Title/Legal Screen",
+    "pc_input_movie_skip_pending"
+   ],
+   "fact": "Object +0x64 is the movie, +0x68 a skippable byte, +0x69 a done latch. Flow: movie null returns 2; movie +0x20 call, then +0x4C if it returned 0; the PC hook (skip pending) goes to loc_001F40F6; else movie +0x28 == 0 or +0x69 set goes to loc_001F4146 (movie +0x14, return 1); if +0x68 is set and sub_0001EE10(0) (buttons 4.15) is true go to 001F40F6. 001F40F6 gets the player via sub_000B0E70(0), seeks (+0x18) near the end (0x2EF, or 0x2EF-0x7D when player+0x108==0x32), stops (+0x4C), closes (+0xC), sets +0x69=1, then tail-jumps sub_001CAC30.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_0051.c (made at install time, not in the repository)",
+     "line": 33690
+    }
+   ],
+   "tags": [
+    "movie",
+    "startup"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "movie-campaign-loader-addresses",
+   "title": "Movie and campaign-script entry points",
+   "subject": {
+    "kind": "address",
+    "id": "000B0CF0"
+   },
+   "addresses": [
+    "000B0CF0",
+    "000B0E70",
+    "000B06F0",
+    "000B0BB0",
+    "000AFE90",
+    "00168C11",
+    "00168D4A"
+   ],
+   "related": [
+    "Movie Component",
+    "movies.mgf",
+    "campaign0.ini"
+   ],
+   "fact": "sub_000B0CF0(path, out) opens an .mgv movie into *out; sub_000B0E70(0) returns the current movie player; sub_000B06F0 is the movie update (recomp_0018.c); 000B0BB0 and 000AFE90 name Movie\\Bink, Movie\\Manager and Movie\\Movies. 00168C11 maps a section type word (INIT, END, LEVEL, MOVIE) to an index; 00168D4A reads one campaign record (type, next, file, titleid, descriptionid, holographicid, loadmovie, levelsetup, returntolobby). loadmovie is a movie played while the mission loads, not the SPIntro cutscene.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_0018.c (made at install time, not in the repository)",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "movie",
+    "campaign"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "spintro-retail-skippable",
+   "title": "SPIntro is skippable in retail by any pad 0 button or key",
+   "subject": {
+    "kind": "concept",
+    "id": "SPIntro"
+   },
+   "addresses": [
+    "001F84DE",
+    "0001EE70",
+    "0001EDD0"
+   ],
+   "related": [
+    "Attract Screen"
+   ],
+   "fact": "Any of the 16 buttons on pad 0 (A, Start and the rest) or a key ends SPIntro, because sub_001F84DE tests sub_0001EE70(0) and sub_0001EDD0. The PC port needs no new behaviour, only the pc movie_skip flag wired into the same exit.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "generated recomp_0052.c (made at install time, not in the repository)",
+     "line": 8623
+    }
+   ],
+   "tags": [
+    "movie",
+    "input"
+   ],
+   "date": "2026-10-21"
+  }
+ ]
+}

@@ -1,0 +1,1864 @@
+{
+ "pack": "t28_release_polish_1110",
+ "title": "Release polish: fixes of 2026-10-31 to 2026-11-09, one fact per fix",
+ "facts": [
+  {
+   "id": "ba-walker-bit-cleared-by-jet",
+   "title": "Bot BattleArmor ran on the spot after a jet: the jet clears walker bit comp+0x145 bit 0 and nothing set it back (BaLand, BaWalk)",
+   "subject": {
+    "kind": "concept",
+    "id": "BattleArmor walk"
+   },
+   "addresses": [],
+   "related": [
+    "t01a.bots-ba-locomotion-anim-driven",
+    "t19.audit-f2-baroofland",
+    "t14.blast-escape-fixes-1101",
+    "t14.ba-hack-hop-1101",
+    "RECOMP_BOT_BA_LAND",
+    "RECOMP_BOT_BA_WALK_FIRST",
+    "RECOMP_BOT_BA_ANIM_DIAG",
+    "ma2_bot_ctrl.c"
+   ],
+   "fact": "BattleArmor walking works: a bot walks 11-15 m/s (measured on Bogged Down CTF) and a player's BattleArmor walks 15 m/s. The older fact that a BattleArmor MoveTo moves 0 m/s because walking is animation driven is wrong. A jet clears comp+0x145 bit 0 (comp+0x144 bit 8, the walker's hold on the body). For an AI-driven BattleArmor nothing set it back, so after its first jet the bot played the run animation on the spot and moved only by more hops. BaLand sets the bit back once the BattleArmor is down (ai+0x240 clear for 0.25 s). The code that restores the bit for a player's BattleArmor was not found (sub_119521 and sub_17D401 belong to other classes).",
+   "how_to_use": "Fix a8eab5c (2026-11-03), in PC Release since exe 24452d6b and in par24 (48831dc). Two switches, both on by default: BaLand (RECOMP_BOT_BA_LAND / [Bots] BaLand) and BaWalk (RECOMP_BOT_BA_WALK_FIRST / [Bots] BaWalk): walk first, travel hops only 90 m or more from the goal and ending 40 m short, a strafe hop every 9-14 s in a fight, a dodge hop every 7 s. Measured old vs new: walking 41 -> 66 % of ground time, standing 51 -> 23 %. Diagnostics: RECOMP_BOT_BA_ANIM_DIAG and RECOMP_BOT_BA_ANIM_DUMP. A roof landing needed a later fix (t19.audit-f2-baroofland). The hop workarounds BaUnstick, BaDipHop and BaHackHop were built on the 0 m/s premise and may now do more than is needed.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 5449
+    }
+   ],
+   "tags": [
+    "bots",
+    "battlearmor",
+    "locomotion"
+   ],
+   "date": "2026-11-03"
+  },
+  {
+   "id": "xact-one-packet-stream-xwbdefer",
+   "title": "Missing voice lines: a streamed wave that fits in one XACT packet never played; XwbDefer completes wave-bank reads 4 ms later",
+   "subject": {
+    "kind": "concept",
+    "id": "XwbDefer"
+   },
+   "addresses": [
+    "003E2BE1"
+   ],
+   "related": [
+    "sub_003E2BE1",
+    "kernel_bridge.c",
+    "RECOMP_XWB_PAD",
+    "RECOMP_XWB_DEFER_MS",
+    "RECOMP_APU_VOICE_TRACE",
+    "RECOMP_IO_TRACE"
+   ],
+   "fact": "Cinematic and mission voice lines went missing (for example '[text omitted]'): every streamed wave that fits in one 18,432-byte XACT stream packet, about 1.2 s or shorter (148 of 997 Voice_English waves and 48 SFXStream waves). XACT Play returned S_OK and the packet was read, but the stream never started. Cause: our NtReadFile completed the read inside the call, so XACT's packet fill sub_003E2BE1 saw 0 bytes left (its end-of-data path) during Play, before the stream had started; on an Xbox the disc read completes later. Fix XwbDefer (kernel_bridge.c): a read on a streaming wave bank handle (WBND header at offset 0, async handle, no event or APC) returns STATUS_PENDING and completes 4 ms later on a worker thread. The mission '[text omitted]' went from 27 of 37 lines to 37 of 37.",
+   "how_to_use": "Fix c036eb4 (2026-10-31), in PC Release par24 (48831dc). RECOMP_XWB_DEFER_MS sets the delay; RECOMP_XWB_PAD=0 turns the fix off; RECOMP_XWB_PADLEN=1 selects the older padding work-around (bad: its 1.5 s silent tail cut off the next line). Traces: RECOMP_IO_TRACE ([READ] h=), RECOMP_APU_VOICE_TRACE, RECOMP_SND_TRACE ([SND-PLAY] / [SND-RET]). Test recipe: RECOMP_TEST_MISSION_INDEX=4, then Enter five times. Do not add fprintf probes at XACT function entries in recomp_0098.c: that crashed every time (cause unknown).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/kernel_bridge.c",
+     "line": 3909
+    }
+   ],
+   "tags": [
+    "audio",
+    "xact",
+    "voice",
+    "kernel"
+   ],
+   "date": "2026-10-31"
+  },
+  {
+   "id": "vtol-climb-demand-comp-90",
+   "title": "VTOL climb: flight component comp+0x90 is the climb demand (+30 Shift, -30 Ctrl); only human input fills it, so bots set it in a hook (ModClimb)",
+   "subject": {
+    "kind": "function",
+    "id": "00113964"
+   },
+   "addresses": [
+    "00113964",
+    "00113478",
+    "000E9A5F",
+    "00113A6B"
+   ],
+   "related": [
+    "t18.ctfvtol-maxvtolheight",
+    "t18.ctfvtol-climb-not-the-cause",
+    "t18.ctfvtol-eject-sink",
+    "t01a.bots-vtol-altitude-ai",
+    "t28.installer-kit-1109-post-fastcode",
+    "ma2_bot_vtol_lift",
+    "RECOMP_BOT_VTOL_MOD_CLIMB",
+    "MAFlyer",
+    "recomp_0027.c"
+   ],
+   "fact": "A stick-flown VTOL holds a fixed height and rises only when the ground pushes it. A player climbs with Shift (left stick click) and sinks with Ctrl: the flight component (actor+0x8C) has comp+0x90 = +30 while Shift is held, -30 with Ctrl and 0 otherwise (W+Shift for 4 s = +29 m at full speed). The flyer tick sub_113964 fills comp+0x90 every frame in its input pass sub_113478 from the human-only input object, so for a bot it was always 0 whatever command the bot sent. Fix ModClimb: the hook ma2_bot_vtol_lift(actor) at loc_00113A6B, between sub_113478 and the flight step sub_E9A5F, writes the bot's demand (vt_lift_demand = 30 when a surface is within climb distance). MoveTo also climbs, but it stops or crawls the craft (it settles 2 m short), so it is not used for climbing.",
+   "how_to_use": "Fix 37bfc0e (2026-11-01), in PC Release par24 (48831dc). Switch ModClimb / RECOMP_BOT_VTOL_MOD_CLIMB. The hook is a hand edit in the generated files recomp_0027.c and recomp_fast_0027.c: reapply it if they are regenerated (the installer kit carries it as a post-FastCode patch, t28.installer-kit-1109-post-fastcode). Code: ma2_bot_ctrl.c, ma2_bot_vtol_lift (line 2630) and vtol_manual. Test hooks: RECOMP_TEST_HUMAN_VTOL_CLIMB, RECOMP_TEST_VTOL_CMDS, RECOMP_BOT_VTOL_PROBE. The height cap that applies on top is t18.ctfvtol-maxvtolheight.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 2630
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "flight"
+   ],
+   "date": "2026-11-01"
+  },
+  {
+   "id": "vtol-stick-snap-high-fps",
+   "title": "VTOL stuck at about 0.4 m/s at 144 fps and above: horizontal drag sub_19236B snaps speed to 0 below 0.707 m/s before thrust adds a*dt (VtolSnapFix)",
+   "subject": {
+    "kind": "function",
+    "id": "0019236B"
+   },
+   "addresses": [
+    "0019236B",
+    "00192724",
+    "001922B8",
+    "004BB174"
+   ],
+   "related": [
+    "t28.frame-limit-no-unlimited-default-144",
+    "t28.vtol-climb-demand-comp-90",
+    "ma2_vtol_snap_keep",
+    "RECOMP_VTOL_SNAP_FIX",
+    "recomp_manual.c",
+    "MAFlyer"
+   ],
+   "fact": "At 144 fps and above a VTOL under thrust could stay at about 0.4 m/s. The flyer's horizontal drag sub_19236B sets the horizontal speed to 0 when it is below 0.707 m/s. The thrust sub_192724 runs after it and adds a*dt (a is about 95), so with a small dt every step falls under the snap again. Fix ma2_vtol_snap_keep (recomp_manual.c): the snap is skipped while the commanded velocity (body+0x8C / +0x94) passes the gate constant at 0x4BB174. The velocity pipeline is sub_1922B8 (drag, vertical, turn, wobble, thrust). comp+0x8C / +0x94 hold the commanded velocity, not the thrust input.",
+   "how_to_use": "Fix 7db3064 (2026-11-04), in PC Release par24 (48831dc). RECOMP_VTOL_SNAP_FIX=0 gives the original behaviour. The Unlimited frame limit was removed the same day for this reason (t28.frame-limit-no-unlimited-default-144). Brake test script: RECOMP_TEST_HCLIMB_SCRIPT.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 1376
+    }
+   ],
+   "tags": [
+    "vtol",
+    "flight",
+    "framerate"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "frame-limit-no-unlimited-default-144",
+   "title": "Frame limit: Unlimited was removed; presets 30 to 360, default 144, an ini value of 0 reads as 144",
+   "subject": {
+    "kind": "setting",
+    "id": "[Display] FrameLimit"
+   },
+   "addresses": [],
+   "related": [
+    "t06.settings-frame-limit-presets",
+    "t06.settings-display-keys",
+    "t06.settings-clamp-table",
+    "t28.vtol-stick-snap-high-fps",
+    "RECOMP_FRAME_LIMIT",
+    "pc_native_settings.cpp",
+    "pc_firstrun.h"
+   ],
+   "fact": "Since c3bee9c (2026-11-04) the Settings row 'Frame limit' cycles 30, 60, 90, 120, 144, 165, 180, 240 and 360 FPS; there is no Unlimited. The default is 144. At start a FrameLimit of 0 or less (an old ini that had Unlimited) is set to 144 and a value from 1 to 29 is set to 30. A saved value that is not a preset (for example 75) counts as 144 the next time the row is moved (Left 120, Right 165). First run picks 60 on integrated graphics and on a mid-range laptop, otherwise 144. Reason: uncapped step rates broke the VTOL thrust (t28.vtol-stick-snap-high-fps).",
+   "how_to_use": "Code: pc_native_settings.cpp line 652 (preset row) and line 937 (0 -> 144, under 30 -> 30); main.c line 205 (default 144, range 0-1000, env var RECOMP_FRAME_LIMIT); pc_firstrun.h line 16. A hand-edited value from 361 to 1000 is still honoured (area B finding B-16). The installer kit's default pc_settings.ini has FrameLimit=144 since the 2026-11-09 repack. In PC Release par24 (48831dc).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 652
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 205
+    }
+   ],
+   "tags": [
+    "settings",
+    "display",
+    "framerate"
+   ],
+   "date": "2026-11-04"
+  },
+  {
+   "id": "navcache-default-on",
+   "title": "NavCache: the bots' static obstacle grid is kept on disk, on by default since 1.0.1 (bots ready at t=0 on a cached map)",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_NAV_CACHE"
+   },
+   "addresses": [],
+   "related": [
+    "t01b.nav-cache-path",
+    "RECOMP_BOT_NAV_CACHE_VERIFY",
+    "ma2_bots_core.c",
+    "ma2_bot_nav.c",
+    "[BOT-NAV-CACHE]"
+   ],
+   "fact": "The static part of the bots' obstacle grid is saved per map and game mode in %LOCALAPPDATA%\\MechAssault2\\NavCache and loaded in the next match, so bots are ready in the first frame (Going Commando CTF: 896 ms build -> 22 ms load, first decision at t=0.0 instead of 0.9 s). The key holds the map archive and its size, the game mode, the grid extent, terrain and prop fingerprints, NAV_CACHE_VERSION, the grid constants and the build stamp; any mismatch or read error gives the normal build and the file is rewritten. Stock maps only: no file is written for an editor scenario. At most 24 files are kept (NAVC_KEEP, newest by write time, about 8-17 MB each). A cached grid equals a fresh build byte for byte on 8 maps; on Going Commando two fresh builds already differ by 1-3 cells (swaying MechTopples trees).",
+   "how_to_use": "Default ON since 46cfe22 (2026-11-03); it was added OFF in 8f91605 for 1.0. In PC Release par24 (48831dc). Off: RECOMP_BOT_NAV_CACHE=0 or [Bots] NavCache=0. RECOMP_BOT_NAV_CACHE_VERIFY=1 builds the grid anyway and compares: '[BOT-NAV-CACHE] verify map=<m> mode=<g> identical=1/0'. Counters: [C7] navcache hit / miss / write / reject. The build stamp in the key means each new exe rebuilds its files once. Disk use is area D finding D-11. This is not the older BotNav\\gen_<fp>.map graph cache (t01b.nav-cache-path).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1668
+    }
+   ],
+   "tags": [
+    "bots",
+    "navigation",
+    "cache"
+   ],
+   "date": "2026-11-03"
+  },
+  {
+   "id": "cs-wait-hang-sampler",
+   "title": "RECOMP_BOT_STALL=1 also prints [CS-WAIT] lines: which thread waits on which guest critical section and who owns it",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_STALL"
+   },
+   "addresses": [],
+   "related": [
+    "t26.dsound-active-reinsert-freeze",
+    "t01b.stall-monitor-env",
+    "t01a.bots-stall-monitor",
+    "xbox_cs_waiters_dump",
+    "kernel_rtl.c",
+    "[CS-WAIT]",
+    "[BOT-STALL]"
+   ],
+   "fact": "With RECOMP_BOT_STALL=1 the bot stall monitor reports a game thread that has stopped ticking the bots ([BOT-STALL]). Since e47a885 (2026-11-09) it also prints [CS-WAIT] lines from xbox_cs_waiters_dump (kernel_rtl.c): every thread blocked in a guest critical section, the lock, the waiter's guest site, and the owner thread and where it took the lock. This is how the BattleArmor death-blast freeze was traced to the DirectSound DPC (t26.dsound-active-reinsert-freeze). A real freeze shows [BOT-STALL] with the menu pulse stopped; a finished match (Game Over) shows idle bots with a recent menu pulse.",
+   "how_to_use": "Set RECOMP_BOT_STALL=1 for any freeze report, then read the [BOT-STALL] and [CS-WAIT] lines in the game log. In PC Release par24 (48831dc). It is a diagnostic only: without the env var nothing is printed.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/kernel_rtl.c",
+     "line": 609
+    }
+   ],
+   "tags": [
+    "diagnostics",
+    "freeze",
+    "kernel"
+   ],
+   "date": "2026-11-09"
+  },
+  {
+   "id": "audio-defer-guard-env",
+   "title": "RECOMP_AUDIO_DEFER_GUARD (default on, 0 = off): DirectSound DeferGuard, no second deferred-list insert for a queued voice",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_AUDIO_DEFER_GUARD"
+   },
+   "addresses": [],
+   "related": [
+    "t25.dsound-defer-double-insert",
+    "ma2_audio_guest.inc",
+    "[AUDIO-DEFER]"
+   ],
+   "fact": "DeferGuard fixes the audio-thread crash at guest 0x3A8A02 (read of 0xFE000268): a voice queued twice on the DirectSound deferred list. It is on by default; RECOMP_AUDIO_DEFER_GUARD=0 turns both of its checks off (the insert check and the drain safety net). Full cause and hook sites: t25.dsound-defer-double-insert.",
+   "how_to_use": "Commits 0163bba and 48831dc (2026-11-09), in PC Release par24. Code: apu\\ma2_audio_guest.inc line 136. Log tag [AUDIO-DEFER].",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/ma2_audio_guest.inc",
+     "line": 136
+    }
+   ],
+   "tags": [
+    "audio",
+    "dsound",
+    "crash"
+   ],
+   "date": "2026-11-09"
+  },
+  {
+   "id": "audio-active-guard-env",
+   "title": "RECOMP_AUDIO_ACTIVE_GUARD (default on, 0 = off): DirectSound ActiveGuard, no second active-list insert for a still-linked voice",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_AUDIO_ACTIVE_GUARD"
+   },
+   "addresses": [],
+   "related": [
+    "t26.dsound-active-reinsert-freeze",
+    "ma2_audio_guest.inc",
+    "[AUDIO-ACTIVE]"
+   ],
+   "fact": "ActiveGuard fixes the game freeze in BattleArmor death blasts (seen in Not It and Last Man Standing): a voice inserted a second time on the DirectSound active list made a self-linked entry, and the audio DPC walked it forever while holding the lock the game thread needed. It is on by default; RECOMP_AUDIO_ACTIVE_GUARD=0 turns it off. Full cause and hook sites: t26.dsound-active-reinsert-freeze.",
+   "how_to_use": "Commit 5a2b21c (2026-11-09), in PC Release par24 (48831dc). Code: apu\\ma2_audio_guest.inc. Log tag [AUDIO-ACTIVE]. To look at a freeze: t28.cs-wait-hang-sampler.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/ma2_audio_guest.inc",
+     "line": 216
+    }
+   ],
+   "tags": [
+    "audio",
+    "dsound",
+    "freeze"
+   ],
+   "date": "2026-11-09"
+  },
+  {
+   "id": "quick-test-mode",
+   "title": "quick-test (RECOMP_QUICK_TEST=1): skips every movie up to the first in-match frame and closes the game when the match is left",
+   "subject": {
+    "kind": "setting",
+    "id": "quick-test"
+   },
+   "addresses": [
+    "00481EF8",
+    "001F84DE",
+    "0048BAC8",
+    "002439B7",
+    "0050CA4A"
+   ],
+   "related": [
+    "RECOMP_QUICK_TEST",
+    "t13.attract-screen-no-pc-skip-hook",
+    "t12.game-quick-test-loops-when-a-mission-ends-at-once-hub-autost",
+    "t12.quick-test-idle-player-death-restarts-level-entity-dump-nan",
+    "t06.input-skip-intro",
+    "main.c",
+    "ma2_scenario.c"
+   ],
+   "fact": "quick-test (or RECOMP_QUICK_TEST=1) is the mode the editor's Test button uses (a Preferences option, on by default). A thread skips every movie until the first in-match frame: pc_input_movie_skip for the startup logos, plus Enter key posts after 1.5 s, because the campaign intro SPIntro is played by the Attract Screen class (sub_001F84DE), which ends on any key but ignores the PC skip flag. After the match (in-match menu 00481EF8) the first front-end menu closes the game with WM_CLOSE (ExitProcess(0), the same as Exit Game); for a custom mission that is the first hub frame. Autostart also answers Select Difficulty (0048BAC8). Custom Scenarios never plays the campaign intro: ma2_scenario.c holds the 'intro seen' byte [0x50CA4A] at 1 while custom mode is on (the chooser is sub_002439B7).",
+   "how_to_use": "Measured 2026-10-21: Team Destruction 38.5 s -> 11-15 s to control; missions about 80 s -> 7-8.5 s. Code: main.c line 701. Harness: Written from the 2026-10-21 note; only the main.c switch was re-checked on 2026-11-10.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 701
+    }
+   ],
+   "tags": [
+    "testing",
+    "editor",
+    "frontend"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "scenario-assets-one-archive-at-a-time",
+   "title": "Scenario [Assets] build opens one retail archive at a time: the 32-archive limit is gone",
+   "subject": {
+    "kind": "concept",
+    "id": "[Assets] build_resource"
+   },
+   "addresses": [],
+   "related": [
+    "t12.scenario-assets-cache-key",
+    "t12.scenario-assets-entry-overrides-a-same-named-file-the-scenar",
+    "ma2_scenario.c",
+    "build_resource"
+   ],
+   "fact": "A scenario's [Assets] rows are built by build_resource (ma2_scenario.c). It sorts the rows by source archive and opens, copies and frees one retail archive at a time, so there is no limit of 32 archives. Before this fix a scenario that drew on more archives lost files: Budget_172 (43 archives) had 673 files missing and a boot peak of 1027 MB of private memory; after it 0 missing and 418 MB. The name-hash seed changed with the fix, so short resources made by older builds are rebuilt.",
+   "how_to_use": "Code: ma2_scenario.c line 818 (qsort by_archive). Sweep harness: Written from the 2026-10-21 note; only the sort was re-checked on 2026-11-10.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 818
+    }
+   ],
+   "tags": [
+    "scenario",
+    "assets",
+    "memory"
+   ],
+   "date": "2026-10-21"
+  },
+  {
+   "id": "custom-scenarios-picker-lists-scenario-name",
+   "title": "The Custom Scenarios picker lists the Name stored inside the .ma2map, not the file name: two files with the same Name look identical",
+   "subject": {
+    "kind": "menu",
+    "id": "Custom Scenarios picker"
+   },
+   "addresses": [],
+   "related": [
+    "t04.scenario-scan-and-duplicates",
+    "t04.campaign-title-ids",
+    "t04.mission-picker-selection",
+    "ma2_scenario.c",
+    "ma2_bots_ui.c"
+   ],
+   "fact": "The Custom Scenarios picker shows each scenario's [Scenario] Name from inside the .ma2map file, not the file name (ma2_scenario.c reads Name at line 613 and returns it as the entry's title text at line 2254); the multiplayer New Game map list is matched by the same Name (line 1659). Only the 8-character Id has to be unique: a second file with the same Id is skipped and logged as 'duplicate Id' (line 974). Two files with different Ids and the same Name therefore appear as two identical entries. UPDATE 2026-11-10 (r26, W-12): the game now shows the file name when two scenarios of one type have the same Name ('Name (file)' or the file name), and Test's New Game pick uses the shown text (commit 44886f4, proof r26d: rows 'New Mission', 'New Mission (2)', 'City Fight copy', 'City Fight (New Mission (3))' are distinct). The editor gives each new or saved scenario its own Name (t28.scenario-name-unique-on-save).",
+   "how_to_use": "Fixed in r26 (game 44886f4, editor 5ae9bd7), not yet published as of 2026-11-10. Before the fix: give each scenario its own Name in the editor.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 613
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 552
+    }
+   ],
+   "tags": [
+    "scenario",
+    "menu",
+    "editor"
+   ],
+   "date": "2026-11-09"
+  },
+  {
+   "id": "bots-1-0-2-shipped-par24",
+   "title": "Bots 1.0.2 is every bot change in from dfe8e04 to 34d026e (after PC Release v13t, 057c036)",
+   "subject": {
+    "kind": "concept",
+    "id": "Bots 1.0.2"
+   },
+   "addresses": [],
+   "related": [
+    "t19.audit-f2-baroofland",
+    "t24.custom-maps-all-modes-1109",
+    "t28.ba-walker-bit-cleared-by-jet"
+   ],
+   "fact": "Bots 1.0.2 is every bot change in from dfe8e04 to 34d026e (after PC Release v13t, 057c036). All of it is in PC Release par24 (48831dc, exe sha256 28c3eb44. 2026-11-09): 34d026e is an ancestor of 48831dc. Each change was found in a recorded bot match and was checked against that recording, and each has a switch under [Bots] in the ini. The facts behind it are in packs t19 (audit), t20 and t21 (balance), t22 and t23 (objective reach) and t24 (film review).",
+   "how_to_use": "Check: git -C the game source tree merge-base --is-ancestor 34d026e 48831dc (exit 0). Known open item: a tank embedded in terrain cannot be freed.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "bots",
+    "release"
+   ],
+   "date": "2026-11-09"
+  },
+  {
+   "id": "installer-kit-1109-post-fastcode",
+   "title": "Installer kit 2026-11-09 (par24): hand edits in generated code that has a fast copy need a post-FastCode patch; kit default FrameLimit=144",
+   "subject": {
+    "kind": "tool",
+    "id": "fast_prep.py"
+   },
+   "addresses": [
+    "00113964"
+   ],
+   "related": [
+    "t06.installer-pipeline",
+    "t06.installer-single-file",
+    "t06.installer-patch-hook-regen",
+    "t15.t1-fastcode-hot-coverage",
+    "t28.vtol-climb-demand-comp-90",
+    "install.py",
+    "kitchain.sh",
+    "recomp_fast_0027.c"
+   ],
+   "fact": "The release installer was repacked on 2026-11-09 for par24 (48831dc) and editor d062003f: kit id 94801368138e73ac, VERSION 2026.11.09. Two kit changes. (1) 'fast_prep.py finish' failed with 'replay differs: recomp_0027.c, recomp_fast_0027.c': ModClimb (37bfc0e) hand-inserted ma2_bot_vtol_lift into sub_113964 and into its fast copy, but fastcode.py denies ma2_ bodies, so a replay made no fast copy. fast_prep finish now writes a strict patch set patches/fastcode/post/ plus a 'post' entry in fastcode.json, and install.py fastcode applies it after fastcode.py (log line 'post-FastCode:'). (2) The kit's default pc_settings.ini has FrameLimit=144 instead of 0. An end-to-end install to passed 11 of 11 steps (build 8 min 35 s).",
+   "how_to_use": "Any new hand edit in a generated recomp_XXXX.c that also has a recomp_fast_ copy needs the same post patch. The NavCache key holds the build's date and time strings, so an installed build never shares NavCache files with another build.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "installer",
+    "fastcode",
+    "release"
+   ],
+   "date": "2026-11-09"
+  },
+  {
+   "id": "esc-exit-needs-no-open-dialog",
+   "title": "Esc on a game dialog at the main hub closes the dialog; it no longer opens the 'exit?' question on top of it",
+   "subject": {
+    "kind": "concept",
+    "id": "window_message (Esc handling) in pc_native_settings.cpp"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The hub Esc shortcut (opens the exit confirmation) ran while a game dialog such as the Custom Scenarios editor prompt was open, so Esc asked to exit instead of cancelling the dialog. The condition now also requires !modal_available, so Esc reaches the dialog first. On the bare hub Esc still opens the exit confirmation.",
+   "how_to_use": "r26 commit da9d7fa (W-01), not yet published as of 2026-11-10. Proof (live run r26a): Custom Scenarios (empty) then Esc logs 'editor prompt result 4' and no exit prompt; on the bare hub 'exit confirmation opened' still appears.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 861
+    }
+   ],
+   "tags": [
+    "menu",
+    "input",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "sticky-keys-restore-on-close",
+   "title": "The Sticky Keys shortcut switched off while the game runs is restored on window close and before a self-restart; the original flags are kept in [Internal] StickyKeysSaved",
+   "subject": {
+    "kind": "setting",
+    "id": "[Internal] StickyKeysSaved"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "While the game window has focus it suppresses the Windows Sticky Keys hotkey (five Shift presses) so play cannot trigger the dialog. Before, a closed window or a restart left the shortcut off. Now WM_CLOSE and the self-restart path restore the flags, and the original flag word is written to [Internal] StickyKeysSaved while suppressed so a crash is healed at the next start; the key is removed on a clean exit. RECOMP_KEEP_STICKY_HOTKEY=1 keeps the old behaviour (no suppression).",
+   "how_to_use": "r26 commits b175e9f, f022546 (W-02), not yet published. Proof (r26a): 'Sticky Keys hotkey suppressed (was flags 0x1F2)' then 'restored' before '[EXIT] phase=terminate . WM_CLOSE'. Note: the test PC already had the shortcut off from earlier runs of the old bug.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 773
+    },
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 795
+    }
+   ],
+   "tags": [
+    "input",
+    "windows",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "first-run-display-defaults",
+   "title": "A true first launch starts borderless fullscreen at the desktop size, caps integrated GPUs at 1080 lines, clamps TextureQuality to the installed pack and fixes a lone bad window size",
+   "subject": {
+    "kind": "setting",
+    "id": "first-run choice in pc_storage.c (pc_firstrun.h)"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "With no pc_settings.ini yet the game looks at the GPU, video memory, RAM, CPU count, battery and disk, then writes Fullscreen=1 at the desktop size (an integrated GPU is capped at 1080 lines). TextureQuality is lowered when the chosen pack is not installed (logged as 'clamped: pack not installed'). A window width or height that is bad on its own is paired with 1280x960. The hardware line and the choice are logged as [FIRST-RUN].",
+   "how_to_use": "r26 commit 1bdff90 (W-03), not yet published. Test with RECOMP_FIRSTRUN_TEST=1 (creates a missing override file from the defaults and runs the first-run path). Proof (r26a, fresh ini): '[FIRST-RUN] chose TextureQuality=2 . Fullscreen=1 Window=3840x1600'. The clamp is proven by the unit test ft_rt_test 71/0, not live.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_storage.c",
+     "line": 194
+    },
+    {
+     "file": "kit/source/game/src/pc_storage.c",
+     "line": 245
+    }
+   ],
+   "tags": [
+    "settings",
+    "first-run",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "mp-menu-bot-match-label",
+   "title": "The Multiplayer menu entry LOCAL XBOX CONSOLE reads BOT MATCH with an offline description (string ids 0x7CEB and 0x92D, English only)",
+   "subject": {
+    "kind": "menu",
+    "id": "Multiplayer menu: LOCAL XBOX CONSOLE / BOT MATCH"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "ma2_pc_localized rewrites string id 0x7CEB (original text 'LOCAL XBOX CONSOLE') to 'BOT MATCH' and the description id 0x92D to 'Play offline against computer-controlled pilots.' The rewrite checks the original text first, so other languages are untouched. Only English is changed.",
+   "how_to_use": "r26 commit 842d862 (W-04), not yet published. Proof (r26a): screenshot of the Multiplayer menu.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 241
+    }
+   ],
+   "tags": [
+    "menu",
+    "bots",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "bindings-page-action-names",
+   "title": "The key-binding page names rows by action ('Pause / objectives (Start): Enter'); binding labels must not contain 'B button' style prose because the prompt rewriter replaces it with the bound key",
+   "subject": {
+    "kind": "menu",
+    "id": "Player Options key-binding pages"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Rows read 'Jump jets / neurohack (A): Space', 'Enter / exit vehicle (Y): Q' instead of bare button letters, and the waiting state reads 'Press any key or mouse button.'. The prompt rewriter only rewrites upper-case bare button letters now. Labels written as 'B button' or 'White button (RB)' were rewritten to 'F: F' and '1 (RB): 1' (seen live), so the labels are 'Pad B', 'Pad X', 'White (RB)' and 'Black (LB)'. Game action names for those four rows need a mission-1 tutorial prompt trace and are still open (W-05 step 2).",
+   "how_to_use": "r26 commits 14b3ef6, f853f7a (W-05 steps 1 and 3), not yet published. Proof (r26a, r26e): pages 1-2 read 'Pad B: F', 'Pad X: R', 'White (RB): 1', 'Black (LB): 2', 'Next weapon, key (LT): C', 'Fire, key (RT): V'.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_native_settings.cpp",
+     "line": 471
+    }
+   ],
+   "tags": [
+    "input",
+    "menu",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "log-build-header",
+   "title": "Every launch logs [LAUNCH] build / windows lines and the GPU vendor, device, memory and driver; the crash box names the two files to send",
+   "subject": {
+    "kind": "concept",
+    "id": "[LAUNCH] and [GPU-D3D11] log header"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The game log starts with '[LAUNCH] build version=1.0.2 exe_version=1.0.2 install=. kit=. exe_bytes=. exe_time=.', a '[LAUNCH] windows=' line, and '[GPU-D3D11] . vendor . device . video memory N MB; driver .'. The crash box names the two files to send (log and dump), and shows 'Report at: <url>' only when MA2_SUPPORT_URL in ma2_release.h is set. The exe version resource (app.rc) carries the same version.",
+   "how_to_use": "r26 commit b0e15fd (W-06a), not yet published. Proof (r26a): the three lines read in a fresh-run log. The crash box itself is not checkable in the harness (suppressed when RECOMP_SAVE_DIR is set).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 579
+    },
+    {
+     "file": "kit/source/game/src/ma2_release.h",
+     "line": 3
+    }
+   ],
+   "tags": [
+    "log",
+    "release",
+    "diagnostics"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "one-version-file",
+   "title": "One version everywhere: KITSRC\\VERSION holds 1.0.2 (line 1) and the build date; game, editor and installer show the same public version",
+   "subject": {
+    "kind": "file",
+    "id": "VERSION (release work folder) / ma2_release.h / MA2SE_VERSION"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The public version is 1.0.2. The game takes it from MA2_PUBLIC_VERSION in kit/source/game/src/ma2_release.h (also the exe version resource), the editor from MA2SE_VERSION in kit/source/game/src/app/version.h (also its file properties and Help > About), and the installer from the VERSION file at the root of the release work folder (line 1 = version, line 2 = date 2026.11.10). The install stamp records public_version, release_sha256 (the exe the release was made with) and built_sha256 (the exe actually installed). The build label (first 8 characters of the kit id) appears on the Welcome and Done pages, the log and the support bundle.",
+   "how_to_use": "Commits: game b0e15fd, editor f4bd842, installer kit 4204fc0 (W-06a/b/c), not yet published. Change the number in the three places listed (D-6).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/ma2_release.h",
+     "line": 3
+    },
+    {
+     "file": "editor/src/app/version.h",
+     "line": 4
+    },
+    {
+     "file": "kit/installer/install.py",
+     "line": 45
+    }
+   ],
+   "tags": [
+    "version",
+    "release",
+    "installer"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "hang-monitor-default-on",
+   "title": "The hang monitor is on by default: after 30 s without a frame it writes a [HANG] report and hang-<pid>.dmp, and offers to close at 120 s",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_HANG_MONITOR"
+   },
+   "addresses": [],
+   "related": [
+    "t01b.stall-monitor-env",
+    "t28.cs-wait-hang-sampler"
+   ],
+   "fact": "The monitor thread checks that frames keep being presented. After 30 s without one it logs '[HANG] no frame for 30 s' with the guest registers, 19 guest return addresses and the critical-section waiters, and writes hang-<pid>.dmp next to the crash dumps; at 120 s it offers to close the game. RECOMP_HANG_MONITOR=0 turns it off; RECOMP_TEST_HANG=<seconds> suspends the game thread after N seconds to test it. stall_say now writes to the CRT stderr handle so the lines reach the log.",
+   "how_to_use": "r26 commit df32c4e (W-07), not yet published. Proof (r26c, RECOMP_TEST_HANG=25): report with registers, return addresses and a 285 KB dump. No [HANG] report in normal play.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 662
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 755
+    }
+   ],
+   "tags": [
+    "freeze",
+    "diagnostics",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "crash-dump-retention",
+   "title": "Crash path: a second faulting thread waits instead of ending the process, the rumble is stopped, and only the newest 5 crash/hang dumps are kept",
+   "subject": {
+    "kind": "concept",
+    "id": "crash_filter / ma2_prune_dumps in main.c"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "When two threads fault within milliseconds the second now waits so the crash box and the dump of the first stay intact. The controller rumble is switched off before the box opens. After a dump is written the folder is pruned to the newest 5 crash-*.dmp / hang-*.dmp files (ma2_prune_dumps in ma2_startup_policy.h; unit test 6/0).",
+   "how_to_use": "r26 commit 7eba2c6 (W-08), not yet published. Test: RECOMP_TEST_CRASH=<seconds> and RECOMP_TEST_CRASH2=1 (a second thread faults 50 ms later). Proof (r26c): two faults 50 ms apart give ONE '[CRASH] . dump=.crash-<pid>.dmp ok=1' (290 KB). The box cannot be checked in the harness.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 138
+    },
+    {
+     "file": "kit/source/game/src/ma2_startup_policy.h",
+     "line": 68
+    },
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 648
+    }
+   ],
+   "tags": [
+    "crash",
+    "diagnostics",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "runtime-log-policy",
+   "title": "Log hygiene: the kernel log goes to the game log (XBOX_LOG_FILE is opt-), no 'ordinal 0' lines for empty thunk slots, [KERNEL] summary only with RECOMP_PERF / RECOMP_KERNEL_SUMMARY",
+   "subject": {
+    "kind": "env_var",
+    "id": "XBOX_LOG_FILE / RECOMP_KERNEL_SUMMARY"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "kernel_thunks.c (an unchanged copy of the runtime file that the exe's xbox_kernel.lib was built from is now in the game tree) no longer writes xbox_kernel.log by default and removes a stale one at start. Empty thunk slots (ordinal 0) are not logged; one 'Unresolved kernel ordinal 270' line remains. The [KERNEL] summary prints only with RECOMP_PERF or RECOMP_KERNEL_SUMMARY, and [XA2] reopen lines are logged 5 times, then once a minute.",
+   "how_to_use": "r26 commits 60c6514, 8a8cd00, 786793c (W-09a), not yet published. Proof (r26a log): exactly one ordinal 270 line, no ordinal 0, no [KERNEL] summary. Not done: the [FMV] reword (kit-only file). Side effect seen: the exe deleted an older xbox_kernel.log in its folder.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/kernel_bridge.c",
+     "line": 10204
+    },
+    {
+     "file": "kit/source/game/src/kernel/kernel_thunks.c",
+     "line": 405
+    }
+   ],
+   "tags": [
+    "log",
+    "kernel",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "bot-diag-switch",
+   "title": "Bot diagnostics ([C7], [CAM-WATCH], [BOT-NOBOARD], [BOT-TRACE], [BOT-ROOFS]) print only with RECOMP_BOT_DIAG=1 or [Bots] BotLog=1",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_DIAG"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A normal bot match no longer fills the log with per-event bot lines. The switch is RECOMP_BOT_DIAG=1 or [Bots] BotLog=1 (default off). Counters and the bot recorder stay live either way, so analysis tools still work. Three direct [C7] prints (yield, c3, vtolpads) were found live (5 lines in a match) and also follow the switch since 2c51429; a clean confirmation match without the switch is still to be run.",
+   "how_to_use": "r26 commits 3285ed5, 2c51429 (W-09b), not yet published. Turn it on for any bot investigation.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_c7.c",
+     "line": 60
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_c7.h",
+     "line": 24
+    }
+   ],
+   "tags": [
+    "bots",
+    "log",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "focus-loss-pause-mute",
+   "title": "When the window loses focus in play the game pauses (START tap) and mutes: [Input] PauseOnFocusLoss and [Audio] MuteInBackground, both default 1",
+   "subject": {
+    "kind": "setting",
+    "id": "[Input] PauseOnFocusLoss / [Audio] MuteInBackground"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "fb_present.c taps START once when the window loses focus during play (not during a movie), which opens the pause menu; the audio output ramps to 0 while another window has focus and back when focus returns. Env overrides: RECOMP_PAUSE_ON_FOCUS_LOSS, RECOMP_MUTE_IN_BACKGROUND. A hidden harness window never pauses (so sweeps are unaffected) unless RECOMP_TEST_FOCUS_PAUSE is set. The two keys are written visibly into the ini; the public kit pc_settings.ini lists them.",
+   "how_to_use": "r26 commit 4aa50eb (W-10), not yet published. Proof (r26e, bot match Twin Rivers TD 3v3): '[AUDIO] window in background: muted', '[PC-INPUT] window lost focus during play: START tap #1 to pause', pause menu shown, '[AUDIO] window has focus: sound on'.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/video/fb_present.c",
+     "line": 308
+    },
+    {
+     "file": "kit/source/game/src/apu/apu_core.c",
+     "line": 375
+    }
+   ],
+   "tags": [
+    "input",
+    "audio",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "startup-failure-messages",
+   "title": "Start-up faults end with plain boxes: memory windows that fail give 'could not reserve the memory it needs', a missing pc_assets\\common.mgf gives 'Game files are missing'",
+   "subject": {
+    "kind": "concept",
+    "id": "xbox_MemoryLayoutInit / WinMain start-up checks"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "If any required memory window fails to reserve, start-up stops with exit code 1 and a plain message box; the failing window mask is logged ('required windows failed mask=01', '[LAUNCH] memory layout failed'). A missing pc_assets\\common.mgf (checked in pc_assets .\\pc_assets) gives a 'Game files are missing' box. Boxes are suppressed when RECOMP_SAVE_DIR is set (harness runs). RECOMP_TEST_LAYOUT_FAIL=<mask> pretends those windows failed.",
+   "how_to_use": "r26 commits ca26290, 74d5819 (W-11), not yet published. Proof (r26f, RECOMP_TEST_LAYOUT_FAIL=1): mask logged, exit code 1, no [CRASH]. The boxes were not shown on screen in the harness.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/main.c",
+     "line": 903
+    },
+    {
+     "file": "kit/source/game/src/kernel/xbox_memory_layout.c",
+     "line": 2883
+    }
+   ],
+   "tags": [
+    "startup",
+    "diagnostics",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "scenario-savedwith-revision",
+   "title": "[Scenario] SavedWith = 2 is the editor save revision: files saved before it get an 'open it in the Scenario Editor and save it' note; the editor offers to update old files",
+   "subject": {
+    "kind": "property",
+    "id": "[Scenario] SavedWith"
+   },
+   "addresses": [],
+   "related": [
+    "t27.pink-placeholder-is-failed-object-build"
+   ],
+   "fact": "The editor writes SavedWith = 2 (kSaveRevision) into every .ma2map; revision 2 writes the asset closure with .mtb references and the MABuilding code files. The game reads it (a missing value means an older editor) and adds a note to the scenario description when it is below 2. The editor reads missing values as 1, offers 'Update old scenarios.' (File menu, just above 'Check scenario.') at start and from the menu, rewrites them with SavedWith = 2 and keeps a .bak, and says 'Opened <file>. It was saved with an older editor: save it once to update it for the game.'",
+   "how_to_use": "Game r26 commits 1d83c36, 7d2cd8d (W-13a); editor 7d40d9f (W-13b); not yet published. Editor proof (MCP): two old files updated, 158 [Assets] lines each,bak kept; fmt_test +13. The game note was shortened because the 3-line description box clipped it and was not re-shot.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 656
+    },
+    {
+     "file": "editor/src/core/scenario.cpp",
+     "line": 2607
+    },
+    {
+     "file": "editor/src/core/scenario.h",
+     "line": 76
+    }
+   ],
+   "tags": [
+    "scenario",
+    "editor",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "scenario-skip-reasons-note",
+   "title": "A scenario file that cannot be listed gets a plain reason in a 12 s note on the hub / Custom Scenarios; skipped files are not reloaded until they change",
+   "subject": {
+    "kind": "concept",
+    "id": "skip_notes / add_scenario in ma2_scenario.c"
+   },
+   "addresses": [],
+   "related": [
+    "t04.scenario-scan-and-duplicates"
+   ],
+   "fact": "add_scenario now records why a file was skipped (damaged file, duplicate Id, a copy of another file, Ready = 0) and the hub shows a note for 12 s, for example '2 scenario files not listed. City Fight.ma2map is a copy of City Fight copy.ma2map (open it in the Scenario Editor and use File > Save as)'. A skipped file is not parsed again until its time stamp changes. A Test that cannot start itself says so instead of failing silently.",
+   "how_to_use": "r26 commit 9490421 (W-14a), not yet published; editor half 7b5e45b (W-14b: a copy made in Explorer keeps the Id; the editor says 'This file is a copy of <file>: saving it gives it its own entry in the game' and gives it a new Id on save). Proof (r26d): the note above with junk.ma2map as the second file.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 590
+    },
+    {
+     "file": "editor/src/app/app.cpp",
+     "line": 768
+    }
+   ],
+   "tags": [
+    "scenario",
+    "menu",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "scenario-ready-flag",
+   "title": "[Scenario] Ready = 0 marks an unfinished scenario: the editor writes it when Check fails, the game does not list it (--scenario and Test still load it)",
+   "subject": {
+    "kind": "property",
+    "id": "[Scenario] Ready"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The editor's Save writes 'Ready = 1' only when the Check passed and no limit is exceeded, otherwise 'Ready = 0'. The game's scan logs 'Ready = 0, not listed' and shows the skip note with the reason. Loading the file by --scenario or by the editor's Test still works, so an unfinished map can be tested.",
+   "how_to_use": "Game r26 commit ed50ee7 (W-15a); editor b61993f (W-15b); not yet published. Editor proof (MCP): one spawn point deleted, Check red, Save writes Ready = 0; fmt_test +4. The game half was code-reviewed only: a Ready = 0 file written by the new editor was not yet loaded in a game run.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1014
+    },
+    {
+     "file": "editor/src/core/scenario.cpp",
+     "line": 2608
+    }
+   ],
+   "tags": [
+    "scenario",
+    "editor",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "shader-cache-folder",
+   "title": "The shader cache lives in %LOCALAPPDATA%\\MechAssault2\\ShaderCache; the old xboxrecomp\\shader-cache folder is moved once",
+   "subject": {
+    "kind": "setting",
+    "id": "shader cache folder"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The cache now sits with the game's other per-user data. At start the old %LOCALAPPDATA%\\xboxrecomp\\shader-cache is moved to the new folder once (a move that fails because files are in use leaves the old cache intact) and the folder is logged as '[SHADER-CACHE]'. Harness runs (RECOMP_SAVE_DIR set) never move a real cache; RECOMP_TEST_SHADER_MOVE forces the move and RECOMP_TEST_LOCALAPPDATA stands in for %LOCALAPPDATA% in that function only.",
+   "how_to_use": "r26 commits b9a367d, ceb36d9, efd588d (W-16), not yet published. Proof (r26d): '[SHADER-CACHE] moved from xboxrecomp\\shader-cache to .\\lad\\MechAssault2\\ShaderCache'. INCIDENT in r26c: the harness drops non-RECOMP variables, so LOCALAPPDATA was not redirected and a move was tried on the real cache; it failed with error 5 (nothing moved) and left an empty real ShaderCache folder.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_shader_cache.c",
+     "line": 136
+    },
+    {
+     "file": "kit/source/game/src/kernel/nv2a_shader_cache.c",
+     "line": 140
+    }
+   ],
+   "tags": [
+    "shader",
+    "settings",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "footer-key-hints-brackets",
+   "title": "Menu footer key hints are shown in square brackets only for key names up to 4 characters ([1] Player Options, [Esc] Back, then Enter Select)",
+   "subject": {
+    "kind": "menu",
+    "id": "menu footer hints (ma2_pc_localized)"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The footer text now reads '[1] Player Options' so the key does not run into its caption. Brackets are used only when the key name has at most 4 characters, because '[Esc] Back[Enter] Start Mission' ran together live; the pause menu reads '[Esc] Back Enter Select'. The 640x480 footer was not re-shot.",
+   "how_to_use": "r26 commits 968a4d5, 7d2cd8d (W-17), not yet published.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/pc_prompts.cpp",
+     "line": 241
+    }
+   ],
+   "tags": [
+    "menu",
+    "ui",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "bots-fresh-install-defaults",
+   "title": "Fresh-install bot defaults: Red 3, Blue 4, Free-for-all 5, Grinder 1, skill Mixed",
+   "subject": {
+    "kind": "setting",
+    "id": "Bot rows defaults in ma2_bots_ui.c"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A profile with no saved bot settings starts the New Game bot rows at Red 3 / Blue 4 for team modes, 5 for Destruction (free-for-all) and 1 for Grinder, with Bot Skill Mixed (decision D-1). Saved choices are kept.",
+   "how_to_use": "r26 commit 1fa6613 (W-30), not yet published. Proof (r26a): New Game on a fresh profile showed Destruction Bots 5 / Mixed and Grinder 1 / Mixed; the team rows were read in code and seen as 3 / 4 / Mixed after the W-32 change.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_ui.c",
+     "line": 103
+    }
+   ],
+   "tags": [
+    "bots",
+    "settings",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "botrec-limits",
+   "title": "The bot recorder keeps the newest 4 recordings and caps one file at 150 MB (worst case 600 MB)",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_REC_MAX_MB"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Each bot match writes one .botrec at 30 Hz; at the start of a recording the folder is pruned to the newest 3 older files so 4 exist with the new one. RECOMP_BOT_REC_MAX_MB (default 150, about 25 minutes) caps one file. Switch: RECOMP_BOT_REC / [Bots] BotRecorder. Decision D-2 (a): recorder on for players.",
+   "how_to_use": "r26 commit 2fa5170 (W-31), not yet published.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_rec.c",
+     "line": 202
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_rec.c",
+     "line": 26
+    }
+   ],
+   "tags": [
+    "bots",
+    "recorder",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "bot-row-descriptions",
+   "title": "New Game bot rows show a description while focused (team, free-for-all and Grinder count rows, six languages) and the labels end with a colon",
+   "subject": {
+    "kind": "menu",
+    "id": "New Game bot rows"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The Bots / Red Bots / Blue Bots / Bot Skill rows have colons on their labels and a one- or two-line description under the row while it has focus; the text exists in the six game languages (ma2_bot_text_table).",
+   "how_to_use": "r26 commit d938c8e (W-32), not yet published. Proof (r26a/r26e): labels 'Bots:', 'Red Bots:', the Grinder row text and the 2-line team row text fit the box.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_content.c",
+     "line": 14
+    }
+   ],
+   "tags": [
+    "bots",
+    "menu",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "hot-upjet-hold",
+   "title": "HotUpJet: a 'Mech at 85% heat or more waits 2.5 s before an up-jet it wants (default on, RECOMP_BOT_HOT_UPJET / [Bots] HotUpJet)",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_HOT_UPJET"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Bot 'Mechs used up-jets while overheated, which stalled them. At 85% heat or more an up-jet wish now waits 2.5 s (each new wish waits again). BattleArmor, stall jets and escape jets are not affected. The hold is counted as [C7] hotupjet held.",
+   "how_to_use": "r26 commit 5201300 (W-33), not yet published. Proof: replay of the recording B_802 bot 3 (par24 sources); the risk bound over B_800.B_805 and the Elite cell-82 regression were not run.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 400
+    }
+   ],
+   "tags": [
+    "bots",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "box-near-wedge",
+   "title": "BoxNear: a boxed-in 'Mech with an enemy 'Mech or tank inside 120 m wedges after 3 s (6 s otherwise) so the brain finds a firing spot (default on, RECOMP_BOT_BOX_NEAR / [Bots] BoxNear)",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_BOX_NEAR"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A bot boxed in by terrain stood still while an enemy shot at it. With an enemy 'Mech or tank inside 120 m the stand-still is treated as a wedge after 3 s instead of 6 s, so the brain picks a new firing spot.",
+   "how_to_use": "r26 commit e9c9038 (W-34), not yet published. Proof: replay of t23_203 bot 3 (par24 sources); the regression cells 203/205 were not run.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 5349
+    }
+   ],
+   "tags": [
+    "bots",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "runtime-guards-sweep-hits",
+   "title": "Guard hit counts over 77 par24 sweep logs (about 3.9 h): all audio and freeze guards silent except one [AUDIO-ACTIVE]; the [XWB-DEFER] queue-full case is now logged once",
+   "subject": {
+    "kind": "concept",
+    "id": "runtime guards (W-25)"
+   },
+   "addresses": [],
+   "related": [
+    "t25.dsound-defer-double-insert",
+    "t26.dsound-active-reinsert-freeze",
+    "t28.audio-defer-guard-env",
+    "t28.audio-active-guard-env",
+    "t28.cs-wait-hang-sampler"
+   ],
+   "fact": "Across 77 par24 bot-sweep logs the guards fired: [XACT-LIST] 0, [XACT-UAF] 0, [XACT-HEAP] 0, [VOICE-NEW-WAIT] 0, [XACT-WAIT] 0, [AUDIO-DEFER] 0, [AUDIO-ACTIVE] 1 (one run), [CS-WAIT] 0, [HANG] 0. The [XWB-DEFER] wave-bank read queue falling back to inline completion used to be silent; it is logged once now. The page 'Runtime guards' of pack t28 lists each guard, its switch and the log tag.",
+   "how_to_use": "r26 commit 967efdc (W-25). Source of the counts: game-r24_* and game-B_* run logs under (not kept in the repo). Reading rule: a guard line in a player's log means the guard saved a freeze or crash; send the log.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/kernel_bridge.c",
+     "line": 4126
+    }
+   ],
+   "tags": [
+    "audio",
+    "freeze",
+    "guards",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "support-url-placeholder",
+   "title": "One support-address placeholder: MA2_SUPPORT_URL (game: ma2_release.h; installer: precheck.py; docs token {{MA2_SUPPORT_URL}}); empty until the project sets it",
+   "subject": {
+    "kind": "setting",
+    "id": "MA2_SUPPORT_URL"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Decision D-11: the project has no support address yet. The game's crash box adds 'Report at: <url>' only when MA2_SUPPORT_URL in kit/source/game/src/ma2_release.h is non-empty; the installer hides the 'Report a problem' button and the Welcome footer help text while precheck.MA2_SUPPORT_URL is empty and prints support_where (words that point at the download page) in documents. Install-time document rendering replaces {{MA2_SUPPORT_URL}} the same way. Set it in the two source files only.",
+   "how_to_use": "Game r26 b0e15fd; installer kit 86c761b and 1f826a5 (W-52, rename from SUPPORT_URL to MA2_SUPPORT_URL). Proof: ui_flow 'fail' (no Report button while empty, button and log header with a URL) and a test_engine support_url test.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/ma2_release.h",
+     "line": 18
+    },
+    {
+     "file": "kit/installer/precheck.py",
+     "line": 22
+    },
+    {
+     "file": "kit/installer/install.py",
+     "line": 1072
+    }
+   ],
+   "tags": [
+    "release",
+    "installer",
+    "docs"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "editor-release-build-flags",
+   "title": "The editor is built with /DNDEBUG and /PDBALTPATH so the exe carries no developer paths (strings find no 'users'); plain build.cmd builds Scenario Editor.exe",
+   "subject": {
+    "kind": "tool",
+    "id": "editor build.cmd"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "assert text carried source paths under the developer's profile; /DNDEBUG removes it, ImGui asserts are off, and /PDBALTPATH keeps only the PDB file name in the exe. After the change 'strings' and 'strings -e l' on the exe find no 'users'.",
+   "how_to_use": "Editor commits 6cae2d2 (W-40) and 5dc3f9a (W-41), not yet published. Proof: build hash 26aa44fa at the baseline; fmt_test 3028/0; MCP smoke (New map, Save, Check 'No problems found', quit 0). Final exe d0ebb03e. 6,575,616 bytes, fmt_test 3061/0.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "editor/build.cmd",
+     "line": 22
+    }
+   ],
+   "tags": [
+    "editor",
+    "build",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "scenario-name-unique-on-save",
+   "title": "The editor gives each new or saved scenario its own Name: New Mission, New Mission 2, and warns when a Name is already used by another file",
+   "subject": {
+    "kind": "concept",
+    "id": "App:cmd_new_kind / App:cmd_save"
+   },
+   "addresses": [],
+   "related": [
+    "t28.custom-scenarios-picker-lists-scenario-name"
+   ],
+   "fact": "New mission and Save pick the first free Name ('New Mission', 'New Mission 2') and the saved file name follows 'Name (n).ma2map'. If the chosen Name is also the Name of another file, the save status adds '\"<Name>\" is also the name of <file>; the game lists them as \"<Name> (<file name>)\". Rename it on the Map tab.' The game side lists duplicates with the file name (see custom-scenarios-picker-lists-scenario-name).",
+   "how_to_use": "Editor commit 5ae9bd7 (W-12b), not yet published. Proof (MCP, scratch folder): New mission and Save twice give 'New Mission' and 'New Mission 2' with different headers; Test saves 'New Mission (2).ma2map' with Name 'New Mission (2)' in a from-game run. A real game Test round trip was not run (the editor starts an unmanaged game process).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "editor/src/app/app.cpp",
+     "line": 1900
+    },
+    {
+     "file": "editor/src/app/app.cpp",
+     "line": 1814
+    }
+   ],
+   "tags": [
+    "editor",
+    "scenario",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "editor-new-dialog-scaling",
+   "title": "The New scenario dialog stays inside the window at 125-150% UI scaling",
+   "subject": {
+    "kind": "menu",
+    "id": "New scenario dialog (ui_new_dialog)"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "With both option sections expanded the Create button used to fall below the window bottom at UIScale 1.25-1.5. The dialog height is now bounded; Create y+h is 777 at 100% and 823 at UIScale 1.50, both within the 861 px client area.",
+   "how_to_use": "Editor commit dddcb07 (W-42), not yet published. Proof: MCP measurement with both sections expanded.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 3842
+    }
+   ],
+   "tags": [
+    "editor",
+    "ui",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "scenario-name-description-limits",
+   "title": "Scenario Name is limited to 60 characters and Description to 250 characters in the editor",
+   "subject": {
+    "kind": "property",
+    "id": "[Scenario] Name / Description limits"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The Name box clips at 60 characters (kNameMax) and the Description tooltip says up to 250 characters; both are enforced while typing. The toolbar clips a long name before the Helpers button.",
+   "how_to_use": "Editor commit 3db61a0 (W-113), not yet published. Proof (MCP): 119 typed characters give doc.name of 60; fmt_test +4.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 206
+    },
+    {
+     "file": "editor/src/app/app_tabs.cpp",
+     "line": 213
+    }
+   ],
+   "tags": [
+    "editor",
+    "scenario",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "editor-damaged-file-warning",
+   "title": "Opening a damaged .ma2map shows a 'Damaged file' box naming the unreadable parts instead of opening it silently",
+   "subject": {
+    "kind": "concept",
+    "id": "App:open_path / MgfReader:read_file"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A .ma2map is an MGF archive; when a member cannot be read open_path collects the names and shows 'This file is damaged: <names> could not be read .'. Before, such a file opened with missing parts without any warning.",
+   "how_to_use": "Editor commit c422876 (W-114), not yet published. Proof (MCP): a copy with 12 inverted bytes gives the box naming editor/project.json; fmt_test +6.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "editor/src/app/app.cpp",
+     "line": 774
+    },
+    {
+     "file": "editor/src/core/mgf.cpp",
+     "line": 154
+    }
+   ],
+   "tags": [
+    "editor",
+    "scenario",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "editor-labels-recent-files",
+   "title": "Editor label leftovers fixed: Starts (n spawn points) header, copy counters stripped from names, 'retail' wording, File > Open recent shows file names and '(nothing yet)'",
+   "subject": {
+    "kind": "menu",
+    "id": "editor Starts header / Open recent"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The multiplayer list header reads 'Starts (12 spawn points)', object names drop a trailing copy counter, user-visible 'retail' wording is gone, and the recent list shows file names (a deleted file is dropped from it; an empty list shows '(nothing yet)').",
+   "how_to_use": "Editor commit f1f27ee (W-115), not yet published. Proof (MCP): 'Starts (12 spawn points)', '(nothing yet)', deleted file dropped.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "editor/src/app/app.cpp",
+     "line": 4430
+    },
+    {
+     "file": "editor/src/app/app.cpp",
+     "line": 4135
+    }
+   ],
+   "tags": [
+    "editor",
+    "ui",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "installer-systems-page-disk-space",
+   "title": "Systems page: low free space on C: is information, not a block, when the install goes to another drive",
+   "subject": {
+    "kind": "concept",
+    "id": "precheck disk row (Systems page)"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The Systems check used to fail when C: had less than the Build Tools need even if the game was installed on D: The row now has kind 'info' when the destination is another drive.",
+   "how_to_use": "Kit commit 87daf91 (W-50), not yet published. Proof: ui_flow 'disk' (3 GB free on C: does not block).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/installer/precheck.py",
+     "line": 312
+    }
+   ],
+   "tags": [
+    "installer",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "installer-startup-failure-log",
+   "title": "Installer start-up and Systems checks log to a file, show a message box when the window cannot open, and one failing check row no longer freezes the page",
+   "subject": {
+    "kind": "tool",
+    "id": "installer stub / gui.py start-up"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Every row of the Systems page is checked inside its own error handler (an exception such as a failing battery query shows the row as an error and Next stays possible). A crash while the window starts writes an installer-ui log and shows a message box with its path (MA2_UI_CRASH_TEST forces it; exit code 3). The stub shows a notice when it cannot unpack to %TEMP% and names the folder to allow.",
+   "how_to_use": "Kit commit 01e3ca2 (W-51), not yet published. Proof: ui_flow 'checks' and 'crash'; the stub box itself was not shown on this PC.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/installer/gui.py",
+     "line": 1265
+    },
+    {
+     "file": "installer-exe/stub.cpp",
+     "line": 137
+    }
+   ],
+   "tags": [
+    "installer",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "installer-failure-screen-buttons",
+   "title": "The failure screen has Systems check and Choose disc image buttons; resuming without the extract step needs the disc again",
+   "subject": {
+    "kind": "concept",
+    "id": "failure page in gui.py"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "After a failed check or extract the player can go back to the Systems check or choose another disc image without starting over; the install then runs to the end. A resume that skips extract still needs the disc.",
+   "how_to_use": "Kit commit c226f78 (W-57), not yet published. Proof: ui_flow 'back' with MA2_FAKE_FAIL=check:compiler and extract:disc.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/installer/gui.py",
+     "line": 36
+    }
+   ],
+   "tags": [
+    "installer",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "kit-contents-and-patch-format",
+   "title": "The kit carries no game data: patches are context-free edits-1 JSON (only the lines the release added and where they go), listed in kit\\CONTENTS.md",
+   "subject": {
+    "kind": "patch",
+    "id": "kit/patches/diff/<file>.json (edits-1)"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Each diff/<file>.json is a list of edits [base_start, delete_count, [added lines]] replayed from the end of the file backwards; no recompiled game code, no context and no removed line is in the kit. manifest.json holds the base and final SHA-256 of every file, so a base mismatch (wrong XBE or toolkit) stops the install. The shader seed is optional and disclosed. CONTENTS.md lists every part of the kit and states that no .mgf,bik,wav,dds,png,iso or .xbe of the game is in it. The set shrank from 349,020 to 150,323 bytes.",
+   "how_to_use": "Kit commit 2949aa0 (W-53), not yet published. Proof: rt_proof.py: main set 58 files plus 3 added and the post-FastCode set of 2 files; old and new apply byte-identical, every final SHA-256 matches, 15 checks 0 failed.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/installer/gen_patch.py",
+     "line": 27
+    }
+   ],
+   "tags": [
+    "installer",
+    "patch",
+    "licence",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "installer-licences-and-notices",
+   "title": "Licences: the project's own code is MIT (Licenses\\LICENSE.txt), THIRD-PARTY.txt has a row per component, the FFmpeg README and the Python and capstone texts are installed",
+   "subject": {
+    "kind": "file",
+    "id": "kit/defaults/Licenses"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "make_payload never empties kit/defaults/Licenses and adds Python-LICENSE.txt and capstone-LICENSE.txt; the installer copies FFmpeg-README.txt (gyan.dev text) , for enhanced content, Licenses\\Enhancer. NOTICE points at the LGPL text. LGPL FFmpeg replacing the gyan.dev build (W-54 step 2) is not done: it needs a download.",
+   "how_to_use": "Kit commits 246c27b (W-54 step 1), 2e76b75 (W-56 code), 7e4aa00 (W-56 docs); decision D-10 (MIT). Proof: test_engine (Licenses present after install, Licenses\\Enhancer copied).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "installer",
+    "licence",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "installer-disc-manifest",
+   "title": "disc-manifest.json lists the size and SHA-256 of all 883 disc files (2.18 GB); the installer verifies them after extract and on Update/Repair, naming damaged files",
+   "subject": {
+    "kind": "file",
+    "id": "installer/data/disc-manifest.json"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "verify_disc_files compares sizes first, then hashes with a progress line every 200 MB, and stops with kind 'disc' and the file names instead of failing later in the build. The manifest was made by disc_manifest.py from the reference image (US/NTSC retail). An installer without the manifest checks only ma2.xbe.",
+   "how_to_use": "Kit commit ee4d290 (W-55), not yet published. Proof: test_engine verify cases; cli_tests: an image with one flipped byte in boggeddown.mgf stops at extract with kind 'disc' naming the file.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/installer/install.py",
+     "line": 846
+    },
+    {
+     "file": "kit/installer/data/disc-manifest.json",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "installer",
+    "disc",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "installer-folder-as-disc",
+   "title": "The installer accepts a folder copied from the disc (or its ma2.xbe) as the disc: Choose a folder button, copy with progress, same checks",
+   "subject": {
+    "kind": "concept",
+    "id": "precheck.check_folder / extract"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A player who already has the disc contents as a folder can pick it instead of an ISO; check_folder gives the same verdicts and the copy runs with progress and then the disc manifest check.",
+   "how_to_use": "Kit commit 0bd00b0 (W-58), not yet published. Proof: cli_tests '--xiso <game_files folder> --until extract' ends with step 3 done and 883 files verified; ui_flow 'folder'.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/installer/precheck.py",
+     "line": 252
+    }
+   ],
+   "tags": [
+    "installer",
+    "disc",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "installer-work-folders",
+   "title": "Build work folders MA2RecompBuild-* carry owner.txt; Start over removes the recorded one, stale ones are cleaned and a surviving folder is reported",
+   "subject": {
+    "kind": "concept",
+    "id": "install.py work-folder handling"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The build folder is recorded with an owner.txt; only a folder with our owner.txt is removed. Start over deletes it, state.json is renamed before removal, a note is shown when a folder survives, and the Build Tools temp folder is removed.",
+   "how_to_use": "Kit commit 306e716 (W-59), not yet published. Proof: test_engine WorkFolders (recorded root, start_over, stale clean-up, failing rmtree gives the note and no state.json); ui_flow 'work'.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/installer/install.py",
+     "line": 458
+    }
+   ],
+   "tags": [
+    "installer",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "installer-uninstall",
+   "title": "Uninstall: install.py --uninstall [--yes] [--delete-user-data] and an Uninstall button on the Welcome banner; never deletes outside an install or the player's scenarios",
+   "subject": {
+    "kind": "concept",
+    "id": "uninstall / uninstall_plan in install.py"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Without --yes the command line only shows what would go. It refuses a folder that is not an install and never follows junctions. User data (saves, settings, scenarios) stays unless --delete-user-data is given. Exit codes: 0 done, 1 problem, 2 not confirmed.",
+   "how_to_use": "Kit commit ec8d513 (W-60), not yet published. Proof: test_engine Uninstall (7 cases incl. junction not followed, refusals), cli_tests --uninstall, ui_flow 'uninstall'.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/installer/install.py",
+     "line": 384
+    },
+    {
+     "file": "kit/installer/install.py",
+     "line": 406
+    }
+   ],
+   "tags": [
+    "installer",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "installer-buildtools-one-click",
+   "title": "Build Tools one-click install shows the licence notice and terms link, logs to buildtools-<time>.log, and the internet check falls back to urllib",
+   "subject": {
+    "kind": "concept",
+    "id": "Build Tools install row"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Before the download the page shows the Microsoft licence notice and a link to the terms (https://visualstudio.microsoft.com/license-terms/); the install output goes to buildtools-<time>.log; the row text follows the install; internet_ok uses urllib when the first probe fails. A real elevated run on a clean VM is still open.",
+   "how_to_use": "Kit commit cf1c6fe (W-61), not yet published. Proof: ui_flow 'tools'; test_engine internet_ok fallback.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/installer/precheck.py",
+     "line": 444
+    }
+   ],
+   "tags": [
+    "installer",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "installer-enhanced-content-failures",
+   "title": "Enhanced-content failures are classified (network, gpu); PyTorch is chosen by graphics card (RTX 50 series gets the cu128 build) with a CUDA check",
+   "subject": {
+    "kind": "concept",
+    "id": "enhancer setup.py / install.py failure classes"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Network errors and GPU/CUDA errors give their own advice. torch_plan picks the CUDA 12.8 build for RTX 50 cards and PyTorch 2.6.0 with CUDA 12.4 otherwise; a broken venv home is repaired; FMV download errors name the file. The setup scripts live in enhancer-overlay\\ and make_payload copies them over the Enhancer folder.",
+   "how_to_use": "Kit commit d59586a (W-62), not yet published. Proof: test_engine (classify, torch_plan, venv home repair); a real run on a 50-series card was not done.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/enhancer/setup.py",
+     "line": 38
+    },
+    {
+     "file": "kit/installer/install.py",
+     "line": 80
+    }
+   ],
+   "tags": [
+    "installer",
+    "gpu",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "installer-collect-diagnostics",
+   "title": "Collect diagnostics: install.py --diagnostics and a Welcome-page button zip the logs for a bug report; crash dump and bot recording are opt-; the user name is redacted",
+   "subject": {
+    "kind": "concept",
+    "id": "precheck.collect_diagnostics"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The command and the button write one bundle for a bug report; two tick boxes (dump, bot recording) are off by default; the Windows user name is replaced in every member.",
+   "how_to_use": "Kit commit 14f6f64 (W-63), not yet published. Proof: test_engine Diagnostics, cli_tests --diagnostics (the user name appears in no member), ui_flow 'diag'.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/installer/precheck.py",
+     "line": 532
+    }
+   ],
+   "tags": [
+    "installer",
+    "diagnostics",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "public-settings-ini-keys",
+   "title": "The public pc_settings.ini lists only the keys a player should ; keys equal to the code default are left out",
+   "subject": {
+    "kind": "file",
+    "id": "kit/defaults/pc_settings.ini"
+   },
+   "addresses": [],
+   "related": [
+    "t28.frame-limit-no-unlimited-default-144"
+   ],
+   "fact": "The shipped template holds [Display], [Input] and [Audio]/[Bots] rows with comments (FrameLimit 30-360, default 144, no unlimited; PauseOnFocusLoss=1; MuteInBackground=1; [Bots] BotRecorder). Developer keys (FrameClockCarry, Threads, Cpu, Render, PathSlice, EliteKeep55, VehAssign) are left out because their code defaults are the shipped behaviour (EliteKeep55 only matters with BurstFire off). On first launch the file is copied to %LOCALAPPDATA%\\MechAssault2\\pc_settings.ini.",
+   "how_to_use": "Kit commit d5e3044 (W-64), not yet published. Proof: test_engine 58 OK; every removed key was compared with its code default.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/defaults/pc_settings.ini",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "settings",
+    "installer",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "build-fails-without-fpu-edits",
+   "title": "check_fpu.py fails the build when any of the five FPU C2 hand edits (cos, sin, fmod loops) is missing from the generated code",
+   "subject": {
+    "kind": "tool",
+    "id": "check_fpu.py"
+   },
+   "addresses": [],
+   "related": [
+    "t07.fpu-c2-fix-state"
+   ],
+   "fact": "The five edits (recomp_0077.c cos 0x30C659 and sin 0x30C709 two jumps each, recomp_0079.c fmod 0x31DF5C) replace the parity jump after fprem1 / fsin / fprem by 'if (0) goto'. kitchain.sh runs the check on the assembled tree before the patch set is made and fast_prep.py finish runs it on the replayed install, so a regeneration that loses an edit cannot ship a game that freezes.",
+   "how_to_use": "Kit commit 3e969db (W-65), not yet published. Proof: test_engine FpuCheck passes on the stage tree and fails on each of the five reverted sites.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "installer",
+    "freeze",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "installer-step-titles",
+   "title": "The installer window and log use plain step titles",
+   "subject": {
+    "kind": "tool",
+    "id": "installer step titles"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Step names were developer terms; the window and the log now use plain words (see test_engine step titles).",
+   "how_to_use": "Kit commit 16e4d15 (W-117), not yet published.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/installer/install.py",
+     "line": 26
+    }
+   ],
+   "tags": [
+    "installer",
+    "ui",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "installer-stale-unpack-cleanup",
+   "title": "At start the stub removes other versions' unpacked kits (%TEMP%\\MA2RecompInstaller-*) but keeps similarly named folders",
+   "subject": {
+    "kind": "tool",
+    "id": "installer stub (stub.cpp)"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Each run unpacks the kit to %TEMP%\\MA2RecompInstaller-<id> and deletes it on exit; a crashed run leaves it. The next stub removes older ones of other kit ids at start and leaves a differently named folder alone.",
+   "how_to_use": "Kit commit 75f6094 (W-118), not yet published. Proof: cli_tests with a test pack: another version's folder removed, a similar name kept.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "installer-exe/stub.cpp",
+     "line": 9
+    }
+   ],
+   "tags": [
+    "installer",
+    "release"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "kit-leaves-out-unused-toolkit-folders",
+   "title": "make_payload leaves out the toolkit folders the install never imports (conformance, linux, macos, ghidra_naming, ida_naming)",
+   "subject": {
+    "kind": "tool",
+    "id": "make_payload.py"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The kit is smaller by those folders. Proof was a real install through step 7 (analyse, translate, helper code, patch with the JSON patch set and FastCode) on the trimmed toolkit; all hashes verified and 883 disc files verified. A grep of imports finds only comments that mention the folders.",
+   "how_to_use": "Kit commit 6bd63f3 (W-120), not yet published.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "installer",
+    "release"
+   ],
+   "date": "2026-11-10"
+  }
+ ]
+}

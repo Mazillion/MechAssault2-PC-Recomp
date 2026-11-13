@@ -1,0 +1,1855 @@
+{
+ "pack": "t09_bringup_history",
+ "title": "Bring-up history: controller, tank physics, audio, movies and stability findings",
+ "facts": [
+  {
+   "id": "exit0-is-not-success",
+   "title": "A clean exit code does not prove a run passed",
+   "subject": {
+    "kind": "concept",
+    "id": "run-acceptance"
+   },
+   "addresses": [],
+   "related": [
+    "gpu-device-recovery"
+   ],
+   "fact": "The v19 M09b interaction was reported failed even though the process exited 0. The first recorded graphics error was CreateTexture2D (depth) with HRESULT 0x887A0005, followed by failed framebuffer readbacks. Acceptance must come from the log content, not from the exit code.",
+   "how_to_use": "Read the run log for graphics errors and readback failures before accepting any game run.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "testing",
+    "gpu",
+    "process"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "gpu-device-recovery",
+   "title": "Device-loss recovery is tested with process-local injected loss only",
+   "subject": {
+    "kind": "concept",
+    "id": "gpu_failure recovery path"
+   },
+   "addresses": [],
+   "related": [
+    "gpu_failure",
+    "hardware_device_recovery"
+   ],
+   "fact": "The source gpu_failure path used to mark the device failed for good. The recovery work in v21 retries creation under a bounded deadline and passes the four native recovery fixtures. The v21 recovery is an injected loss inside the process, not a real driver reset, so the original NVIDIA failure cause remains open.",
+   "how_to_use": "Run the four regression fixtures hardware_device_recovery, hardware_device_recovery_exhaustion, hardware_gpu and enhanced_texture_matching; they finish in about 19 s.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "gpu",
+    "recovery",
+    "device-loss"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "gpu-recovery-verifying-deadline",
+   "title": "Recovery verification has its own progress deadline",
+   "subject": {
+    "kind": "concept",
+    "id": "device recovery VERIFYING state"
+   },
+   "addresses": [],
+   "related": [
+    "gpu-device-recovery"
+   ],
+   "fact": "The recovery reviewer required a VERIFYING-state progress deadline that is checked at boundaries even when there is no presentation target. Only S_OK results count as progress, and the verification clock is suspended while the window is occluded or minimized.",
+   "how_to_use": "Covered by the recovery zero-presentation and exhaustion regression tests.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "gpu",
+    "recovery"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "gpu-recovery-game-run",
+   "title": "Controlled in-game recovery run passed on Mission09b",
+   "subject": {
+    "kind": "tool",
+    "id": "probe_gpu_recovery.py"
+   },
+   "addresses": [],
+   "related": [
+    "gpu-device-recovery"
+   ],
+   "fact": "A bounded probe ran Mission09b at 1920x1080 with two process-local injected losses, each with two failed creation attempts. Recovery produced generations 2 and 3, expected six error lines and zero unexpected GPU errors, and exited 0 in 96 s. Player movement after recovery was confirmed, but the probe does not clear the real NVIDIA failure.",
+   "how_to_use": "probe_gpu_recovery.py with the Mission09b override; the default path does not create a device.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "gpu",
+    "recovery",
+    "test-harness"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "perf-gpu-draws-label",
+   "title": "The PERF label 'GPU draws ms/frame' is CPU wall time",
+   "subject": {
+    "kind": "tool",
+    "id": "PERF log line"
+   },
+   "addresses": [],
+   "related": [
+    "raster_batch"
+   ],
+   "fact": "The PERF value labelled 'GPU draws ms/frame' is CPU QPC wall time measured around raster_batch. It includes preparation, driver time and blocking, not GPU execution. The one-shot GPU query hook flushes and waits up to five seconds, so it must be excluded from pacing comparisons.",
+   "how_to_use": "Do not read the PERF GPU draw number as GPU time; use a timestamp query for GPU time.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "performance",
+    "logging"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "imgui-gamepad-poll",
+   "title": "ImGui Win32 backend polls XInput every frame",
+   "subject": {
+    "kind": "patch",
+    "id": "IMGUI_IMPL_WIN32_DISABLE_GAMEPAD"
+   },
+   "addresses": [],
+   "related": [
+    "ImGui UpdateGamepads",
+    "ShowFPS overlay"
+   ],
+   "fact": "The vendored ImGui Win32 UpdateGamepads polls XInput controller 0 on every NewFrame with no NavEnableGamepad gate. v21 ShowFPS called it on the presentation thread. The accepted fix is a backend-scoped IMGUI_IMPL_WIN32_DISABLE_GAMEPAD compile definition in the game CMake, which dropped the fixture counts from 25 GetState and 3 capability calls to 0 and 0.",
+   "how_to_use": "Check the game CMake for IMGUI_IMPL_WIN32_DISABLE_GAMEPAD before adding new ImGui overlays.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "input",
+    "performance",
+    "imgui"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "imgui-gamepad-cache",
+   "title": "ImGui caches controller presence at init",
+   "subject": {
+    "kind": "concept",
+    "id": "ImGui HasGamepad cache"
+   },
+   "addresses": [],
+   "related": [
+    "imgui-gamepad-poll"
+   ],
+   "fact": "The vendored backend caches HasGamepad at initialization and refreshes it only in its WM_DEVICECHANGE handler. The active frontend does not forward messages to ImGui's WndProc. If the controller connects after the HUD initialized, the cached absence can suppress polling, so late-connect slowdowns may have another cause.",
+   "how_to_use": "A late controller connect needs its own test; the cached-absent and late-connect cases are in the fixture.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "input",
+    "imgui"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "window-clamp-scene-extent",
+   "title": "OS window clamp overwrote the selected render size",
+   "subject": {
+    "kind": "function",
+    "id": "WM_SIZE handler (pc_native_settings / fb_present)"
+   },
+   "addresses": [],
+   "related": [
+    "render_size",
+    "scene extent"
+   ],
+   "fact": "On this 96-DPI desktop with a 3840x1600 primary monitor, a requested 2160 client needs 2199 outer pixels, but the 39 px non-client area and the clamp gave an actual 2141 client height. WM_SIZE overwrote the selected render_size with the OS-clamped scene extent. The fix keeps the selected render size, updates only the display, and makes startup DPI-aware.",
+   "how_to_use": "Check that a selected 3840x2160 setting persists after the clamp and that a new 2560x1440 Apply writes its INI values.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "window",
+    "settings",
+    "resolution"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "resolution-aspect-contract",
+   "title": "Selected resolution is kept; aspect is automatic",
+   "subject": {
+    "kind": "setting",
+    "id": "render resolution and automatic aspect"
+   },
+   "addresses": [],
+   "related": [
+    "window-clamp-scene-extent"
+   ],
+   "fact": "The chosen contract keeps the conventional selected resolution and an automatic aspect. Documentation that said the client size drives the scene was out of date and was corrected in the proposed copy. Scene resolution and presentation aspect are kept separate.",
+   "how_to_use": "Do not reintroduce client-driven scene sizing when changing window code.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "window",
+    "settings",
+    "docs"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "intel-iris-run",
+   "title": "Iris Xe laptop run recorded settings and exit",
+   "subject": {
+    "kind": "concept",
+    "id": "LG Gram i7-1260P Iris Xe run"
+   },
+   "addresses": [],
+   "related": [
+    "perf-gpu-draws-label"
+   ],
+   "fact": "A v21 run on the LG Gram i7-1260P with Iris Xe (FLB100, 16 GiB) ran for 523 s and exited 0 with no timeout, logging no graphics failures. The scene was 1280x720 with a 960x720 aftermovie and a 2560x1600 fullscreen client, with original textures, draw distance 50, VSync off, uncapped frames and ShowFPS on. The run shows no compatibility pass.",
+   "how_to_use": "Segment the PERF data by menu and gameplay phase before comparing averages.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "hardware",
+    "intel",
+    "performance"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "packaged-m16-perf-sample",
+   "title": "Packaged v15 M16 sample at 3840x2160",
+   "subject": {
+    "kind": "concept",
+    "id": "M16 demanding scene"
+   },
+   "addresses": [],
+   "related": [
+    "perf-gpu-draws-label"
+   ],
+   "fact": "The packaged v15 M16 sample ran at an actual 3840x2160 scene and measured 157.57 to 164.94 FPS with a maximum p99 of 8.504 ms, with world ticks advancing at the original distance. It is a 20-second sample on an older hash and is not a whole-game performance claim.",
+   "how_to_use": "Use only as an older-hash reference point.",
+   "status": "historical",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "performance"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "partial-stability-run",
+   "title": "Stability run ended early at 1041 s with a resolution mismatch",
+   "subject": {
+    "kind": "concept",
+    "id": "W1-06 stability run"
+   },
+   "addresses": [],
+   "related": [
+    "window-clamp-scene-extent"
+   ],
+   "fact": "The requested 3840x2160 window produced a 3840x2141 scene. Raw acceptance stayed false.",
+   "how_to_use": "Do not count this run as a stability pass.",
+   "status": "historical",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "stability",
+    "testing"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "save-wdb-container-layout",
+   "title": "MASaveGame.wdf is an allocated but empty WDB container",
+   "subject": {
+    "kind": "save",
+    "id": "MASaveGame.wdf"
+   },
+   "addresses": [],
+   "related": [
+    "checkpoint-serialization"
+   ],
+   "fact": "The baseline MASaveGame.wdf is 3145728 bytes long, has 30 nonzero bytes with the last at offset 67, and all bytes after offset 128 are zero. Its header begins 32 62 64 77 00 20 00 00. The initial-save container CRC is 0x67910643 with an empty body. That makes it a valid initialized container, not a serialized checkpoint payload.",
+   "how_to_use": "Use this as the expected initial state when checking whether a checkpoint wrote data.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "save",
+    "checkpoint"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "save-profile-envelope",
+   "title": "Campaign profile envelope fields",
+   "subject": {
+    "kind": "save",
+    "id": "MASave profile (308-byte envelope)"
+   },
+   "addresses": [],
+   "related": [
+    "MASave flags",
+    "1691FB"
+   ],
+   "fact": "In the 308-byte profile envelope, the current, highest and last-advanced destination 1 are stored under active difficulty 0. Flags3 do not include checkpoint bit 4, and the completion byte is zero. Profile offset +98 holds the saved checkpoint's campaign destination, and controller+10 is the campaign mode/state; controller+14 is the destination.",
+   "how_to_use": "Read these offsets when verifying progression from a copied profile.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "save",
+    "campaign",
+    "layout"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "transition-1691fb-campaign",
+   "title": "Campaign transition 1691FB and its completion bytes",
+   "subject": {
+    "kind": "function",
+    "id": "001691FB"
+   },
+   "addresses": [
+    "001691FB",
+    "00169094"
+   ],
+   "related": [
+    "save-profile-envelope"
+   ],
+   "fact": "Function 1691FB separates the current destinations (+60, +6C, +78), the highest unlocked destinations (+64, +70, +7C) and the completion bytes (+68, +74, +80). The active-difficulty completion byte is set only after the 169094 check, which cannot advance past the 41 authored destinations. The completion byte alone is not the end of the game; the observer must also see the ending transition.",
+   "how_to_use": "End-to-end acceptance must include the ending transition and the completion byte, not only the final objective.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "campaign",
+    "save",
+    "progression"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "final-mission-records",
+   "title": "Final campaign record order",
+   "subject": {
+    "kind": "concept",
+    "id": "Mission17b and Cinema_5_5/5_6 record order"
+   },
+   "addresses": [],
+   "related": [
+    "transition-1691fb-campaign"
+   ],
+   "fact": "In the Mission01b record table the final gameplay record Mission17b is record 38, Cinema_5_5 is record 39 and Cinema_5_6 is record 40. The ending path must therefore cross those cinema records before completion is set.",
+   "how_to_use": "Use these record numbers when tracing the final sequence.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "campaign",
+    "mission-data"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "mission01b-salvage-truck",
+   "title": "Mission01b salvage truck UID and target dummy",
+   "subject": {
+    "kind": "concept",
+    "id": "Mission01b salvage objective"
+   },
+   "addresses": [],
+   "related": [
+    "objective4-commit"
+   ],
+   "fact": "The actual salvage truck in Mission01b is UID 129492, while the target dummy is UID 129519. W2 parsed all 1715 Mission01b records. Earlier routes that targeted the dummy were wrong.",
+   "how_to_use": "Use UID 129492 when checking the salvage objective.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "mission",
+    "objective"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "objective4-commit",
+   "title": "Objective4 commit flag at +0x54",
+   "subject": {
+    "kind": "property",
+    "id": "Objective4 committed byte"
+   },
+   "addresses": [],
+   "related": [
+    "dependency24"
+   ],
+   "fact": "Objective4 is committed when the byte at +0x54 is 1. The run that stopped on death before commit showed no dependency24 flag and no Objective4 commit. Objectives 0, 1, 2, 3 and 6 were committed before death and then reset.",
+   "how_to_use": "Check +0x54 and dependency24 before counting an objective as done.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "mission",
+    "objective"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "mission01b-raptor-checkpoint",
+   "title": "Post-Raptor checkpoint action 132158 is gated by timer 132371",
+   "subject": {
+    "kind": "concept",
+    "id": "Mission01b checkpoint action 132158"
+   },
+   "addresses": [],
+   "related": [
+    "checkpoint-serialization"
+   ],
+   "fact": "The authored Mission01b checkpoint action 132158 is gated by the disabled timer 132371 that follows the Raptor cinema.",
+   "how_to_use": "Reach the Raptor cinema before testing the post-Raptor checkpoint.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "checkpoint",
+    "mission"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "checkpoint-serialization",
+   "title": "Checkpoint serialization is unproven; initial save only is verified",
+   "subject": {
+    "kind": "concept",
+    "id": "checkpoint write and restore"
+   },
+   "addresses": [
+    "0015CED6",
+    "00167B25",
+    "000B9400",
+    "0015EFF2"
+   ],
+   "related": [
+    "save-wdb-container-layout",
+    "mission01b-raptor-checkpoint"
+   ],
+   "fact": "Only the initial campaign save and destination 1 / checkpoint 0 resume are verified. Checkpoint serialization and restoration are not, and the checkpoint container was still empty in the reviewed runs. The save path goes through the 15CED6 wrapper, the 167B25 begin/graph/end sequence and the B9400 writer. Save acceptance requires a populated checkpoint body, metadata and a successful fresh normal Continue, not just a writer return value.",
+   "how_to_use": "Accept a checkpoint only after a fresh-process Continue has loaded it.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "save",
+    "checkpoint"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "checkpoint-condition-consumer",
+   "title": "Condition consumer 165E0 / 1695D4 sets phase 3",
+   "subject": {
+    "kind": "function",
+    "id": "00165E0 / 001695D4"
+   },
+   "addresses": [
+    "000165E0",
+    "001695D4"
+   ],
+   "related": [
+    "transition-1691fb-campaign"
+   ],
+   "fact": "The successful condition consumer at 165E0 and 1695D4 sets phase 3 and conditionally clears profile bit 4. A callback store alone is not enough to explain a phase change. The generated branches match the original in the audit, and no translation bug was found there.",
+   "how_to_use": "Trace this consumer when investigating why a checkpoint flag is not cleared.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "campaign",
+    "conditions"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "timer-objective-oracle",
+   "title": "Timer and objective differential oracle results",
+   "subject": {
+    "kind": "tool",
+    "id": "timer-objective-oracle.json"
+   },
+   "addresses": [],
+   "related": [
+    "Callback1452D4",
+    "163ABC"
+   ],
+   "fact": "The timer and objective differential oracle recorded 1884 matches against original Xbox code, comprising 1600 timer cases and 284 objective cases, with no mismatches. It was built with MSVC /O2 /fp:precise /std:c11. Callback 1452D4 and the pre-evaluation at 163ABC are intercepted matching boundaries, so the oracle supports arithmetic and gates, not full mission correctness.",
+   "how_to_use": "Rerun the oracle after changing generated mission code.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "mission",
+    "testing",
+    "oracle"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "dropPack-callback-1452d4",
+   "title": "DropPack ownership callback 1452D4 audit",
+   "subject": {
+    "kind": "function",
+    "id": "001452D4"
+   },
+   "addresses": [
+    "001452D4"
+   ],
+   "related": [
+    "DropPackManager"
+   ],
+   "fact": "The DropPack callback 1452D4 was checked with 986 unique inputs and 1010 invocations, with no mismatches against original code. Ownership suppression runs before the force and fired steps. Physical pickup, player binding and real vehicle transitions were not tested, and the fixture covers virtual receiver and teardown only.",
+   "how_to_use": "Physical pickup needs a human test.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "mission",
+    "drop-pack",
+    "oracle"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "dropPack-explosive-vs-salvage",
+   "title": "Authored DropPack is the Explosive Pack, not Mission01b salvage",
+   "subject": {
+    "kind": "class",
+    "id": "DropPackManager"
+   },
+   "addresses": [],
+   "related": [
+    "mission01b-salvage-truck"
+   ],
+   "fact": "The authored DropPack in the mission data is the Explosive Pack, which is armed and triggered manually under DropPackManager. The Mission01b salvage objective uses MAPowerUp instead. Testing salvage therefore cannot validate the 1452D4 callback.",
+   "how_to_use": "Use the Explosive Pack to test DropPack detonation and vehicle transitions.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "mission",
+    "drop-pack"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "shoreline-trigger-130832",
+   "title": "Shoreline trigger 130832 and barge set",
+   "subject": {
+    "kind": "concept",
+    "id": "shoreline trigger 130832"
+   },
+   "addresses": [],
+   "related": [
+    "three-shoreline-tanks"
+   ],
+   "fact": "Trigger 130832 is a LogicType 1 OR of wall 130103 and barge damage 133083. The barge set 130700 targets 129604 and 129605. The latest v28 private profile metadata could not prove that Mission01b was reached before the Raptor cinema.",
+   "how_to_use": "Reach Mission01b normally before the wall or barge trigger when testing shoreline behaviour.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "mission",
+    "tank",
+    "trigger"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "three-shoreline-tanks",
+   "title": "Three shoreline cutscene tanks: UIDs and cinema",
+   "subject": {
+    "kind": "concept",
+    "id": "shoreline cutscene tanks"
+   },
+   "addresses": [
+    "00132557",
+    "00132555",
+    "00132500",
+    "00133496",
+    "00133503"
+   ],
+   "related": [
+    "shoreline-trigger-130832",
+    "MATank"
+   ],
+   "fact": "The three-shoreline group consists of raptor jack UIDs 132557, 132555 and 132500, all using template 40026. They are started by trigger 130832 with TLraptorstart and MACinema 41226. The initial pair 133496 and 133503 belongs to a different cinema, 132026, so it does not explain the three-tank symptom.",
+   "how_to_use": "Check the UIDs when identifying which tanks a test is observing.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "tank",
+    "mission",
+    "uid"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "tank-spring-1718ed",
+   "title": "Tank spring integration 1718ED is elapsed-time based",
+   "subject": {
+    "kind": "function",
+    "id": "001718ED"
+   },
+   "addresses": [
+    "001718ED",
+    "00170D91",
+    "00170C08",
+    "0010A3DA"
+   ],
+   "related": [
+    "MATank",
+    "tank-whole-109536"
+   ],
+   "fact": "1718ED (MATank slot 27) integrates the spring and suspension using elapsed time, and the original runs it at 30 Hz. 170D91 is the normal refresh and 170C08 is the int-to-float step that feeds the wheel 170FD8. The accepted universal fix sets the spring to original 30 Hz timing and fixes the normal refresh; it is not a level-specific or frame-cap patch.",
+   "how_to_use": "Any change to tank physics must preserve the 30 Hz semantics and be checked at 60, 144 and uncapped rates.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "tank",
+    "physics",
+    "frame-rate"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tank-whole-109536",
+   "title": "Whole-tank 30 Hz wrapper 109536 was rejected",
+   "subject": {
+    "kind": "function",
+    "id": "00109536"
+   },
+   "addresses": [
+    "00109536",
+    "00109FF4"
+   ],
+   "related": [
+    "tank-spring-1718ed"
+   ],
+   "fact": "109536 is the MATank whole-actor update (slot 7). The spring-only candidate 8DF1 gave smooth aim but excessive acceleration and pitch, so it was also rejected.",
+   "how_to_use": "Enable with Try-Tank-Physics.cmd only; the normal Start path keeps it off.",
+   "status": "superseded",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "tank",
+    "physics"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tank-shoreline-level-fix",
+   "title": "Shoreline tanks level after build BA6C",
+   "subject": {
+    "kind": "concept",
+    "id": "shoreline tank leveling"
+   },
+   "addresses": [
+    "001718ED",
+    "00170D91"
+   ],
+   "related": [
+    "tank-spring-1718ed"
+   ],
+   "fact": "The confirmed in play that the three shoreline tanks now level correctly in build BA6C, which carries the universal spring and normal refresh fix. Excessive pitch and wheelie at uncapped frame rates stayed open and was reopened, so whole-tank physics is not complete.",
+   "how_to_use": "Use the BA6C-era tank code as the baseline for further physics work.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "tank",
+    "physics"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tank-aim-1753e6",
+   "title": "Tank mouse aim is routed through 1753E6",
+   "subject": {
+    "kind": "function",
+    "id": "001753E6"
+   },
+   "addresses": [
+    "0017537D",
+    "001753E6",
+    "00109FF4"
+   ],
+   "related": [
+    "Tank Behavior"
+   ],
+   "fact": "Generic AI yaw at 17537D is a no-op for the player tank. The authored tank function 1753E6 takes arg4 and passes it through 109FF4 to the inline yaw at 488, which is where mouse X now reaches. Hull arguments 1 to 3 are preserved. The human test confirmed the horizontal aim works.",
+   "how_to_use": "Mouse-aim changes should be made at 1753E6 and not at the generic 17537D.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "tank",
+    "input",
+    "aim"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "tank-stolen-player-override",
+   "title": "Stolen tank player override is not yet traced",
+   "subject": {
+    "kind": "concept",
+    "id": "stolen tank at mission start"
+   },
+   "addresses": [
+    "00172967"
+   ],
+   "related": [
+    "tank-aim-1753e6"
+   ],
+   "fact": "The player-override path around 172967 was still untraced at the last report.",
+   "how_to_use": "Trace the stolen-player path before changing aim for vehicles.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "tank",
+    "input"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "rumble-motor-gating",
+   "title": "Rumble: request timing, duplicate suppression and expiry",
+   "subject": {
+    "kind": "function",
+    "id": "xinput_device feedback path / 0001FE60 expiry"
+   },
+   "addresses": [
+    "0001FE60"
+   ],
+   "related": [
+    "xinput_feedback.h",
+    "rumble-pause-gate"
+   ],
+   "fact": "The earlier 9.5 s guest-silence claim is withdrawn: duplicate guest requests are suppressed and the suppressed count is printed only at the next transition. The original effect expiry is a one-shot at gen0001 sub 1FE60, and the original 5000 ms cap with continuous effects refutes a 500 ms watchdog as safe. The accepted D666 candidate keeps the authored stop retry and reserves ten slots, with the zero-discard deferred while the same port has an active effect.",
+   "how_to_use": "Do not add a blanket watchdog; match the original one-shot expiry.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "rumble",
+    "input",
+    "timer"
+   ],
+   "date": "2026-10-10",
+   "addresses_unverified": [
+    "2B990997"
+   ]
+  },
+  {
+   "id": "rumble-pause-gate",
+   "title": "Pause and focus stop rumble through an authoritative signal",
+   "subject": {
+    "kind": "function",
+    "id": "gen1FE60 pause entry"
+   },
+   "addresses": [
+    "0001FE60"
+   ],
+   "related": [
+    "rumble-motor-gating"
+   ],
+   "fact": "The pause path needs an authoritative pause signal because host-side policy alone was not enough in 20 fixture cases. The accepted candidate adds a pause entry to gen1FE60 on top of the D666 expiry and an atomic pause suppression in xinput_device, while leaving the original completions and resumes intact. The original pause was a one-shot zero that was lost while the old slots resumed.",
+   "how_to_use": "Physical pause and focus tests are still needed.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "rumble",
+    "input"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "rumble-timer-coarse-clock",
+   "title": "Kernel timers used a 15-16 ms clock",
+   "subject": {
+    "kind": "function",
+    "id": "kernel_bridge timer block"
+   },
+   "addresses": [],
+   "related": [
+    "rumble-motor-gating"
+   ],
+   "fact": "GetTickCount64 advances in 15 to 16 ms steps, and the kernel_bridge due time used it. A period request alone therefore does not give 1 ms deadlines. The accepted timer fix uses a QPC origin with safe 100 ns conversion, a 1 ms high-resolution wait cleanup, and arms the event under lock before publishing it. The periodic phase catch-up redesign was deferred.",
+   "how_to_use": "Use QPC for new deadlines in kernel_bridge rather than GetTickCount64.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "timer",
+    "kernel"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "rumble-xinput-init-once",
+   "title": "XInput feedback is initialized once before first output",
+   "subject": {
+    "kind": "function",
+    "id": "xinput_device feedback callback"
+   },
+   "addresses": [],
+   "related": [
+    "rumble-pause-gate"
+   ],
+   "fact": "The rumble callback policy uses an INIT_ONCE XInput setup before the first non-silent output, and an atomic front-end callback publish with SRW locking. A regression must show that the first output leads to a pause without InputInit having run. The candidate passed 33 checks in each of two runs, while the old build failed 16 in each.",
+   "how_to_use": "Use the rumble test that runs output before InputInit.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "rumble",
+    "input"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "controller-bridge-inversion-mapping",
+   "title": "Controller inversion and vibration bridge mapping",
+   "subject": {
+    "kind": "setting",
+    "id": "controller invert and vibration"
+   },
+   "addresses": [
+    "0021F989",
+    "00223DBC"
+   ],
+   "related": [
+    "pc_gui_bridge.c",
+    "Controls48BF20"
+   ],
+   "fact": "The native bridge had its UI rows swapped. Inversion is guest +0x76 with mask 1 (bit 0) and vibration is guest +0x75 with mask 2 (bit 1); the older text saying bit 1 and bit 2 was superseded. The base bridge at 21F989 bypassed the derived accept at 223DBC, which applies the active camera before persistence.",
+   "how_to_use": "Do not change axis negation; the fix is in the bridge mapping.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "input",
+    "settings",
+    "controller"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "name-entry-keyboard-dialog",
+   "title": "Name entry: MAKeyboardDlg callers and text capture",
+   "subject": {
+    "kind": "menu",
+    "id": "MAKeyboardDlg 48F7D0"
+   },
+   "addresses": [
+    "0048C2F8",
+    "00224D27",
+    "001FB975",
+    "0048F7D0"
+   ],
+   "related": [
+    "pc_input_text_captured"
+   ],
+   "fact": "The name entry is reached from Avatar_locker 48C2F8 with action 224D27 going to 1FB975 with flags 82, which opens MAKeyboardDlg 48F7D0. The modal hit failure came from a record offset that was empty, and the keyboard text is captured while the physical pad keeps working. ReadMouse ignored the text-capture gate and was fixed in the same change. Keyboard WM_CHAR does not suppress GetAsyncKeyState, so a separate suppression is needed.",
+   "how_to_use": "Check the text-capture gate in both keyboard and mouse input when adding dialogs.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "menu",
+    "input",
+    "name-entry"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "pc-prompts-candidate",
+   "title": "Prompt text candidate for controller bindings",
+   "subject": {
+    "kind": "file",
+    "id": "pc_prompts.cpp"
+   },
+   "addresses": [],
+   "related": [
+    "pc_prompts.cpp"
+   ],
+   "fact": "The prompt candidate B8499A99 changes 31 of the 181 authored rows, all in controller or menu text, and keeps the original baseline 80A2C005. It corrects the 'lore pull' corruption and the D-pad and stick wording and keeps the hack sequences unchanged. The ABXY and bare-press prompts were checked against the authored strings.",
+   "how_to_use": "Compare prompt text against the 181-row baseline before changing it.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "prompts",
+    "menus",
+    "controller"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "qte-hook-1fe68d",
+   "title": "QTE HUD drawing hook at 1FE68D",
+   "subject": {
+    "kind": "function",
+    "id": "001FE68D HUD Jacking Button"
+   },
+   "addresses": [
+    "001FE68D",
+    "001FF94C",
+    "000C1640",
+    "000C0FD0"
+   ],
+   "related": [
+    "gen/recomp_0053.c",
+    "HUD: Jacking Button"
+   ],
+   "fact": "The QTE HUD draw for the jacking button is function 1FE68D, with the hook at 1FE6B2 after the original visibility and texture gates. The text path uses UTF-16 font routines at 1FF94C, C1640 and C0FD0. The original QTE glyphs are baked into state artwork, and the 2820-check oracle with 786 original-code records found no mismatch.",
+   "how_to_use": "The hook lives in gen/recomp_0053.c; keep the original gates before any label drawing.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "qte",
+    "hud",
+    "generated-code"
+   ],
+   "date": "2026-10-10",
+   "addresses_unverified": [
+    "001FE6B2"
+   ]
+  },
+  {
+   "id": "qte-caption-tree-rect",
+   "title": "QTE captions were rejected by the tree-rect check",
+   "subject": {
+    "kind": "concept",
+    "id": "QTE caption tree rect and root"
+   },
+   "addresses": [],
+   "related": [
+    "qte-hook-1fe68d"
+   ],
+   "fact": "At 3840x1600, the LT and RT QTE icons were rejected by the tree-rect check, because the root 2 assumption in 76D4 treated a zero-area structural container as invalid. The accepted fix 81B49 and CB12 keeps the original root no-paint callbacks in place. The ABXY caption rows 191, 195, 199 and 203 were replaced with current-binding captions.",
+   "how_to_use": "The original structural container is valid; do not require a non-zero rect.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "qte",
+    "hud"
+   ],
+   "date": "2026-10-10",
+   "addresses_unverified": [
+    "000076D4"
+   ]
+  },
+  {
+   "id": "qte-kbm-mouse-order",
+   "title": "KBM QTE mouse icons were swapped and are now fixed",
+   "subject": {
+    "kind": "concept",
+    "id": "QTE Mouse1/Mouse2 icon order"
+   },
+   "addresses": [],
+   "related": [
+    "qte-caption-tree-rect"
+   ],
+   "fact": "The KBM QTE showed Mouse2/RMB on the left and Mouse1/LMB on the right, which was wrong for the PC mapping. The fix exchanged the render rect and legend for rows 207 to 214 so that the plate, highlight and binding move together. The confirmed in play in build B63B that the mouse order is correct.",
+   "how_to_use": "Change icon placement only through the render rect and legend exchange, not by swapping labels.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "qte",
+    "input"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "qte-kbm-response-window",
+   "title": "KBM QTE gets 1.25x response time",
+   "subject": {
+    "kind": "function",
+    "id": "sub 18F27B QTE step budget"
+   },
+   "addresses": [
+    "0018F27B"
+   ],
+   "related": [
+    "qte-hook-1fe68d"
+   ],
+   "fact": "The QTE step timer gives keyboard and mouse a 1.25x response window while the controller keeps the original 1.0 window. The change is post-original, after the response write, and does not reset the countdown or affect the global clock. The 602-case baseline with 3010 checks matched the original authored budgets of 0.5, 0.55, 0.65 and 0.75.",
+   "how_to_use": "The mode is read from the input mode API; the controller path must not change.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "qte",
+    "accessibility"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "qte-glyph-status",
+   "title": "QTE controller glyphs and labels remain partly open",
+   "subject": {
+    "kind": "concept",
+    "id": "QTE glyph state artwork"
+   },
+   "addresses": [],
+   "related": [
+    "qte-hook-1fe68d"
+   ],
+   "fact": "Some original QTE state artwork still shows controller letters and has no letter-free replacement. The alternate-art draft was still under review for alpha and glow drift, and the LT and RT labels were still pending human acceptance. The full native QTE was not claimed as working.",
+   "how_to_use": "Check the live QTE captions by hand before claiming the LT and RT path works.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "qte",
+    "open"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "enhanced-fmv-layout",
+   "title": "Enhanced FMV file layout and selection",
+   "subject": {
+    "kind": "asset",
+    "id": "Movie/Enhanced/2x"
+   },
+   "addresses": [],
+   "related": [
+    "BinkOpen 0x390FC0"
+   ],
+   "fact": "Enhanced movies are MKV files in Movie/Enhanced/2x with the same names and frame rates as the originals. MAIntro at startup is enhanced automatically, while Attract, SPIntro and ConquestIntro follow the default Original or the enhanced option. The option is stored as PC FMV quality, default 0. The enhanced content is scaled into the guest 640x480 movie texture, so no true 2x texture is used yet.",
+   "how_to_use": "Replace a movie by putting a matching MKV in Movie/Enhanced/2x; the original BIK is the fallback.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "fmv",
+    "assets",
+    "movie"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bink-open-handle-mode",
+   "title": "BinkOpen handle mode was misread as a C string",
+   "subject": {
+    "kind": "function",
+    "id": "ma2_bink_opened / BinkOpen 0x800000"
+   },
+   "addresses": [
+    "00390FC0"
+   ],
+   "related": [
+    "bink_native.c",
+    "enhanced-fmv-layout"
+   ],
+   "fact": "Retail BinkOpen with handle mode 0x800000 was treated as a C string in ma2_bink_opened, so the movie-open path did not handle it correctly. The fix resolves the handle to its canonical path through a read-only helper in kernel_bridge, and it only whitelists the original movie path and junctions. Movie opens in handle mode are checked before any guest pointer use.",
+   "how_to_use": "Any new movie opener must treat handle-mode values as handles, not strings.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "fmv",
+    "kernel",
+    "bink"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "bink-frame-rate-guard",
+   "title": "enhanced_open guard fix for LastFrameNum and frame rate",
+   "subject": {
+    "kind": "function",
+    "id": "bink_native.c enhanced_open guard"
+   },
+   "addresses": [],
+   "related": [
+    "bink-open-handle-mode"
+   ],
+   "fact": "The original Bink movie struct stores the public FrameRate at +0x14 and its divisor at +0x18, and the enhanced_open guard read LastFrameNum at +0x10 instead. The one-line fix sets LastFrame to 0 for rate 2997 over divisor 100 so that the canonical MKV opens with the correct timing. Before the fix the oracle had 1 failure, and after it 25 passes.",
+   "how_to_use": "The enhanced MKV must match the original 2997:100 rate and 4:3 SAR.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "fmv",
+    "bink"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "enhanced-intro-live-check",
+   "title": "Enhanced MAIntro is played in the packaged build",
+   "subject": {
+    "kind": "asset",
+    "id": "MAIntro 778-frame enhanced movie"
+   },
+   "addresses": [],
+   "related": [
+    "bink-frame-rate-guard"
+   ],
+   "fact": "In build v25 the enhanced MAIntro (778 frames at 2997:100) was selected, advanced from frame 2 to frame 4, and skipped to the title on an early Space press. Video-option persistence and the deliberate close were not tested. The earlier clean exit was a guest HalReturnToFirmware routine, not a deliberate quit.",
+   "how_to_use": "Check the Video option and deliberate quit by hand; do not count the exit code as proof.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "fmv",
+    "testing"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "usb-set-report-crash",
+   "title": "USB SET_REPORT crash: invalid write after TD allocator",
+   "subject": {
+    "kind": "function",
+    "id": "sub_42532E SET_REPORT (original 4253C9)"
+   },
+   "addresses": [
+    "0042532E",
+    "004253C9",
+    "00425264"
+   ],
+   "related": [
+    "kernel_hal dispatch_guest_caller_matches"
+   ],
+   "fact": "The access violation was a write of guest FFFFFFFF from native RVA 310AF47, mapped to the original SET_REPORT setup at 4253C9 (setup word 02000921). The write landed after the TD allocator at 425264, which uses a global free head at 534D0C.",
+   "how_to_use": "Use the 0xC0000005 log entry and the RVA to find the crash site in a new run.",
+   "status": "superseded",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "usb",
+    "crash",
+    "kernel"
+   ],
+   "date": "2026-10-10",
+   "addresses_unverified": [
+    "00534D0C",
+    "0310AF47"
+   ]
+  },
+  {
+   "id": "usb-dispatch-caller-fix",
+   "title": "Kernel dispatch caller check fix for IRQL raise",
+   "subject": {
+    "kind": "function",
+    "id": "kernel_hal dispatch_guest_caller_matches"
+   },
+   "addresses": [],
+   "related": [
+    "usb-set-report-crash"
+   ],
+   "fact": "The caller check in kernel_hal read MEM32(g_esp), but kernel_bridge had captured the TLS g_xbox_kernel_caller and then popped 4 bytes before the call. The accepted two-file candidate (kernel_bridge 17F7 and HAL 1166) makes KfRaiseIrql and KeRaiseIrqlToDpcLevel enter and leave a dispatch region with the captured caller and the saved state. The historical FFFFFFFF value was not reproduced, and the fix is not a universal crash guarantee.",
+   "how_to_use": "The IRQL raise must keep the captured caller in TLS and not re-read the stack.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "usb",
+    "kernel",
+    "irql"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "restart-oom-heap",
+   "title": "Mission restart OOM in the guest heap",
+   "subject": {
+    "kind": "concept",
+    "id": "mission restart heap OOM"
+   },
+   "addresses": [],
+   "related": [
+    "restart-heap-reuse"
+   ],
+   "fact": "A restart load ran out of guest heap: the stderr at 122228 shows a request of 3761904 bytes against 48785136 of 50855936 in use. The generic heap tail join fix (D27) reuses freed tail blocks and was checked with 94 contracts and an independent peer review of coalescing, tombstones, alignment and locking. The actual tail geometry during the incident was not recorded.",
+   "how_to_use": "Watch the heap OOM line in the stderr when testing a restart.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "memory",
+    "restart",
+    "kernel"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "restart-heap-reuse",
+   "title": "Restart heap reuse is in the 2959 and later builds",
+   "subject": {
+    "kind": "file",
+    "id": "kernel archive heap D27"
+   },
+   "addresses": [],
+   "related": [
+    "restart-oom-heap"
+   ],
+   "fact": "The D27 heap tail-join change was built as a one-TU kernel archive (FEB564/4490) in which 30 of 31 members are unchanged and only the layout object differs. It was included in the combined human-test build 805659 and later.",
+   "how_to_use": "Check the restart after any kernel archive rebuild.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "memory",
+    "build"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "msvc-c1001-generated",
+   "title": "MSVC C1001 on generated units 0057, 0059 and 0097",
+   "subject": {
+    "kind": "tool",
+    "id": "MSVC internal optimizer"
+   },
+   "addresses": [],
+   "related": [
+    "recomp_0057.c"
+   ],
+   "fact": "The MSVC internal optimizer raised C1001 on the generated units gen0057, gen0059 , earlier, gen0097 after 189 of 203 steps. The workaround compiles those units with /Ob0 and keeps /O2 and the source unchanged. Native performance impact was not measured.",
+   "how_to_use": "Use the per-unit /Ob0 flag if the same C1001 returns; do not change the source.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "build",
+    "msvc"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "pulse-laser-class7",
+   "title": "Pulse laser is authored as class 7 BA template 36031",
+   "subject": {
+    "kind": "asset",
+    "id": "Mission01b class 7 pulse (31855/31856/31857)"
+   },
+   "addresses": [],
+   "related": [
+    "pulse-blend-fix"
+   ],
+   "fact": "The pulse laser is authored as class 7 with type 1 (resource 31857) and a body and tip of two draws, each from a 64x64 ARGB single-mip texture. It is not class 12 mortar.",
+   "how_to_use": "Trace pulse faults from the class 7 template 36031, not the mortar class.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "laser",
+    "renderer",
+    "assets"
+   ],
+   "date": "2026-10-10",
+   "addresses_unverified": [
+    "00036031"
+   ]
+  },
+  {
+   "id": "pulse-blend-fix",
+   "title": "Pulse laser blend fix: constant alpha source",
+   "subject": {
+    "kind": "function",
+    "id": "renderer blend adapter (nv2a_gpu_d3d11)"
+   },
+   "addresses": [],
+   "related": [
+    "pulse-laser-class7"
+   ],
+   "fact": "The renderer mapped colour and alpha blend factors together but supplied RGBA instead of a replicated alpha for the class 7 draw. For the pulse, source 8003 with alpha off and destination 1 with add equation 8006 is the case that was wrong, and the blend constant FF000000 is used. The behaviour-only constant-alpha blend change was accepted and the confirmed in play the pulse lasers are visible. Mixed constant colour and alpha is not supported and is still a documented limitation.",
+   "how_to_use": "Mixed colour and alpha blend constants are still unsupported; test those cases separately.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "laser",
+    "renderer",
+    "blend"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "pulse-withdrawn-inference",
+   "title": "Burst and BA36031 texture inference withdrawn",
+   "subject": {
+    "kind": "concept",
+    "id": "pulse texture inference"
+   },
+   "addresses": [],
+   "related": [
+    "pulse-blend-fix"
+   ],
+   "fact": "The inference that BA36031 used a separate resource was withdrawn, because it shares the canonical glow textures. A 30-frame burst that ended before the 600 ms release was an invalid test. Valid tests must hold the fire input and capture at least 1.2 s.",
+   "how_to_use": "Capture at least 1.2 s of held fire when testing pulse rendering.",
+   "status": "superseded",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "laser",
+    "testing"
+   ],
+   "date": "2026-10-10",
+   "addresses_unverified": [
+    "00036031"
+   ]
+  },
+  {
+   "id": "pulse-line-width-refuted",
+   "title": "Line-width cause of invisible pulse was refuted",
+   "subject": {
+    "kind": "concept",
+    "id": "pulse line width"
+   },
+   "addresses": [],
+   "related": [
+    "pulse-laser-class7"
+   ],
+   "fact": "The point-size register NV097 0x43C is discarded by the PB/HLSL path, but the pulse does not use that path. This superseded the point-sprite causal claim.",
+   "how_to_use": "Do not add line-expansion code for the pulse.",
+   "status": "superseded",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "laser",
+    "renderer"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "mission-route-prologue",
+   "title": "Cinema1_1a is a skippable prologue; test from Mission01b",
+   "subject": {
+    "kind": "concept",
+    "id": "Cinema1_1a and StreetSweeper Mission01b"
+   },
+   "addresses": [],
+   "related": [
+    "mission01b-salvage-truck"
+   ],
+   "fact": "Cinema1_1a is a skippable non-gameplay prologue. The first playable mission is StreetSweeper Mission01b. Automated tests that stay in the prologue record no firing evidence, so they must reach Mission01b before arming the weapon.",
+   "how_to_use": "Use the StreetSweeper index 1 path for automated mission-1 tests.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "mission",
+    "testing"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "audio-hrtf-default",
+   "title": "HRTF audio is off by default",
+   "subject": {
+    "kind": "setting",
+    "id": "APU HRTF (Try-HRTF-Audio.cmd)"
+   },
+   "addresses": [],
+   "related": [
+    "apu_vp.c",
+    "audio-mix-trace"
+   ],
+   "fact": "Try-HRTF-Audio.cmd turns it on and the normal start leaves it off. The HRTF decode path is a separate experiment and was not proven on hardware.",
+   "how_to_use": "Enable the HRTF path only with Try-HRTF-Audio.cmd.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "audio",
+    "settings"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "audio-mix-trace",
+   "title": "Audio mix trace markers in the build",
+   "subject": {
+    "kind": "tool",
+    "id": "MIX_TRACE / GAIN_TRACE / [APU-MIX] / [APU-GAIN]"
+   },
+   "addresses": [],
+   "related": [
+    "audio-hrtf-default"
+   ],
+   "fact": "The mix and gain trace is bounded to 96 lines and enabled by the GAIN_TRACE and MIX trace settings. A build that lacks the markers MIX_TRACE, GAIN_TRACE, HRTF, [APU-MIX] or [APU-GAIN] in its EXE was a stale archive. Checking the EXE for these strings is the quick test that the trace is compiled .",
+   "how_to_use": "Search the EXE for the marker strings before reading any audio trace.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "audio",
+    "logging",
+    "build"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "audio-clipping-open",
+   "title": "Audio clipping in the mission-2 battle is still open",
+   "subject": {
+    "kind": "concept",
+    "id": "APU submix clipping"
+   },
+   "addresses": [],
+   "related": [
+    "audio-mix-trace"
+   ],
+   "fact": "Battle audio hit the int16 rails from about 75 s, with submix 6, 7, 8 and 9 headroom at zero. The W4 check found that duplicate routing of bins 6 and 7 was not the cause, and that the 3D classifier threshold is not an explosion count. The actual clipping source and any audible fix remain open, and the apu_core int16 output at the battle end is a full-scale negative rail.",
+   "how_to_use": "Do not claim an audio fix without a matched human listen and a trace from the same battle.",
+   "status": "open-question",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "audio",
+    "open"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "audio-tail-budget",
+   "title": "Audio tail CPU budget is 128 plus 128",
+   "subject": {
+    "kind": "concept",
+    "id": "audio tail throughput"
+   },
+   "addresses": [],
+   "related": [
+    "audio-clipping-open"
+   ],
+   "fact": "The audio tail path is still above its CPU budget of 128 plus 128 on the audible stream. Tail guards were not accepted; the audio work was judged on its underrun, backpressure and glitch counters, which were zero in the XA2 run. CPU tests are not proof of shipping audio quality.",
+   "how_to_use": "Check the XA2 underrun, backpressure and glitch counters in the audio test output.",
+   "status": "open-question",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "audio",
+    "performance"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "audio-adpcm-review",
+   "title": "Audio report found legal low-pitch, HRTF bypass and drain-stop bugs",
+   "subject": {
+    "kind": "concept",
+    "id": "audio-adpcm-review"
+   },
+   "addresses": [],
+   "related": [
+    "apu_vp",
+    "apu_state"
+   ],
+   "fact": "The apu_vp and apu_state repairs keep guest active state, notifier, offsets, loops and ownership, and they were tested with the matching fixtures. The audible result was not proven.",
+   "how_to_use": "Look at apu_vp and apu_state before changing voice stop or filter code.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "audio",
+    "apu"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "explosion-hitch-cold-first-use",
+   "title": "First explosion hitch: cold first-use is a hypothesis",
+   "subject": {
+    "kind": "concept",
+    "id": "mech and battleship explosion hitch"
+   },
+   "addresses": [],
+   "related": [
+    "gpu-device-recovery"
+   ],
+   "fact": "A warm relaunch does not show the first-explosion hitch, which fits a cold first-use cost, but this is not proven. The reported 5-second phase totals cannot be summed into one frame cause.",
+   "how_to_use": "Measure event-local first-use cost before optimizing.",
+   "status": "open-question",
+   "confidence": "inferred",
+   "source": [],
+   "tags": [
+    "performance",
+    "explosion"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "save-latency-measurement",
+   "title": "Checkpoint save latency measurements",
+   "subject": {
+    "kind": "save",
+    "id": "checkpoint save latency"
+   },
+   "addresses": [
+    "0015EFF2",
+    "000B9400"
+   ],
+   "related": [
+    "checkpoint-serialization"
+   ],
+   "fact": "The raw checkpoint call 15EFF2 took about 146 ms, with the writer B9400 taking about 145 ms and overlapping it. One profile-only run showed the graph span at 0 and 2 to 3 ms, with up to 34 uncovered callbacks. The measurement added no save optimization.",
+   "how_to_use": "Use the save timeline to attribute latency before changing kernel storage.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "save",
+    "performance"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "save-quit-path",
+   "title": "Save and Quit path 167DB6 and 167ED9",
+   "subject": {
+    "kind": "function",
+    "id": "gen0037 SaveQuit 167DB6 / 167ED9"
+   },
+   "addresses": [
+    "00167DB6",
+    "00167ED9",
+    "00167B25"
+   ],
+   "related": [
+    "checkpoint-serialization"
+   ],
+   "fact": "The Save and Quit path runs through gen0037 at 167DB6 and 167ED9, with the transfer envelopes around the checkpoint call. Probes around those two sites record the native IO order and the profile callback without double counting. The path was instrumented but not optimized.",
+   "how_to_use": "Keep native IO order and the profile callback union when adding probes.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "save",
+    "instrumentation"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "playthrough-capture-zip-lifecycle",
+   "title": "Capture ZIP must be built before writers are disposed",
+   "subject": {
+    "kind": "tool",
+    "id": "CaptureHost Collect / RecorderFinish"
+   },
+   "addresses": [],
+   "related": [
+    "playthrough-resume"
+   ],
+   "fact": "A sharing violation came from the recorder: the writers were disposed before the ZIP was built. CaptureHost Collect and RecorderFinish now keep the writers open until Dispose and build the ZIP before the final Dispose.",
+   "how_to_use": "Use the Playthrough capture kit output; do not dispose writers before collecting the ZIP.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "tool",
+    "capture",
+    "logging"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "playthrough-resume",
+   "title": "Resume checks profile_origin_sha256 instead of the exe hash",
+   "subject": {
+    "kind": "tool",
+    "id": "Start-Playthrough.cmd / Resume"
+   },
+   "addresses": [],
+   "related": [
+    "playthrough-capture-zip-lifecycle"
+   ],
+   "fact": "Resume originally required the exact executable hash, so it blocked the first build after ED91. It now accepts a build transition when the profile_origin_sha256 marker matches the same canonical PC Release identity. Differing packages with a mismatched origin marker are rejected, and the transition is recorded in the new run metadata. The old run, profile and latest pointer are left untouched.",
+   "how_to_use": "Use Start-Playthrough.cmd Resume to continue an existing profile after an in-place build.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [],
+   "tags": [
+    "tool",
+    "resume",
+    "profile"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "in-place-install-policy",
+   "title": "Decision: install into the original PC Release folder in place",
+   "subject": {
+    "kind": "concept",
+    "id": "install policy"
+   },
+   "addresses": [],
+   "related": [
+    "atomic-exe-last"
+   ],
+   "fact": "Builds are applied in place to the original normal-launch installation, backing up only the replaced files and never copying assets. This superseded the earlier Playtest v29-style publishing.",
+   "how_to_use": "Use the in-place installer with a strict protected-file hash check before and after.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "install",
+    "policy"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "atomic-exe-last",
+   "title": "In-place installer replaces the EXE last with rollback",
+   "subject": {
+    "kind": "tool",
+    "id": "Windows in-place installer 971F / runner 5DB6"
+   },
+   "addresses": [],
+   "related": [
+    "in-place-install-policy"
+   ],
+   "fact": "The in-place installer renames the held old EXE and commits the new EXE last, so a failure restores the old name. It then cleans up the exact known replacement backups. An earlier attempt failed with a sharing lock error (WinError 5) and was replaced by this lock-retire-atomic mechanism, which was checked with a dummy cross-process proof.",
+   "how_to_use": "Run the installer with the reviewed runner and the grant file, and check the protected-file hashes before and after.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "install",
+    "tool"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "root-launcher-routing",
+   "title": "Root launcher routes to PC Release first",
+   "subject": {
+    "kind": "file",
+    "id": "root launcher 4c55f308"
+   },
+   "addresses": [],
+   "related": [
+    "in-place-install-policy"
+   ],
+   "fact": "The root launcher (hash 4c55f308) routes to PC Release first and falls back to the build folder. PC Release MechAssault 2.exe with hash a81c93da is the authoritative normal destination. Older assumptions about the routing were superseded.",
+   "how_to_use": "Check the launcher routing before assuming which EXE runs.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "install",
+    "launcher"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "build-identity-history",
+   "title": "Build identities in the history",
+   "subject": {
+    "kind": "concept",
+    "id": "EXE hash history"
+   },
+   "addresses": [],
+   "related": [
+    "in-place-install-policy"
+   ],
+   "fact": "The history of EXE hashes: packaged v16 A81C93DA; v21 261D0F90; v22 A373EECB; v25 2A192D35; v26 835DF838; v27 139E9A10; v28 901A6AEF; then in-place builds 1076AFC8, ED91, 71AC, 2485, 2959CD55, 8DF1EBEB and B06E7C90. Each entry is historical once a later build is installed. Matching a hash confirms the build, not its behaviour.",
+   "how_to_use": "Record the hash of the EXE under test with every result.",
+   "status": "historical",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "build",
+    "history"
+   ],
+   "date": "2026-10-11"
+  },
+  {
+   "id": "gpu-lease-protocol",
+   "title": "",
+   "subject": {
+    "kind": "concept",
+    "id": "gpu-lease-protocol"
+   },
+   "addresses": [],
+   "related": [
+    "gpu-device-recovery"
+   ],
+   "fact": "Before a grant, the reviewer checks that no MechAssault, mechassault2_recomp, gpu_test or ffmpeg process is running.",
+   "how_to_use": "Check the process inventory and wait for the owned child to exit before any new game launch.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "process",
+    "testing",
+    "decision"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "universal-fix-rule",
+   "title": "Decision: fixes must be universal engine changes",
+   "subject": {
+    "kind": "concept",
+    "id": "no mission-specific tank patch"
+   },
+   "addresses": [],
+   "related": [
+    "tank-spring-1718ed"
+   ],
+   "fact": "Mission, cinema or UID specific patches, forced flattening of tilt, and frame-rate caps are not accepted. Scene or UID guards may be used only as opt-in diagnostics.",
+   "how_to_use": "Check every physics or timing fix for mission and UID specific branches before accepting it.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "decision",
+    "physics"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "ps4-controller-xinput",
+   "title": "PS4 controller is supported only through XInput",
+   "subject": {
+    "kind": "concept",
+    "id": "PS4 controller support"
+   },
+   "addresses": [],
+   "related": [
+    "ImGui UpdateGamepads"
+   ],
+   "fact": "The current implementation supports only XInput controllers. A PS4 controller is supported only if it exposes XInput, and native DirectInput or PS4 support is not claimed. Drivers are not installed by the project.",
+   "how_to_use": "Record the connection mode of a PS4 controller before claiming compatibility.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "input",
+    "compatibility"
+   ],
+   "date": "2026-10-09"
+  },
+  {
+   "id": "pulse-session-pacing",
+   "title": "The PERF data had to separate sustained fill and overdraw from CPU submission, resource creation and sync spik",
+   "subject": {
+    "kind": "concept",
+    "id": "explosion frame drops"
+   },
+   "addresses": [],
+   "related": [
+    "explosion-hitch-cold-first-use"
+   ],
+   "fact": "The PERF data had to separate sustained fill and overdraw from CPU submission, resource creation and sync spikes, because the GPU draw metric is CPU wall time. No blanket particle culling was accepted.",
+   "how_to_use": "Segment the explosion phases before any fix; do not cull particles to hide cost.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "performance",
+    "explosion"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "rumble-pause",
+   "title": "Rumble after pause and boost landing",
+   "subject": {
+    "kind": "concept",
+    "id": "rumble lingering after pause"
+   },
+   "addresses": [],
+   "related": [
+    "rumble-motor-gating"
+   ],
+   "fact": "The root gap was a focus-only feedback gate. The fix work accepts a focus policy that stops motors on pause, focus loss or close, and resumes a fresh demand, but physical controller acceptance is still pending.",
+   "how_to_use": "Physical pause, focus and close tests are still needed for rumble.",
+   "status": "open-question",
+   "confidence": "documented",
+   "source": [],
+   "tags": [
+    "rumble",
+    "input",
+    "open"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "original-install-protected-set",
+   "title": "Protected user data set during in-place installs",
+   "subject": {
+    "kind": "concept",
+    "id": "protected file set"
+   },
+   "addresses": [],
+   "related": [
+    "in-place-install-policy"
+   ],
+   "fact": "Each in-place install records a strict before and after hash snapshot of the protected files, which include the enhanced movies, saves, settings, results and the root launcher. The installer reports any missing, changed or added file. An additive app-data Cache exception was accepted once, and the snapshot difference was kept as evidence.",
+   "how_to_use": "Compare the before and after snapshots after every in-place install.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "install",
+    "saves"
+   ],
+   "date": "2026-10-10"
+  },
+  {
+   "id": "playthrough-capture-timeline",
+   "title": "Capture records window, focus, controller and save events",
+   "subject": {
+    "kind": "tool",
+    "id": "Playthrough Capture v4 recorder"
+   },
+   "addresses": [],
+   "related": [
+    "playthrough-capture-zip-lifecycle"
+   ],
+   "fact": "The capture recorder logs native and focus state every 500 ms (coalesced) and a committed-save timeline every 2 s, with about 144 bytes of native context, the device and 14 encoded settings. It reads the getter machine byte, data section and module base of the owned child, and it rejects unknown layouts. It does not poll XInput and does not inject input. Committed save flags 0x74 and volume values at 0x1C20 are watched, but transient guest toggles are a stated coverage gap.",
+   "how_to_use": "Read the capture ZIP timeline to see the focus, controller and save events for a session.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [],
+   "tags": [
+    "tool",
+    "capture",
+    "logging"
+   ],
+   "date": "2026-10-10"
+  }
+ ]
+}

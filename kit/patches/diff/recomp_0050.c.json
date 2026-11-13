@@ -1,0 +1,1 @@
+[[8,0,["void ma2_bots_level_begin(uint32_t session);\r\n","void ma2_bots_level_spawn(uint32_t session);\r\n"]],[1061,0,["    ma2_bots_level_begin(ebx);\r\n"]],[1095,0,["    ma2_bots_level_spawn(ebx);   /* native bots: BotPlayers after the lobby iterator */\r\n"]]]

@@ -1,0 +1,156 @@
+MechAssault 2 PC recompilation - changes
+========================================
+
+You have version {{VERSION}} (build {{BUILD}}).
+
+
+1.0.9
+-----
+First public release.
+
+Game
+- Logs no longer contain your Windows user name: folders in your user
+  profile are written as %LOCALAPPDATA%, %APPDATA% or %USERPROFILE%,
+  so a log is safe to post in a bug report.
+- If the game crashes or stops responding, the message box now points
+  you to Collect diagnostics first. Share the crash dump file only if a
+  maintainer asks for it.
+Installer
+- FFmpeg (cutscene playback) is no longer inside the installer: it is
+  downloaded during the install from where it is published, and every
+  file is checked before use.
+Scenario Editor
+- Its crash log and messages no longer contain your Windows user name.
+- Help > About and the file properties show 1.0.9.
+
+1.0.8
+-----
+Game
+- Story cutscenes now fill the screen at full resolution on widescreen
+  and ultrawide displays, instead of a small 4:3 picture with side bars,
+  and run at 60 FPS instead of 30.
+- The three "incoming transmission" cutscenes keep their original 4:3
+  frame.
+- Two new settings in pc_settings.ini, [Display] section:
+  CinematicView (2 = fill the screen, the default; 1 = fill up to 16:9;
+  0 = original 4:3 with side bars; 3 = wide) and CinematicFrameCap
+  (cutscene frame rate, default 60; 0 = use the normal frame limit).
+  Filling the screen needs Aspect ratio set to Automatic.
+Scenario Editor
+- Help > About and the file properties show 1.0.8.
+
+1.0.7
+-----
+Game
+- Bot VTOLs pick up their Battle Armor teammates faster: they glide down
+  on the way in instead of stopping high and sinking, and take off as soon
+  as a rider latches on.
+- A VTOL carrying a Battle Armor no longer flies so low that its rider is
+  knocked off by buildings or the ground, and steers round tall towers.
+- With a rider aboard, a VTOL heads straight for the objective instead of
+  breaking off to fight, and its rider stays on until it gets there.
+- VTOLs no longer get stuck at the edge of the map on the way out of base.
+- A VTOL no longer keeps chasing a Battle Armor that has stopped trying
+  to board (for example one that has turned to fight).
+Scenario Editor
+- Help > About and the file properties show 1.0.7.
+
+1.0.6
+-----
+Game
+- Bots walk over small rises instead of jet-hopping them and no longer
+  cut over mounds, so they reach objectives more directly.
+Scenario Editor
+- Help > About and the file properties show 1.0.6.
+
+1.0.5
+-----
+Game
+- Bots: smoother landings after a jump and steadier first steps.
+- Bots no longer queue up at the wide exits of their base.
+- Snatch It!: bots no longer give up on the data core from far away.
+- Tanks no longer wrongly avoid slopes, and bots no longer bail out of
+  tanks that are still working.
+- Ill Wind: the two teams now reach the objectives at a closer pace.
+Scenario Editor
+- Help > About and the file properties show 1.0.5.
+
+1.0.4
+-----
+Game
+- Bots: more even objective races between the two teams.
+  - Snatch It!: bots no longer dither between two data cores.
+  - No Man's Land: units no longer stop for VTOLs that are far away.
+  - Two bots meeting at a narrow pass no longer wait for each other.
+  - Bots no longer turn the wrong way after landing.
+  - Fewer stalls before a leap or a jump-jet climb; giving way to a
+    teammate no longer cancels a jump.
+  - A bot walking a chain of waypoints holds its course.
+Scenario Editor
+- Help > About and the file properties show 1.0.4.
+
+1.0.3
+-----
+Game
+- Lightning storms no longer make the whole scene pulse lighter and darker:
+  the flash now lights the units (Mechs, vehicles, pilots), not the ground
+  and sky.
+- Bots: both teams reach contested objectives at a fairer pace in Snatch It!
+  and Check It! (better climbing over ledges and up basin walls, buildings
+  taller than 40 m are seen as walls on Rush Hour, less stutter after
+  boarding a vehicle).
+
+1.0.2 - first release outside the development team
+--------------------------------------------------
+Game
+- First launch opens borderless fullscreen at your desktop resolution and
+  never picks an enhanced texture pack that is not installed.
+- The Multiplayer entry for offline play is now called BOT MATCH. A new
+  profile starts with bots (3 Red, 4 Blue, 5 in free-for-all, skill Mixed);
+  the bot rows explain the team sizes.
+- Key-binding rows are named by what they do; "Press any key or mouse
+  button..." when choosing a key. Menu key hints read [Esc] Back and similar.
+- The game pauses and goes silent when another window has focus (both can be
+  turned off in the settings file).
+- Esc on a message at the main menu closes the message instead of asking to
+  quit.
+- Quitting restores the Windows Sticky Keys shortcut.
+- Freezes are detected: after 30 seconds the game writes a hang report and
+  dump, and after 2 minutes it offers to close. The crash message names the
+  files to send. The log starts with the version and the graphics card.
+- The shader cache moved to %LOCALAPPDATA%\MechAssault2\ShaderCache.
+- Bot match recordings are limited to the newest 4, at most 150 MB each.
+- Custom Scenarios: two scenarios with the same name are told apart by file
+  name; unfinished scenarios are not listed; skipped files get a short note
+  with the reason; scenarios from older editors get a "save it again" hint.
+- Bots: an overheated 'Mech waits before jumping, a boxed-in 'Mech finds a
+  firing spot sooner, harder bot fire (BurstFire), fixes for BattleArmor
+  walking, VTOL climbing at high frame rates and many map-specific routes.
+- Fixes for rare freezes and crashes in the sound code, and for missing voice
+  lines.
+
+Scenario editor
+- Help > About shows the version; Help > User guide opens the guide.
+- Scenario files record the editor version; File > Update old scenarios...
+  updates files saved with older editors (the old file is kept as .bak).
+- New scenarios get unique names ("New Mission 2"); a name used by another
+  scenario is reported on save.
+- A file copied in Explorer gets its own identity when opened.
+- Damaged files are detected when opened.
+- Name and description length limits (60 and 250 characters).
+- The New scenario dialog fits on small and high-DPI screens.
+
+Installer
+- Checks every file of the disc dump and names damaged files.
+- Accepts a folder copied from the disc as well as an .iso/.xiso.
+- Free space on C: no longer blocks an install to another drive.
+- Uninstall and Collect diagnostics on the first page.
+- Clearer messages when it cannot start, when a download fails and on the
+  failure screen, with buttons to go back to the right page.
+- Ships Controls.txt and the Docs folder; licences of every component.
+
+
+1.0 - 2026-11-02
+----------------
+First release for testers: the full campaign, offline bot matches and the
+scenario editor.
