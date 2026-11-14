@@ -6,11 +6,13 @@ An unofficial PC port of MechAssault 2: Lone Wolf (Xbox, 2004). You need your ow
 
 MechAssault 2 never came out on PC. This project takes the game's code off your own disc, recompiles it into a native Windows program using [xboxrecomp](https://github.com/sp00nznet/xboxrecomp), and puts a PC layer on top for graphics, input and settings. It's the original game code running natively, not a full emulator, although the Xbox audio chip and GPU are still emulated.
 
+This is a personal project of mine, so it hasn't undergone extensive testing beyond my two systems, but I thought I would share it with the world in case others want to give feedback or build on it. There is no online multiplayer support, since that isn't my interest, would be a lot of work, and is a niche already filled by XLink Kai. Split screen is disabled too, since getting it to work would have taken a lot more development on a feature I personally didn't need.
+
 Not affiliated with Microsoft, Day 1 Studios or anyone who owns BattleTech / MechWarrior.
 
 ## The campaign, with PC features
 
-The whole single-player campaign is here, every mission and cutscene, with the things you'd want from a PC version:
+The whole single-player campaign is here with the things you'd want from a PC version:
 
 - Any resolution, including widescreen and ultrawide, with the HUD fixed to fit
 - Frame rates up to 360 FPS
@@ -91,7 +93,7 @@ You can run the installer again later to update, repair or uninstall.
 - The first time you load each level it can run badly for a few seconds while shaders compile. It's fine after that.
 - Only the US disc works. PAL and Japanese discs aren't supported.
 - Every mission and cutscene loads and runs, but I haven't played all of them through to the end on this build.
-- No online multiplayer.
+- No online multiplayer, and split screen is turned off.
 
 The full list is in [Known issues.txt](kit/defaults/Docs/Known%20issues.txt). If the game crashes, run the installer again and hit "Collect diagnostics", then attach the zip it makes to an [issue](https://github.com/Mazillion/MechAssault2-PC-Recomp/issues). Don't attach game files.
 
