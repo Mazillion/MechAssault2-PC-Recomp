@@ -11,11 +11,14 @@
 #include <deque>
 #include <functional>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include "../core/json.h"
+
+struct ImGuiIO;
 
 namespace ed {
 
@@ -30,6 +33,8 @@ struct AutomationDialogs {
     std::string last_question;    // what the last dialog asked
 };
 AutomationDialogs& automation_dialogs();
+// Resizes the editor window to a client area of w x h (main.cpp; used by the window_size command).
+bool automation_set_client_size(int w, int h);
 
 class Automation {
 public:
@@ -53,6 +58,20 @@ private:
     void finish(const ma2::Json& reply);
     void fail(const std::string& why);
     bool step(App& app);  // runs the current command one frame; true when it finished
+
+    // Input held down by the automation, so nothing can stay stuck unseen. Keys and modifiers: ImGui 1.92 derives
+    // io.KeyCtrl / KeyShift / KeyAlt from the ImGuiMod_* keys, while code may also read IsKeyDown(ImGuiKey_LeftShift):
+    // a modifier is always sent as both (and as the matching Left / Right key).
+    void set_held(ImGuiIO& io, int key, bool down);  // key down / up as a key command asked (modifiers resolved by sync_mods)
+    void send_key(ImGuiIO& io, int key, bool down);  // one event, only when the state changes
+    void sync_mods(ImGuiIO& io);                     // held modifier keys + the current command's `mods` -> queue events
+    void mouse_button(ImGuiIO& io, int btn, bool down);
+    std::vector<std::string> release_all(ImGuiIO& io);
+    std::set<int> held_;    // keys put down by `key action=down` (and press, until released)
+    std::set<int> sent_;    // keys currently down in ImGui's queue because of us (what `state` reports)
+    bool mouse_held_[3] = {};
+    int cmd_mods_ = 0;      // the current command's `mods` (1 ctrl, 2 shift, 4 alt), down for the whole command
+    bool cmd_mods_on_ = false;
 
     std::wstring pipe_;
     std::thread thread_;

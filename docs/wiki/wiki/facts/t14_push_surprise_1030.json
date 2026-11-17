@@ -63,7 +63,7 @@
    },
    "addresses": [],
    "related": [],
-   "fact": "A bot that sees a teammate die within 80 m (inside its field of view and a budgeted ray clear) rolls; the first witness to pass becomes the avenger for 30 s. The killer's target score is x1.3/1.5/1.8/2.0 by skill, the hunt pick weighs him x8 and always hunts, and an F27 knowledge entry is injected at the death spot. Not for pilots on foot, objective locks or vehicle trips. C7 sp_revenge: witnessed, fired_<skill>, found (killer visible within 15 s), avenged, avenger_died. Forced run: 9 witnessed, 9 fired, 8 found.",
+   "fact": "A bot that sees a teammate die within 80 m (inside its field of view and a budgeted ray clear) rolls; the first witness to pass becomes the avenger for 30 s. The killer's target score is x1.3/1.5/1.8/2.0 by skill, the hunt pick weighs him x8 and always hunts, and an knowledge entry is injected at the death spot. Not for pilots on foot, objective locks or vehicle trips. C7 sp_revenge: witnessed, fired_<skill>, found (killer visible within 15 s), avenged, avenger_died. Forced run: 9 witnessed, 9 fired, 8 found.",
    "status": "current",
    "confidence": "code-confirmed",
    "source": [
@@ -90,7 +90,7 @@
    },
    "addresses": [],
    "related": [],
-   "fact": "On our death the killer is stored; a second death to the same player within 300 s rolls a grudge. After the next spawn, for 60 s that player's target score is x1.3-1.9 and his hunt weight x2; an F27 entry is seeded at the killer's position. Ends on a kill of him (paid_back), our next death, or 60 s. C7 sp_grudge: armed, fired_<skill>, paid_back, expired, grudge_s_sum, grudge_kills, grudge_alive_s. Forced run (first death arms): 37 fired, 3 paid back (8 %), so the spec's 25 % payback line is not met by this mild bias.",
+   "fact": "On our death the killer is stored; a second death to the same player within 300 s rolls a grudge. After the next spawn, for 60 s that player's target score is x1.3-1.9 and his hunt weight x2; an entry is seeded at the killer's position. Ends on a kill of him (paid_back), our next death, or 60 s. C7 sp_grudge: armed, fired_<skill>, paid_back, expired, grudge_s_sum, grudge_kills, grudge_alive_s. Forced run (first death arms): 37 fired, 3 paid back (8 %), so the spec's 25 % payback line is not met by this mild bias.",
    "status": "current",
    "confidence": "code-confirmed",
    "source": [

@@ -1,0 +1,132 @@
+{
+ "pack": "t46_crash_1112",
+ "title": "Crash dumps 11-11 / 11-12 triage (v38-crash, 2026-11-12)",
+ "facts": [
+  {
+   "id": "uid-lookup-no-checks",
+   "title": "sub_000B4F70 (world UID hash lookup) has no checks: an empty or garbage table faults with #DE or #AV",
+   "subject": {
+    "kind": "address",
+    "id": "000B4F70"
+   },
+   "addresses": [
+    "000B4F70",
+    "002B0BB0",
+    "00107DA3",
+    "002B1270",
+    "0015D2E9",
+    "0015D4C7"
+   ],
+   "related": [
+    "uid_lookup"
+   ],
+   "fact": "sub_000B4F70(ecx=world, esi=uid) computes bucket = uid % (([world+0x38]-[world+0x34])>>2) with an unsigned div and walks the chain node->next ([node]), comparing [node+4] with the uid and returning [node+8]. A world pointer that is not a world gives #DE (bucket count 0, fast body +0x79) or #AV (+0x53, reading [world+0x34]). sub_002B0BB0 is the MAModSubObject owner lookup: ecx = sub+0x60 (world), esi = sub+0x80 (owner uid); it is reached from the entity tree Update walk sub_0015D4C7 -> sub_0015D2E9 -> sub_002B1270 (MoeEntitySubModifier slot 7) -> vt+0x64 sub_00107DA3 (slot 25 gate, only for sub-objects with a bound scene node +0xA4). In the fast bodies the guest registers live in the TLS block (rdi+0x42558 eax, +0x42554 ecx, +0x42544 esi, +0x42540 edi, +0x42534 esp) and guest RAM is at host r11 = 0x10000.",
+   "how_to_use": "Fault at sub_000B4F70__fast+0x53/+0x79: read r10 (= world). A float bit pattern there means the caller's object was overwritten, not a lookup bug.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "crash",
+    "uid",
+    "sub-object"
+   ],
+   "date": "2026-11-12"
+  },
+  {
+   "id": "filmcap-crash-film-write-pose",
+   "title": "Film-cap exe crashes (Iron Valley, Crimson Pass) = film_write_pose writing MACameraThird offsets into a different camera",
+   "subject": {
+    "kind": "concept",
+    "id": "film_write_pose"
+   },
+   "addresses": [
+    "000B4F70",
+    "002B0BB0",
+    "00044BE0"
+   ],
+   "related": [
+    "RECOMP_FILM",
+    "g_last_human_cam",
+    "ma2_bot_cam_set"
+   ],
+   "fact": "Branch film-cap (0061cd2, exe v13-filmcap) only. film_write_pose takes c = g_last_human_cam when [[hc+0x78]+0x154] == v without checking its vtable. After the idle human dies the screen slot camera is another class whose builder is not at camera+0x390; the hook still writes floats at c+0x238.+0x28F, +0x7C, +0x90, +0x180.+0x197, over neighbouring heap objects. Three dumps (crash-43284/53264/27424) fault in sub_000B4F70 with world = sub+0x60 = rotation floats (0.514, -0.997, -0.9998). Reproduced on Crimson Pass CTF 5v6 (fixed dt 1/30, control file cycled): t=156.1 [FILM-POSE] c=02827020 with v=015A8DA0 (not c+0x390), next frame [ICALL] target 0 at ecx = c+0x27C = the 0.0f written at S+0x44, then AV. Not in the release code (film hooks are not merged; 35ae6f4 only reads g_last_human_cam).",
+   "how_to_use": "Fix if filming continues: accept hc only when MEM32(hc) is 0x0046D348/0x0046D208 and v == hc+0x390. Proof:",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "crash",
+    "film",
+    "camera",
+    "trailer"
+   ],
+   "date": "2026-11-12"
+  },
+  {
+   "id": "p14-gotowalk-printf-crash",
+   "title": "crash-115220 / crash-134120 = v13-v27p14 [BOT-GOTOWALK] fprintf with a missing %s argument (fixed before deb9b44)",
+   "subject": {
+    "kind": "file",
+    "id": "ma2_bot_ctrl.c"
+   },
+   "addresses": [],
+   "related": [
+    "GotoWindow",
+    "RECOMP_BOT_DIAG"
+   ],
+   "fact": "Both dumps fault in ucrtbase's printf core reading a double as a char pointer; the [BOT-GOTOWALK] format string is on the stack. The test build v13-v27p14 (PE 6af40e55, deleted) had a %s with no argument; fixed before commit deb9b44 and the current line (ma2_bot_ctrl.c:3789) has 13 specifiers for 13 arguments. Only printed with RECOMP_BOT_DIAG.",
+   "how_to_use": "MSVC does not check fprintf formats at /W3; count specifiers when adding diagnostic lines.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "crash",
+    "bots",
+    "diagnostics"
+   ],
+   "date": "2026-11-12"
+  },
+  {
+   "id": "game-dump-reading",
+   "title": "Reading game crash dumps without cdb: minidump parser + .map + dumpbin",
+   "subject": {
+    "kind": "setting",
+    "id": "crash-dump"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_SAVE_DIR"
+   ],
+   "fact": "Game crash-<pid>.dmp files are MiniDumpNormal (about 300 KB): module list, thread contexts and stacks only, no guest RAM. Match the exe by the module's PE timestamp against build-*\\mechassault2_recomp.map headers; symbolize offsets with the map (Rva+Base minus 0x140000000); disassemble fast bodies with dumpbin /disasm /range.",
+   "how_to_use": "Tools: (md.py dumps exception/regs/stack candidates, thr.py all thread stacks, mapl.py offset -> symbol).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "crash",
+    "tools"
+   ],
+   "date": "2026-11-12"
+  }
+ ]
+}

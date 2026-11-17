@@ -40,6 +40,17 @@ bool iequals(std::string_view a, std::string_view b);
 bool istarts_with(std::string_view s, std::string_view prefix);
 bool iends_with(std::string_view s, std::string_view suffix);
 std::string trim(std::string_view s);
+// The name of a copy: "Cougar 7" -> "Cougar 7 copy"; a name that already ends in " copy" or " (copy)" (any number of times) gets just one.
+inline std::string copy_name(std::string_view name) {
+    std::string s = trim(name);
+    for (;;) {
+        std::string t = lower(s);
+        if (t.size() >= 7 && t.compare(t.size() - 7, 7, " (copy)") == 0) s.resize(s.size() - 7);
+        else if (t.size() >= 5 && t.compare(t.size() - 5, 5, " copy") == 0) s.resize(s.size() - 5);
+        else break;
+    }
+    return s.empty() ? std::string() : s + " copy";
+}
 std::vector<std::string> split(std::string_view s, char sep);
 // Backslash/forward slash agnostic, case-folded, without leading separators: "models/a/b.mgmodel".
 std::string norm_path(std::string_view p);

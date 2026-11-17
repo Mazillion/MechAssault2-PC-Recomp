@@ -1,4 +1,4 @@
-// View > Effects: the game's particle effects over the level (R1/R2 of the render-parity list).
+// View > Effects: the game's particle effects over the level (of the render-parity list).
 //
 // Each placed object whose model's .mtb carries MAModSubObjectParticleEffect entries (the fire on
 // a wrecked tower's floors, the oil fires of the crash scar, smoke stacks, energy pickups) starts
@@ -50,7 +50,7 @@ void App::add_effects() {
         for (const FxRef& r : *refs) {
             const ParticleFx* fx = models_.particle(r.file);
             // A placed MAEffect whose effect is a one-way burst (Mission_15 Nat Shield, Arena_Dais_Shield: 4 s cycle) is still running in the game
-            // seconds after the level starts (g4 trace t=8: ~300 steam quads over the facade), so it repeats here once per cycle.
+            // seconds after the level starts (trace t=8: ~300 steam quads over the facade), so it repeats here once per cycle.
             const bool one_way_effect = fx && o.cls == key_of("MAEffect") && !fx->loops() && fx->has_sprites() && !r.retrigger && !r.damage_state;
             bool shown = fx && (fx->loops() || one_way_effect || (r.retrigger && fx->has_sprites())) && wanted(r);
             if (dump) {
@@ -112,12 +112,13 @@ void App::add_effects() {
 // editor's rain must look like the game's), exactly as the save writes it.
 void App::add_precip_effect(std::vector<PSpriteOut>& out, size_t& budget, FILE* dump) {
     precip_3d_ = false;
+    precip_stats_ = {};
     if (!show_weather_ || !show_effects_) return;
     int ei = find_class(doc_->world, K_ENV);
     if (ei < 0) return;
     const WObj& env = doc_->world.objs[size_t(ei)];
     const weather::Precip p = weather::precip(env);
-    if (p != weather::Precip::Snow && p != weather::Precip::Rain) return;
+    if (p != weather::Precip::Snow && p != weather::Precip::Rain && p != weather::Precip::Dust) return;  // dust: the snow effect turned brown
     const int rain = p == weather::Precip::Rain ? int(weather::rain_level(env)) : -1;
     static const char* kModel = "SpecialEffects/Environment/Env_Precip_Snow_01/Env_Precip_Snow_01.MGMODEL";
     static const char* kMtb = "SpecialEffects/Environment/Env_Precip_Snow_01/Env_Precip_Snow_01.mtb";
@@ -128,13 +129,29 @@ void App::add_precip_effect(std::vector<PSpriteOut>& out, size_t& budget, FILE* 
     for (const FxRef& r : *refs) {
         const bool snow_part = _stricmp(r.file.c_str(), "SpecialEffects/Environment/Env_Snow_01.mgparticle") == 0 ||
                                _stricmp(r.file.c_str(), "SpecialEffects\Environment\Env_Snow_01.mgparticle") == 0;
-        const ParticleFx* fx = rain >= 0 && snow_part ? models_.rain_particle(r.file, rain) : models_.particle(r.file);
+        const ParticleFx* fx = p == weather::Precip::Dust ? models_.dust_particle(r.file, !snow_part)
+                               : rain >= 0 && snow_part ? models_.rain_particle(r.file, rain) : models_.particle(r.file);
         if (!fx || !(fx->loops() || (r.retrigger && fx->has_sprites()))) continue;
         precip_3d_ = true;
-        float org[3] = {cam_.eye.x + r.pos[0], cam_.eye.y + r.pos[1], cam_.eye.z + r.pos[2]};
+        // The precipitation object follows the camera turned with it: the snow box (offset 0, 10, 10) sits 10 m
+        // in front of the eye whichever way the camera faces. With world axes it sat 10 m to the side when the camera faced
+        // east, half out of view: the L9 pair had about half the game's flake coverage.
+        const float cy = std::cos(cam_.yaw), sy = std::sin(cam_.yaw);
+        const float Y[9] = {cy, 0, sy, 0, 1, 0, -sy, 0, cy};  // local x right, y up, z forward -> world
+        float org[3], rot[9];
+        for (int a = 0; a < 3; a++) {
+            org[a] = (a == 0 ? cam_.eye.x : a == 1 ? cam_.eye.y : cam_.eye.z) + Y[a * 3] * r.pos[0] + Y[a * 3 + 1] * r.pos[1] + Y[a * 3 + 2] * r.pos[2];
+            for (int b = 0; b < 3; b++) rot[a * 3 + b] = Y[a * 3] * r.rot[b] + Y[a * 3 + 1] * r.rot[3 + b] + Y[a * 3 + 2] * r.rot[6 + b];
+        }
         out.clear();
         simulate_particle(*fx, org, t, 0x51A0u + uint32_t(&r - refs->data()) * 40503u, 1.f, r.intermittent ? r.on_s : 0.f,
-                          r.intermittent ? r.off_s : 0.f, r.retrigger, out, r.rot);
+                          r.intermittent ? r.off_s : 0.f, r.retrigger, out, rot);
+        precip_stats_.sprites += out.size();
+        if (snow_part) {
+            precip_stats_.rate = fx->emitters.empty() || fx->emitters[0].systems.empty() ? 0.f : fx->emitters[0].systems[0].rate.first();
+            precip_stats_.life = fx->emitters.empty() || fx->emitters[0].systems.empty() ? 0.f : fx->emitters[0].systems[0].lifespan.first();
+            precip_stats_.size = fx->emitters.empty() || fx->emitters[0].systems.empty() ? 0.f : fx->emitters[0].systems[0].sprite.size.first();
+        }
         if (dump) {
             size_t textured = 0;
             for (const PSpriteOut& s : out) textured += models_.texture(s.sprite->texture) ? 1 : 0;

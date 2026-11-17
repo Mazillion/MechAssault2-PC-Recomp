@@ -1,0 +1,175 @@
+{
+ "pack": "t30_arrival_parity_1110",
+ "title": "Objective arrival parity (Snatch It Ill Wind bank, 11-10)",
+ "facts": [
+  {
+   "id": "ill-wind-snatch-team2-bank-root-cause",
+   "title": "Snatch It Ill Wind: team 2 was slow to the cores because its planner never went down the bank into the basin",
+   "subject": {
+    "kind": "concept",
+    "id": "Snatch It Ill Wind arrival parity"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_BANK_DIVE"
+   ],
+   "fact": "Both bases are 510-535 m in a straight line from the core pile (718,1290 y 22), but team 2's base rim (1160,1450 y 15) stands over the y -20 basin behind a 35 m, 45-76 deg bank 40-48 m wide. Drop links reach 20 m and HopDown's 40 m leap ran only in the HopOut pass (a dry search), so team 2's first pass walked the north rim (708 m, stalls in the 924,1612 basin) or the south loop (850 m+). On the published 1.0.2 exe (86648cbb) team 2's first ground arrival was 20-72 s after team 1's (4 runs, ratio 1.47-3.16).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "bots",
+    "pathing",
+    "parity"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "bankdive-first-pass-dive-legs",
+   "title": "BankDive: jet bodies get HopDown's bank leaps in the planner's first pass",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_BANK_DIVE"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_HOP_DOWN",
+    "RECOMP_BOT_HOP_OUT"
+   ],
+   "fact": "ma2_bot_path.c: with BankDive on, a 'Mech with jets or a BattleArmor (drop limit 30 m+, g_up > 0) gets the dive legs (a jet leg down a blocked slope band of up to 40 m whose tops never rise above the start, onto bare free lower ground, cost run + 16 + 0.15 x fall) in the first pass, from natural ground only. PATHTEST Ill Wind team 2 base 1200,1470 -> pile: 708 -> 621 m; team 1: 538 -> 519 m. A 'Mech without jets cannot walk off that bank in the game (tried as a plain step-off: 'did not come down' at 6 rim spots), so it keeps the walk round.",
+   "how_to_use": "Default on; RECOMP_BOT_BANK_DIVE=0 or [Bots] BankDive=0 turns it off. [C7] bankdive: links.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_path.c",
+     "line": 796
+    }
+   ],
+   "tags": [
+    "bots",
+    "pathing",
+    "parity"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "chokeleap-no-queue-at-leap",
+   "title": "ChokeLeap: a bot leaping off a choke's mouth does not queue in the choke",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_CHOKE_LEAP"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_FOLLOW_HOLD",
+    "RECOMP_BOT_CHOKES"
+   ],
+   "fact": "choke_flow (ma2_bot_brain.c) made bots file in behind (FollowHold) or wait at a narrow choke even when their route leaves by a jet leg or step-off at its mouth: Ill Wind team 2's base exit choke (1135,1479 -> 1165,1487) is the top of the BankDive leap, and bots held 8-13 s behind a team-mate 2 m ahead. ma2_bot_leap_near (ma2_bot_ctrl.c) reports a drop/jet leg within the next 4 legs whose top is within 60 m; such a body skips the choke queue (tanks excluded).",
+   "how_to_use": "Default on; RECOMP_BOT_CHOKE_LEAP / [Bots] ChokeLeap. [C7] chokes: leaps (seconds).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 2003
+    }
+   ],
+   "tags": [
+    "bots",
+    "pathing",
+    "parity"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "climbahead-jet-steep-climbs",
+   "title": "ClimbAhead: jet 'Mechs jet straight up steep climbs and replans no longer reset the climb clock",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_CLIMB_AHEAD"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_MECH_CLIMB_JET"
+   ],
+   "fact": "MechClimbJet/ClimbProgress restarted its no-progress clock whenever the next route corner moved 2 m, and replans under the Ill Wind basin exit ramp (0.41-0.52 slope) moved it every second: a team-2 'Mech milled 26 s before its first climb jet. Now only a corner 12 m+ away is a new climb, and a jet 'Mech jets at once when the ground 30 m (or less) toward the next corner is 6 m+ higher and steeper than 0.35.",
+   "how_to_use": "Default on; RECOMP_BOT_CLIMB_AHEAD / [Bots] ClimbAhead. [C7] mechclimbjet: ahead.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 4240
+    }
+   ],
+   "tags": [
+    "bots",
+    "pathing",
+    "parity"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "leaptop-carrot-stops-at-leap",
+   "title": "LeapTop: the steering carrot stops at a leap's top and a body at any upcoming top takes that leap",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_LEAP_TOP"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_BANK_DIVE"
+   ],
+   "fact": "The drop and jet-up executors fire only within 8-12 m of the top of the leg being steered for, but path_carrot ran on along the leap leg (pulling the body across the corner to an edge that was not the top) and ma2_path_follow could skip the top corner. Now the carrot stops at a corner followed by a drop/jet leg, the follower never skips such a corner, and a body within 6 m of a leap top up to 3 corners ahead skips to that leap. Ill Wind team 2 bots had stood 3-12 s at the rim with path 0/9.",
+   "how_to_use": "Default on; RECOMP_BOT_LEAP_TOP / [Bots] LeapTop. [C7] leaptop: stop_s, skips.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1200
+    }
+   ],
+   "tags": [
+    "bots",
+    "pathing",
+    "parity"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "jettryfuel-judge-from-first-burn",
+   "title": "JetTryFuel: a jet-up try is judged 6 s from its first burn, not from reaching the foot",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_JET_TRY_FUEL"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_JETUP_LANDED"
+   ],
+   "fact": "the jet-up executor judged a try 6 s after the body reached the leg's foot, burned or not; after a climb burn the fuel is low and the next burn waits, so the try 'failed' and ma2_path_forbid_drop barred the spot for every bot for 10 min. Ill Wind's terrace jet-up (~690,1380, the only way from the basin to the core pile) was barred at 44-52 s in 4 of 7 runs. Now the 6 s count from the try's first burn (20 s if no burn could fire); BotCtrl.up_fire holds the burn time.",
+   "how_to_use": "Default on; RECOMP_BOT_JET_TRY_FUEL / [Bots] JetTryFuel.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1200
+    }
+   ],
+   "tags": [
+    "bots",
+    "pathing",
+    "parity"
+   ],
+   "date": "2026-11-10"
+  }
+ ]
+}

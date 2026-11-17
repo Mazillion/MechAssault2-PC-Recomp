@@ -1,6 +1,7 @@
 #include "model_cache.h"
 
 #include "../core/crop.h"
+#include "../core/lamp_rule.h"
 #include "../core/weather.h"
 
 #include <windows.h>
@@ -32,6 +33,7 @@ void ModelCache::clear() {
     // Models stay alive until end_frame() for the same reason.
     for (auto& [k, m] : models_) retired_models_.push_back(std::move(m));
     models_.clear();
+    last_ready_.clear();
     queue_.clear();
     for (auto& [k, s] : srvs_) retire(s);
     srvs_.clear();
@@ -60,12 +62,18 @@ void ModelCache::set_archives(const fs::path& game_files, const std::string& bas
     textures_ = std::make_unique<ma2m::TextureCache>(*archives_, true);
 }
 
-GpuModel* ModelCache::get(const std::string& model, const std::string& mtb, const std::string& crop) {
+GpuModel* ModelCache::get(const std::string& model, const std::string& mtb, const std::string& crop, bool standin) {
     if (model.empty() || !archives_) return nullptr;
-    std::string key = lower(model) + "|" + lower(mtb);
+    const std::string base = lower(model) + "|" + lower(mtb);
+    std::string key = base;
     if (!crop.empty()) key += "|" + crop;
     auto it = models_.find(key);
-    if (it != models_.end()) return it->second.get();
+    if (it != models_.end()) {
+        if (standin && !crop.empty() && it->second->state == GpuModel::Pending)
+            if (auto lr = last_ready_.find(base); lr != last_ready_.end())
+                if (auto sm = models_.find(lr->second); sm != models_.end() && sm->second->state == GpuModel::Ready) return sm->second.get();
+        return it->second.get();
+    }
     auto m = std::make_unique<GpuModel>();
     GpuModel* raw = m.get();
     models_[key] = std::move(m);
@@ -83,10 +91,35 @@ bool ModelCache::pump(double budget_ms) {
         if (it == models_.end()) continue;
         load(key, *it->second);
         any = true;
+        if (it->second->state == GpuModel::Ready)
+            if (size_t b2 = key.find('|', key.find('|') + 1); b2 != std::string::npos) last_ready_[key.substr(0, b2)] = key;  // a cut variant
+
         double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
         if (ms > budget_ms) break;
     }
     return any;
+}
+
+int ModelCache::crop_variants(const std::string& model, const std::string& mtb) const {
+    const std::string base = lower(model) + "|" + lower(mtb) + "|";
+    int n = 0;
+    for (auto& [k, m] : models_) n += k.compare(0, base.size(), base) == 0;
+    return n;
+}
+
+void ModelCache::drop_crop_variants(const std::string& model, const std::string& mtb, const std::set<std::string>& keep) {
+    const std::string base = lower(model) + "|" + lower(mtb) + "|";
+    for (auto it = models_.begin(); it != models_.end();) {
+        if (it->first.compare(0, base.size(), base) != 0 || keep.count(it->first.substr(base.size()))) { ++it; continue; }
+        for (auto& g : it->second->meshes) {
+            if (g.vb) retired_.push_back(g.vb);
+            if (g.ib) retired_.push_back(g.ib);
+        }
+        queue_.erase(std::remove(queue_.begin(), queue_.end(), it->first), queue_.end());
+        for (auto lr = last_ready_.begin(); lr != last_ready_.end();) lr = lr->second == it->first ? last_ready_.erase(lr) : std::next(lr);
+        retired_models_.push_back(std::move(it->second));  // alive until end_frame(), as clear() does
+        it = models_.erase(it);
+    }
 }
 
 ID3D11ShaderResourceView* ModelCache::texture_srv(const std::string& path, int kind) {
@@ -268,7 +301,7 @@ const WaterMaterial& ModelCache::water_material(const std::string& model) {
     size_t wt = x.find("<wavetexture", a), rt = x.find("<reflectiontexture", a);
     if (wt < e) w.wave_path = resolve_rel(model, xml_attr(x, wt, x.find('>', wt), "filename"));
     if (rt < e) w.refl_path = resolve_rel(model, xml_attr(x, rt, x.find('>', rt), "filename"));
-    // The wave texture is a volume normal map, the reflection a cube map (frame trace, R2-3).
+    // The wave texture is a volume normal map, the reflection a cube map (frame trace).
     w.wave = w.wave_path.empty() ? nullptr : texture_srv(w.wave_path, 1);
     w.refl = w.refl_path.empty() ? nullptr : texture_srv(w.refl_path, 2);
     w.ok = true;
@@ -428,6 +461,21 @@ const ma2::ParticleFx* ModelCache::rain_particle(const std::string& path, int le
     return (particles_[key] = std::move(fx)).get();
 }
 
+// A dust storm particle made from a snow one (weather::dust_particle_xml, the file the save ships).
+const ma2::ParticleFx* ModelCache::dust_particle(const std::string& path, bool haze) {
+    std::string key = std::string(haze ? "dusthaze:" : "dust:") + lower(norm_path(path));
+    auto it = particles_.find(key);
+    if (it != particles_.end()) return it->second.get();
+    std::unique_ptr<ma2::ParticleFx> fx;
+    std::vector<uint8_t> b;
+    if (archives_ && archives_->Read(norm_path(path), b)) {
+        std::string s(b.begin(), b.end());
+        fx = std::make_unique<ma2::ParticleFx>();
+        if (!ma2::weather::dust_particle_xml(s, haze) || !parse_particle(s, *fx)) fx.reset();
+    }
+    return (particles_[key] = std::move(fx)).get();
+}
+
 struct TexSampling { bool point = false, nomip = false; float bias = 0; };
 
 // Each <material_*> element's first <basetexture>: mipmapping, mipmap_bias and filter (the loader keeps none of them).
@@ -486,15 +534,16 @@ void ModelCache::load(const std::string& key, GpuModel& m) {
     struct V { float p[3], n[3], uv[2], uv1[2]; uint32_t col; };  // 44 bytes (render.cpp kModelStride)
     // Lamp parts: a node hidden by the .mtb (or turned off) whose subtree holds a node_light, and
     // everything under it (Env_Highway_Light: lightbulb > spotlight + cone). The game shows them lit.
-    std::vector<char> lamp_root(model.nodes.size(), 0);
-    for (size_t i = 0; i < model.nodes.size(); i++) {
-        if (!model.nodes[i].is_light) continue;
-        for (int p = int(i); p >= 0; p = model.nodes[size_t(p)].parent)
-            if (model.nodes[size_t(p)].hidden_by_mtb || !model.nodes[size_t(p)].turned_on) lamp_root[size_t(p)] = 1;
-    }
+    // The rule itself is ma2::lamp_part_drawn (core/lamp_rule.h, fmt_test).
+    std::vector<char> holds_light(model.nodes.size(), 0);
+    for (size_t i = 0; i < model.nodes.size(); i++)
+        if (model.nodes[i].is_light)
+            for (int p = int(i); p >= 0; p = model.nodes[size_t(p)].parent) holds_light[size_t(p)] = 1;
     auto under_lamp_root = [&](int n) {
-        for (; n >= 0; n = model.nodes[size_t(n)].parent) if (lamp_root[size_t(n)]) return true;
-        return false;
+        std::vector<ma2::LampNode> path;
+        for (; n >= 0; n = model.nodes[size_t(n)].parent)
+            path.push_back({model.nodes[size_t(n)].hidden_by_mtb, model.nodes[size_t(n)].turned_on, holds_light[size_t(n)] != 0});
+        return ma2::lamp_part_drawn(path);
     };
     bool water_only = false;  // a water mesh was skipped: the model stays Ready (its box sizes the water plane)
     float vmin[3] = {1e30f, 1e30f, 1e30f}, vmax[3] = {-1e30f, -1e30f, -1e30f};  // drawn solid parts (selection brackets)
@@ -513,7 +562,7 @@ void ModelCache::load(const std::string& key, GpuModel& m) {
         }
         if ((!sm.visible && !lamp_part) || sm.shadow || sm.indices.empty()) continue;
         if (const char* sk = getenv("MA2SE_SKIP_SUB"); sk && ("," + std::string(sk) + ",").find("," + std::string(sm.name.c_str()) + ",") != std::string::npos) continue;  // developer: skip submeshes by name (comma list) to find what draws a pixel
-        // Damage cracks (cracks_upper_torso, *crack* materials) only show on a damaged unit (R2-6b).
+        // Damage cracks (cracks_upper_torso, *crack* materials) only show on a damaged unit.
         if (lower(sm.name).rfind("cracks", 0) == 0) continue;
         const ma2m::Material* mat = sm.material >= 0 && sm.material < int(model.materials.size()) ? &model.materials[size_t(sm.material)] : nullptr;
         if (mat && mat->distortion) continue;
@@ -581,6 +630,7 @@ void ModelCache::load(const std::string& key, GpuModel& m) {
             v.col = sm.colors.size() == nv ? sm.colors[i] : 0xFFFFFFFFu;
         }
         GpuMesh g;
+        g.ymax = nv ? lmax[1] : 0.f;
         if (!blends.empty())  // the blend object sits on the mesh's node or one above it
             for (int n = sm.node_index; n >= 0 && n < int(model.nodes.size()); n = model.nodes[size_t(n)].parent) {
                 auto it = blends.find(lower(model.nodes[size_t(n)].name));
@@ -639,8 +689,11 @@ void ModelCache::load(const std::string& key, GpuModel& m) {
             if (lower(mat->type).find("env") != std::string::npos) g.reflectivity = mat->reflectivity > 0 ? mat->reflectivity : 0.5f;
             if (g.reflectivity > 0 && mat->env_masked) g.reflectivity = -g.reflectivity;  // masked: lerp(base, cube, reflectivity)
             else if (g.reflectivity > 0 && g.alpha == 0 && mat->opacity >= 0.99f) g.reflectivity += 10.f;  // opaque env (building windows / doors): +10 selects the lerp(base, cube, k) path in the model shader
-            // Fully self-lit opaque parts (eyes, heat sinks) add light in the game, never cover (R2-6b).
-            if (g.alpha == 0 && !g.reflectivity && std::max({mat->selfillum[0], mat->selfillum[1], mat->selfillum[2]}) > 0.9f) g.alpha = 3;
+            // Fully self-lit opaque parts (eyes, heat sinks) add light in the game, never cover.
+            // Not on a sky: Starry space's star dome (Env_SkySpace.NODE, stars.mat selfillum 255, blending normal) is drawn OPAQUE by
+            // the game (trace: blend 0, black between the stars); as an added layer the editor showed the fog-coloured clear behind it.
+            const bool sky_model = lower(path).find("environment/sky/") != std::string::npos || lower(path).find("environment\\sky\\") != std::string::npos;
+            if (g.alpha == 0 && !g.reflectivity && !sky_model && std::max({mat->selfillum[0], mat->selfillum[1], mat->selfillum[2]}) > 0.9f) g.alpha = 3;
             // Sky light rays (Hesperus env_sky light_rayNN: blended, selfillum 1, 'Light_043_light'): the game draws them SRC_ALPHA / ONE (M16 trace,
             // draws 80B98000 n14 with d0 alpha per vertex), i.e. they add light to the sky instead of lerping toward the ray texture.
             if (g.alpha == int(ma2m::AlphaMode::Blend) && lower(sm.name).rfind("light_ray", 0) == 0 && std::min({mat->selfillum[0], mat->selfillum[1], mat->selfillum[2]}) > 0.9f) g.alpha = 3;
@@ -658,7 +711,7 @@ void ModelCache::load(const std::string& key, GpuModel& m) {
                 g.unlit = true;
                 for (int k = 0; k < 3; k++) g.color[k] = std::min(2.f, 2 * 0.2f * mat->diffuse[k] * sm.tint[k]);
             }
-            // Point-light markers (M10 crane, point_light03_blue, g3 trace): 3 stacked quads per marker, vertex diffuse constant per quad
+            // Point-light markers (M10 crane, point_light03_blue, trace): 3 stacked quads per marker, vertex diffuse constant per quad
             // = 0.6 x selfillum + a grey step (core .247, halo .417, mid .542; mean .40), not 2 x selfillum (which saturated the blue).
             if (g.alpha == int(ma2m::AlphaMode::Additive) && g.srv && (lower(mat->name).find("point_light") != std::string::npos || lower(sm.name).find("point_light") != std::string::npos)) {
                 g.unlit = true;
@@ -674,7 +727,7 @@ void ModelCache::load(const std::string& key, GpuModel& m) {
                         std::memcpy(g.glow, mat->colorshift, sizeof g.glow);
                         g.tint1 = mat->colorshift1_diffuse;
                     }
-            // COMPLEX + detail: the multi mask's alpha gates the detail (R2-9 #3).
+            // COMPLEX + detail: the multi mask's alpha gates the detail.
             if (complex && !g.detail)
                 for (const auto& ts : mat->textures)
                     if (ts.slot == "detailtexture" && ts.found && (g.detail = texture_srv(ts.path))) {
@@ -683,11 +736,11 @@ void ModelCache::load(const std::string& key, GpuModel& m) {
                         for (const auto& ms : mat->textures)
                             if (ms.slot == "multitexture" && ms.found && !g.multi) g.multi = texture_srv(ms.path);
                     }
-            // COMPLEX with a cube and no detail (Hesperus spires, R2-15 #10): base' = lerp(cube, base, base.a), ahead of the x2 light.
+            // COMPLEX with a cube and no detail (Hesperus spires): base' = lerp(cube, base, base.a), ahead of the x2 light.
             if (complex && !g.detail && g.cube) g.complex_env = true;
             // SPECULAR_MASK constant = spec_color x shin_strength (research: ma2.xbe 0x4DE70, PS c0), e.g. the
             // Env_Highway_Light post (0.1) is nearly flat in game.
-            // The mask is the material's detailtexture (batch 05, parser sub_0004DB80: loaded into mat+0x6C, stage 1). Without one the
+            // The mask is the material's detailtexture (parser sub_0004DB80: loaded into mat+0x6C, stage 1). Without one the
             // game draws plain program 00C01 with no stage 1 (Env_Highway_Light post, Ill Wind trace draw 2358141): no specular.
             if (type.find("specular_mask") != std::string::npos)
                 for (const auto& ts : mat->textures)
@@ -702,14 +755,14 @@ void ModelCache::load(const std::string& key, GpuModel& m) {
                 if (type == "material_color_shift" || type == "color_shift") { g.bloom_kind = 1; g.bloom[0] = b0; }
                 else if (complex) { g.bloom_kind = 2; g.bloom[0] = b0; g.bloom[1] = b1; g.bloom[2] = bs; }
                 else if (g.spec_detail) { g.bloom_kind = 3; g.bloom[2] = bs; }
-                // M11a floodlight cone (g3 trace, px 470,135): colorshift bloom 0 yet the bloom composite saturates the cone to FFFFFF; the cone
+                // M11a floodlight cone (trace, px 470,135): colorshift bloom 0 yet the bloom composite saturates the cone to FFFFFF; the cone
                 // draw (blend CONST_ALPHA .86 / ONE) writes its alpha into the bloom mask: mask = opacity x T0.a (bloom[0] = 2 x opacity x the shader's 0.5).
                 if (b0 <= 0 && g.alpha == int(ma2m::AlphaMode::Additive) && g.srv && (type == "material_color_shift" || type == "color_shift")) {
                     std::string cn = lower(sm.name) + " " + (node ? lower(node->name) : std::string());
                     if (cn.find("cone") != std::string::npos || cn.find("beam") != std::string::npos) { g.bloom_kind = 1; g.bloom[0] = 2 * mat->opacity; }
                 }
             }
-            // COMPLEX specular (KF trace line 10124, R2-15 #1): + multi.r x cube.a x spec_color after the x2.
+            // COMPLEX specular (KF trace line 10124): + multi.r x cube.a x spec_color after the x2.
             if (complex && mat->spec_color[0] + mat->spec_color[1] + mat->spec_color[2] > 0) {
                 for (const auto& ts : mat->textures)
                     if (ts.slot == "multitexture" && ts.found && !g.multi) g.multi = texture_srv(ts.path);
@@ -747,7 +800,7 @@ void ModelCache::load(const std::string& key, GpuModel& m) {
         GpuModel::Light L;
         // Spot lights point along -Y of the light node: the beam meshes say so (Env_Searchlight_Blue_Lg_Angled's 'light' beam
         // runs along -row1 = (0,.17,.99); Env_Highway_Light's node is identity and its 'cone' hangs straight down). +Z (research
-        // spot-light-axis) aimed every street lamp sideways into the buildings: user scene pair 10-26, Office20 annex 208 vs game 81.
+        // spot-light-axis) aimed every street lamp sideways into the buildings: playtest scene pair 10-26, Office20 annex 208 vs game 81.
         for (int k = 0; k < 3; k++) { L.pos[k] = n.world[12 + k]; L.dir[k] = -n.world[4 + k]; }
         float len = std::sqrt(L.dir[0] * L.dir[0] + L.dir[1] * L.dir[1] + L.dir[2] * L.dir[2]);
         for (float& d : L.dir) d = len > 1e-4f ? d / len : 0.f;

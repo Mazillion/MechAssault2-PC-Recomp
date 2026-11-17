@@ -1,8 +1,10 @@
 #include "render.h"
 
 #include <d3dcompiler.h>
+#include <d3d11_1.h>
 
 #include "model_cache.h"
+#include "../core/lamp_rule.h"
 
 #include <cstdlib>
 #include <algorithm>
@@ -67,8 +69,10 @@ cbuffer CB : register(b0) {
     float4 fogc;     // rgb fog colour, w fog on
     float4 fogr;     // x start, y 1 / (end - start), zw orbit target xz (fog is measured from it)
     float4 fogh;     // FogMode 2 height band: x FogTop, y FogBottom, z 1 = on, w reference y (eye; < -1e8 = overview, horizontal distance)
-    float4 grep0, grep1;  // P4 ground layers: repeats across the map per layer (layers 2..7)
-    float4 ginfo;         // x layer count (0 = the retail pair), y brush ring colour (Renderer::Params::brush_tint)
+    float4 grep0, grep1;  // Ground layers: repeats across the map per layer (layers 2..7)
+    float4 ginfo;         // x layer count (0 = the game's own pair), y brush ring colour (Renderer::Params::brush_tint), z ground light floor (Brighten dark maps)
+    float4 snapg;         // the snap grid: xy = the cursor's xz, z = the cell in metres (0 = not drawn), w = how many cells out it shows
+    float4 flash;         // Lightning: rgb added to lit models' sun term (x2 like sun), w sky gain (1 = no flash)
 };
 SamplerState samp : register(s0);
 Texture2D colormap : register(t0);
@@ -98,7 +102,7 @@ float3 point_lights(float3 wp, float3 n, bool nl1 = false) {
     }
     return s;
 }
-// MAEnvironment light: ambient + sun x lit factor (the fixed editor light when off).
+// The environment light: ambient + sun x lit factor (the fixed editor light when off).
 float3 env_light(float lit) { return amb.w > 0.5 ? amb.rgb + sun.rgb * lit : float3(lit, lit, lit); }
 // Fog amount 0..1. Mode 1: linear in horizontal distance. Mode 2 (Deliverance VS dump, error < 0.003): the vertex program adds the
 // distance term max((d - Start) / (End - Start), 0), d the 3D distance to the eye, to a height term
@@ -121,7 +125,7 @@ Texture2D mic1 : register(t7);
 SamplerState wrap : register(s1);
 Texture2D lightmap : register(t1);
 Texture2D overlay : register(t2);
-// P4 ground layers (PC runtime maintainer tree, nv2a_gpu_terrain.hlsl, the same formula): the game's
+// Ground layers (the PC game's terrain shader, the same formula): the game's
 // lerp(detail 1, detail 0, colour-map alpha) becomes sum w_k layer_k / sum w_k; layer 0/1 = the pair at
 // their own repeats, layers 2.. an array at uv x repeats; weights at the colour-map UV (all 0 = the pair).
 Texture2D gw0 : register(t13);
@@ -153,19 +157,19 @@ float4 tps(TVOut i) : SV_Target {
     float3 micro = float3(1, 1, 1);
     float nearblk = 0;
     if (dpar.x > 0.5) {
-        // Decoded NV2A combiners (research desk t12 terrain-detail-combine): alpha weights
+        // Decoded NV2A combiners (research t12 terrain-detail-combine): alpha weights
         // TerrainDetailMap (1) against TerrainDetailMap 1 (0) (also verified in game);
         // TerrainDetailModulate 1: 2 x colour x sat(2 x mix x DetailBlend), 0: lerp(colour, mix, DetailBlend).
         float3 mix = ground_mix(i.uv, base.a);
-        // Game combiner (frame trace, spec R2-5): albedo = 4 x DetailBlend x detail x colour, no clamp
+        // Game combiner (frame trace): albedo = 4 x DetailBlend x detail x colour, no clamp
         // before the 2 x light (env_light) below.
         c = dpar.z > 0.5 ? 4 * dpar.y * mix * c : lerp(c, mix, dpar.y);
         // Micro detail: its own pass over the lit terrain (depth EQUAL), dst x src x 2 with
-        // src = lerp(M0, 2 x M0 x M1, 0.5) (KillingField trace line 10034); the fade toward 0.5 with
+        // src = lerp(2 x M0 x M1, 0.5) (KillingField trace line 10034); the fade toward 0.5 with
         // block cutoff below is from the trace.
         // The game switches it per 128 m terrain block, on when the block's nearest point is within one
         // block of the eye (KF trace: the 6 nearest blocks, no fade). The editor's free camera made that a
-        // hard band that jumps with the view (user review A1), so by default it fades per pixel with the
+        // hard band that jumps with the view, so by default it fades per pixel with the
         // distance to the eye instead; tsize.z 2 = "Distant terrain detail: fast" keeps the game's block switch.
         float2 b0 = floor(i.wp.xz / 128.0) * 128.0;
         float mfade = tsize.z > 1.5 ? (length(clamp(eye.xz, b0, b0 + 128.0) - eye.xz) < 128.0 ? 1 : 0)
@@ -174,9 +178,9 @@ float4 tps(TVOut i) : SV_Target {
             float3 m0 = mic0.Sample(wrap, i.uv * drep.z).rgb;
             float3 m1 = mic1.Sample(wrap, i.uv * drep.w).rgb;
             // Every level runs the same program (UnderCover s19 trace line 5920, Ill Wind g1 draw 2358132 and the New River City trace
-            // draw 3186393, which has no light map: T2 0.033 / 0.051 / 0.080 / 0.094 at w 7.9 / 9.3 / 12.2 / 13.9 m = the fit below; the desk's
-            // static decode of 0x4A3D90): src = lerp(0.5 x (M0 + M1), 0.5, T2), T2 = the per-vertex fade (view depth w),
-            // sqrt(T2) ~ 0.0497 + 0.0189 w (UC fit, also matches Ill Wind: 0.036 at 7.9 m), so it is neutral grey by ~50 m.
+            // draw 3186393, which has no light map: T2 0.033 / 0.051 / 0.080 / 0.094 at w 7.9 / 9.3 / 12.2 / 13.9 m = the fit below; the research
+            // static decode of 0x4A3D90): src = lerp(0.5 x, 0.5), T2 = the per-vertex fade (view depth w),
+            // sqrt ~ 0.0497 + 0.0189 w (UC fit, also matches Ill Wind: 0.036 at 7.9 m), so it is neutral grey by ~50 m.
             float vd = mul(float4(i.wp, 1), viewproj).w;  // the view depth w (SV_Position.w is not reliably 1/w here: the fade never ran, micro darkened every near block)
             float t2 = saturate(0.0497 + 0.0189 * vd); t2 *= t2;
             micro = lerp(0.5 * (m0 + m1), 0.5, t2);
@@ -187,14 +191,15 @@ float4 tps(TVOut i) : SV_Target {
     // Game lighting with no lightmap (New River City): plain vertex sun + ambient, as in the game.
     float sl = saturate(dot(normalize(i.n), light.xyz));
     float nl = amb.w > 0.5 ? sl : 0.45 + 0.55 * sl;
-    // Game lighting with a lightmap (R2-5b): ambient x baked light (lm.r = A8L8 luminance) +
+    // Game lighting with a lightmap: ambient x baked light (lm.r = A8L8 luminance) +
     // sun x N.L x baked sun shadow (lm.a); amb / sun are already x2.
-    // Game combiner (KF stageprobe4 decode, audit #3): out = 2 x L x 4 x C0.a x T0 x detail, L = V1.rgb x V1.a x T3.a + T3.rgb, with V1 = the FILE sun
+    // Game combiner (KF stageprobe4 decode): out = 2 x L x 4 x C0.a x T0 x detail, L = V1.rgb x V1.a x T3.a + T3.rgb, with V1 = the FILE sun
     // colour (x1: KF and UC both match) and T3.rgb = file ambient x lightmap. The albedo here already carries 4 x DetailBlend and amb / sun are x2,
     // so the sun term needs no extra factor. UC / IYF still read dark: the shadow mask lm.a is lower than the game's T3.a there (open).
     float sunk = 1.0;
     float3 L = amb.w > 0.5 && flags.z > 0.5 ? amb.rgb * lm.r + sunk * sun.rgb * sl * lm.a
                                             : env_light(flags.z > 0.5 ? lm.r * (0.6 + 0.4 * lm.a) * 1.3 : nl);
+    L = max(L, ginfo.zzz);   // View > Brighten dark maps floors the ground light (editor view only; 0 = off)
     float3 col = c * (L + scene_pool(i.wp));
     if (eye.w > 9.5 && eye.w < 24.5) {  // MA2SE_WATER_DEBUG=10..20 (19 lm.r, 20 lm.a, 21 lit col before micro, 22 after micro, 23 SV_Position.w probe): terrain stage dump (10 pre-light c, 11 detail mix, 12 colormap, 13 L/2, 14 micro0, 15 micro1, 16 micro
         int k = (int)(eye.w - 10 + 0.5);
@@ -211,12 +216,21 @@ float4 tps(TVOut i) : SV_Target {
         float3 mc = saturate(2 * micro * col);
         col = lerp(col, mc, nearblk);
     }  // L is x2, so 2 x micro x light x V1 = micro x L x V1
-    // The grid sits under the fog, so far lines fade like the ground and the fog distance reads true (BB2A-5).
+    // The grid sits under the fog, so far lines fade like the ground and the fog distance reads true.
     if (flags.x > 0.5) {
         float2 g = abs(frac(i.wp.xz / 64.0 + 0.5) - 0.5) * 64.0;
         float gl = min(g.x, g.y);
         float fw = max(fwidth(i.wp.x), fwidth(i.wp.z)) * 1.2;
         col = lerp(col, float3(1, 1, 1), 0.22 * (1 - saturate(gl / fw)));
+    }
+    // The snap grid: one line a cell, only close to the cursor (fading out), and not where the cells are under 6 px wide.
+    if (snapg.z > 0) {
+        float2 g = abs(frac(i.wp.xz / snapg.z + 0.5) - 0.5) * snapg.z;
+        float mpp = max(max(fwidth(i.wp.x), fwidth(i.wp.z)), 1e-5);   // metres per pixel
+        float gl = min(g.x, g.y);
+        float fade = saturate(1 - length(i.wp.xz - snapg.xy) / (snapg.z * snapg.w));
+        float vis = saturate((snapg.z / mpp - 6) / 6);
+        col = lerp(col, float3(1.0, 0.92, 0.45), 0.55 * (1 - saturate(gl / (mpp * 1.2))) * fade * vis);
     }
     col = env_fog(col, i.wp);
     if (flags.y > 0.5) { float4 ov = overlay.Sample(samp, i.uv); col = lerp(col, ov.rgb, ov.a); }
@@ -230,7 +244,7 @@ float4 tps(TVOut i) : SV_Target {
         float3 rc = ginfo.y > 1.5 ? float3(1, 0.5, 0.15) : ginfo.y > 0.5 ? float3(0.3, 0.85, 1) : float3(1, 0.85, 0.2);
         col = lerp(col, rc, saturate(1 - r / fw));
         if (d < R) col = lerp(col, rc, 0.08);
-        // Shaping tools: height contours inside the brush (fresh-eyes 3 #6: a raised bump read as a faint patch on
+        // Shaping tools: height contours inside the brush (a raised bump read as a faint patch on
         // evenly lit ground); every 5th line brighter.
         if (brush.y > 0 && d < R) {
             float h = i.wp.y / brush.y, ch = abs(frac(h + 0.5) - 0.5) / max(fwidth(h), 1e-4);
@@ -289,14 +303,14 @@ MVOut mvs(MVIn i) {
     MVOut o; o.pos = mul(float4(w, 1), viewproj); o.n = n; o.uv = i.uv; o.col = i.col; o.wp = w; o.uv1 = i.uv1; o.vc = i.vc; return o;
 }
 float4 mps_body(MVOut i, inout float bloom) {
-    // Untextured additive glow (Mission_13b turret blink lights, R2-12 #2): 2 x V0, blend
+    // Untextured additive glow (Mission_13b turret blink lights): 2 x V0, blend
     // SRC_ALPHA / ONE, fog toward black. V0 = material colour x vertex colour (white when absent).
     if (mdet.w > 0.5) {
         float4 g = float4(2 * i.vc.rgb * matcolor.rgb * i.col.rgb, i.vc.a * matcolor.a * i.col.a);
         if (fogc.w > 0.5) g.rgb *= 1 - fog_amt(i.wp);
         return g;
     }
-    // Shading normal: the normal_map slot in tangent space (R2-12 #1, the game's DOT_PRODUCT pass
+    // Shading normal: the normal_map slot in tangent space (the game's DOT_PRODUCT pass
     // N.L = dot(2 x normalmap - 1, light)), with the tangent frame from screen derivatives.
     float3 sn = normalize(i.n);
     float3 dp1 = ddx(i.wp), dp2 = ddy(i.wp);
@@ -318,7 +332,7 @@ float4 mps_body(MVOut i, inout float bloom) {
         // so at level 0.5 every face takes base x detail at x1, not only the floors (IYF); other levels keep the fitted lerp (M13b 0.8, M05 0.44 traces).
         if (mdet.x < 1.5) t.rgb = ((upm || abs(mext.x - 0.5) < 0.03) && mext.w - 4 * floor(mext.w / 4) < 0.5) ? t.rgb * d.rgb : detail_mix(t.rgb, d, mext.x);
         else if (mdet.x < 2.5) { t.rgb = lerp(t.rgb, d.rgb, mext.x); t.a *= d.a; }
-        else if (mdet.x < 3.5) t.rgb = lerp(t.rgb, d.rgb, 0.835);  // additive glow cards (R2-11)
+        else if (mdet.x < 3.5) t.rgb = lerp(t.rgb, d.rgb, 0.835);  // additive glow cards
         else {
             // COMPLEX + detail (KillingField trace line 10124): base' = lerp(cube, base, base.a), then the
             // detail mixed in where the multi mask's alpha is low.
@@ -335,9 +349,9 @@ float4 mps_body(MVOut i, inout float bloom) {
     if (mflags.x > 0.5 && mflags.x < 1.5) clip(t.a - (mrecv.x > 1.5 ? 1.0 / 255 : 0.5));  // sky: alpha test > 0 + blend (WC trace)
     float nl = mshade.x > 0.5 ? 1.0 : saturate(dot(sn, light.xyz));  // M03 trace: conifer V0 / Kd (146) and bush V0 / Kd (54,62,55) both = ambient + sun = (0.451,0.416,0.475)
     float3 l = mflags.y > 0.5 ? float3(1, 1, 1) : amb.w > 0.5 ? amb.rgb + sun.rgb * nl : 0.5 + 0.6 * nl;
-    // Opaque plain parts of any facing (pads, pavements, walls; R2-13 #1, decoded on 8 levels, pass A per near static model): the vertex light is zero in the game, light = the ground pre-pass
+    // Opaque plain parts of any facing (pads, pavements, walls; #1, decoded on 8 levels, pass A per near static model): the vertex light is zero in the game, light = the ground pre-pass
     // (N.L x G.a x sun + G.rgb), so use the terrain light map (shadow mask + baked ambient) at the model's XZ.
-    // Also alpha-tested / blended parts (not additive), and upward-facing COMPLEX parts (roads, pavements: R2-2/R2-13 pass A+B);
+    // Also alpha-tested / blended parts (not additive), and upward-facing COMPLEX parts (roads, pavements:/ pass A+B);
     // COMPLEX spires, crystals and 'Mechs have no pre-pass (KF 10124, M13b 3442) and keep the vertex light.
     bool gpre = mflags.x < 2.5 && mflags.y < 0.5 && mflags.z > 0.5 && mflags.w < 0.5 && mrecv.x > 0.5 && mshade.x < 0.5 && amb.w > 0.5 && flags.z > 0.5;
     if (gpre) {
@@ -347,6 +361,9 @@ float4 mps_body(MVOut i, inout float bloom) {
         float sh = gm.a;
         l = (amb.rgb * gm.r + sun.rgb * nl * sh) * i.vc.rgb;  // V1 = the vertex colour (baked shading)
     }
+    // Lightning (weather::flash_lights): N.L-lit model draws take the flash on their sun term; unlit parts, the sky, the
+    // ground and water do not.
+    if (mflags.y < 0.5 && mflags.w < 0.5 && amb.w > 0.5) l += flash.rgb * nl * (gpre ? i.vc.rgb : float3(1, 1, 1));
     float4 c = t * matcolor;
     float3 tc = c.rgb * i.col.rgb;
     if (eye.w > 19.5) {  // MA2SE_WATER_DEBUG=19 texture*matcolor*vertex col, 20 light l/2, 21 vertex col, 22 matcolor
@@ -363,14 +380,14 @@ float4 mps_body(MVOut i, inout float bloom) {
         // the radius-60 lamps adding up to 1.07 x their colour), so x2 like amb / sun.
         c.rgb += tc * (mshade.x > 0.5 ? 2 * point_lights(i.wp, sn, true) : sn.y > 0.7 ? scene_pool(i.wp) : point_lights(i.wp, sn));
     }
-    // COMPLEX glow sits inside the combiner's x2: out = 2 x (light x lit + mask.g x C0 + mask.b x C1) (R2-13 #2).
+    // COMPLEX glow sits inside the combiner's x2: out = 2 x (light x lit + mask.g x C0 + mask.b x C1).
     if (mcol2.w > 0.5) { float4 mk = multi.Sample(wrap, i.uv); c.rgb += 2 * (mk.g * mcol2.rgb + (mdet.y > 0.5 ? 0 : mk.b) * mcol3.rgb); if (mbloom.w > 1.5 && mbloom.w < 2.5) bloom = mbloom.x * mk.g + (mdet.y > 0.5 ? 0 : mbloom.y * mk.b); }
-    // material_color_shift (sky domes, desk: ill-wind sky trace draw 2358146): out = 2 x (V0 x T + C0 x V0.a x T.a), V0 = 0.5,
+    // material_color_shift (sky domes, research: ill-wind sky trace draw 2358146): out = 2 x (x T + C0 x V0.a x T.a), V0 = 0.5,
     // so the base alpha weights colorshift0_color on top of the texture.
     c.rgb += mrecv.yzw * t.a;
     if (mbloom.w > 0.5 && mbloom.w < 1.5) bloom = 0.5 * mbloom.x * t.a;  // color_shift: framebuffer alpha = C0.a x T0.a x V0.a, V0.a = 0.5 (M02 bloom2 trace: s0 T0.a = T0.a x V0.a, s1 R0.a = C0.a x T0.a; roof strips 63/255)
     if (mspec.w > 0.5) {
-        // Added after the x2, not doubled; COMPLEX masks it with multi.r (R2-15 #1), specular_mask with base.a.
+        // Added after the x2, not doubled; COMPLEX masks it with multi.r, specular_mask with base.a.
         float3 v = normalize(eye.xyz - i.wp);
         float sm = mspec.w > 2.5 ? detailtex.Sample(wrap, i.uv).r : mspec.w > 1.5 ? multi.Sample(wrap, i.uv).r : t.a;
         float ca = envcube.Sample(wrap, reflect(-v, sn)).a;
@@ -387,7 +404,7 @@ float4 mps_body(MVOut i, inout float bloom) {
     }
     if (mcol3.w > 5) {
         // Opaque env material (envmaptype modulated: building windows, doors). Mission_02 trace (Office16 windows, 3-stage prog 00021):
-        // out = 2 x V0 x lerp(T0, T1, C0.a) with V0 = material x (ambient + sun N.L); C0.a = 0x4C (0.298) for reflectivity 0.9 and 0x7F
+        // out = 2 x V0 x lerp(C0.a) with V0 = material x (ambient + sun N.L); C0.a = 0x4C (0.298) for reflectivity 0.9 and 0x7F
         // (0.498) for 0.5 (Office20). The map k(reflectivity) below fits those two points; other values are unverified. The old
         // "base x light + reflectivity x cube" added an unlit cube on top, lifting the window frames to grey and the panes 1.7x.
         float3 v = normalize(eye.xyz - i.wp);
@@ -401,7 +418,7 @@ float4 mps_body(MVOut i, inout float bloom) {
         c.rgb = l * i.col.rgb * lerp(t.rgb, envcube.Sample(wrap, reflect(-v, sn)).rgb, k);
         }
     } else if (mcol3.w > 0) {
-        // Env glass (R2-11): 2 x light x base whatever the diffuse, plus the reflection.
+        // Env glass: 2 x light x base whatever the diffuse, plus the reflection.
         float3 v = normalize(eye.xyz - i.wp);
         c.rgb = t.rgb * l * i.col.rgb + mcol3.w * envcube.Sample(wrap, reflect(-v, sn)).rgb;
     } else if (mcol3.w < 0) {
@@ -413,7 +430,7 @@ float4 mps_body(MVOut i, inout float bloom) {
     }
     if (mflags.w < 0.5) c.rgb = env_fog(c.rgb, i.wp);  // mflags.w 1 = the sky (never fogged by distance)
     else if (mskya.w > 0.5) {
-        // Sky-dome height fog (Ill Wind g3 trace: factor 1 - q, q = 4.47 - 10 x model_y = (Top - h) / (Top - Bottom) with
+        // Sky-dome height fog (Ill Wind trace: factor 1 - q, q = 4.47 - 10 x model_y = (Top - h) / (Top - Bottom) with
         // h = 10000 x model_y - 2970 = 10000 x (model_y + offset.y / scale.y)). Fully fog colour below Bottom, clear above Top.
         float h = i.wp.y * mskyb.w + mskyb.z;
         float q = (mskyb.x - h) * mskyb.y;
@@ -422,10 +439,11 @@ float4 mps_body(MVOut i, inout float bloom) {
         if (mskya.w > 1.5) c.rgb *= saturate(1.5 - 0.5 * q);
         else c.rgb = lerp(c.rgb, mskya.rgb, saturate(q));
     }
-    // COMPLEX: base alpha is the env mask; a translucent one blends by its opacity alone (R2-10).
+    // COMPLEX: base alpha is the env mask; a translucent one blends by its opacity alone.
     if (mcol2.w > 0.5) c.a = matcolor.a;
     c.a *= i.col.a;
     if (mflags.x < 1.5 && !(mrecv.x > 1.5 && mflags.x > 0.5)) c.a = 1;  // sky cutout layers keep their texture alpha
+    if (mflags.w > 0.5) c.rgb *= flash.w;  // lightning sky flash
     return c;
 }
 struct MPSOut { float4 c : SV_Target0; float4 m : SV_Target1; };
@@ -447,7 +465,9 @@ float4 lps(LVOut i) : SV_Target { return i.c; }
 // views (fog from the eye, fogh.w set): fogged, so a horizon past the edge stays the fog colour as in the game.
 struct OVOut { float4 pos : SV_Position; float4 c : COLOR0; float3 wp : TEXCOORD1; };
 OVOut ovs(LVIn i) { OVOut o; o.pos = mul(float4(i.p, 1), viewproj); o.c = i.c; o.wp = i.p; return o; }
-float4 ops(OVOut i) : SV_Target { return float4(fogh.w < -1e8 ? i.c.rgb : env_fog(i.c.rgb, i.wp), 1); }
+// A view near the horizon (ginfo.w 1: pitch under 20 degrees) fogs it too, so the horizon past the map edge is the
+// fog colour as in the game, not a dark band under the sky (the Environment tab's "Show the sky" view, 250 m out at 9 degrees).
+float4 ops(OVOut i) : SV_Target { return float4(fogh.w < -1e8 && ginfo.w < 0.5 ? i.c.rgb : env_fog(i.c.rgb, i.wp), 1); }
 
 // Particle sprites (View > Effects): camera-facing quads, texture x vertex colour, unlit (the game's
 // material_only), fogged toward the fog colour (alpha blend) or toward black (additive, mflags-free: sfog.x).
@@ -465,7 +485,7 @@ float4 sps(SVOut i) : SV_Target {
     return c;
 }
 
-// Water (material_water), after the game's 5-pass effect (frame trace, spec R2-3):
+// Water (material_water), after the game's 5-pass effect (frame trace):
 //   N = wave volume (normal map, uv = world xz x 0.03, w = time x 24 fps / 32 slices)
 //   R = sky cube (reflect(-V, N)), F = lerp(fresnel_max, fresnel_min, N.V)
 //   a = water thickness (depth to the terrain / 4 m), tint = lerp(shallow, deep, a)
@@ -510,7 +530,7 @@ WOut wps(WVOut i) {
         WOut d; d.c0 = float4(k == 1 ? cs.aaa : cs.rgb, 1); d.c1 = float4(0, 0, 0, 0); return d;
     }
     float3 v = normalize(eye.xyz - i.wp);
-    float nv = saturate(dot(n, v));  // R1.a = N.V of the raw expanded normal (desk: water-reflection-fresnel-dst-alpha)
+    float nv = saturate(dot(n, v));  // R1.a = N.V of the raw expanded normal (research: water-reflection-fresnel-dst-alpha)
     float f = lerp(mflags.y, mflags.x, nv);
     float3 nr = n / max(length(n), 1e-4);  // DOT_RFLCT_SPEC reflects with E x N / N.N: the texel's length does not tilt the reflection
     float3 r = mflags.w > 0.5 ? refl.Sample(wrap, wflip(reflect(-v, nr))).rgb : matcolor.rgb * 1.3;  // cube: direction only
@@ -519,7 +539,7 @@ WOut wps(WVOut i) {
     float a = saturate((i.wp.y - heights.SampleLevel(samp, map_uv(i.wp), 0).r) / (24.0 * max(v.y, 0.15)));
     float3 tint = lerp(mcol2.rgb, matcolor.rgb, a);
     float nl = saturate(dot(normalize(n), light.xyz));
-    // The game's light here is V0 x G.a + G.rgb (day light <= 1, R2-14 #6): amb / sun are x2, so halve them.
+    // The game's light here is V0 x G.a + G.rgb (day light <= 1): amb / sun are x2, so halve them.
     // M05 trace: light = V0 x G.a + G.rgb with G the ground map (baked ambient x lightmap + sun shadow), about 0.3
     // in the swamp, not the plain ambient + sun.
     float3 lit = 0.5 + 0.5 * nl;
@@ -647,7 +667,8 @@ static const UINT kMeshCB = 192;  // MeshCB: 12 float4
 struct CB {
     XMFLOAT4X4 viewproj;
     XMFLOAT4 light, brush, flags, tsize, drep, dpar, eye, amb, sun, fogc, fogr, fogh;
-    XMFLOAT4 grep0, grep1, ginfo;
+    XMFLOAT4 grep0, grep1, ginfo, snapg;
+    XMFLOAT4 flash;
 };
 
 bool Renderer::init(ID3D11Device* dev, ID3D11DeviceContext* ctx, std::string* err) {
@@ -1155,7 +1176,7 @@ void Renderer::draw_models(int pass) {
     ctx_->PSSetSamplers(1, 1, &wrap_sampler_);
     ctx_->PSSetShaderResources(13, 1, &env_cube);
     ctx_->PSSetShaderResources(1, 1, &lightmap_srv_);
-    // Bloom mask: the model pass writes a second target (R8) beside the frame; decals and everything else leave it alone.
+    // Bloom mask: the model pass writes a second target beside the frame; decals and everything else leave it alone.
     ID3D11RenderTargetView* rtv0 = nullptr;
     ID3D11DepthStencilView* dsv0 = nullptr;
     bool mrt = false, have_mask = params.bloom && mask_.rtv;
@@ -1200,7 +1221,8 @@ void Renderer::draw_models(int pass) {
                 ctx_->OMSetBlendState(g.decal ? bs_mod2x_ : g.alpha == 3 ? bs_add_ : g.alpha == 4 ? bs_sub_ : bs_alpha_, nullptr, 0xFFFFFFFF);
                 ctx_->OMSetDepthStencilState(ds_nowrite_, 0);
             }
-            ctx_->RSSetState(g.two_sided || transparent ? rs_nocull_ : rs_solid_);
+            // Single-sided blended and additive parts are culled too (a canal lamp cone seen from behind is not drawn in the game).
+            ctx_->RSSetState(ma2::cull_back_faces(g.two_sided, g.decal) ? rs_solid_ : rs_nocull_);
             ID3D11Buffer* vbs[2] = {g.vb, model_inst_vb_};
             UINT strides[2] = {kModelStride, sizeof(BoxInstance)}, offs[2] = {0, 0};
             ctx_->IASetVertexBuffers(0, 2, vbs, strides, offs);
@@ -1472,6 +1494,7 @@ void Renderer::build_sky_previews() {
                 cb->viewproj = c.viewproj;
                 cb->eye = {c.eye.x, c.eye.y, c.eye.z, 0};
                 cb->dpar = {0, 0, 0, params.time};
+                cb->flash = {0, 0, 0, 1};  // no lightning in the list pictures
                 ctx_->Unmap(cb_, 0);
             }
             ctx_->VSSetConstantBuffers(0, 1, &cb_);
@@ -1557,6 +1580,53 @@ void Renderer::set_ground_weights(const ma2::GroundLayers& g) {
         const uint8_t* d = g.weights->data() + p * 4;
         for (size_t i = 0; i < plane[p].px.size(); i++) std::memcpy(&plane[p].px[i], d + i * 8, 4);
         make_texture(plane[p], &gw_tex_[p], &gw_srv_[p]);
+    }
+}
+
+bool Renderer::update_texture_rect(ID3D11Texture2D* tex, ID3D11ShaderResourceView* srv, const uint32_t* px, int img_w, int x0, int y0, int x1, int y1) {
+    if (!tex || !srv || !px || img_w <= 0) return false;
+    D3D11_TEXTURE2D_DESC d{};
+    tex->GetDesc(&d);
+    if (d.Width != UINT(img_w) || !(d.MiscFlags & D3D11_RESOURCE_MISC_GENERATE_MIPS)) return false;
+    x0 = std::max(0, x0);
+    y0 = std::max(0, y0);
+    x1 = std::min(int(d.Width) - 1, x1);
+    y1 = std::min(int(d.Height) - 1, y1);
+    if (x1 < x0 || y1 < y0) return true;   // nothing inside the texture
+    const D3D11_BOX box{UINT(x0), UINT(y0), 0, UINT(x1 + 1), UINT(y1 + 1), 1};
+    ctx_->UpdateSubresource(tex, 0, &box, px + size_t(y0) * size_t(img_w) + size_t(x0), UINT(img_w) * 4, 0);
+    ctx_->GenerateMips(srv);
+    return true;
+}
+
+void Renderer::update_colormap_rect(const ma2::Image& img, int x0, int y0, int x1, int y1) {
+    if (img.w > 0 && img.h > 0 && img.px.size() >= size_t(img.w) * size_t(img.h))
+        if (update_texture_rect(colormap_, colormap_srv_, img.px.data(), img.w, x0, y0, x1, y1)) return;
+    set_colormap(img);
+}
+
+void Renderer::update_ground_weights_rect(const ma2::GroundLayers& g, int x0, int y0, int x1, int y1) {
+    if (!g.weights || g.w <= 0 || g.h <= 0) return;
+    x0 = std::max(0, x0); y0 = std::max(0, y0); x1 = std::min(g.w - 1, x1); y1 = std::min(g.h - 1, y1);
+    if (x1 < x0 || y1 < y0) return;
+    const int rw = x1 - x0 + 1, rh = y1 - y0 + 1;
+    for (int p = 0; p < 2; p++) {
+        std::vector<uint32_t> buf(size_t(rw) * size_t(rh));
+        const uint8_t* d = g.weights->data() + p * 4;
+        for (int y = 0; y < rh; y++)
+            for (int x = 0; x < rw; x++) std::memcpy(&buf[size_t(y) * rw + x], d + (size_t(y0 + y) * g.w + size_t(x0 + x)) * 8, 4);
+        bool done = false;
+        if (gw_tex_[p] && gw_srv_[p]) {
+            D3D11_TEXTURE2D_DESC desc{};
+            gw_tex_[p]->GetDesc(&desc);
+            if (desc.Width == UINT(g.w) && desc.Height == UINT(g.h) && (desc.MiscFlags & D3D11_RESOURCE_MISC_GENERATE_MIPS)) {
+                const D3D11_BOX box{UINT(x0), UINT(y0), 0, UINT(x1 + 1), UINT(y1 + 1), 1};
+                ctx_->UpdateSubresource(gw_tex_[p], 0, &box, buf.data(), UINT(rw) * 4, 0);
+                ctx_->GenerateMips(gw_srv_[p]);
+                done = true;
+            }
+        }
+        if (!done) { set_ground_weights(g); return; }
     }
 }
 
@@ -1678,7 +1748,7 @@ float Renderer::height_at(float x, float z) const {
 }
 
 // The ground light map for Scene lights, after the game's per-frame 512x512 map (frame trace,
-// spec R2-4): one additive pool per light, radius lerped from min_radius to max_radius by the
+//): one additive pool per light, radius lerped from min_radius to max_radius by the
 // light's height above the ground (min_height..max_height, extrapolated), colour = the <lightmap>
 // min/max_color (C0.rgb; MAPointLight: LightColor x 0.5) x C0.a 1/3, stored x2 (the game's modulate). The falloff is the game's 64x64 RadialFalloffLookup, (1 - r^2)^2. Rebuilt only when the lights change.
 void Renderer::build_light_map() {
@@ -1801,15 +1871,24 @@ void Renderer::render(const Camera& cam, D3D11_VIEWPORT vp) {
         cb->drep = {detail.rep[0], detail.rep[1], detail.rep[2], detail.rep[3]};
         cb->grep0 = {ground_rep_[0], ground_rep_[1], ground_rep_[2], ground_rep_[3]};
         cb->grep1 = {ground_rep_[4], ground_rep_[5], ground_rep_[6], ground_rep_[7]};
-        cb->ginfo = {float(ground_count_), params.brush_tint, 0, 0};
+        cb->ginfo = {float(ground_count_), params.brush_tint, params.lift_dark && params.env_light ? 1.6f : 0.f, cam.pitch < 0.35f ? 1.f : 0.f};
+        cb->snapg = params.snap_grid;
+        cb->flash = {params.flash.x, params.flash.y, params.flash.z, params.sky_flash};
         cb->dpar = {det ? 1.f : 0.f, detail.blend, detail.modulate ? 1.f : 0.f, params.time};
         cb->eye = {cam.eye.x, cam.eye.y, cam.eye.z, g_dbg_w};
-        cb->amb = {params.ambient.x * 2, params.ambient.y * 2, params.ambient.z * 2, params.env_light ? 1.f : 0.f};
+        // A night look (ambient ~0.25 after the doubling) leaves the editor view nearly black: lift the ambient to a floor with grey, the
+        // colour of the look stays. View only; the saved map and the game are not touched.
+        XMFLOAT3 amb2{params.ambient.x * 2, params.ambient.y * 2, params.ambient.z * 2};
+        if (params.lift_dark && params.env_light) {
+            const float lum = (amb2.x + amb2.y + amb2.z) / 3.f, floor_l = 0.8f;
+            if (lum < floor_l) { const float add = floor_l - lum; amb2.x += add; amb2.y += add; amb2.z += add; }
+        }
+        cb->amb = {amb2.x, amb2.y, amb2.z, params.env_light ? 1.f : 0.f};
         cb->sun = {params.sun.x * 2, params.sun.y * 2, params.sun.z * 2, 0};
         bool fog = params.fog && params.fog_end > params.fog_start;
         cb->fogc = {params.fog_color.x, params.fog_color.y, params.fog_color.z, fog ? 1.f : 0.f};
-        // Fog distance from the orbit target (where a player would stand), not the eye (audit UX note).
-        // Review BB2A-12: a Large (2 x 2 km) map's whole-map view washed out everything past the level's FogEnd from the
+        // Fog distance from the orbit target (where a player would stand), not the eye.
+        // A Large (2 x 2 km) map's whole-map view washed out everything past the level's FogEnd from the
         // centre (a pale sheet with a green blob). Pulling back past 300 m pushes the fog out until, from 1500 m, the whole
         // map sits inside FogStart; closer views keep the level's own fog.
         const float half_diag = 0.5f * std::sqrt(params.terrain_size_x * params.terrain_size_x + params.terrain_size_z * params.terrain_size_z);
@@ -1827,6 +1906,26 @@ void Renderer::render(const Camera& cam, D3D11_VIEWPORT vp) {
     ctx_->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
     ctx_->OMSetDepthStencilState(ds_on_, 0);
     ctx_->RSSetState(rs_solid_);
+    // What neither the sky dome nor the ground covers (between the dome's lower edge and the horizon) shows the fog colour,
+    // as in the game (it always fogs: no dark band there); with View > Fog off it showed the window's dark background as a band.
+    if (params.env_light) {
+        ID3D11RenderTargetView* rt = nullptr;
+        ctx_->OMGetRenderTargets(1, &rt, nullptr);
+        ID3D11DeviceContext1* c1 = nullptr;
+        if (rt && SUCCEEDED(ctx_->QueryInterface(__uuidof(ID3D11DeviceContext1), reinterpret_cast<void**>(&c1)))) {
+            const D3D11_RECT r{LONG(vp.TopLeftX), LONG(vp.TopLeftY), LONG(vp.TopLeftX + vp.Width), LONG(vp.TopLeftY + vp.Height)};
+            // A sky with no opaque dome (Planet seen from space: a planet and its glows) leaves the game's frame black around it
+            // (PC Release trace: clear colour 0, nothing drawn over the sky region); keep that black instead of the fog colour.
+            bool dome = false;
+            if (sky.model && sky.model->state == GpuModel::Ready)
+                for (const GpuMesh& m : sky.model->meshes) dome = dome || (m.alpha < 2 && m.ymax > 0);  // the planet sits below the horizon
+            const bool black = sky.model && sky.model->state == GpuModel::Ready && !sky.model->meshes.empty() && !dome;
+            const float col[4] = {black ? 0.f : params.fog_color.x, black ? 0.f : params.fog_color.y, black ? 0.f : params.fog_color.z, 1.f};
+            c1->ClearView(rt, col, &r, 1);
+            c1->Release();
+        }
+        if (rt) rt->Release();
+    }
     if (sky.model && sky.model->state == GpuModel::Ready && !sky.model->meshes.empty()) draw_sky(cam);
     // Terrain
     if (terrain_vb_) {

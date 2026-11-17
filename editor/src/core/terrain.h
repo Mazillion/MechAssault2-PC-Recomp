@@ -6,6 +6,7 @@
 //     height = TerrainMinHeight + v / 255 * (TerrainMaxHeight - TerrainMinHeight).
 // Retail grid nav nodes sit exactly 2 m above that surface.
 #pragma once
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -28,7 +29,13 @@ struct Terrain {
     float size_z() const { return float(h - 1) * scale; }
     float at(int gx, int gz) const;
     float& ref(int gx, int gz) { return hgt[size_t(gz) * w + gx]; }
-    float height_at(float x, float z) const;        // bilinear, clamped to the map
+    // The ground the game has: the saved 8-bit steps, each cell split on the diagonal (gx,gz)-(gx+1,gz+1), clamped to the map.
+    // at(), ref() and hgt are the brushes' private fine working layer; everything else reads height_at or step_at.
+    float height_at(float x, float z) const;
+    float fine_at(float x, float z) const;   // the fine layer, bilinear: the brushes' view, for debugging strokes only
+    float step() const { return std::max(0.001f, max_h - min_h) / 255.f; }   // metres per stored step
+    float lowest() const;                                                    // the lowest ground (the lowest saved step)
+    float step_at(int gx, int gz) const { return stored(at(gx, gz)); }       // the ground at a grid point (what the game has)
     Vec3 normal_at(float x, float z) const;
     bool inside(float x, float z) const { return x >= 0 && z >= 0 && x <= size_x() && z <= size_z(); }
 

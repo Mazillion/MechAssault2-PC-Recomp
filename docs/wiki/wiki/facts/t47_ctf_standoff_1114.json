@@ -1,0 +1,181 @@
+{
+ "pack": "t47_ctf_standoff_1114",
+ "title": "CTF 2v2 stall at the flag stands: ExtractHome, the real capture rule (CapAnyway), LoneGround, StageComing (2026-11-14)",
+ "facts": [
+  {
+   "id": "extract-home-reclaw-deadlock",
+   "title": "2v2 CTF stall: the flag run's extract kept the ride at the stand; the carrier clawed on and was let go every 2 s, 22 m short",
+   "subject": {
+    "kind": "concept",
+    "id": "frun_eval FR_EXTRACT / order_ride (ma2_bot_brain.c)"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c",
+    "frun_eval",
+    "frun_step",
+    "order_ride",
+    "ctrl_do_hack",
+    "RECOMP_BOT_EXTRACT_HOME",
+    "t18.ctfvtol-run-needs-home",
+    "t18.ctfvtol-extract-hp-sync",
+    "t47.ctf-capture-own-flag-away"
+   ],
+   "fact": "On 1.0.9 (rc33) a 2v2 CTF match where both VTOL+BattleArmor pairs took the other flag froze at the stands (Bogged Down c34bd0: all 4 bots still 49.7-131.4 s; VTOLs 'lift-pickup', BattleArmor 'ride-on obj=atk/hold'). order_ride lets a carrier go within 40 m of its own stand (rc33 ma2_bot_brain.c:5804), but the run's FR_EXTRACT stayed on (frun_step ends it only on 'not carrying', VTOL damage or 100 s,3478-3487) and frun_eval kept the BattleArmor's ride (G_RIDE 3.0 whenever its VTOL is within 120 m,3717) and the VTOL's fetch (G_LIFT 3.0,3703). The BattleArmor clawed onto the VTOL hovering 8.5 m over it (ctrl_do_hack, ReClaw 2 s), was let go at once 22 m from its stand, and repeated that ([BOT-CLAMP]/[BOT-LIFT] every 2 s) until the 100 s limit at 129.7/130.5. It never walked the last 12 m that score.",
+   "how_to_use": "ExtractHome (RECOMP_BOT_EXTRACT_HOME / [Bots] ExtractHome, default on): in FR_EXTRACT a carrier off its VTOL within 40 m of our stand takes no ride and its VTOL no fetch; the carrier walks onto the stand ([C7] extracthome: ride_dropped_s). Branch v34-ctf (NATIVE\\the game source tree), exe Test 2026-10-31 \\MechAssault 2 v13-v34ctf.exe. Proof on the recorded frames: fires at t=49.77 (nation 1, 22.3 m) and 50.61 (nation 2, 22.8 m) on",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 3717
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 3733
+    }
+   ],
+   "tags": [
+    "bots",
+    "ctf",
+    "vtol",
+    "battlearmor",
+    "stall",
+    "flagrun"
+   ],
+   "date": "2026-11-14"
+  },
+  {
+   "id": "ctf-capture-own-flag-away",
+   "title": "MechAssault 2 scores a CTF capture with the carrier's own flag away (measured); the bots assumed the classic rule",
+   "subject": {
+    "kind": "concept",
+    "id": "CTF capture rule (sub_150880) / CapAnyway"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain_obj.c",
+    "ma2_bot_objective.c",
+    "obj_ctf",
+    "frun_consider",
+    "RECOMP_BOT_CTF_CAP_ANYWAY",
+    "t01b.flag-ctf-rules",
+    "t18.ctfvtol-run-needs-home"
+   ],
+   "fact": "Measured over 6 recordings (rc33 and v34, Bogged Down and Deliverance 2v2): all 11 flag changes 'carried -> home' came with the carrier alive 9.4-10.9 m from its OWN stand, and the game credited a capture (that player's stat 18 +1, every teammate's stat 25 +10) also when the carrier's own flag was carried by the enemy (c34bd_b1 t=57.5 port 4, c34bd_a1 t=54.6 port 4, c34de1 t=143.8 port 7). The bot code assumed a capture needs our flag on its stand: obj_ctf held a carrier 10-20 m off its stand (guard patrol) while ours was away, and RunNeedsHome blocked flag runs while our flag was carried; captures then happened only when the patrol strayed within 10 m. The 'flags time out home' seen in the stall report were these captures. CapAnyway (default on): a carrier walks onto its stand whatever the state of its own flag (a dropped own flag within 120 m is touched home first), and RunNeedsHome applies only with CapAnyway off.",
+   "how_to_use": "RECOMP_BOT_CTF_CAP_ANYWAY / [Bots] CapAnyway; [C7] capanyway: carrier_s. scripts\\flagret.py (proof folder) lists every carried -> home with the carrier's distance to its stand; [OBJ-SCORE] lines (RECOMP_BOT_DIAG) carry the stats. The game code of sub_150880 is not in the tracked gen units, so the rule is measured, not read.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain_obj.c",
+     "line": 291
+    },
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_objective.c",
+     "line": 115
+    }
+   ],
+   "tags": [
+    "bots",
+    "ctf",
+    "capture",
+    "rules"
+   ],
+   "date": "2026-11-14"
+  },
+  {
+   "id": "lone-ground-vtol",
+   "title": "LoneGround: a CTF bot with nobody to fly took the VTOL and flew lone cover; 1v1 had 0 flag grabs in 240 s",
+   "subject": {
+    "kind": "concept",
+    "id": "vehicle_value CtfVtolPick / frun_consider (ma2_bot_brain.c)"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c",
+    "vehicle_value",
+    "frun_consider",
+    "RECOMP_BOT_LONE_GROUND",
+    "t18.ctfvtol-ctfpair"
+   ],
+   "fact": "With one bot a side (1v1 + an idle player, rc33 c34bd1v Bogged Down) each bot took its team's VTOL (CtfVtolPick's pull 1.1-2.2 plus the 'no gunship up' +0.4) and flew solo cover over the enemy flag for a ground grab nobody could make: 0 grabs in 240 s. LoneGround (default on): with no other bot on the team and no teammate player in a BattleArmor, both VTOL bonuses are off (the bot takes a ground ride and grabs itself), and cover starts only with a ground teammate (a bot not in a VTOL, or a player in a ground vehicle).",
+   "how_to_use": "RECOMP_BOT_LONE_GROUND / [Bots] LoneGround; [C7] loneground: vtol_pick_skipped, cover_skipped. Branch v34-ctf.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 2916
+    }
+   ],
+   "tags": [
+    "bots",
+    "ctf",
+    "vtol",
+    "1v1"
+   ],
+   "date": "2026-11-14"
+  },
+  {
+   "id": "stage-coming",
+   "title": "StageComing: the CTF stage hold waited 12 s for teammates who were not coming",
+   "subject": {
+    "kind": "concept",
+    "id": "ctf_stage (ma2_bot_brain_obj.c)"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain_obj.c",
+    "ctf_stage",
+    "RECOMP_BOT_STAGE_COMING"
+   ],
+   "fact": "the stage point waited for any live teammate (Veteran 12 s, Elite 15 s): the idle player at the spawn, a pilot respawning 700 m back and our own gunship fighting 250 m off all counted, so a 2v2 attacker stood the full wait twice in one match (c34bd_a1 bot 1, t=122-134 and 210-222). StageComing (default on): only a teammate already near (70 m of the point / 50 m of me) or a ground unit within 300 m that is not carrying their flag counts; nobody coming -> go now, latched 45 s like the staged go.",
+   "how_to_use": "RECOMP_BOT_STAGE_COMING / [Bots] StageComing; [C7] ctf: stage_nobody. Branch v34-ctf.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain_obj.c",
+     "line": 150
+    }
+   ],
+   "tags": [
+    "bots",
+    "ctf",
+    "stage"
+   ],
+   "date": "2026-11-14"
+  },
+  {
+   "id": "objective-view-lost-flags-6v6",
+   "title": "Open: the bots' objective view lost both CTF flags mid-match (6v6 Bogged Down, after a 'carried -> carried carrier=0' event)",
+   "subject": {
+    "kind": "concept",
+    "id": "objective_update / objective_refresh (ma2_bot_objective.c)"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_objective.c",
+    "objective_update"
+   ],
+   "fact": "In c34bd_6v (v34 interim build, 6v6 CTF Bogged Down) both flags were dropped and picked up again at 96.9-99.1 s; at 105.2 [OBJ-EVT] printed 'carried -> carried carrier=00000000' and from then on Ma2World.nobjectives stayed 0 (the stale check in objective_update clears g_obj.n and objective_refresh, retried every 1 s, never found the flags again): no CTF play for the last 135 s, 0 captures. Not caused by the v34 changes (they do not touch the reader); whether rc33 does the same is not tested.",
+   "how_to_use": "Recording (+ .stderr.txt.gz). Next: dump MEM32(e+0x28) of the stale flag entity and what objective_refresh's flag-vector scan (0x50E5F4.0x50E5F8) returns at t=105.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_objective.c",
+     "line": 335
+    }
+   ],
+   "tags": [
+    "bots",
+    "ctf",
+    "objective",
+    "open"
+   ],
+   "date": "2026-11-14"
+  }
+ ]
+}

@@ -1,0 +1,131 @@
+{
+ "pack": "t45_cinematics",
+ "title": "Cinematic levels: frame rate and fill view (v30-cine, 2026-11-12)",
+ "facts": [
+  {
+   "id": "cinema-letterbox-is-camera-viewport",
+   "title": "Cinema shots letterbox through the camera viewport, only when the display aspect query says narrow",
+   "subject": {
+    "kind": "address",
+    "id": "001C494E"
+   },
+   "addresses": [
+    "001C494E",
+    "00044AE0",
+    "00044BE0"
+   ],
+   "related": [
+    "ma2_cine_authored_aspect",
+    "pc_display_aspect"
+   ],
+   "fact": "The cinema shot code asks the display aspect (renderer slot +0x174, hooked sub_382E0) at return address 0x1C494E , only when it is below the constant at 0x494048, animates the camera viewport (camera +0x90 x, +0x94 y, +0x98 w, +0x9C h, normalized, setter sub_44AE0) to a letterbox: y 0 -> 0.214, h 1 -> 0.571, about 2.33:1 inside 4:3, sliding in over the first second. On a widened display the query returns the wide aspect and no letterbox is drawn at all. The camera builder sub_44BE0 folds w/h into the projection aspect, so a letterboxed shot keeps the 4:3 horizontal field of view (projection m00 2.27 vs 2.31 full frame in Cinema_2_1).",
+   "how_to_use": "RECOMP_CINE_TRACE=<file> logs each camera build with P (m00 m11), VP (rect) and DEV (guest 640x480) columns and prints [CINE-ASPECT] callers.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "cinematic",
+    "display",
+    "camera"
+   ],
+   "date": "2026-11-12"
+  },
+  {
+   "id": "cinematic-fill-view",
+   "title": "Cinematic Fill view re-renders the authored band at full output resolution",
+   "subject": {
+    "kind": "setting",
+    "id": "RECOMP_CINEMATIC_VIEW"
+   },
+   "addresses": [
+    "00044BE0",
+    "001C494E"
+   ],
+   "related": [
+    "pc_display_cinematic_fill_cap",
+    "ma2_cine_camera_fill",
+    "ma2_cine_fov"
+   ],
+   "fact": "[Display] CinematicView (env RECOMP_CINEMATIC_VIEW): 0 Pillarbox (old 4:3), 1 Fill cropped no further than 16:9, 2 Fill (default), 3 Wide (gameplay-like, no letterbox, wider view). In Fill the scene target is the full window size; the letterbox query at 0x1C494E keeps the authored 4:3 answer so the authored 2.33:1 band is still produced, and ma2_cine_camera_fill (called at the top of sub_44BE0) re-lays each perspective camera's viewport across the target at aspect max(authored, screen); ma2_cine_fov rescales the vertical FOV so the authored horizontal extent is kept. Result: 2.4:1 crops about 3 % of the band height and fills the screen; 16:9 shows the whole band full width with thin bars. Text overlays (planet captions) stay on screen. It is a real re-render: in Cinema_2_1 at 3840x1600 the same face covers 300 px in Fill vs 167 px in the 2017x900 pillarbox band.",
+   "how_to_use": "Proof: (compare3.png, c21_crew_zoom.png). Fill only applies while a cinema level is loaded and PreserveAspect=1.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "cinematic",
+    "display",
+    "widescreen"
+   ],
+   "date": "2026-11-12"
+  },
+  {
+   "id": "cinematic-frame-rate-findings",
+   "title": "What changes in cinema levels above 30 FPS (measured with RECOMP_FIXED_DT)",
+   "subject": {
+    "kind": "setting",
+    "id": "RECOMP_CINEMATIC_FPS"
+   },
+   "addresses": [
+    "004E2440"
+   ],
+   "related": [
+    "RECOMP_FIXED_DT",
+    "RECOMP_CINE_TRACE",
+    "t02.cinematic-30fps"
+   ],
+   "fact": "Cinema_1_1a run with fixed dt 1/30, 1/60, 1/120 and 1/150 and compared at equal game time: camera paths and per-shot cameras are identical; each scripted shot lasts its duration plus one frame, so cuts and voice triggers come about one 30 Hz frame earlier per chained trigger at higher rates (0.13 s at the first cut, up to 0.45 s after 11 shots at 120 Hz; half that at 60 Hz). At 120-150 Hz two civilians (MAPerson 132048 and 132051, 'civs set 3', single waypoint 132046 at WaypointSpeed 5) block each other and stop 20 m short for good; at 30 and 60 Hz they reach the waypoint. Traffic MAVehicles diverge by up to 60 m at 150 Hz but only about 6 m at 60 Hz. The person mover state +0x260 is only the animation pick (sub_10FB39 sets 0 idle / 1 walk / 3 run from speed); the stop comes from the blocking check (obstacle pointer around +0xBDC/+0xCF4), root cause not traced.",
+   "how_to_use": "[Display] CinematicFrameCap (env RECOMP_CINEMATIC_FPS) default 60; 0 = follow the normal frame limit.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "cinematic",
+    "frame-rate",
+    "timing"
+   ],
+   "date": "2026-11-12"
+  },
+  {
+   "id": "campaign-index-chains-cinemas",
+   "title": "Direct mission start on a cinema index plays the following cinemas too",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_TEST_MISSION_INDEX"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_TEST_MISSION_INDEX"
+   ],
+   "fact": "RECOMP_TEST_MISSION_INDEX=7 plays Cinema_2_1 (52EDEEE3, about 60 s), Cinema_2_3 (282DBD83, 40 s) and Cinema_2_4 (9A0D6193, 41 s) back to back before Mission_05; index 0 plays Cinema_1_1a (about 100 s) into Mission_01b. One run therefore covers a whole chain of cinemas. A fresh profile may show the difficulty picker after the intro movie; one more Enter continues.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "test",
+    "campaign",
+    "cinematic"
+   ],
+   "date": "2026-11-12"
+  }
+ ]
+}

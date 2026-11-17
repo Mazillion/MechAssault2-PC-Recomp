@@ -1,0 +1,82 @@
+{
+ "pack": "t48_scenario_messages_1114",
+ "title": "Mission messages (MAActionBroadcast / PopupMenu Execute 0x001A0991): one box, the later replaces the earlier; the custom-level queue (v35-edgame, 2026-11-14)",
+ "facts": [
+  {
+   "id": "broadcast-execute-one-box-layout",
+   "title": "MAActionBroadcast/MAActionPopupMenu Execute sub_001A0991: action layout, one message box, TimeDisplayedFor 0 = default -1.0 = nothing drawn",
+   "subject": {
+    "kind": "function",
+    "id": "001A0991"
+   },
+   "addresses": [
+    "001A0991",
+    "00019DE0",
+    "004E4E7C",
+    "00493AF4"
+   ],
+   "related": [
+    "MAActionBroadcast",
+    "MAActionPopupMenu",
+    "TimeDisplayedFor",
+    "broadcast-fields",
+    "t48.scenario-message-queue"
+   ],
+   "fact": "sub_001A0991 (vtable slot 22, thiscall, ret 4, one stack argument it never reads) reads the action at ecx: +0x68 body text id, +0x6C TimeDisplayedFor (float; a value of exactly 0 is replaced by the float at 0x493AF4 = -1.0), +0x70 caption id, +0x74 destination, +0x78 PauseGame byte, +0x79 flag byte. It packs them with sub_00019DE0 into a 0x38-byte struct and calls vtable +0x10 of the composite 0x4E4E7C(1, struct, 0), i.e. the game's single message box. A second message shown while one is up replaces it in the same frame (two timers at 3 s showed only the second), PauseGame 1 does not stop the world (Q2), a message with TimeDisplayedFor 0 draws nothing (Q3), the caption is never drawn (Q5). Game clock for timing is the double at 0x4E2440 (stops while paused).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "message",
+    "broadcast",
+    "scenario",
+    "box"
+   ],
+   "date": "2026-11-14"
+  },
+  {
+   "id": "scenario-message-queue",
+   "title": "Custom levels queue their mission messages (FIFO 16, 0.25 s gap); retail levels call the original (commit on v35-edgame)",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_scn_msg_execute / msg_pump (ma2_scenario.c)"
+   },
+   "addresses": [
+    "001A0991"
+   ],
+   "related": [
+    "ma2_scn_msg_execute",
+    "msg_pump",
+    "recomp_lookup_manual",
+    "RECOMP_SCENARIO_TRACE",
+    "t48.broadcast-execute-one-box-layout"
+   ],
+   "fact": "recomp_lookup_manual maps 0x001A0991 to ma2_scn_msg_execute (the icall resolver reaches it: the call is not devirtualised). On a retail level it calls sub_001A0991 unchanged. On a scenario level a message shows at once only when none is on screen; otherwise it waits in a FIFO of 16 (the oldest waiting one is dropped, logged) and msg_pump, run from every in-mission HUD frame (ma2_scn_menu_frame, vtable 00481EF8), shows the next one when the game clock passes the previous message's end + 0.25 s. TimeDisplayedFor <= 0 is never queued (it draws nothing; it is swallowed while another message shows so it cannot wipe it). The queue is emptied on level load and unload (checkpoint reloads included). Proved on F1 D0 Q1 (A1, A2, B1, B2 in order) and S-trig C1 (KILL 1, ANY FIRED, KILL 2, ALL FIRED, OBJ1 DONE all seen).",
+   "how_to_use": "RECOMP_SCENARIO_TRACE=1 logs '[SCENARIO] message shown / queued / shown from the queue / retail'.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 2418
+    },
+    {
+     "file": "kit/source/game/src/recomp_manual.c",
+     "line": 655
+    }
+   ],
+   "tags": [
+    "message",
+    "queue",
+    "scenario",
+    "g1"
+   ],
+   "date": "2026-11-14"
+  }
+ ]
+}

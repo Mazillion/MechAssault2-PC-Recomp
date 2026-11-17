@@ -1,0 +1,84 @@
+{
+ "pack": "t54_f56_e2_lights_snow_band_1116",
+ "title": "Editor look fixes against the PC game: lamp cones are back-face culled, snow box turns with the camera, environment band (2026-11-16)",
+ "facts": [
+  {
+   "id": "canal-cone-single-sided-culled",
+   "title": "The \"bridge-foot lamps without cones\" are the near bank of the same Canal_Wall_ST: its cone mesh is single-sided and the game culls it seen from behind",
+   "subject": {
+    "kind": "concept",
+    "id": "Canal_Wall_ST light cones"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Canal_Wall_ST (139 x 140 m) holds both banks of a canal and a lamp column on each. Its cone mesh vcone (material light_016 mat, Light_016_spot.tif, additive, shading material_only) is a plain visible mesh in node optimize0: no node_light, no .mtb rule, two_sided=false. From the G0 spot-A eye (494, 13.6, 343; section at 599.7, 6.07, 296.3) all 64 near-bank cone triangles face away and all 64 far-bank ones face the eye (fmt_test E2). The game draws the far-bank cones and never the near-bank ones in every look (G0 L8): it back-face culls single-sided transparent meshes. Env_PedBridgeB has no lamp heads; its lights node (point_light01, additive) is hidden by its .mtb and holds no node_light, so neither program draws it.",
+   "how_to_use": "Cull single-sided meshes whatever their blend mode (editor core/lamp_rule.h cull_back_faces; decals excepted).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "lamps",
+    "render",
+    "editor"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "snow-box-turns-with-camera",
+   "title": "The editor placed the camera-following snow box with world axes; turned with the camera heading it matches the PC game coverage",
+   "subject": {
+    "kind": "concept",
+    "id": "precipitation object orientation"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Env_Precip_Snow_01 .mtb starts Env_Snow_01 at offset (0,10,10) (22 x 22 m box, 224 live flakes at 40/s x 5.6 s) and Env_SnowDust_01 at (20,0,10). With the offset in world axes, a camera facing east had the box 10 m to its side: G0 L9 measured editor flake coverage about 0.5x the game (changed-pixel share 0.044 vs 0.091, thr 20). With the offset and emitter frame turned by the camera heading the same pose gives 0.13-0.18 (1.4-2.0x), flakes over the whole view as in the game frame. The game also draws smaller flakes (limit_screen_size=true; the editor does not clamp sprite screen size).",
+   "how_to_use": "Editor add_precip_effect: rotate the precip offset and emitter frame by the camera yaw. Open: the game limit for limit_screen_size.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "weather",
+    "snow",
+    "editor"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "environment-tab-band-outside-plane",
+   "title": "The dark band under the sky at the Environment-tab pose was the editor's unfogged \"outside the map\" ground plane",
+   "subject": {
+    "kind": "concept",
+    "id": "editor outside-map plane"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "At an orbit camera 250 m out and 9 degrees up (the old Environment-tab jump, now Show the sky), the editor drew its dark outside-the-map plane (0xFF161A18, 2 m under the lowest terrain, unfogged for overview cameras since an earlier fix) to the horizon: 95 dark rows between the far ground and the sky. The game fogs everything there (fog colour at the horizon). Fix: views under 20 degrees pitch fog that plane; the viewport behind the sky dome is cleared to the fog colour.",
+   "how_to_use": "None for the game; editor only.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "fog",
+    "editor",
+    "render"
+   ],
+   "date": "2026-11-16"
+  }
+ ]
+}

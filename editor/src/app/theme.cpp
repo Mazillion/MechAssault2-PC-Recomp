@@ -1,10 +1,12 @@
-// MechAssault 2 front-end look for the editor (ux/style-guide.md: hex values sampled from the game's own menus,
-// ux/style-shots). The game's language: dark navy-steel panels, cyan menu items with a white current item,
+// MechAssault 2 front-end look for the editor (hex values sampled from the game's own menus,
+//). The game's language: dark navy-steel panels, cyan menu items with a white current item,
 // menu yellow for the current value / primary action, condensed caps headings with a dark shadow.
 #include "theme.h"
 
 #include <windows.h>
+#include "imgui_internal.h"
 #include <algorithm>
+#include <cstdio>
 #include <string>
 
 namespace theme {
@@ -14,6 +16,7 @@ static ImVec4 hex(unsigned rgb, float a = 1.f) {
 }
 
 static ImFont* g_heading = nullptr;
+static ImFont* g_tab = nullptr;
 
 const Tokens& tok() {
     static const Tokens t = {
@@ -31,8 +34,13 @@ void apply(ImGuiStyle& s) {
     s.GrabRounding = 2; s.TabRounding = 2; s.ScrollbarRounding = 2;
     s.WindowBorderSize = 1; s.FrameBorderSize = 0; s.PopupBorderSize = 1; s.TabBorderSize = 0;
     s.WindowPadding = {8, 8}; s.FramePadding = {6, 4}; s.ItemSpacing = {8, 6};
-    s.ItemInnerSpacing = {6, 4}; s.IndentSpacing = 16; s.ScrollbarSize = 12; s.GrabMinSize = 10;
+    s.ItemInnerSpacing = {6, 4}; s.IndentSpacing = 16; s.ScrollbarSize = 12; s.GrabMinSize = 5;  // a thin grab: the value text centred on a slider stays readable when the grab passes under it
     s.TabBarOverlineSize = 2;
+    // A tip appears after the mouse has rested on the control for half a second, so it does not flash up over the next
+    // control on the way there.
+    s.HoverStationaryDelay = 0.3f;
+    s.HoverDelayShort = 0.5f;
+    s.HoverDelayNormal = 0.6f;
     s.DisabledAlpha = 0.5f;  // greyed controls read as greyed (ImGui's 0.6 looked enabled); 0.35 made a real level's values unreadable
     ImVec4* c = s.Colors;
     c[ImGuiCol_Text]                  = hex(0xD7D8D9);
@@ -54,8 +62,8 @@ void apply(ImGuiStyle& s) {
     c[ImGuiCol_ScrollbarGrabHovered]  = hex(0x2A5373);
     c[ImGuiCol_ScrollbarGrabActive]   = hex(0x3C7891);
     c[ImGuiCol_CheckMark]             = hex(0xCECE48);
-    c[ImGuiCol_SliderGrab]            = hex(0x62AECE);
-    c[ImGuiCol_SliderGrabActive]      = hex(0x8CC5DC);
+    c[ImGuiCol_SliderGrab]            = hex(0x347796);  // darker than the white value text it can sit under
+    c[ImGuiCol_SliderGrabActive]      = hex(0x4C93B3);
     c[ImGuiCol_Button]                = hex(0x1E3A52);
     c[ImGuiCol_ButtonHovered]         = hex(0x2A5373);
     c[ImGuiCol_ButtonActive]          = hex(0x3C7891);
@@ -111,9 +119,14 @@ void load_fonts(ImGuiIO& io, const wchar_t* windir) {
     std::string head = font(L"impact.ttf");
     if (head.empty()) head = font(L"segoeuib.ttf");
     if (!head.empty()) g_heading = io.Fonts->AddFontFromFileTTF(head.c_str());
+    // Tab labels: Segoe UI Bold. Impact at body size is blurry and reads as another program's font; window titles and
+    // headings keep the game's condensed face, where it is large enough to stay sharp.
+    std::string bold = font(L"segoeuib.ttf");
+    if (!bold.empty()) g_tab = io.Fonts->AddFontFromFileTTF(bold.c_str());
 }
 
 ImFont* heading_font() { return g_heading; }
+ImFont* tab_font() { return g_tab ? g_tab : g_heading; }
 
 // The title bar is drawn inside Begin, so the heading face is pushed around Begin only; the body face is pushed back
 // for the contents and popped before End, so the font stack depth matches at Begin and End.
@@ -237,6 +250,39 @@ bool section(const char* label, int flags) {
     bool open = ImGui::CollapsingHeader(label, flags);
     ImGui::PopStyleColor(3);
     return open;
+}
+
+// The shared shape of slider_float / slider_int: bar narrowed by the value column, bar text hidden, value text drawn beside it.
+template <class TextFn, class DrawFn>
+static bool value_slider(const char* id, TextFn text, DrawFn draw) {
+    ImGuiContext& g = *ImGui::GetCurrentContext();
+    const float col = std::max(ImGui::GetFrameHeight() * 3.f, ImGui::CalcTextSize(text().c_str()).x + 2.f);
+    const float total = ImGui::CalcItemWidth();
+    const float gap = ImGui::GetStyle().ItemInnerSpacing.x;
+    const float bar = std::max(total - col - gap, ImGui::GetFrameHeight() * 2.f);
+    ImGui::SetNextItemWidth(bar);
+    const bool typing = ImGui::TempInputIsActive(ImGui::GetID(id));
+    if (!typing) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 0, 0, 0));   // the bar keeps the format (rounding, typing) but shows no text
+    const bool ch = draw();
+    if (!typing) ImGui::PopStyleColor();
+    const ImGuiLastItemData saved = g.LastItemData;
+    ImGui::SameLine(0, gap);
+    ImGui::AlignTextToFramePadding();
+    ImGui::PushStyleColor(ImGuiCol_Text, tok().text_value);
+    ImGui::TextUnformatted(text().c_str());
+    ImGui::PopStyleColor();
+    g.LastItemData = saved;
+    return ch;
+}
+
+bool slider_float(const char* id, float* v, float lo, float hi, const char* fmt, ImGuiSliderFlags flags) {
+    auto text = [&] { char b[96]; snprintf(b, sizeof b, fmt, double(*v)); return std::string(b); };
+    return value_slider(id, text, [&] { return ImGui::SliderFloat(id, v, lo, hi, fmt, flags); });
+}
+
+bool slider_int(const char* id, int* v, int lo, int hi, const char* fmt, ImGuiSliderFlags flags) {
+    auto text = [&] { char b[96]; snprintf(b, sizeof b, fmt, *v); return std::string(b); };
+    return value_slider(id, text, [&] { return ImGui::SliderInt(id, v, lo, hi, fmt, flags); });
 }
 
 void heading(const char* text) {

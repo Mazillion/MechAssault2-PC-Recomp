@@ -48,9 +48,14 @@ public:
     void set_terrain(const ma2::Terrain& t);
     void update_terrain_rect(const ma2::Terrain& t, int x0, int z0, int x1, int z1);
     void set_colormap(const ma2::Image& img);
-    // P4 ground layers: null or disabled = the retail pair; set_ground_weights after painting.
+    // Ground layers: null or disabled = the retail pair; set_ground_weights after painting.
     void set_ground_layers(const ma2::GroundLayers* g);
     void set_ground_weights(const ma2::GroundLayers& g);
+    // A brush stroke uploads only the rectangle it touched (inclusive texel bounds x0..x1, y0..y1) and rebuilds the mips; a texture
+    // that is missing or the wrong size is set whole instead.
+    bool update_texture_rect(ID3D11Texture2D* tex, ID3D11ShaderResourceView* srv, const uint32_t* px, int img_w, int x0, int y0, int x1, int y1);
+    void update_colormap_rect(const ma2::Image& img, int x0, int y0, int x1, int y1);
+    void update_ground_weights_rect(const ma2::GroundLayers& g, int x0, int y0, int x1, int y1);
     void set_lightmap(const ma2::Image& img);
     void set_overlay(const ma2::Image& img);  // RGBA overlay drawn over the terrain (type map view)
     void clear_overlay();
@@ -119,6 +124,7 @@ public:
         float brush_contour = 0;  // > 0: height contour lines this many metres apart inside the brush (shaping tools)
         float brush_tint = 0;     // ring colour: 0 yellow, 1 cyan (Raise / Plateau up / Smooth), 2 orange (Lower / Plateau down / Roughen)
         bool grid = true;
+        XMFLOAT4 snap_grid{0, 0, 0, 0};  // the snap grid near the cursor: x, z = its centre, z(3rd) = cell metres (0 = hidden), w = cells out (12)
         bool overlay = false;
         bool lighting = true;
         bool detail = true;   // View > Ground textures
@@ -126,6 +132,7 @@ public:
         // MAEnvironment (View > Game lighting / Fog): ambient and sun colours (rgb 0-1, as stored;
         // the game's lighting doubles them), fog colour and linear start/end in metres.
         bool env_light = true, fog = true;
+        bool lift_dark = true;      // View > Brighten dark maps: the editor view lifts a very dark ambient (night looks) so objects stay visible; the map is not changed
         bool scene_lights = false;  // View > Scene lights
         bool night_time = true;     // MAEnvironment IsNightTime: building 'lights' groups (lit windows, point lights, cones) show only then
         bool bloom = true;          // View > Bloom: the game's glow post-process (framebuffer-alpha mask, blurred at 1/8 size, added back)
@@ -136,6 +143,8 @@ public:
         bool fog_height = false;  // FogMode 2: distance fog plus the FogBottom..FogTop height band
         float fog_top = 0, fog_bottom = 0;
         XMFLOAT3 sun_dir{0, 0, 0};  // DirectionalLightDirection (from the sun); 0 = editor light
+        XMFLOAT3 flash{0, 0, 0};    // Lightning flash added to lit models' sun term this frame (x2 like sun); 0 = none
+        float sky_flash = 1.f;      // Lightning sky flash gain this frame (1 = none)
         float terrain_size_x = 1024, terrain_size_z = 1024;
     } params;
 
@@ -201,7 +210,7 @@ private:
     UINT line_cap_ = 0;
     ID3D11Texture2D *colormap_ = nullptr, *lightmap_ = nullptr, *overlay_ = nullptr, *minimap_ = nullptr;
     ID3D11ShaderResourceView *colormap_srv_ = nullptr, *lightmap_srv_ = nullptr, *overlay_srv_ = nullptr, *minimap_srv_ = nullptr;
-    ID3D11Texture2D *gw_tex_[2] = {}, *gl_tex_ = nullptr;   // P4 ground layers: weights 0-3 / 4-7, layers 2.. (array)
+    ID3D11Texture2D *gw_tex_[2] = {}, *gl_tex_ = nullptr;   // Ground layers: weights 0-3 / 4-7, layers 2.. (array)
     ID3D11ShaderResourceView *gw_srv_[2] = {}, *gl_srv_ = nullptr;
     float ground_rep_[8] = {};
     int ground_count_ = 0;

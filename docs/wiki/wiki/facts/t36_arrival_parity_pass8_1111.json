@@ -1,0 +1,197 @@
+{
+ "pack": "t36_arrival_parity_pass8_1111",
+ "title": "Arrival parity pass 8: FarAir, ChokeWaitYield, DeckHold, PickHold, CruisePace; Ill Wind Snatch It segment losses",
+ "facts": [
+  {
+   "id": "farair-no-standoff-duel-with-far-vtol",
+   "title": "Ground bodies no longer park to duel a VTOL over 150 m away that is not on them (FarAir)",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_brain.c evaluate FarAir"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The attack goal on a VTOL turned into an ENGAGE stand-off from where the body stood: a ground body cannot close on a gunship, so it parked. In Q_73a (No Man's Land Check It, p11) T2 b5/b6/b9 attacked T1's VTOLs 300-460 m away over the middle for 32-53 s (attacking_me 0), ~9 s each under 3 m/s in the pass under the T2 mesa, and all 10 'blocked by' replans of T2's terminal runner b7 there named those three bodies. FarAir (commit 30135f1) zeroes the attack score for a Mech/tank/BattleArmor whose target is a VTOL more than 150 m away that is not attacking it and has not hit it for 5 s; the travel/roam legs still shoot it on the move when in reach.",
+   "how_to_use": "RECOMP_BOT_FAR_AIR=0 / [Bots] FarAir=0 = old. [C7] farair: s (bot-seconds). Live B_73a1 (v13-v28p2): T2 loss vs floor 29.5 s (Q_73a 39.2, F_73a 89.7, p12/p13 31.8-33.8).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 4009
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "vtol",
+    "checkit"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "chokewaityield-waiter-not-waited-for",
+   "title": "A body waiting at a choke mouth is not waited for by the oncoming body (ChokeWaitYield)",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_ctrl.c avoidance right-of-way / brain choke-wait"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The brain's choke wait (narrow choke, oncoming teammate: wait at the mouth keeping right) did not set ctrl.yield_until, so the controller's right-of-way rule treated the waiter as a body in the way and the oncoming teammate waited for it: S_71bT (Ill Wind Check It) choke 4, b1 'waits at choke 4 (1 oncoming)' 37.5-44.4 s while b0 logged BOT-WAIT for b1 38.4-43.8 s (108 lines; all 108 for a choke-waiter, waitwait.py). The brain now sets Ma2Order.yield_wait on the choke wait and ctrl skips such a teammate in the right-of-way loop, so the oncoming body swerves round it (commit 30135f1).",
+   "how_to_use": "RECOMP_BOT_CHOKE_WAIT_YIELD=0 / [Bots] ChokeWaitYield=0 = old. [C7] chokes: waiter_passed. Ma2Order grew an int yield_wait (botrec reads layouts from the sources).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 4014
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "chokes",
+    "checkit"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "deckhold-height-threshold-hysteresis",
+   "title": "Snatch It core-above-us height tests have 4 m hysteresis (DeckHold)",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_brain_obj.c deck_above / obj_snatch DeckSkip"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "DeckSkip (jetless 'Mech/tank: core 18 m+ above = no grab, DeckScreen stage point instead) and the halved ground grab (10 m) read the body's own height every evaluation. F_83a (No Man's Land Snatch It, p15) T2 b7 stood at 1118-1124,875-882 where the ground is y 17.6-20.0 under core 2 at y 36.7 (edge y 18.7: 7 of the 20 grid cells on each side) and flipped between core 2 (1018,1003) and its stage point 821,995 (core + 0.33 x (T1 base 347,978 - core) + 25 m) for 12 s. deck_above keeps the last decision for the same core while the height difference is within 4 m of the threshold (commit 30135f1). Replay on that box over the height grid: 21 flips in 12 s -> 0.",
+   "how_to_use": "RECOMP_BOT_DECK_HOLD=0 / [Bots] DeckHold=0 = old. [C7] deckhold: held.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain_obj.c",
+     "line": 398
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "snatchit",
+    "dithering"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "pickhold-kth-nearest-core-commitment",
+   "title": "Snatch It k-th nearest core pick holds instead of swapping with an equidistant one (PickHold)",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_brain_obj.c obj_snatch PickHold"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Attackers spread by taking the k-th nearest candidate core (k = team rank), re-sorted every evaluation; two candidates at about the same distance swapped places as the body moved, so the pick and its grab/DeckScreen stage point flipped. P13_85b1 (Rush Hour Snatch It) T2 b8, rank 2 of 3: free core at 264 m vs an enemy-base core at 205 + 60 = 265 m, stage points 1653,1527 / 1364,1400 alternating every 1-2 s while the body stood at 0-8 m/s 121-135 s. The last pick now stays while it is a candidate one place from the k-th and at most 15 % / 30 m further (commit 30135f1). Replay of the pick rule on the recorded frames: 15 flips -> 2 (P13_85b1 b8 114-142 s), 5 -> 1 (D_85b1 b8 66-95 s).",
+   "how_to_use": "RECOMP_BOT_PICK_HOLD=0 / [Bots] PickHold=0 = old. [C7] pickhold: held.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain_obj.c",
+     "line": 485
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "snatchit",
+    "dithering"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "dithering-finders-oflip-opflip",
+   "title": "Finding objective/destination dithering in a .botrec (oflip.py / opflip.py)",
+   "subject": {
+    "kind": "concept",
+    "id": "dithering-finders-oflip-opflip"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "oflip.py lists spans where a bot's order point returns to the spot it held two changes earlier (A,B,A,B) within 4 s; opflip.py lists spans with 8+ changes of (obj_op, obj_ent, goal) in 15 s. Snatch It hits besides the two fixed causes: carry legs through a choke flip between the route and the keep-right point (choke-right) at speed (harmless), a post-boarding stand where the order point alternates own position / pile for 2-4 s, and an attacker chasing a carrier at its own pace flipping hunt <-> grab of a far core (A_83a2 b5 147-165 s; the hunt point switches between the memory prediction and the last-look position across the 120 m edge; not fixed, both legs clue the same way).",
+   "how_to_use": "python -I oflip.py <tools> <rec>; python -I opflip.py <tools> <rec> (tools = the recorded build's tools dir).",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "bots",
+    "tools",
+    "dithering"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "cruisepace-cruise-hop-spacing-separate",
+   "title": "The 'Mech cruise hop's 7 s pacing no longer holds off climb jets (CruisePace)",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_ctrl.c cruise hop / jump_next"
+   },
+   "addresses": [],
+   "related": [
+    "t36.dithering-finders-oflip-opflip"
+   ],
+   "fact": "The cruise hop along long clear legs set BotCtrl.jump_next = now + 7 s, and every other jet (ClimbAhead/MechClimbJet, jet-ups, up-jets at a raised goal) waits for jump_next. H_81a1 (Ill Wind Snatch It, p15) T2 clue b8 cruise-hopped at 23.2 s, reached the 0.41-0.52 basin exit ramp at 28.0 s with a full tank (actor+0x49C = 7.0, the tank reads 0.7 on this 'Mech, not 0.2 as the old comment says) and walked into the ramp at 0-12 m/s until 30.2 s. Commit c7e5ef9 keeps the 7 s on a new BotCtrl.cruise_next for cruise hops only; the shared spacing after a cruise hop is 3 s. cruisepace_proof.py: frames with a full-enough tank, an uphill next route point and only the cruise pacing holding the jet: H_81a1 52 bot-s (14.5 under 5 m/s), Q_81a1 47 (15.6), K_71a 25 (3.1).",
+   "how_to_use": "RECOMP_BOT_CRUISE_PACE=0 / [Bots] CruisePace=0 = old. [C7] cruisepace: hops (52-56 per Ill Wind match).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 4362
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "jets",
+    "illwind"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "illwind-snatch-t2-segment-losses",
+   "title": "Ill Wind Snatch It: where team 2's clue 'Mech still loses time against the floor (pass 8)",
+   "subject": {
+    "kind": "concept",
+    "id": "Ill Wind Snatch It arrival parity"
+   },
+   "addresses": [],
+   "related": [
+    "t36.cruisepace-cruise-hop-spacing-separate"
+   ],
+   "fact": "segtable.py over 6 v13-v28p4 runs: T1's first 'Mech loses 3.5-4.2 s to the floor (board ~1.3, base 0.6-2.5, run 0.4-1.9); T2's 5.0-14.2 s: board ~1.3 (same as T1), plat 2.5-6.0 (stands on the base platform behind teammates, LeapStall's 1.2 s, then the leap burns a full 3 s up-jet arc, apex +25 m, on a leap DOWN), basin -1.6.+6.1 (cruise hops: each hop costs 0.5-1.9 s against walking and every hop ends in a ~0.6 s landing stop at vy -26.-58 m/s; T2's route has more long clear legs, 54 hops vs T1's 36 in 6 matches), exit 0.8-3.0 (ramp + lower ledge before the band jet), terr -0.6.+0.7. Excess over the floor gap: 81a +3.7/+10.5/+5.5, 81b +5.8/+7.7/+11.6 (rc27-code runs 81a +5.5/+6.2/+11.3, 81b +8.1/+8.7/+9.1). Cruise hops OFF (RECOMP_BOT_MECH_JUMP=0, 4 runs on p4): 81a +10.7/+9.2, 81b +7.0/+5.1 -- not better, so the per-hop cost is not the excess driver; hops stay on.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "illwind",
+    "snatchit"
+   ],
+   "date": "2026-11-11"
+  }
+ ]
+}

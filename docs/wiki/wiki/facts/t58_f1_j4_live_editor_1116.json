@@ -1,0 +1,205 @@
+{
+ "pack": "t58_f1_j4_live_editor_1116",
+ "title": "In-game live editor: live session, scenario reload in place, loading screen timing, hidden-game audio CPU (2026-11-16)",
+ "facts": [
+  {
+   "id": "ingame-editor-live-session",
+   "title": "The in-game editor no longer restarts the game: a shared block (--from-game-live) lets the two processes take turns on screen",
+   "subject": {
+    "kind": "concept",
+    "id": "live_frame"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "J4 (v35-edgame + editor track-c-s2): the game creates Local\\MA2SE-live-<pid>-<n> (Ma2seLive, 1696 bytes, same layout in the editor's from_game_live.h) and starts the editor with --from-game-live <name>. Back to the game and Test are requests in the block; the game reloads changed files in place, walks its menus while hidden and comes on screen when Custom Scenarios (Back) or the tested level's loading screen (Test) is up. The editor stays alive and hidden during a test and comes back when the player leaves it (pause > Quit, Continue / Quit on the result screen, the match results, or any front-end menu). Switch: the incoming window shows just below the outgoing one without activation, draws two frames, then the outgoing one hides itself. Both processes set AppUserModelID \"MechAssault2.Recomp\" (one taskbar button); the editor takes the game's class icon and rectangle. RECOMP_EDITOR_LIVE=0 or an older editor (no attach within 15 s) = the old exit-code / restart protocol. Test to control: 13.8 s with the restart (Day 1 logo, boot loading, title, hub, picker, loading) vs about 2.4 s live (no list change).",
+   "how_to_use": "Log lines \"[SCN-LIVE] <tick> .\" trace every step. Contract: NOTES section 6b.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "scenario",
+    "editor",
+    "in-game editor",
+    "J4"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "scenario-reload-in-place",
+   "title": "A changed, new or deleted .ma2map is taken in without a restart: every index archive unmounted, one new full index mounted",
+   "subject": {
+    "kind": "concept",
+    "id": "live_resync"
+   },
+   "addresses": [],
+   "related": [
+    "t52.scenario-assets-checkpoint-remount"
+   ],
+   "fact": "live_resync compares each loaded scenario with its file (write time + size): same Id = loaded again into its slot (new text_base, pointers g_level_last / g_end / g_mission_scn moved, old buffers freed), gone / unfinished / new Id = marked deleted (out of the campaign; a deleted multiplayer map keeps its last version in the index because the game's map list still has it), new files added. live_rebuild then unmounts every index archive mounted so far (boot index_<stamp>.mgf, rescan deltas, earlier live ones) and mounts index_<stamp>_L<nnn>.mgf with every scenario (MissionSet63.ini and the campaign file included; remap_world runs once per world). The campaign file keeps its name: Custom Scenarios mode holds the name in the campaign path format, and a renamed campaign whose old file was unmounted made the picker start a level with a garbage world name (seen in game). The Custom Scenarios rows are built when it opens: it is entered again (Esc to the hub, item 8) only when the rows (Ids, names, descriptions) changed. Proven: an edited mission started from the picker showed the new message at once; a Save as file was listed and selected.",
+   "how_to_use": "Never keep the old index mounted next to a rebuilt one with the same paths; keep the campaign stem stable across live rebuilds.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "scenario",
+    "index",
+    "mount",
+    "J4"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "custom-mission-pause-quit-path",
+   "title": "Pause > Quit in a custom mission: Quit to Main Hub, \"Abort mission in progress?\" Yes, level unload, 3DLobby, hub, then the game opens Custom Scenarios by itself",
+   "subject": {
+    "kind": "address",
+    "id": "0048BFE8"
+   },
+   "addresses": [
+    "004827B0",
+    "0048BFE8",
+    "00482638",
+    "00481B70",
+    "0048F3E0"
+   ],
+   "related": [],
+   "fact": "Pause menu 004827B0 (Resume, Controls, Volume, Video Settings, Multiplayer Options, Restart Mission, Quit to Main Hub at 640x480-scaled y 590 of 960), confirm 0048BFE8 (Yes at y 522). In a custom mission the level unloads, 3DLobby.wdf loads, the hub (00481B70) comes and Custom Scenarios mode moves on to the mission picker (0048F3E0) without any press. In a match the confirm leads to the results screen 00482638 (Enter) and then the hub. Mouse clicks via RECOMP_UI_LIVE work on both menus.",
+   "how_to_use": "Do not choose hub item 8 while the game is on its own way to the picker: wait about 1 s on the hub first.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "menus",
+    "pause",
+    "J4"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "picker-first-esc-lost",
+   "title": "The first Esc on a freshly opened Custom Scenarios screen is often ignored; a second one 1.2 s later goes to the hub",
+   "subject": {
+    "kind": "address",
+    "id": "0048F3E0"
+   },
+   "addresses": [
+    "0048F3E0",
+    "0048BD88"
+   ],
+   "related": [],
+   "fact": "Seen 4 times in the J4 runs (hidden game, posted WM_KEYDOWN/UP): the first Esc after Custom Scenarios opened did nothing, the repeat went to the hub. A second Esc that reaches the hub opens the credits (0048BD88).",
+   "how_to_use": "Press Esc once per screen object and repeat only if the same object is still up after ~1.2 s (live_esc_once).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "menus",
+    "input",
+    "J4"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "mission-loading-screen-timing",
+   "title": "Starting a custom mission: the level-load hook runs while Custom Scenarios still fades out; the LOADING screen follows ~0.5 s later and the HUD menu frame (00481EF8) comes while LOADING still shows",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_scn_level_load"
+   },
+   "addresses": [
+    "00481EF8",
+    "000138A0"
+   ],
+   "related": [],
+   "fact": "Frames at 0.1 s (UI dumps) after Enter on the picker: picker fade ~0.5 s, LOADING ~0.5-1 s, first mission frame; the first INGAME_VT menu frame is logged ~0.3-0.6 s before the first dumped mission frame. During the load the game presents rarely: J4 shows the game once no frame came for 150 ms after the level-load hook, or at the first INGAME frame.",
+   "how_to_use": "Use xbox_FramebufferFlipCount gaps to tell the loading screen from the menu fade.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "loading",
+    "timing",
+    "J4"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "fb-hidden-window-stays-hidden",
+   "title": "A RECOMP_FB_HIDDEN game window cannot be shown: the framebuffer thread hides it again every loop",
+   "subject": {
+    "kind": "file",
+    "id": "fb_present.c"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "fb_present.c thread loop: \"if(diagnostic_hidden && !IsIconic(hwnd) && IsWindowVisible(hwnd)) ShowWindow(hwnd,SW_HIDE)\". ShowWindow / SetWindowPos(SWP_SHOWWINDOW) from other code is undone at once, so harness runs cannot measure the game window's own show/hide; J4 logs those steps (\"quiet: game window would .\") and shows only the editor (off screen, tool window).",
+   "how_to_use": "For window-switch checks in harness runs measure the editor window and the game's log; a visible game needs a real desktop run.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/video/fb_present.c",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "harness",
+    "window",
+    "J4"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "hidden-game-audio-cpu",
+   "title": "A hidden, idle game still costs about 60-70% of one core: the APU DSP thread (~50%) and APU frame thread (~8%) run regardless of the game thread",
+   "subject": {
+    "kind": "concept",
+    "id": "dsp_thread_main"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Measured in J4 (game hidden at Custom Scenarios, its menu loop at ~1 frame a second): process 60-70% of one core; threads: dsp_thread_main ~50%, mcpx_apu_frame_thread ~8%, kernel_timer_thread ~3%, nv2a_ack_thread ~2.5%, ohci_thread ~2%, the game thread ~0.6%. The APU frame loop has a pause (pause_requested / is_idle, mcpx_apu_wait_for_idle / mcpx_apu_resume) but the helpers are static in apu_core.c; pausing it while the game thread may still talk to DirectSound risks a wait on the doorbell ack. SUPERSEDED 2026-11-16 (e04f328): the APU is now held while the editor is on screen and the game idles, hidden game ~6% of a core; see t59.apu-hold-behind-editor.",
+   "how_to_use": "Getting under 1% needs an exported APU pause in apu_core.c used only while the game thread is parked (outside the files J4 may change).",
+   "status": "superseded",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_core.c",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "audio",
+    "cpu",
+    "idle",
+    "J4"
+   ],
+   "date": "2026-11-16"
+  }
+ ]
+}

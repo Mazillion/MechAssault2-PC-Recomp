@@ -204,7 +204,7 @@ bool App::trig_gizmo_update(bool lclick, bool ldown) {
                 float ang = std::atan2(ro.x + rd.x * t - piv0.x, ro.z + rd.z * t - piv0.z);
                 if (tdrag_.start > 1e29f) { tdrag_.start = ang; return true; }
                 float d = wrap_pi(ang - tdrag_.start);
-                if (io.KeyShift) d = std::round(d / (15.f / kDeg)) * (15.f / kDeg);
+                if (holding(settings_.hold_quarter)) d = std::round(d / (15.f / kDeg)) * (15.f / kDeg);
                 n.hd = v[7] + d * kDeg;
                 tdrag_.applied = d;
                 label = "turn";

@@ -3054,13 +3054,13 @@
    "title": "Old open item OB1: Test did not start the match",
    "subject": {
     "kind": "bug",
-    "id": "USABILITY OB1"
+    "id": "the editor notes OB1"
    },
    "addresses": [],
    "related": [
     "autostart-verified-in-game"
    ],
-   "fact": "USABILITY.md lists OB1 as open: the game ignored --mode, --bots and --skill, and Test stopped at the title screen. The autostart walk now handles these, so OB1 is superseded.",
+   "fact": "An earlier editor note listed OB1 as open: the game ignored --mode, --bots and --skill, and Test stopped at the title screen. The autostart walk now handles these, so OB1 is superseded.",
    "status": "superseded",
    "confidence": "verified-in-game",
    "source": [],
@@ -3823,13 +3823,13 @@
    "title": "Old palette hid 461 templates",
    "subject": {
     "kind": "behaviour",
-    "id": "USABILITY U23"
+    "id": "the editor notes U23"
    },
    "addresses": [],
    "related": [
     "palette-no-model"
    ],
-   "fact": "USABILITY U23 says the palette hides the 461 templates whose model is not shipped.",
+   "fact": "An earlier editor note said the palette hides the 461 templates whose model is not shipped.",
    "status": "superseded",
    "confidence": "documented",
    "source": [],
@@ -4363,7 +4363,7 @@
    "title": "Controls checklist results",
    "subject": {
     "kind": "tool",
-    "id": "USABILITY controls checklist"
+    "id": "the editor notes controls checklist"
    },
    "addresses": [],
    "related": [

@@ -1,0 +1,497 @@
+{
+ "pack": "t61_reach_bot_gaps_1116",
+ "title": "Reach overlay: bot behaviour gaps (planner vs real limits)",
+ "facts": [
+  {
+   "id": "reach-bot-gaps-index",
+   "title": "Bot behaviour gaps G1-G16: planner limits against what each unit can really do (index)",
+   "subject": {
+    "kind": "concept",
+    "id": "bot behaviour gaps"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The reach overlay shows two views: Who drives: Player (real ability) and Bots (the stricter of planner and real ability). Where they differ on a map, one of the gaps G1-G16 is the reason. Sixteen gaps are recorded with planner rule (file:line), real limit, effect, proposed fix and risk; none is implemented. Suggested order: G1 + G2 (slope, walk down), G3 + G4 + G16 (jet priors, tank/pilot drops), G6 (BA claw links), the rest as cleanups.",
+   "how_to_use": "See the page of this pack. Rules: ma2-bots-high-ground, ma2-objective-arrival-parity.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "bots",
+    "gap",
+    "index"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "gap-g1-every-mech",
+   "title": "Bot gap G1 (Every 'Mech): planner limit vs real limit",
+   "subject": {
+    "kind": "concept",
+    "id": "bot gap G1"
+   },
+   "addresses": [],
+   "related": [
+    "reach-bot-gaps-index"
+   ],
+   "fact": "Planner (bots): Heavy grid wall at 1.1 m per 2 m = **55%** (R3) Real ability: Atlas climbs **148%**, blocked at 171% in  not reproduced in the M2 rerun (climbed up to 825%). Other chassis: no walker limit found in the final M2 run: the Atlas, Hackman, Mad Dog, pilot and BA climbed a 66 m single-cell face (825%) and the Atlas every lane up to 375%; the Rommel tank climbed up to a +50 m cell (625%) and was blocked at 825% (measured, MEASURED.md M2) Effect in play: Bots route round hills and ramps the player walks straight up; they lose high ground and arrive late at hill objectives",
+   "how_to_use": "Proposed fix (not implemented; bot code is read-only for this track): Raise `TG_STEP_HEAVY` toward the measured limit with a margin (1.1 -> 2.0 m, 100%) behind a flag; or keep 1.1 as the cost knee and make 55-100% a costly, not blocked, step Risk / check: Controller must really drive up (stall learning TG_NLEARN catches failures). A/B on the objective-reach matrix + parity table",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "bots",
+    "gap",
+    "g1"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "gap-g2-every-ground-unit",
+   "title": "Bot gap G2 (Every ground unit): planner limit vs real limit",
+   "subject": {
+    "kind": "concept",
+    "id": "bot gap G2"
+   },
+   "addresses": [],
+   "related": [
+    "reach-bot-gaps-index"
+   ],
+   "fact": "Planner (bots): Wall test is symmetric: a face too steep to walk up is also not walkable down; downhill only by drop links (run <= 20 m, R13) Real ability: The player walks or slides down any slope Effect in play: Bots take long detours off hills they could just walk down",
+   "how_to_use": "Proposed fix (not implemented; bot code is read-only for this track): One-way \"slide\" links down steep cells (fall <= the body's drop limit), same shape as drop links Risk / check: Non-jet 'Mechs fail some long banks in game (see G9); keep the 20 m run cap",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "bots",
+    "gap",
+    "g2"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "gap-g3-battle-armor",
+   "title": "Bot gap G3 (Battle Armor): planner limit vs real limit",
+   "subject": {
+    "kind": "concept",
+    "id": "bot gap G3"
+   },
+   "addresses": [],
+   "related": [
+    "reach-bot-gaps-index"
+   ],
+   "fact": "Planner (bots): No jet prior: g_up stays **8 m** until a measured burn (R16, CTRL:2373 requires MECH) Real ability: Standing full-tank apex **19.71 m** (M1); in-match median 16.9, p90 18.5 (wiki UpStretch) Effect in play: Fresh BA bots refuse 9-15 m ledges they can clear, until they happen to log a big burn",
+   "how_to_use": "Proposed fix (not implemented; bot code is read-only for this track): BA prior g_up = 15 (median 16.9 - 2) at spawn Risk / check: Low. A/B BA objective-reach",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "bots",
+    "gap",
+    "g3"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "gap-g4-jet-mechs",
+   "title": "Bot gap G4 (Jet 'Mechs): planner limit vs real limit",
+   "subject": {
+    "kind": "concept",
+    "id": "bot gap G4"
+   },
+   "addresses": [],
+   "related": [
+    "reach-bot-gaps-index"
+   ],
+   "fact": "Planner (bots): JetPrior = min(24, 3.4 x fullest fuel **seen**) - 2; default 8 before any fuel is seen (R16) Real ability: Standing full-tank apex **24.7-27.3 m for every jet chassis**, whatever its JumpjetDuration (M1: Kit Fox 27.29, Uller 27.31, Corvus 27.33, Puma 25.95, Stiletto 25.16, Raptor 25.32, Cougar 25.32, Belial 25.80, Catapult 26.67, Bowman 26.75, Hellbringer 24.69, Thor 24.72) Effect in play: Bots under-use jets in the first seconds of a life; weak-jet chassis may be over-trusted",
+   "how_to_use": "Proposed fix (not implemented; bot code is read-only for this track): Seed g_up at spawn from the M1 table (apex - 3 m, i.e. 21.7-24.3), not from 3.4 x duration (Corvus: prior 12.5 vs real 27.3) Risk / check: Low",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "bots",
+    "gap",
+    "g4"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "gap-g5-jet-mechs",
+   "title": "Bot gap G5 (Jet 'Mechs): planner limit vs real limit",
+   "subject": {
+    "kind": "concept",
+    "id": "bot gap G5"
+   },
+   "addresses": [],
+   "related": [
+    "reach-bot-gaps-index"
+   ],
+   "fact": "Planner (bots): g_upx = max(g_up + 4, **20**) (R15) Real ability: M1: no weak-jet chassis exists, every one clears 24.7 m Effect in play: **Not a gap** (the earlier worry about over-reach on short-duration chassis is void). The real limit is G4: planned rise stops at 20 m while the 'Mech can do ~24",
+   "how_to_use": "Proposed fix (not implemented; bot code is read-only for this track): Covered by G4 Risk / check: -",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "bots",
+    "gap",
+    "g5"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "gap-g6-battle-armor",
+   "title": "Bot gap G6 (Battle Armor): planner limit vs real limit",
+   "subject": {
+    "kind": "concept",
+    "id": "bot gap G6"
+   },
+   "addresses": [],
+   "related": [
+    "reach-bot-gaps-index"
+   ],
+   "fact": "Planner (bots): Claw latch-climb is **not a planner link** (R-none; brain `climb_order` only) Real ability: Claw climbs MACorporeal objects, never raw terrain; MABuilding can veto; height not measured (M5 was tried twice on the Bogged Down power plant, the claw did not latch; no MACorporeal wall in the base archive) Effect in play: Bots never plan a route up a building by claw, so rooftops reached only by claw are never objectives for BA paths",
+   "how_to_use": "Proposed fix (not implemented; bot code is read-only for this track): Latch links: from the foot of a latchable object face to its top, one-way up, cost by height; reuse the brain's latch surface rules Risk / check: Needs the M5 climb speed/height; knock-off at 110 damage",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "bots",
+    "gap",
+    "g6"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "gap-g7-tank",
+   "title": "Bot gap G7 (Tank): planner limit vs real limit",
+   "subject": {
+    "kind": "concept",
+    "id": "bot gap G7"
+   },
+   "addresses": [],
+   "related": [
+    "reach-bot-gaps-index"
+   ],
+   "fact": "Planner (bots): Light grid 1.6 m step plus `slp > 55` blocked (R2, R9) Real ability: no walker limit found in the final M2 run: the Atlas, Hackman, Mad Dog, pilot and BA climbed a 66 m single-cell face (825%) and the Atlas every lane up to 375%; the Rommel tank climbed up to a +50 m cell (625%) and was blocked at 825% (measured, MEASURED.md M2) (Rommel) Effect in play: If the real tank climbs more, bots skip routes; if less, they stall on faces the grid leaves open (wiki TankFace)",
+   "how_to_use": "Proposed fix (not implemented; bot code is read-only for this track): Set the cap from M2 with a 10% margin Risk / check: TankFace learning stays",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "bots",
+    "gap",
+    "g7"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "gap-g8-pilot-on-foot",
+   "title": "Bot gap G8 (Pilot on foot): planner limit vs real limit",
+   "subject": {
+    "kind": "concept",
+    "id": "bot gap G8"
+   },
+   "addresses": [],
+   "related": [
+    "reach-bot-gaps-index"
+   ],
+   "fact": "Planner (bots): Light grid 80% wall; slope 66 only in FootPrecheck (R2, R10) Real ability: Bracket: 39-50 deg faces block, a 66-grid walk passes (wiki FootSlope); no walker limit found in the final M2 run: the Atlas, Hackman, Mad Dog, pilot and BA climbed a 66 m single-cell face (825%) and the Atlas every lane up to 375%; the Rommel tank climbed up to a +50 m cell (625%) and was blocked at 825% (measured, MEASURED.md M2) Effect in play: Planned foot routes over 66-80% faces may stall",
+   "how_to_use": "Proposed fix (not implemented; bot code is read-only for this track): Apply 66 (or the M2 value) in normal pilot plans too, not just the precheck Risk / check: Low",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "bots",
+    "gap",
+    "g8"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "gap-g9-non-jet-mech",
+   "title": "Bot gap G9 (Non-jet 'Mech): planner limit vs real limit",
+   "subject": {
+    "kind": "concept",
+    "id": "bot gap G9"
+   },
+   "addresses": [],
+   "related": [
+    "reach-bot-gaps-index"
+   ],
+   "fact": "Planner (bots): Drop links up to 20 m run, fall to 60 m on trips (R13) Real ability: M3: Atlas walks off 6, 10, 20 and 30 m vertical terrain edges and lands. The wiki BankDive failure was a long slope band, not an edge Effect in play: Vertical step-offs are fine; long steep banks still stall (that is G2's slope case)",
+   "how_to_use": "Proposed fix (not implemented; bot code is read-only for this track): No change for edges; handle banks with G2's slide links capped at a tested slope Risk / check: -",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "bots",
+    "gap",
+    "g9"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "gap-g10-every-body",
+   "title": "Bot gap G10 (Every body): planner limit vs real limit",
+   "subject": {
+    "kind": "concept",
+    "id": "bot gap G10"
+   },
+   "addresses": [],
+   "related": [
+    "reach-bot-gaps-index"
+   ],
+   "fact": "Planner (bots): Tactical moves set the drop limit to 0 (R13: fighting, guarding, within 150 m of an objective) Real ability: The player hops off a 2 m ledge mid-fight Effect in play: Bots near objectives route round small ledges",
+   "how_to_use": "Proposed fix (not implemented; bot code is read-only for this track): Tactical drop limit = min(body limit, 6 m) Risk / check: Low",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "bots",
+    "gap",
+    "g10"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "gap-g11-jet-mech-ba",
+   "title": "Bot gap G11 (Jet 'Mech, BA): planner limit vs real limit",
+   "subject": {
+    "kind": "concept",
+    "id": "bot gap G11"
+   },
+   "addresses": [],
+   "related": [
+    "reach-bot-gaps-index"
+   ],
+   "fact": "Planner (bots): Fuel is not a planner state: every jet leg assumes a full tank (section 4) Real ability: Real fuel drains per burn and recharges Effect in play: Chained jet legs fail when the tank is not refilled",
+   "how_to_use": "Proposed fix (not implemented; bot code is read-only for this track): Minimum time between planned jet legs, or a cost on back-to-back legs Risk / check: Cost-only change, low risk",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "bots",
+    "gap",
+    "g11"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "gap-g12-every-body",
+   "title": "Bot gap G12 (Every body): planner limit vs real limit",
+   "subject": {
+    "kind": "concept",
+    "id": "bot gap G12"
+   },
+   "addresses": [],
+   "related": [
+    "reach-bot-gaps-index"
+   ],
+   "fact": "Planner (bots): Only 4-neighbour deltas are limited; a diagonal pair may differ by ~2x the step (section 4, inferred) Real ability: - Effect in play: Over-optimistic corner steps; small",
+   "how_to_use": "Proposed fix (not implemented; bot code is read-only for this track): Include diagonal deltas scaled by 1/sqrt(2) in the wall test Risk / check: Slight route loss",
+   "status": "current",
+   "confidence": "inferred",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "bots",
+    "gap",
+    "g12"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "gap-g13-water-every-ground-unit",
+   "title": "Bot gap G13 (Water, every ground unit): planner limit vs real limit",
+   "subject": {
+    "kind": "concept",
+    "id": "bot gap G13"
+   },
+   "addresses": [],
+   "related": [
+    "reach-bot-gaps-index"
+   ],
+   "fact": "Planner (bots): Bed walk, landings refused, no water level (R23) Real ability: Per-map water flags (UNITS-AND-STATS section 5); the Atlas, Rommel and pilot cross a 4.7 m deep and a 1.2 m shallow editor pond at full speed (Bogged Down flags all 1); BA, type-16 cells and flags 0 not tested (M6) Effect in play: Bots may route through deep water the game damages or blocks",
+   "how_to_use": "Proposed fix (not implemented; bot code is read-only for this track): Read the per-map MAEnvironment water flags; block deep water where the flag closes it Risk / check: Needs M6 meaning of the flags",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "bots",
+    "gap",
+    "g13"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "gap-g14-vtol",
+   "title": "Bot gap G14 (VTOL): planner limit vs real limit",
+   "subject": {
+    "kind": "concept",
+    "id": "bot gap G14"
+   },
+   "addresses": [],
+   "related": [
+    "reach-bot-gaps-index"
+   ],
+   "fact": "Planner (bots): Lane cell shut if max surface + clearance 7 m (13 with a rider) > terrain + MaxVTOLHeight - 6.6 + 1 (R25-R26); straight legs need +20 m (R27) Real ability: Player flies up to MaxVTOLHeight; landing slope a VTOL settles on a 30% slope and slides off a 50% slope (bracket 30-50%, measured M4); the overlay uses 0.30, still estimated Effect in play: Bot VTOLs refuse lanes over tall buildings the player flies over; fine for safety",
+   "how_to_use": "Proposed fix (not implemented; bot code is read-only for this track): None needed for reach; note only. Revisit if VTOL bots look timid Risk / check: -",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "bots",
+    "gap",
+    "g14"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "gap-g15-tooling-not-bots",
+   "title": "Bot gap G15 (Tooling, not bots): planner limit vs real limit",
+   "subject": {
+    "kind": "concept",
+    "id": "bot gap G15"
+   },
+   "addresses": [],
+   "related": [
+    "reach-bot-gaps-index"
+   ],
+   "fact": "Planner (bots): `floor_model.py` puts tanks on the heavy grid with no slope cap (FM:110) Real ability: Planner: light grid + slp 55 Effect in play: Parity floor times for tanks are off",
+   "how_to_use": "Proposed fix (not implemented; bot code is read-only for this track): Use the light grid + slp <= 55 for tanks in FM Risk / check: Tooling only",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "bots",
+    "gap",
+    "g15"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "gap-g16-tank-pilot-on-foot",
+   "title": "Bot gap G16 (Tank, pilot on foot): planner limit vs real limit",
+   "subject": {
+    "kind": "concept",
+    "id": "bot gap G16"
+   },
+   "addresses": [],
+   "related": [
+    "reach-bot-gaps-index"
+   ],
+   "fact": "Planner (bots): Drop limit tank **6 m**, pilot **10 m** on trips (R13) Real ability: M3: Rommel and pilot drive/walk off 6, 10, 20 and 30 m edges and land Effect in play: Tank and pilot bots detour round ledges of 6-30 m the player simply drops off",
+   "how_to_use": "Proposed fix (not implemented; bot code is read-only for this track): Tank drop 20 m, pilot 20 m (below the 30 m tested; check fall damage first) Risk / check: Fall damage to pilots not measured; A/B",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "bots",
+    "gap",
+    "g16"
+   ],
+   "date": "2026-11-16"
+  }
+ ]
+}

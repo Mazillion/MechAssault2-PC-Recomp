@@ -18,8 +18,24 @@ float Terrain::height_at(float x, float z) const {
     float fx = std::clamp(x / scale, 0.f, float(w - 1)), fz = std::clamp(z / scale, 0.f, float(h - 1));
     int x0 = std::min(int(fx), w - 2), z0 = std::min(int(fz), h - 2);
     float tx = fx - float(x0), tz = fz - float(z0);
+    float a = step_at(x0, z0), b = step_at(x0 + 1, z0), c = step_at(x0, z0 + 1), d = step_at(x0 + 1, z0 + 1);
+    return tx >= tz ? a + (b - a) * tx + (d - b) * tz : a + (c - a) * tz + (d - c) * tx;
+}
+
+float Terrain::fine_at(float x, float z) const {
+    if (w < 2 || h < 2) return 0.f;
+    float fx = std::clamp(x / scale, 0.f, float(w - 1)), fz = std::clamp(z / scale, 0.f, float(h - 1));
+    int x0 = std::min(int(fx), w - 2), z0 = std::min(int(fz), h - 2);
+    float tx = fx - float(x0), tz = fz - float(z0);
     float a = at(x0, z0), b = at(x0 + 1, z0), c = at(x0, z0 + 1), d = at(x0 + 1, z0 + 1);
     return (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + d * tx) * tz;
+}
+
+float Terrain::lowest() const {
+    float m = max_h;
+    for (int gz = 0; gz < h; gz++)
+        for (int gx = 0; gx < w; gx++) m = std::min(m, step_at(gx, gz));
+    return m;
 }
 
 Vec3 Terrain::normal_at(float x, float z) const {
@@ -145,20 +161,40 @@ Image bake_lightmap(const Terrain& t, Vec3 sun, int lw, int lh, float ambient) {
     if (l < 1e-6f) sun = {0, -1, 0}; else sun = {sun.x / l, sun.y / l, sun.z / l};
     Vec3 to_sun{-sun.x, -sun.y, -sun.z};
     if (to_sun.y < 0.05f) to_sun.y = 0.05f;
+    // height_at is called millions of times here: take the step heights once and interpolate from the copy (same formula).
+    std::vector<float> g(size_t(t.w) * t.h);
+    for (int gz = 0; gz < t.h; gz++)
+        for (int gx = 0; gx < t.w; gx++) g[size_t(gz) * t.w + gx] = t.step_at(gx, gz);
+    auto hat = [&](float x, float z) {
+        if (t.w < 2 || t.h < 2) return 0.f;
+        float fx = std::clamp(x / t.scale, 0.f, float(t.w - 1)), fz = std::clamp(z / t.scale, 0.f, float(t.h - 1));
+        int x0 = std::min(int(fx), t.w - 2), z0 = std::min(int(fz), t.h - 2);
+        float tx = fx - float(x0), tz = fz - float(z0);
+        const float* p = &g[size_t(z0) * t.w + x0];
+        float a = p[0], b = p[1], c = p[t.w], d = p[t.w + 1];
+        return tx >= tz ? a + (b - a) * tx + (d - b) * tz : a + (c - a) * tz + (d - c) * tx;
+    };
+    auto nat = [&](float x, float z) {
+        float e = t.scale;
+        float hx = hat(x + e, z) - hat(x - e, z), hz = hat(x, z + e) - hat(x, z - e);
+        Vec3 n{-hx, 2 * e, -hz};
+        float l2 = std::sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
+        return Vec3{n.x / l2, n.y / l2, n.z / l2};
+    };
     for (int py = 0; py < lh; py++)
         for (int px = 0; px < lw; px++) {
             // Same orientation as the heightfield: row 0 = far z.
             float x = (float(px) + 0.5f) / float(lw) * t.size_x();
             float z = (1.f - (float(py) + 0.5f) / float(lh)) * t.size_z();
-            Vec3 n = t.normal_at(x, z);
+            Vec3 n = nat(x, z);
             float diffuse = std::max(0.f, n.x * to_sun.x + n.y * to_sun.y + n.z * to_sun.z);
             // Shadow march toward the sun. Retail lightmaps keep the shadow mask in alpha
             // (0 = shadowed) and the diffuse term in luminance.
-            float h0 = t.height_at(x, z) + 0.5f, lit = 1.f;
+            float h0 = hat(x, z) + 0.5f, lit = 1.f;
             for (float s = t.scale; s < 600.f; s += t.scale * 0.75f) {
                 float sx = x + to_sun.x * s, sz = z + to_sun.z * s, sy = h0 + to_sun.y * s;
                 if (!t.inside(sx, sz)) break;
-                float d = t.height_at(sx, sz) - sy;
+                float d = hat(sx, sz) - sy;
                 if (d > 0) { lit = std::max(0.f, 1.f - d / 3.f); break; }
                 if (sy > t.max_h + 10) break;
             }

@@ -59,6 +59,14 @@ std::vector<uint16_t> list_to_strip(const std::vector<uint32_t>& tris);
 struct OutFile { std::string path; Bytes data; };
 bool make_model(const ma2m::ArchiveSet& ar, const std::string& model, const Rect& r, std::vector<OutFile>& out,
                 std::string& new_model, std::string* err = nullptr);
+// The refusals of make_model without writing anything: false with the tail of "This piece cannot be cut: its model ..." in why
+// ("has shadow volumes", "has moving (skinned) parts", "has a vertex layout the editor cannot rewrite", "is not in the game's files").
+bool cuttable(const ma2m::ArchiveSet& ar, const std::string& model, std::string* why = nullptr);
+// Clips every <bv_obb> collision box of an MGMODEL's XML to the kept rectangle (model x / z), each box on its own, in the box
+// owner's node space. Axis-aligned boxes (any order or sign of axes) become their intersection with the rectangle; turned
+// boxes keep the part of a 9 x 9 x 9 sample grid inside it; a box with nothing inside becomes a 5 mm box inside the rectangle
+// (the element stays, so the XML keeps its shape). Boxes that lie inside are not touched.
+std::string clip_volumes(const std::string& xml, const Rect& r);
 // A cut road piece: a .road beside the source whose [model] is the cut model, attachments / boundary / AI path points
 // moved inside the kept part. new_road is its archive path (forward slashes).
 bool make_road(const ma2m::ArchiveSet& ar, const std::string& road, const Rect& r, std::vector<OutFile>& out,

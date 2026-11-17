@@ -1,0 +1,147 @@
+{
+ "pack": "t31_foot_slope_1110",
+ "title": "Check It arrival parity: pilot walk precheck (FootSlope) and map diagnoses",
+ "facts": [
+  {
+   "id": "footslope-pilot-walk-precheck-slope-66",
+   "title": "FootSlope: the FootFallback pilot-walk precheck shuts cells steeper than slp 66 (33 deg)",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_FOOT_SLOPE"
+   },
+   "addresses": [],
+   "related": [
+    "t30.jettryfuel-judge-from-first-burn",
+    "RECOMP_BOT_FOOT_PRECHECK"
+   ],
+   "fact": "FootPrecheck plans the on-foot walk to a Check It terminal before a bot gets out, but the pilot faces of the No Man's Land mesas (634,74,1227 and 1402,83,774; 39-50 deg faces) were learned only after a failed walk, so the first get-out of each match walked a pilot at an unreachable mesa and cost that side a 'Mech (W_73a b1 out at 24 s, walked 40 s, then went home on foot). The precheck now plans with ma2_path_set_slope_max(66): both mesas give no route (gap 82 / 127 m) while the Killing Fields terminal 2 walk 487,1191 -> 558,1262 (52 m) stays open. Slope 55 broke the Killing Fields walk (gap 76); 78 left the mesa open.",
+   "how_to_use": "Default on; RECOMP_BOT_FOOT_SLOPE / [Bots] FootSlope; [C7] footslope. Commit 4324819 on v27-parity (exe v13-v27p10).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 527
+    }
+   ],
+   "tags": [
+    "bots",
+    "check-it",
+    "pathing",
+    "parity"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "footprecheck-no-walk-cache-10s",
+   "title": "FootPrecheck keeps a failed pilot-walk answer per bot for 10 s",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_FOOT_PRECHECK"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_FOOT_SLOPE"
+   ],
+   "fact": "A failed pilot plan to a mesa terminal expands about 300K grid cells (about 40-45 ms on the brain thread, [C7] bots brain_max 42-46 ms in X_73a1/b1), and the FootFallback test re-asks every tick while the bot is blocked: one failure was followed by 138 further asks in X_73a1. foot_walk_ok now stores the no-walk verdict per bot index and reuses it for 10 s while the terminal (within 1 m) and the bot (within 10 m) are unchanged; a new match (time going back) drops it.",
+   "how_to_use": "[C7] footprecheck no_walk= / cached= (X_73a1: no_walk 3, cached 415). Part of FootPrecheck, no separate switch.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 522
+    }
+   ],
+   "tags": [
+    "bots",
+    "check-it",
+    "perf"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "footbodyskip-no-walk-terminal-skipped-in-that-hull",
+   "title": "FootBodySkip: a terminal FootPrecheck found unwalkable is skipped while the bot stays in that hull",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_FOOT_BODY_SKIP"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_FOOT_SLOPE",
+    "RECOMP_BOT_FOOT_PRECHECK"
+   ],
+   "fact": "With FootSlope a 'Mech no longer gets out at the No Man's Land mesas, but ObjGiveUp's 25 s skip ran out and the same 'Mech drove back to the mesa foot again (X_73a2 b1 at 36.7 / 74.6 / 129.7 s and b3 at 27.1 / 103.0 s from 556-563,1142-1148; X_73b2 b6 four times at 1402,774), so team 1 had one ground arrival in X_73a2. obj_checkit now skips the terminal whose pilot walk failed while the bot is in the same hull (Ma2Brain.nowalk_actor / nowalk_ent, set by foot_walk_ok); a new body (BattleArmor, pilot, other 'Mech) may try it again.",
+   "how_to_use": "Default on; RECOMP_BOT_FOOT_BODY_SKIP / [Bots] FootBodySkip; [C7] footbodyskip skipped=. Commit 4324819 on v27-parity, exe v13-v27p10; live Y_73a1: each bot asks once, footbodyskip skipped=1211, no_walk 3, cached 4.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain_obj.c",
+     "line": 544
+    }
+   ],
+   "tags": [
+    "bots",
+    "check-it",
+    "objective",
+    "parity"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "check-it-map4-spawn-geometry-gap",
+   "title": "Check It map 4: team 2 spawns 260-300 m further from every terminal (map-made arrival gap)",
+   "subject": {
+    "kind": "concept",
+    "id": "Check It map 4 arrival parity"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Check It map 4 (mode 7 map 4) terminals 1431,767 / 1267,1072 / 1073,976 / 856,1224 / 489,1017. Team 1 spawns around 1676,868, team 2 around 333,1513: nearest terminal 263 m vs 521 m, middle terminal 1073,976 612 m vs 915 m. First ground arrivals at any terminal 22-26 s vs 38-39 s (W_74a/b) follow the distance; no bot stall was found (no FootPrecheck, no not-10-m-closer give-ups). The gap is made by the map, not by the bots.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "bots",
+    "check-it",
+    "parity",
+    "maps"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "check-it-map1-arrival-gap-diagnosis",
+   "title": "Check It map 1: team 2 nearest terminal is 84 m further; middle-terminal gap from fights and the pit terminal",
+   "subject": {
+    "kind": "concept",
+    "id": "Check It map 1 arrival parity"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Check It map 1 (mode 7 map 1) terminals 1073,628 / 1004,-20,1025 (in a pit) / 796,1161 / 662,1711 / 379,1371. Team 1 spawns near 311,958, team 2 near 1222,1475: nearest terminal 418 m vs 500 m, so a first-arrival gap of about 5-10 s is map-made. The middle terminal 796,1161 is equidistant (525 / 529 m) but team 2 reached it at 89-123 s vs 44-66 s: team 2 bodies stall 100-200 m out fighting team 1 who already hold it, and W_71a b8 spent 46-76 s at 1082,951 above the pit terminal (y 17-28 vs -20) before ObjGiveUp's not-10-m-closer skip. Defenders of both sides hunt 20-60 s before their first objective (symmetric; the gap depends on how many defenders a side draws).",
+   "how_to_use": "Not fixed.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "bots",
+    "check-it",
+    "parity",
+    "maps"
+   ],
+   "date": "2026-11-10"
+  }
+ ]
+}

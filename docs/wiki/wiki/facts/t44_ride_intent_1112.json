@@ -1,0 +1,41 @@
+{
+ "pack": "t44_ride_intent_1112",
+ "title": "Bot VTOL pick-up ends when the BattleArmor stops wanting the ride (RideIntent, 2026-11-12)",
+ "facts": [
+  {
+   "id": "lift-request-outlived-ba-intent",
+   "title": "A bot BattleArmor's lift request outlived its intent: the VTOL chased / hovered over a BattleArmor that was fighting (RideIntent)",
+   "subject": {
+    "kind": "concept",
+    "id": "g_lift want_t"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c",
+    "lift_post",
+    "lift_intent_gone",
+    "ride_intent_drop",
+    "RECOMP_BOT_RIDE_INTENT",
+    "t43.vtol-rider-sink-ignored-ground-ahead"
+   ],
+   "fact": "A bot BattleArmor re-posts its lift request (g_lift, live 3 s) on every evaluation its objective is over 250 m away and nobody is shooting at it, whatever goal it then picks; so while it fought someone else or ran for a power-up, a VTOL kept taking the request, flying to it and hovering over it (v29h1 NRC CTF: VTOL bot 10 t=101.6-110.7 from 258 to 48 m, then 4 s hovering 70-78 m off while BA bot 8 peeked and shot; v29h2: VTOL bot 2 t=113-119 behind BA bot 4 on a power-up run). RideIntent adds g_lift.want_t: the requester stamps it at the end of each evaluation whose goal is ride, or objective without a give-up (lift_off) on the VTOL coming; a VTOL skips (and drops its claim on) a bot's request whose stamp is over 2 s old, and takes it again once it is fresh. The player's requests (no brain) always count.",
+   "how_to_use": "Switch RideIntent / RECOMP_BOT_RIDE_INTENT (default on). [C7] rideintent: ended, claims_dropped; diag [BOT-RIDEINTENT] (RECOMP_BOT_DIAG). Commit fcab54e on v29-vtol; shipped in 1.0.7 (rc31).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 262
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "lift",
+    "battlearmor",
+    "ctf"
+   ],
+   "date": "2026-11-12"
+  }
+ ]
+}

@@ -2,77 +2,213 @@ MA2 Scenario Editor - user guide (version {{VERSION}})
 =====================================================
 
 Help > User guide in the editor opens this file. F1 opens the editor's own
-help window, which explains the tab you are on.
+help window, which has the same text with a topic list and a search box.
 
-
-1. WHAT IT IS
--------------
 "MA2 Scenario Editor.exe", next to the game, makes multiplayer maps (played
 with bots in Bot Match) and single-player missions (under Custom Scenarios).
 It uses the models, textures and sounds of your own installed game, so a
-scenario file is small: it refers to the disc's content instead of copying it.
-
-Where files go:
-- Scenarios: Documents\MechAssault 2\Scenarios (change it under File >
-  Settings > General). Each save keeps the previous version as .bak.
-- Recovery copies, editor settings (ScenarioEditor.ini) and logs:
-  %LOCALAPPDATA%\MechAssault2. After a crash the editor offers to recover
-  your work at the next start.
+scenario file is small: it refers to the disc's content instead of copying
+it.
 
 
-2. YOUR FIRST MAP IN 5 MINUTES
-------------------------------
-1. File > New map... (Ctrl+N). Choose a base level and the game types, then
-   Create. The new map already has spawn points for its game types.
-2. Press Test (F5). The editor saves the map and starts the game on it with
-   bots.
-3. Change something (Units and Props tab: place a building), Test again.
+1. START HERE
+-------------
+New map... makes a multiplayer map you can play against bots: pick a size, a
+theme, and a start from flat ground, random hills or a copy of a real level.
+New mission... makes a single-player mission with a player start, enemies, a
+briefing and objectives.
+Open a saved one... opens a saved .ma2map from your scenario folder. Look at
+a real level... opens one of the game's own levels, read-only, so you can
+see how it is made; "Make an editable copy" on the Map tab then lets you
+change it.
+The Next steps list (right side, under Properties) takes you through a first
+scenario: shape the ground, place the starts and units, add an objective for
+a mission, set the look and weather if you like, then test it.
+Hover over any button to see what it does. F1 opens this window; Help >
+Getting Started opens the first-run window again.
 
 
-3. YOUR FIRST MISSION IN 10 MINUTES
------------------------------------
-1. File > New mission..., choose a base level, Create.
-2. Units and Props tab, Player start: press "Move player start" and click the
-   map.
-3. Place a few enemy 'Mechs or vehicles (choose an enemy side).
-4. Objectives & Triggers tab: add an objective ("Destroy the enemy 'Mechs"),
-   and a trigger that waits for those units to be destroyed and then wins the
-   mission.
-5. Check scenario, then Test.
+2. MOVING AROUND
+----------------
+Pan: W A S D or the arrow keys (hold Shift to go faster), or hold the right
+mouse button and drag. To scroll by pushing the mouse against a window edge,
+tick the edge-scrolling box in File > Settings > Camera.
+Zoom: the mouse wheel, or = or Num + to zoom in and - or Num - to zoom out.
+Turn the view: hold the middle mouse button and drag, or hold Alt and drag
+with the left button (a click without a drag stays a click), or press
+Alt+Left arrow / Alt+Right arrow to turn it and Alt+Up arrow / Alt+Down
+arrow to tilt it.
+Top-down view: T switches to it and back. The hills only show when the view
+is tilted.
+Reset the view: Home. Zoom to the selection: F.
+Click the small map (bottom right) to jump there.
 
 
-4. MOVING AROUND AND SELECTING
-------------------------------
-W A S D or the arrow keys pan; the mouse wheel zooms; T switches the top-down
-view; Home resets the view; F zooms to the selection; H shows or hides
-helpers. Click to select, drag the handles to move or turn. Q / E turn,
-G puts the selection on the ground. Ctrl+Z / Ctrl+Y undo and redo; Ctrl+C,
-Ctrl+X, Ctrl+V copy, cut and paste under the mouse; Ctrl+D duplicates;
-Ctrl+A selects all; Delete deletes; Esc stops the tool or clears the
-selection. Space places the last thing again; I places more of the selected
-type. While dragging: Shift moves freely, Alt passes through other objects,
-Ctrl moves in small steps. Every key can be changed under File > Settings.
+3. THE SCREEN
+-------------
+Along the top, the menus and the toolbar: Undo, Redo, Save and Test. Next to
+Test, on a multiplayer map, an arrow opens the test settings: game type,
+bots and their skill. At the right end of the toolbar are the Helpers button
+(the things the game never draws: trigger areas, paths, markers, lights,
+cameras; H toggles them) and, on a multiplayer map, the game-type box, which
+shows only the objects the game uses in that type. It changes the view only.
+The tabs follow the order you make a scenario in (Ctrl+1 to Ctrl+5; Ctrl+Tab
+and Ctrl+Shift+Tab go to the next and the previous one):
+- Map: name, description, size and game types.
+- Build: everything you put on the map or shape on it. The tool strip down
+  the left edge picks the tool: Select, Place, Scatter, Roads & walls,
+  Sculpt, Paint, Water and Starts (Shift+1 to Shift+8).
+- Objectives & Triggers: the briefing and objectives the player reads, and
+  what happens when (triggers, messages, orders).
+- Cameras & Cutscenes: camera paths and the cutscenes that play them; the
+  timeline sits under the map.
+- Environment: the look (sky, light, fog) and the weather.
+On the right: Properties for what is selected, and the Next steps list. The
+snap bar at the top left of the map holds Snap to joints, Snap to grid and
+Angle steps. The hint line at the bottom says what the tool in your hand
+does with the mouse and the keys.
+File > Settings: folders, camera, keys (every shortcut can be changed),
+recovery copies, window size and Quick test.
 
 
-5. TERRAIN
+4. PLACING
 ----------
-The Terrain tab raises, lowers, smooths and flattens the ground and paints
-textures, water and roads. [ and ] change the brush size. Ground must be
-marked Playable for players to go there ("Make the whole map playable").
+Pick what to place in the Place page: search (Ctrl+F), look through the
+groups, or drag a picture onto the map. A green ghost shows where it will
+go; the joined colour means it snaps to what it is next to; red means it
+cannot go there.
+Q and E turn it (Ctrl with them turns 90 degrees). While it is joined to
+something, the same keys pick another way to join.
+Hold Shift to place freely: no joints, no grid, no angle steps. Hold Alt and
+click to put it on top of the object under the mouse (a roof, a deck, a
+rock).
+Grid: Ctrl+G turns it on and off, [ and ] change its size.
+On a slope a flat piece can lie Level, Tilt with the ground or Float; L
+cycles through them.
+Space places the last thing again; I picks the selected object's type.
+Right-click or Esc stops placing.
 
 
-6. UNITS AND PROPS
-------------------
-Choose a side, then pick from the palette: 'Mechs, vehicles, BattleArmor,
-buildings, trees, props, power-ups, spawn points and pads. The "Not in the
-game" tab lists objects found on the disc that the original game never used;
-they may not work as expected.
+5. ROADS, BASES AND LAYERS
+--------------------------
+Flat pieces (road, base, parking lot) stack: the last one placed is on top.
+Ctrl+] brings the selected piece forward and Ctrl+[ sends it back. Things
+you place stand on the top surface under them.
+Edit > Put flat pieces in order puts a whole stack in a sensible order
+again.
+Check scenario warns about pieces that float, are buried, or sit at the same
+height as another one.
+Walls, fences, gates and bridges are in the Roads & walls page; they join
+end to end like roads do, and the same keys turn them.
 
 
-7. MULTIPLAYER GAME TYPES
+6. SELECTING AND CHANGING
 -------------------------
-Tick the game types on the Map tab. What each needs (Check scenario tells you
-what is missing, and the Starts section has an "Add <game type>" button):
+Click an object to select it. Shift+click adds to the selection, Ctrl+click
+toggles one. Drag from empty ground, or from an object that is not selected,
+to select everything in a box (Shift adds, Ctrl takes out). Drag a selected
+object to move it; it snaps the way placing does.
+Double-click an object to select all of its type on screen
+(Ctrl+double-click: the whole map). Hold Alt and click to reach the object
+behind. Ctrl+I inverts the selection, Ctrl+A selects everything, Esc clears
+it. Right-click an object for its menu.
+Handles: 1 Move, 2 Rotate, 3 Tilt; R goes to the next one; the World / Local
+buttons next to the handle modes choose the axes. The lift handle stops at
+the ground unless you hold Shift. Hold Ctrl to turn the ring in steps.
+The arrow keys (the arrow keys) nudge 1 m (hold Shift for 10 m); PgUp raises
+and PgDn lowers.
+G: Put on the ground. Del: delete. Ctrl+C, Ctrl+X and Ctrl+V copy, cut and
+paste (the paste follows the mouse until you click). Ctrl+D: duplicate.
+Glue ties two joined pieces together so they move as one; Properties shows
+what is glued.
+
+
+7. SIZING PIECES
+----------------
+Select one road, base, wall, fence, gate, bridge, canal wall or water in
+Move mode and orange handles appear on its sides. Drag one to cut the piece
+to size; cutting only makes it smaller. Double-click a handle to make that
+side whole again. The Size section of Properties shows the numbers.
+Buildings and units keep their size. Cut pieces that can be destroyed are
+set to "Cannot be destroyed" by default, so a cut wall does not leave a gap
+you did not mean.
+
+
+8. SHAPING THE GROUND
+---------------------
+The Sculpt page has Raise / Lower, Plateau up / down, Smooth / Roughen,
+Flatten and Ramp. One stroke raises or lowers by the Height per stroke and
+no more, however long you drag or hold. Hold Ctrl to use the other half of a
+pair. Tick "Keep raising while held" if you want the ground to keep rising
+while you hold the button.
+Brush size: [ and ], or Ctrl+wheel; strength: Shift+wheel, or Shift+[ and
+Shift+]. The page says the smallest brush this map allows (a height point
+every few metres). Shift+click draws a straight stroke from the end of the
+last one.
+Flatten: Alt+click picks the height from the ground. Ramp: click where it
+starts and where it ends; the strip and its label say who can get up it.
+Steep ground shows in colours when you tick "Show steep ground" (it comes on
+by itself while Ramp is armed):
+- yellow, over 55%: bots' 'Mechs won't walk up it (jump-jet 'Mechs may jet
+  up a short face; Battle Armor and pilots manage up to 80%);
+- orange, over 80%: very steep, bots won't route here; some 'Mechs may still
+  climb it.
+A slope of 100% is 45 degrees. Tilt the view to see the shape of the ground.
+Things standing on the ground follow it when you sculpt (switch this off
+with "Objects follow the terrain").
+
+
+9. PAINTING
+-----------
+The Paint page has Texture, Colour tint, Boundaries and Plants. A stroke
+paints once, up to its Strength; holding the mouse still adds nothing. Hold
+Ctrl to reverse it: Texture paints the other texture (with more than two it
+rubs the chosen one out), Boundaries paints Playable, Plants clears instead
+of grows.
+The ground you see is a texture coloured by the map's colour tint, so green
+ground can be cracked earth with a green tint.
+Alt+click picks the colour of the ground under the mouse for Colour tint.
+Boundaries marks where players and bots may go (Playable) and where they may
+not (Border, Out of bounds).
+Plants are the game's own ground plants (grass and bushes), which grow by
+themselves around the player; single trees, rocks or clumps placed as
+objects are the Scatter tool. Plants from other levels are listed too;
+"Scatter it as objects" places such a plant as objects instead. More than
+two ground textures work only in this PC version of the game.
+
+
+10. SCATTER
+-----------
+Pick the kinds of objects in the Scatter page (the brush set), then drag on
+the map. The page sets the brush size, the density per hectare, the spacing,
+and whether to keep off roads, bases and buildings. Objects can face at
+random, lean up to a limit, follow the slope, and skip slopes steeper than a
+limit you choose. Objects have no size to set: for a different size, pick a
+different object.
+One stroke places each spot once: holding the mouse still places nothing
+more. Shift+click draws a line of them. Start the stroke holding Ctrl to
+remove the kinds in the brush set under the ring instead. Ctrl+Z takes back
+the whole stroke.
+From straight above trees look like dark shapes; tilt the view to see them.
+
+
+11. WATER
+---------
+In the Water page press "Place water on the map" (picking a kind of water
+from its list does the same), then click the map for a 60 x 40 m pond, or
+drag out a size: a long drag makes a lake. Until you press it, a click on
+the map only selects. Right-click or Esc stops placing. A new pond gets a
+basin dug under it. Handles resize it; the blue knob sets the water level
+(so does the Level box in Properties).
+
+
+12. STARTS
+----------
+The Starts page puts down where players start: spawn points (6 Red and 6
+Blue for team games, or free-for-all ones), vehicle pads, the objects each
+game type needs, and the player start in a mission.
+Tick the game types on the Map tab. Check scenario says what is missing, and
+the Starts page has an "Add" button for each game type's objects:
 - Team game types: at least 6 spawn points for Red and 6 for Blue.
 - Free-for-all game types: enough free-for-all spawn points.
 - Capture the Flag: a flag for each team.
@@ -82,67 +218,145 @@ what is missing, and the Starts section has an "Add <game type>" button):
 - When players start on foot: vehicle pads.
 
 
-8. OBJECTIVES, TRIGGERS, MESSAGES AND CUTSCENES
------------------------------------------------
-Objectives & Triggers: objectives are shown to the player; triggers wait for
-something (units destroyed, an area reached, time, other triggers) and then
-act: show a message, play a sound (the game's or your own WAV), give the AI
-orders, win or lose. Cameras & Cutscenes: camera moves for intros and
-cutscenes.
+13. MISSIONS
+------------
+On Objectives & Triggers: write the briefing (the player sees it at the
+start of the mission, and in the game's Custom Scenarios list), then add
+objectives. Each one is completed by something: "Destroy these" (click the
+targets), "Reach a place", "Survive for 5 minutes", or "Other", which a
+trigger completes. Tick "Win the mission when every objective is done" to
+win without writing a trigger, and "Lose the mission if the time runs out"
+for a time limit (the clock shows on the HUD).
+"When the mission ends" holds the "Mission complete" and "Mission failed"
+texts the player reads; leave them empty for the game's own words.
+Triggers wait for something (units destroyed, an area reached, time, other
+triggers) and then act: show a message (with a speaker), play a sound, give
+units orders, bring in units after a delay, win or lose. The list has "Your
+triggers" and, for a real level's copy, "From the level". A trigger area can
+fire when the player is inside or outside it.
+Orders: walk a path, defend a point, and so on; units on the Neutral side
+ignore orders.
 
 
-9. ENVIRONMENT
---------------
-Sky, fog, light and weather of the map.
+14. CUTSCENES
+-------------
+On Cameras & Cutscenes: New intro plays at 0 s, the first frame of the
+mission; New cutscene plays when a trigger tells it to. The timeline sits
+under the map.
+Add shot makes a 5 s still shot from the view you are looking at. To aim a
+shot, press Frame start or Frame end, move the view, then press Enter to use
+it for the shot. Set the Length of each shot; "+ Add at" puts a message, a
+sound or an order at a moment on the timeline. Preview plays it in the
+editor.
+"During this cutscene" holds the fight (enemies stand still and hold fire,
+by default) so nothing happens off camera, and says whether the player can
+skip it with Space. The editor view may be brighter than the game: turn off
+View > Brighten dark maps to see the game's brightness.
 
 
-10. CHECK AND TEST
+15. LOOK AND WEATHER
+--------------------
+The Environment tab sets how the map looks. The editor never moves the view
+here; "Show the sky" tilts it to the horizon when you ask.
+Look: Day, Evening or Night, and the Look list, copy the sky, sun, ambient
+and fog colours, the fog distance and the lightning from one of the game's
+own levels. "This map's own light" is what the map started with. "Building
+lights on" lights the windows and signs. Street lamps and the other lights
+of the map light the ground around them in this view when View > Scene
+lights is on. If you pick a night sky with a day look (or the other way
+round) an amber line says so; "Use a night look" or "Use a day look" fixes
+it, "Keep it" leaves it.
+Weather: Clear, Light rain, Heavy rain, Snow and Dust storm. Lightning is
+its own box: a look sets it from its level, and changing the weather never
+touches it. A flash lights the models and the sky for a moment; the ground
+stays as it is. Dust storm is made by the editor: the game's own was never
+finished.
+Fog: Default (the look's), Light, Medium and Thick, with the distances and
+the fog colour.
+Sun or Moon: Direction (0 to 359 degrees) and Height. Update shadows redraws
+the hill shadows for the new sun; saving does it too.
+Advanced: Sky picture, whether to use this sky's fog colour, fog distance
+and fog colour; maps whose level has a band of fog low on the sky also show
+Ground fog from / up to.
+The map view lights the ground a little by the look (dark looks are lifted
+so you can still work: View > Brighten dark maps turns that off); the game
+is darker. Test shows the real light.
+Every change writes a line in the status bar, with the change in graphics
+memory when a sky or look brings a lot of new files or the map is near the
+limit.
+
+
+16. CHECK AND TEST
 ------------------
-Check scenario lists problems. Red (Must fix) items stop the game from using
-the scenario: Test refuses to start, and the game does not list a saved
-scenario that still has them. Yellow items are advice. Limits: 3,000 objects,
-64 MB of graphics memory, 63 sound clips.
-
-Test (F5) saves and starts the game with the scenario: a multiplayer map
-starts with bots, a mission starts selected in Custom Scenarios. Leaving the
-match closes the game again.
-
-
-11. SHARING
------------
-Send the .ma2map file. The other player puts it in their scenario folder; the
-game builds the level from their own disc. Give each scenario its own Name on
-the Map tab (up to 60 characters): two scenarios with the same name are
-listed with their file names.
-
-Files saved with an editor older than 1.0.2 can show pink markers in the game.
-The editor offers to update them at start-up, or use File > Update old
-scenarios... (each old file is kept as .bak).
+Check scenario... lists problems. Red items stop the game from using the
+scenario: Test refuses to start, and the game does not list a saved scenario
+that still has them. Yellow items are advice. Each Show button selects the
+object and moves the camera to it. Limits: 3,000 objects, 64 MB of graphics
+memory and 63 sound clips; the Place, Scatter and Roads & walls pages show
+the graphics memory figure.
+Test (F5) saves, then starts the game straight into your scenario: a
+multiplayer map starts a match with the bots from the arrow next to Test
+(game type, bots and their skill), a mission starts selected in Custom
+Scenarios. Leaving the match closes the game again.
+The game-type box in the toolbar shows only the objects one game type uses,
+so you can check every mode one by one.
 
 
-12. TROUBLESHOOTING
+17. UNDO
+--------
+Ctrl+Z undoes and Ctrl+Y or Ctrl+Shift+Z redoes, up to 200 steps. Repeated
+turns and nudges merge into one step. A whole brush stroke is one step. Edit
+> Undo shows what the next step is.
+
+
+18. FILES AND SHARING
+---------------------
+Scenarios are saved as .ma2map files in your scenario folder (File >
+Settings > General changes it); each save keeps the previous version as
+.bak. The game lists every scenario in that folder the next time it starts.
+Give each scenario its own name on the Map tab (up to 60 characters): two
+with the same name are listed with their file names.
+Share a map by sending the .ma2map file. It holds no game files, so the
+other player needs their own copy of the game. Files saved with an editor
+older than 1.0.2 can show pink markers in the game: the editor offers to
+update them at start-up, or use File > Update old scenarios...
+The editor keeps a recovery copy every two minutes while you have unsaved
+changes and offers it back if it closes unexpectedly. Crash reports and
+settings go to %LOCALAPPDATA%\MechAssault2; Help > About shows the editor
+version and the folders, with Open logs folder.
+If the scenario is not in the game's list: open it in the editor, fix any
+red items in Check scenario and save. A copy made in Explorer is not listed
+until you open it in the editor and save it. "Damaged file" when opening:
+use the .bak beside it. If Test does nothing, the game may already be
+running, or Check scenario has red items.
+
+
+19. KEYS AND SETTINGS
+---------------------
+Help > Keyboard shortcuts (?) lists every key and mouse gesture. File >
+Settings > Keys changes any key, and the three hold keys: Shift places
+freely, Alt clicks through to what is behind, Ctrl makes quarter turns; Ctrl
+reverses a brush and Alt turns the view with the left button. In the Help
+window every key shown is the one you set; this file shows the defaults.
+
+
+20. KEYS (defaults)
 -------------------
-- The scenario is not in the game's list: open it in the editor, fix any red
-  items in Check scenario and save. The game shows the reason for a skipped
-  file in a short note on the menu.
-- A copy made in Explorer is not listed: open the copy in the editor and save
-  it; it gets its own identity.
-- "Damaged file" when opening: the file was changed or cut short. Use the
-  .bak beside it.
-- Test does nothing: the game may already be running, or Check scenario has
-  red items.
-- Help > About shows the editor version, the game folder, the scenario folder
-  and the logs folder (with Open logs folder). Quote the version in reports
-  at {{MA2_SUPPORT_URL}}.
+  Ctrl+N new                            Ctrl+O open
+  Ctrl+S save                           Ctrl+Shift+S save as
+  F5 test                               F1 help
+  Ctrl+, settings                       T top-down view
+  Home reset the view                   H helpers
+  F zoom to the selection               Ctrl+Z undo
+  Ctrl+Y or Ctrl+Shift+Z redo           Ctrl+C copy
+  Ctrl+X cut                            Ctrl+V paste
+  Ctrl+D duplicate                      Ctrl+A select all
+  Del delete                            G put on the ground
+  Space place again                     I place more of this
+  Esc stop the tool or deselect         [ smaller brush
+  ] bigger brush                        Ctrl+F search the object list
+  ? all keys
+  Pan: W A S D or the arrow keys; turn: Q and E; handles: 1 2 3
 
 
-13. KEYS (defaults)
--------------------
-  Ctrl+N new          Ctrl+O open         Ctrl+S save       Ctrl+Shift+S save as
-  F5 test             F1 help             Ctrl+, settings
-  W A S D / arrows    pan                 T top-down view   Home reset view
-  F zoom to selection H helpers
-  Ctrl+Z undo         Ctrl+Y redo         Ctrl+C copy       Ctrl+X cut
-  Ctrl+V paste        Ctrl+D duplicate    Ctrl+A select all Delete delete
-  Q / E turn          G put on ground     Space place again I place more
-  [ / ] brush size    Esc stop tool / clear selection
+Quote the editor version (Help > About) in reports at {{MA2_SUPPORT_URL}}.

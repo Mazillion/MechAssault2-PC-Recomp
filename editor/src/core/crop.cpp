@@ -16,7 +16,7 @@ bool parse(std::string_view s, Rect& r) {
     std::string t(s);
     Rect q;
     if (sscanf(t.c_str(), "%f %f %f %f", &q.x0, &q.x1, &q.z0, &q.z1) != 4) return false;
-    if (!(q.x1 - q.x0 >= kMinSide * 0.5f) || !(q.z1 - q.z0 >= kMinSide * 0.5f)) return false;
+    if (!(q.x1 - q.x0 >= 0.05f) || !(q.z1 - q.z0 >= 0.05f)) return false;  // a wall is cut on its long axis only: its thin axis may be a few cm
     r = q;
     return true;
 }
@@ -388,6 +388,20 @@ std::string stem_of(const std::string& f) { std::string n = file_of(f); size_t d
 std::string ext_of(const std::string& f) { std::string n = file_of(f); size_t d = n.rfind('.'); return d == std::string::npos ? std::string() : n.substr(d); }
 std::string cut_name(const std::string& file, const Rect& r) { return "MA2SE_" + stem_of(file) + "_c" + tag(r) + ext_of(file); }
 
+// The game's INI reader (mgIO IniFile, 0x0025F000) ends a line ONLY at '\r' (it writes a NUL there and skips two
+// bytes). A text file with bare '\n' line ends is one long line to it: every section and key after the first is lost. Retail
+// .road / .node / .mesh files use "\r\n", and the cut copies must too. (A cut .road read as one line has no [attachments]
+// nPoints; the game's loop (0x000D5508) then runs on an unset count that holds the CRC of the road's own path, so the map
+// loaded or ran out of memory depending only on the file name.)
+const char* const kEol = "\r\n";
+std::vector<std::string> text_lines(const std::string& t) {   // the lines without their ends; no extra empty line after a final end
+    std::vector<std::string> v = split(t, '\n');
+    if (!v.empty() && v.back().empty() && !t.empty() && t.back() == '\n') v.pop_back();
+    for (auto& l : v)
+        if (!l.empty() && l.back() == '\r') l.pop_back();
+    return v;
+}
+
 std::string attr(const std::string& x, size_t from, size_t to, const char* name) {
     std::string key = std::string(" ") + name + "=\"";
     size_t a = x.find(key, from);
@@ -431,6 +445,188 @@ bool cut_mesh(const Bytes& vb, const Bytes& ib, bool strip, const float* m, cons
 
 }  // namespace
 
+// ----------------------------------------------------------------------------- collision volumes
+
+namespace {
+
+struct M4 { float m[16]; };  // row vectors: p' = p * M, translation in m[12..14] (the loader's convention)
+M4 ident() { return {{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}}; }
+M4 mul(const M4& a, const M4& b) {  // p * a * b
+    M4 o{};
+    for (int i = 0; i < 4; i++)
+        for (int j = 0; j < 4; j++) {
+            float v = 0;
+            for (int k = 0; k < 4; k++) v += a.m[i * 4 + k] * b.m[k * 4 + j];
+            o.m[i * 4 + j] = v;
+        }
+    return o;
+}
+bool parse3(const std::string& s, float* v) { return sscanf(s.c_str(), "%f, %f, %f", &v[0], &v[1], &v[2]) == 3; }
+// A node's own matrix from position / rot_axis / rot_angle / scale (scale, then rotation about the axis, then position).
+M4 node_matrix(const std::string& x, size_t from, size_t to) {
+    float pos[3] = {0, 0, 0}, ax[3] = {1, 0, 0}, sc[3] = {1, 1, 1};
+    parse3(attr(x, from, to, "position"), pos);
+    parse3(attr(x, from, to, "rot_axis"), ax);
+    parse3(attr(x, from, to, "scale"), sc);
+    const float ang = float(atof(attr(x, from, to, "rot_angle").c_str()));
+    const float l = std::sqrt(ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2]);
+    M4 r = ident();
+    if (l > 1e-6f && std::fabs(ang) > 1e-7f) {
+        const float ux = ax[0] / l, uy = ax[1] / l, uz = ax[2] / l, c = std::cos(ang), s = std::sin(ang), t = 1 - c;
+        const float R[3][3] = {{t * ux * ux + c, t * ux * uy - s * uz, t * ux * uz + s * uy},
+                               {t * ux * uy + s * uz, t * uy * uy + c, t * uy * uz - s * ux},
+                               {t * ux * uz - s * uy, t * uy * uz + s * ux, t * uz * uz + c}};
+        for (int i = 0; i < 3; i++)
+            for (int j = 0; j < 3; j++) r.m[j * 4 + i] = R[i][j];  // column-vector R -> row-vector M
+    }
+    M4 s3 = ident();
+    for (int k = 0; k < 3; k++) s3.m[k * 5] = sc[k];
+    M4 o = mul(s3, r);
+    for (int k = 0; k < 3; k++) o.m[12 + k] = pos[k];
+    return o;
+}
+void xf_point(const M4& a, const float* p, float* o) {
+    for (int j = 0; j < 3; j++) o[j] = p[0] * a.m[j] + p[1] * a.m[4 + j] + p[2] * a.m[8 + j] + a.m[12 + j];
+}
+void xf_dir(const M4& a, const float* p, float* o) {
+    for (int j = 0; j < 3; j++) o[j] = p[0] * a.m[j] + p[1] * a.m[4 + j] + p[2] * a.m[8 + j];
+}
+bool inverse(const M4& a, M4& o) {  // affine, row vectors
+    const float* m = a.m;
+    const float det = m[0] * (m[5] * m[10] - m[6] * m[9]) - m[1] * (m[4] * m[10] - m[6] * m[8]) + m[2] * (m[4] * m[9] - m[5] * m[8]);
+    if (std::fabs(det) < 1e-12f) return false;
+    const float id = 1.f / det;
+    o = ident();
+    o.m[0] = (m[5] * m[10] - m[6] * m[9]) * id;  o.m[1] = (m[2] * m[9] - m[1] * m[10]) * id; o.m[2] = (m[1] * m[6] - m[2] * m[5]) * id;
+    o.m[4] = (m[6] * m[8] - m[4] * m[10]) * id;  o.m[5] = (m[0] * m[10] - m[2] * m[8]) * id; o.m[6] = (m[2] * m[4] - m[0] * m[6]) * id;
+    o.m[8] = (m[4] * m[9] - m[5] * m[8]) * id;   o.m[9] = (m[1] * m[8] - m[0] * m[9]) * id;  o.m[10] = (m[0] * m[5] - m[1] * m[4]) * id;
+    for (int j = 0; j < 3; j++) o.m[12 + j] = -(m[12] * o.m[j] + m[13] * o.m[4 + j] + m[14] * o.m[8 + j]);
+    return true;
+}
+
+const float kBoxNothing = 0.005f;
+
+// One box in model space: centre, three unit axes and half lengths along them.
+struct Box { float c[3], ax[3][3], len[3]; };
+
+// true when the box changed; gone = nothing of it is inside the rectangle (it is then a 5 mm box inside the rectangle).
+bool clip_box(Box& b, const Rect& r, bool& gone) {
+    gone = false;
+    auto vanish = [&]() {
+        gone = true;
+        float x = b.c[0], z = b.c[2];
+        clamp_point(r, x, z);
+        b.c[0] = x;
+        b.c[2] = z;
+        for (int k = 0; k < 3; k++) b.len[k] = kBoxNothing;
+        return true;
+    };
+    // Axis-aligned: every box axis lies along a model axis (any order or sign), so the box is its model AABB.
+    int dom[3] = {0, 1, 2};
+    bool aligned = true;
+    int used = 0;
+    for (int k = 0; k < 3 && aligned; k++) {
+        int best = 0;
+        for (int a = 1; a < 3; a++) if (std::fabs(b.ax[k][a]) > std::fabs(b.ax[k][best])) best = a;
+        dom[k] = best;
+        aligned = std::fabs(b.ax[k][best]) >= 0.999f && !(used & (1 << best));
+        used |= 1 << best;
+    }
+    if (aligned) {
+        float e[3];
+        for (int k = 0; k < 3; k++) e[dom[k]] = b.len[k];
+        const float lo_x = std::max(b.c[0] - e[0], r.x0), hi_x = std::min(b.c[0] + e[0], r.x1);
+        const float lo_z = std::max(b.c[2] - e[2], r.z0), hi_z = std::min(b.c[2] + e[2], r.z1);
+        if (hi_x <= lo_x || hi_z <= lo_z) return vanish();
+        const bool same = std::fabs(lo_x - (b.c[0] - e[0])) < 1e-4f && std::fabs(hi_x - (b.c[0] + e[0])) < 1e-4f &&
+                          std::fabs(lo_z - (b.c[2] - e[2])) < 1e-4f && std::fabs(hi_z - (b.c[2] + e[2])) < 1e-4f;
+        if (same) return false;
+        b.c[0] = 0.5f * (lo_x + hi_x);
+        b.c[2] = 0.5f * (lo_z + hi_z);
+        e[0] = 0.5f * (hi_x - lo_x);
+        e[2] = 0.5f * (hi_z - lo_z);
+        for (int k = 0; k < 3; k++) b.len[k] = e[dom[k]];
+        return true;
+    }
+    // Turned box: 9 x 9 x 9 points through it; the ones inside the rectangle give the new extent along each box axis.
+    float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+    int inside = 0, total = 0;
+    for (int i = 0; i < 9; i++)
+        for (int j = 0; j < 9; j++)
+            for (int k = 0; k < 9; k++) {
+                const float t[3] = {(float(i) - 4.f) / 4.f * b.len[0], (float(j) - 4.f) / 4.f * b.len[1], (float(k) - 4.f) / 4.f * b.len[2]};
+                float p[3];
+                for (int a = 0; a < 3; a++) p[a] = b.c[a] + t[0] * b.ax[0][a] + t[1] * b.ax[1][a] + t[2] * b.ax[2][a];
+                total++;
+                if (p[0] < r.x0 - 0.01f || p[0] > r.x1 + 0.01f || p[2] < r.z0 - 0.01f || p[2] > r.z1 + 0.01f) continue;
+                inside++;
+                for (int a = 0; a < 3; a++) { lo[a] = std::min(lo[a], t[a]); hi[a] = std::max(hi[a], t[a]); }
+            }
+    if (inside == total) return false;
+    if (!inside) return vanish();
+    for (int a = 0; a < 3; a++) {
+        const float mid = 0.5f * (lo[a] + hi[a]);
+        for (int q = 0; q < 3; q++) b.c[q] += mid * b.ax[a][q];
+        b.len[a] = std::max(0.5f * (hi[a] - lo[a]), kBoxNothing);
+    }
+    return true;
+}
+
+}  // namespace
+
+std::string clip_volumes(const std::string& xml, const Rect& r) {
+    std::string x = xml;
+    // Walk the nodes in order, keeping each open node's node -> model matrix; a bounding volume belongs to the innermost one
+    // (the root, identity, in every retail model seen; nested ones are handled).
+    std::vector<M4> stack{ident()};
+    size_t p = 0;
+    while ((p = x.find('<', p)) != std::string::npos) {
+        if (x.compare(p, 6, "<node_") == 0) {
+            const size_t e = x.find('>', p);
+            if (e == std::string::npos) break;
+            if (!(e > 0 && x[e - 1] == '/')) stack.push_back(mul(node_matrix(x, p, e), stack.back()));
+            p = e;
+        } else if (x.compare(p, 7, "</node_") == 0) {
+            if (stack.size() > 1) stack.pop_back();
+        } else if (x.compare(p, 7, "<bv_obb") == 0) {
+            const size_t e = x.find('>', p);
+            if (e == std::string::npos) break;
+            const M4& M = stack.back();
+            M4 Minv;
+            const char* names[3] = {"xaxis", "yaxis", "zaxis"};
+            float o[3], len[3], axn[3][3];
+            bool ok = parse3(attr(x, p, e, "origin"), o) && parse3(attr(x, p, e, "lengths"), len) && inverse(M, Minv);
+            for (int k = 0; k < 3 && ok; k++) ok = ok && parse3(attr(x, p, e, names[k]), axn[k]);
+            if (ok) {
+                Box b{};
+                float stretch[3];
+                xf_point(M, o, b.c);
+                for (int k = 0; k < 3; k++) {  // axes into model space; a node scale stretches the half length along its axis
+                    xf_dir(M, axn[k], b.ax[k]);
+                    const float l = std::sqrt(b.ax[k][0] * b.ax[k][0] + b.ax[k][1] * b.ax[k][1] + b.ax[k][2] * b.ax[k][2]);
+                    stretch[k] = l > 1e-8f ? l : 1.f;
+                    b.len[k] = len[k] * stretch[k];
+                    for (int a = 0; a < 3; a++) b.ax[k][a] /= stretch[k];
+                }
+                bool gone = false;
+                if (clip_box(b, r, gone)) {
+                    float oo[3];
+                    xf_point(Minv, b.c, oo);
+                    char no[160], nl[160];
+                    snprintf(no, sizeof no, "%.8f, %.8f, %.8f", oo[0], oo[1], oo[2]);
+                    snprintf(nl, sizeof nl, "%.8f, %.8f, %.8f", b.len[0] / stretch[0], b.len[1] / stretch[1], b.len[2] / stretch[2]);
+                    set_attr(x, p, e, "origin", no);
+                    set_attr(x, p, x.find('>', p), "lengths", nl);
+                }
+            }
+            p = x.find('>', p);
+            if (p == std::string::npos) break;
+        }
+        p++;
+    }
+    return x;
+}
+
 // ----------------------------------------------------------------------------- models
 
 bool make_model(const ma2m::ArchiveSet& ar, const std::string& model, const Rect& r, std::vector<OutFile>& out, std::string& new_model,
@@ -448,7 +644,6 @@ bool make_model(const ma2m::ArchiveSet& ar, const std::string& model, const Rect
     new_model = folder_of(canon) + cut_name(canon, r);
     if (iends_with(canon, ".mgmodel")) {
         if (x.find("<shadow_mesh") != std::string::npos) { if (err) *err = "this model has shadow volumes and cannot be cut"; return false; }
-        std::map<std::string, std::vector<Vert>> kept;  // per meshxml name: what is left, mesh space
         for (size_t p = x.find("<meshxml"); p != std::string::npos; p = x.find("<meshxml", p + 1)) {
             size_t e = x.find('>', p);
             if (e == std::string::npos) break;
@@ -456,59 +651,21 @@ bool make_model(const ma2m::ArchiveSet& ar, const std::string& model, const Rect
             bool strip = lower(attr(x, p, e, "type")) == "indexedstrip";
             Bytes vb, ib, vo, io;
             if (!ar.Read(canon + "{" + vn + "}", vb) || !ar.Read(canon + "{" + in + "}", ib)) { if (err) *err = "missing mesh data of " + canon; return false; }
-            if (!cut_mesh(vb, ib, strip, transform(name), r, vo, io, &kept[lower(name)], err)) return false;
+            if (!cut_mesh(vb, ib, strip, transform(name), r, vo, io, nullptr, err)) return false;
             out.push_back({new_model + "{" + vn + "}", std::move(vo)});
             out.push_back({new_model + "{" + in + "}", std::move(io)});
         }
-        // Each node's bounding box (bv_obb: half lengths along its own axes, in node space) shrinks to its meshes' kept part.
-        for (size_t p = x.find("<bv_obb"); p != std::string::npos; p = x.find("<bv_obb", p + 1)) {
-            size_t e = x.find('>', p);
-            if (e == std::string::npos) break;
-            size_t stop = std::min(x.find("<node_", e), x.find("</node_", e));
-            std::vector<const std::vector<Vert>*> meshes;
-            for (size_t q = x.find("<mesh ", e); q != std::string::npos && q < stop; q = x.find("<mesh ", q + 1)) {
-                auto it = kept.find(lower(attr(x, q, x.find('>', q), "name")));
-                if (it != kept.end()) meshes.push_back(&it->second);
-            }
-            if (meshes.empty()) continue;
-            float ax[3][3];
-            const char* names[3] = {"xaxis", "yaxis", "zaxis"};
-            bool ok = true;
-            for (int k = 0; k < 3; k++) ok &= sscanf(attr(x, p, e, names[k]).c_str(), "%f, %f, %f", &ax[k][0], &ax[k][1], &ax[k][2]) == 3;
-            if (!ok) continue;
-            float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
-            for (auto* mv : meshes)
-                for (auto& v : *mv)
-                    for (int k = 0; k < 3; k++) {
-                        float d = v.p[0] * ax[k][0] + v.p[1] * ax[k][1] + v.p[2] * ax[k][2];
-                        lo[k] = std::min(lo[k], d);
-                        hi[k] = std::max(hi[k], d);
-                    }
-            if (lo[0] > hi[0]) continue;
-            float o[3] = {0, 0, 0}, len[3];
-            for (int k = 0; k < 3; k++) {
-                float mid = 0.5f * (lo[k] + hi[k]);
-                len[k] = 0.5f * (hi[k] - lo[k]);
-                for (int c = 0; c < 3; c++) o[c] += mid * ax[k][c];
-            }
-            char b[160];
-            snprintf(b, sizeof b, "%.8f, %.8f, %.8f", o[0], o[1], o[2]);
-            set_attr(x, p, e, "origin", b);
-            e = x.find('>', p);
-            snprintf(b, sizeof b, "%.8f, %.8f, %.8f", len[0], len[1], len[2]);
-            set_attr(x, p, e, "lengths", b);
-        }
+        // Collision is the <bv_obb> boxes of the nodes' bounding volumes: each is clipped on its own (clip_volumes).
+        x = clip_volumes(x, r);
         out.push_back({new_model, Bytes(x.begin(), x.end())});
         return true;
     }
     // Legacy text node (.NODE / _rw.node): every "mesh = ..." line names a .mesh (INI: vertices, faces, material, type).
     std::string nx;
-    for (auto& line : split(x, '\n')) {
-        std::string l = line;
-        if (!l.empty() && l.back() == '\r') l.pop_back();
+    for (auto& l : text_lines(x)) {
         std::string code = trim(l.substr(0, l.find(';')));
         size_t eq = code.find('=');
-        if (eq == std::string::npos || lower(trim(code.substr(0, eq))) != "mesh") { nx += line + "\n"; continue; }
+        if (eq == std::string::npos || lower(trim(code.substr(0, eq))) != "mesh") { nx += l + kEol; continue; }
         std::string val = trim(code.substr(eq + 1));
         if (val.size() >= 2 && val.front() == '"' && val.back() == '"') val = val.substr(1, val.size() - 2);
         std::string mesh = ar.CanonicalPath(ma2m::ResolveRelative(canon, val));
@@ -536,18 +693,78 @@ bool make_model(const ma2m::ArchiveSet& ar, const std::string& model, const Rect
         out.push_back({folder_of(ar.CanonicalPath(fpath).empty() ? fpath : ar.CanonicalPath(fpath)) + fnew, std::move(io)});
         // The .mesh copy names the cut files (same folders, so its material path still holds).
         std::string mo;
-        for (auto& ml : split(mt, '\n')) {
+        for (auto& ml : text_lines(mt)) {
             std::string c = trim(ml.substr(0, ml.find(';')));
             size_t q = c.find('=');
             std::string k = q == std::string::npos ? std::string() : lower(trim(c.substr(0, q)));
-            if (k == "vertices") mo += "vertices   = \"" + folder_of(vrel) + vnew + "\"\n";
-            else if (k == "faces") mo += "faces      = \"" + folder_of(frel) + fnew + "\"\n";
-            else mo += ml + "\n";
+            if (k == "vertices") mo += "vertices   = \"" + folder_of(vrel) + vnew + "\"" + kEol;
+            else if (k == "faces") mo += "faces      = \"" + folder_of(frel) + fnew + "\"" + kEol;
+            else mo += ml + kEol;
         }
         out.push_back({mnew, Bytes(mo.begin(), mo.end())});
-        nx += "mesh = \"" + folder_of(val) + cut_name(val, r) + "\"\n";
+        nx += "mesh = \"" + folder_of(val) + cut_name(val, r) + "\"" + kEol;
     }
     out.push_back({new_model, Bytes(nx.begin(), nx.end())});
+    return true;
+}
+
+// ----------------------------------------------------------------------------- what can be cut
+
+namespace {
+
+// "" when the editor can rewrite this vertex file, else the reason (the tail of "its model ...").
+std::string layout_refusal(const Bytes& vb) {
+    size_t at, info, data;
+    uint32_t li, ld;
+    if (!payload_at(vb, "VERS", at)) return "has a vertex file the editor cannot read";
+    const size_t end = std::min<size_t>(vb.size(), at + rd<uint32_t>(vb.data() + at + 8));
+    if (!find_sub(vb, at + 16, end, "info", info, li) || li < 36 || !find_sub(vb, at + 16, end, "data", data, ld)) return "has a vertex file the editor cannot read";
+    const uint32_t flags = rd<uint32_t>(vb.data() + info + 8);
+    const uint32_t known = 0x1 | 0x2 | 0x8 | 0x100 | 0x200 | 0x400 | 0x1000 | 0x2000 | 0x100000;
+    if (flags & 0x80000) return "has moving (skinned) parts";
+    if ((flags & ~known) || !(flags & 1)) return "has a vertex layout the editor cannot rewrite";
+    return {};
+}
+
+}  // namespace
+
+bool cuttable(const ma2m::ArchiveSet& ar, const std::string& model, std::string* why) {
+    auto no = [&](const std::string& w) { if (why) *why = w; return false; };
+    const std::string canon = ma2m::ResolveModelPath(ar, ma2m::NormalizePath(model));
+    Bytes src;
+    if (canon.empty() || !ar.Read(canon, src)) return no("is not in the game's files");
+    const std::string x(src.begin(), src.end());
+    if (iends_with(canon, ".mgmodel")) {
+        if (x.find("<shadow_mesh") != std::string::npos) return no("has shadow volumes");
+        for (size_t p = x.find("<meshxml"); p != std::string::npos; p = x.find("<meshxml", p + 1)) {
+            const size_t e = x.find('>', p);
+            if (e == std::string::npos) break;
+            Bytes vb, ib;
+            if (!ar.Read(canon + "{" + attr(x, p, e, "vertices") + "}", vb) || !ar.Read(canon + "{" + attr(x, p, e, "indices") + "}", ib)) return no("is not in the game's files");
+            if (std::string r = layout_refusal(vb); !r.empty()) return no(r);
+        }
+        return true;
+    }
+    for (auto& line : split(x, '\n')) {
+        std::string code = trim(line.substr(0, line.find(';')));
+        const size_t eq = code.find('=');
+        if (eq == std::string::npos || lower(trim(code.substr(0, eq))) != "mesh") continue;
+        std::string val = trim(code.substr(eq + 1));
+        if (val.size() >= 2 && val.front() == '"' && val.back() == '"') val = val.substr(1, val.size() - 2);
+        const std::string mesh = ar.CanonicalPath(ma2m::ResolveRelative(canon, val));
+        Bytes mb, vb;
+        if (mesh.empty() || !ar.Read(mesh, mb)) return no("is not in the game's files");
+        std::string vrel;
+        for (auto& ml : split(std::string(mb.begin(), mb.end()), '\n')) {
+            const std::string c = trim(ml.substr(0, ml.find(';')));
+            const size_t q = c.find('=');
+            if (q == std::string::npos || lower(trim(c.substr(0, q))) != "vertices") continue;
+            vrel = trim(c.substr(q + 1));
+            if (vrel.size() >= 2 && vrel.front() == '"' && vrel.back() == '"') vrel = vrel.substr(1, vrel.size() - 2);
+        }
+        if (vrel.empty() || !ar.Read(ma2m::ResolveRelative(mesh, vrel), vb)) return no("is not in the game's files");
+        if (std::string r = layout_refusal(vb); !r.empty()) return no(r);
+    }
     return true;
 }
 
@@ -562,33 +779,31 @@ bool make_road(const ma2m::ArchiveSet& ar, const std::string& road, const Rect& 
         snprintf(s, sizeof s, "%f, %f, %f", a, b, c);
         return std::string(s);
     };
-    for (auto& line : split(text, '\n')) {
-        std::string l = line;
-        if (!l.empty() && l.back() == '\r') l.pop_back();
+    for (auto& l : text_lines(text)) {
         std::string code = trim(l.substr(0, l.find(';')));
-        if (!code.empty() && code.front() == '[') { section = lower(code); outt += l + "\n"; continue; }
+        if (!code.empty() && code.front() == '[') { section = lower(code); outt += l + kEol; continue; }
         size_t eq = code.find('=');
-        if (eq == std::string::npos) { outt += l + "\n"; continue; }
+        if (eq == std::string::npos) { outt += l + kEol; continue; }
         std::string k = lower(trim(code.substr(0, eq))), v = trim(code.substr(eq + 1));
         float p[3];
         if (section == "[model]" && k == "model") {
             std::string model = ma2m::ResolveRelative(canon, v), cut;
             if (!make_model(ar, model, r, out, cut, err)) return false;
             std::string rel = v.substr(0, v.find_last_of("/\\") + 1) + file_of(cut);
-            outt += "model\t  = " + rel + "\n";
+            outt += "model\t  = " + rel + kEol;
         } else if (k == "point" && sscanf(v.c_str(), "%f, %f, %f", &p[0], &p[1], &p[2]) == 3 && (section == "[attachments]" || section == "[roads]")) {
             // Attachments sit on the cut edge; AI path points (sidewalks, lanes) stay a little inside it.
             clamp_point(r, p[0], p[2], section == "[roads]" ? 0.3f : 0.f);
-            outt += "point\t  = " + fmt3(p[0], p[1], p[2]) + "\n";
+            outt += "point\t  = " + fmt3(p[0], p[1], p[2]) + kEol;
         } else if ((k == "point1" || k == "point2") && sscanf(v.c_str(), "%f, %f, %f", &p[0], &p[1], &p[2]) == 3) {
             clamp_point(r, p[0], p[2]);
-            outt += k + "\t  = " + fmt3(p[0], p[1], p[2]) + "\n";
+            outt += k + "\t  = " + fmt3(p[0], p[1], p[2]) + kEol;
         } else if (section == "[params]" && (k == "fwidth" || k == "flength")) {
             char s[32];
             snprintf(s, sizeof s, "%f", k == "fwidth" ? r.w() : r.l());
-            outt += trim(code.substr(0, eq)) + " = " + s + "\n";
+            outt += trim(code.substr(0, eq)) + " = " + s + kEol;
         } else {
-            outt += l + "\n";
+            outt += l + kEol;
         }
     }
     new_road = folder_of(canon) + cut_name(canon, r);

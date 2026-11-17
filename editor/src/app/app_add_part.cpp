@@ -5,6 +5,7 @@
 
 #include "../core/triggers.h"
 #include "../core/util.h"
+#include "../core/cutscene.h"
 #include "app.h"
 #include "imgui.h"
 #include "theme.h"
@@ -15,13 +16,30 @@ namespace ed {
 using namespace ma2;
 using namespace ma2::world;
 
+// Ctrl+D, the Duplicate buttons and the right-click menu: copies of the selection hang on the mouse (the paste ghost) and a click
+// puts them down. A selection with a part that has no place on the map (a timer, a set...) cannot hang on the mouse: it is copied at once.
 void App::duplicate_selected() {
+    if (!doc_ || !editable() || selection_.empty()) return;
+    for (uint32_t u : selection_) {
+        const WObj* so = object_by_uid(doc_->world, u);
+        Vec3 p;
+        if (!so || !get_pos(*so, p)) { duplicate_selected_now(); return; }
+    }
+    std::vector<Clip> clips = clips_of_selection();
+    if (clips.empty()) { duplicate_selected_now(); return; }
+    arm_paste(std::move(clips), true);
+}
+
+void App::duplicate_selected_now() {
     if (!doc_ || !editable() || selection_.empty()) return;
     push_undo("duplicate");
     std::vector<uint32_t> made;
+    std::vector<float> above;  // each original's height over the surface it stands on: the copy keeps it over the surface it lands on
     for (uint32_t u : std::vector<uint32_t>(selection_.begin(), selection_.end())) {
+        const WObj* so = object_by_uid(doc_->world, u);
+        const float ab = so && !sheet_kind(*so) ? above_surface(*so) : 0.f;
         uint32_t r = io_->duplicate_subtree(*doc_, u, 12.f);
-        if (r) made.push_back(r);
+        if (r) { made.push_back(r); above.push_back(ab); }
     }
     if (made.empty()) {
         status_ = "Nothing to duplicate (the root cannot be copied).";
@@ -29,9 +47,19 @@ void App::duplicate_selected() {
         return;
     }
     selection_.clear();
-    for (uint32_t r : made) selection_.insert(r);
+    for (size_t k = 0; k < made.size(); k++) {
+        const uint32_t r = made[k];
+        selection_.insert(r);
+        if (WObj* po = object_by_uid(doc_->world, r); po && sheet_kind(*po)) {  // a copied flat piece goes on top of what it overlaps
+            po->erase(key_of(place::kLayerProp));
+            sheet_dropped(r);
+        } else {
+            if (WObj* wo = object_by_uid(doc_->world, r); wo && wo->cls == K_WATER) wo->erase(key_of(place::kBasinProp));  // a copy of a lake digs nothing
+            put_on_surface(r, above[k]);
+        }
+    }
     world_changed();
-    status_ = std::to_string(made.size()) + " duplicated (the copy sits next to the original). Ctrl+Z undoes.";
+    status_ = std::to_string(made.size()) + " duplicated (the copy sits next to the original). " + kt(A_UNDO) + " undoes.";
     status_time_ = 4;
 }
 
@@ -48,7 +76,7 @@ void App::add_part_to(uint32_t parent_uid, uint32_t cls) {
     selection_.clear();
     selection_.insert(u);
     world_changed();
-    status_ = "Added. Its settings are in Properties; Ctrl+Z undoes.";
+    status_ = "Added. Its settings are in Properties; " + kt(A_UNDO) + " undoes.";
     status_time_ = 4;
 }
 
@@ -69,6 +97,10 @@ uint32_t App::new_cutscene(bool intro, bool own_undo) {
         status_time_ = 5;
         return 0;
     }
+    if (!st) {  // A cutscene made over the view starts as a still shot of what the view shows (an intro keeps its flight behind the start)
+        auto shots = cutscene_shots(doc_->world, u);
+        if (!shots.empty()) set_shot_view(*doc_, shots[0].ctrl, 0, {cam_.eye.x, cam_.eye.y, cam_.eye.z}, {cam_.tx, cam_.ty, cam_.tz}, true, io_.get());
+    }
     selection_.clear();
     selection_.insert(u);
     world_changed();
@@ -81,17 +113,19 @@ uint32_t App::new_cutscene(bool intro, bool own_undo) {
 void App::add_cutscene_shot(uint32_t cinema_uid) {
     if (!doc_ || !editable() || !io_) return;
     push_undo("add shot");
-    Vec3 at{cam_.tx, 0, cam_.tz};
-    uint32_t c = io_->add_cutscene_shot(*doc_, cinema_uid, &at);
+    // A still 5 s shot of what the view shows now (the eye where the camera is, looking at the view centre); nothing copied from the last shot.
+    Vec3 eye{cam_.eye.x, cam_.eye.y, cam_.eye.z}, look{cam_.tx, cam_.ty, cam_.tz};
+    uint32_t c = io_->add_cutscene_shot(*doc_, cinema_uid, &eye, &look, kShotDefault);
     if (!c) {
         status_ = "That cutscene has no shot to copy.";
         status_time_ = 4;
         return;
     }
+    tl_.shot = std::max(0, int(cutscene_shots(doc_->world, cinema_uid).size()) - 1);
     selection_.clear();
     selection_.insert(c);
     world_changed();
-    status_ = "Shot added after the last one, at the view centre: Draw flight path and Move on map set where it flies and looks.";
+    status_ = "Shot added after the last one: a still 5-second shot of the view you have now. The yellow line on the map shows which way its camera looks.";
     status_time_ = 6;
 }
 

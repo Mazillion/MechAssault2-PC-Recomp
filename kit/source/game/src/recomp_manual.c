@@ -647,9 +647,17 @@ static void ma2_save_progress_probe(void)
     xbox_save_probe_callback_end(started);
 }
 
+extern void ma2_scn_msg_execute(void);   /* scenario/ma2_scenario.c: mission message queue (custom levels) */
+extern void ma2_scn_gamecond_execute(void), ma2_scn_player_update(void);   /* scenario/ma2_scenario.c: result screen */
+extern void ma2_scn_corporeal_build(void);   /* scenario/ma2_scenario.c: generated water / wall models (custom levels) */
+
 recomp_func_t recomp_lookup_manual(uint32_t xbox_va)
 {
     if(xbox_va==0x0015CED6u)return ma2_save_progress_probe;
+    if(xbox_va==0x001A0991u)return ma2_scn_msg_execute;   /* MAActionBroadcast/PopupMenu Execute */
+    if(xbox_va==0x0014E259u)return ma2_scn_gamecond_execute;   /* MAActionGameCondition Execute */
+    if(xbox_va==0x000C80DBu)return ma2_scn_player_update;      /* player entity update (death -> lose) */
+    if(xbox_va==0x000D75C7u)return ma2_scn_corporeal_build;    /* MACorporeal slot-113 model build (resized water, cut walls) */
     recomp_func_t recovered = recomp_lookup_bringup(xbox_va);
     if (recovered)
         return recovered;

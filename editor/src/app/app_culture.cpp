@@ -13,6 +13,7 @@
 #include <set>
 
 #include "app.h"
+#include "theme.h"
 #include "imgui.h"
 
 namespace ed {
@@ -70,7 +71,7 @@ void App::load_culture() {
                 c.bits = std::clamp(std::popcount(mask), 1, 15);
             }
             c.templ = g.u32("GenerationTemplate");
-            c.density = g.f32("Density", 1000);  // ctor default sub_0017ED88 (research batch 34)
+            c.density = g.f32("Density", 1000);  // ctor default sub_0017ED88
             const WProp* gs = g.find("GridScale");
             if (gs && gs->data.size() >= 8) { std::memcpy(&c.grid[0], gs->data.data(), 4); std::memcpy(&c.grid[1], gs->data.data() + 4, 4); }
             for (float& v : c.grid) if (!(v >= 1.f)) v = 10.f;
@@ -131,7 +132,7 @@ void App::add_culture() {
         if (regen || c.inst.empty()) {
             c.inst.clear();
             int top = (1 << c.bits) - 1;
-            // Research (batch 01, code-confirmed): unless SnapToGrid is set (no retail generator sets it) the placement
+            // Research (code-confirmed): unless SnapToGrid is set (no retail generator sets it) the placement
             // grid is one culture-map texel; GridScale only matters for snapped generators, which also clamp the count to 1.
             float cw = c.snap ? c.grid[0] : sx / float(culture_.w), ch = c.snap ? c.grid[1] : sz / float(culture_.h);
             float R = c.stop_fade, per_cell = c.density * cw * ch * 1e-6f;
@@ -204,30 +205,169 @@ void App::store_culture() {
 }
 
 // The palette's plain name ("Friendly (Template)" -> "Friendly"); the template name goes in the tooltip.
-std::string App::plant_label(const CultureType& c) const {
-    std::string label = pretty_name(c.name);
-    if (const TemplateInfo* t = cat_ ? cat_->find(c.templ) : nullptr) {
-        std::string pn = palette_name(*t), suffix = " (" + t->name + ")";
+static std::string plant_label_of(const App& app, const TemplateCatalog* cat, const std::string& type_name, uint32_t templ) {
+    std::string label = pretty_name(type_name);
+    if (const TemplateInfo* t = cat ? cat->find(templ) : nullptr) {
+        std::string pn = app.palette_name(*t), suffix = " (" + t->name + ")";
         if (pn.size() > suffix.size() && pn.compare(pn.size() - suffix.size(), suffix.size(), suffix) == 0) label = pn.substr(0, pn.size() - suffix.size());
     }
     return label;
 }
 
-// Terrain tab > Plants: which of the level's ground plants to grow or clear.
-void App::plants_ui() {
-    if (culture_.doc != doc_.get() || culture_.objs != doc_->world.objs.size()) load_culture();
-    if (culture_.map.empty() || culture_.types.empty()) {
-        hint_text("This map's level has no ground plants (grass, bushes, small rocks) to paint. Start from a level that has them, or use Units and Props > Scatter for trees.");
+std::string App::plant_label(const CultureType& c) const { return plant_label_of(*this, cat_.get(), c.name, c.templ); }
+
+// A plant's template into the scatter brush (trees and rocks as objects; also the way to get a plant on a map whose level
+// has no culture system), then the Scatter page.
+void App::plant_scatter(uint32_t tid) {
+    if (!doc_ || !cat_ || !cat_->find(tid)) return;
+    if (std::find(scatter_set_.begin(), scatter_set_.end(), tid) == scatter_set_.end()) scatter_toggle(tid, true);
+    open_page(Page::Scatter);
+    if (editable() && !scatter_set_.empty()) tool_ = Tool::ScatterTrees;
+}
+
+// Adds one plant of another level to this map: a culture layer (free bits, MATerrainInfo fields) and a copy of the type with
+// its generators. The new layer starts empty; paint it with the Plants brush.
+void App::plant_add(const ScenarioIO::PlantSource& src) {
+    if (!doc_ || !io_ || !editable()) return;
+    plant_msg_.clear();
+    switch (io_->add_plant(*doc_, src, true)) {
+        case ScenarioIO::PlantResult::NoCultureSystem:
+            plant_msg_ = "This map's level has no ground plants system, so plants cannot be painted on it. \"Scatter it as objects\" puts the plant on the map as objects.";
+            return;
+        case ScenarioIO::PlantResult::NoFreeBits:
+            plant_msg_ = "This map has no room for another plant layer. \"Scatter it as objects\" puts the plant on the map as objects.";
+            return;
+        case ScenarioIO::PlantResult::AlreadyHere:
+            plant_msg_ = pretty_name(src.name) + " is already on this map: pick it in the Plants list.";
+            return;
+        default: break;
+    }
+    push_undo("add plant");
+    bool fresh = false;
+    io_->add_plant(*doc_, src, false, &fresh);
+    culture_.doc = nullptr;
+    load_culture();
+    int pick = -1;
+    for (int i = 0; i < int(culture_.types.size()); i++)
+        if (iequals(culture_.types[size_t(i)].name, src.name)) { pick = i; break; }
+    if (pick >= 0) {
+        const CultureType& c = culture_.types[size_t(pick)];
+        if (fresh && !culture_.map.empty()) {  // the layer starts empty whatever the map held in those bits
+            const uint16_t keep = uint16_t(~(((1u << c.bits) - 1u) << c.shift));
+            for (uint16_t& v : culture_.map) v &= keep;
+            store_culture();
+        }
+        plant_pick_ = pick;
+        plant_erase_ = false;
+        tool_ = Tool::PaintCulture;
+    }
+    world_changed();
+    status_ = pretty_name(src.name) + " added to this map's plants: drag on the map to grow it.";
+}
+
+// The Add a plant list: every plant of every level, a picture of what it grows, its cost in graphics memory, and the two
+// ways to use it (a painted layer, or objects through the Scatter brush).
+void App::plant_picker_ui() {
+    static const void* opened_for = nullptr;   // The list belongs to the map it was opened on
+    if (plant_picker_open_) {
+        ImGui::OpenPopup("Add a plant##plantpick");
+        plant_picker_open_ = false;
+        plant_msg_.clear();
+        opened_for = doc_.get();
+    }
+    ImGui::SetNextWindowSize(ImVec2(620 * dpi_, 560 * dpi_), ImGuiCond_Appearing);
+    if (!theme::begin_modal("Add a plant##plantpick", nullptr, ImGuiWindowFlags_NoSavedSettings)) return;
+    if (!io_ || !doc_ || !cat_ || doc_.get() != opened_for) {
+        ImGui::CloseCurrentPopup();
+        theme::end_modal();
         return;
     }
-    float near_m = 0;
-    for (auto& c : culture_.types) near_m = std::max(near_m, c.stop_fade);
-    char buf[384];
-    snprintf(buf, sizeof buf, "The game grows these around the player wherever you paint them, like the grass and bushes of the real levels; painting again makes them thicker. Green on the map shows where the chosen plant grows; the plants themselves show only within %.0f m of the camera, as in the game. Trees are objects: Units and Props > Scatter.", near_m);
-    hint_text(buf);
-    if (ImGui::RadioButton("Grow", !plant_erase_)) plant_erase_ = false;
-    ImGui::SameLine();
-    if (ImGui::RadioButton("Clear", plant_erase_)) plant_erase_ = true;
+    palette_thumb_budget_ = 2;
+    palette_gfx_budget_ = 4;
+    ImGui::TextWrapped("Grass, bushes and small rocks from every level of the game. An added plant can be painted with the Plants brush; its model files are copied into your scenario when you save, so each one adds to the graphics memory.");
+    const auto& src = io_->plant_sources();
+    const float tile = 48 * dpi_;
+    const float foot = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y * 2 + (plant_msg_.empty() ? 0.f : ImGui::GetTextLineHeight() * 3);
+    if (ImGui::BeginChild("##plantlist", ImVec2(0, -foot), ImGuiChildFlags_Borders)) {
+        std::string level;
+        int shown = 0;
+        for (int i = 0; i < int(src.size()); i++) {
+            const ScenarioIO::PlantSource& ps = src[size_t(i)];
+            if (ps.level != level) {
+                level = ps.level;
+                ImGui::SeparatorText(pretty_name(ps.map).c_str());
+            }
+            shown++;
+            ImGui::PushID(i);
+            const TemplateInfo* t = cat_->find(ps.templates.front());
+            const ImVec2 top = ImGui::GetCursorScreenPos();
+            ID3D11ShaderResourceView* th = nullptr;
+            if (t && ImGui::IsRectVisible(top, ImVec2(top.x + tile, top.y + tile)) && (models_.thumbnail_cached(t->model, t->mtb) || palette_thumb_budget_-- > 0)) th = palette_picture(*t);
+            if (th) ImGui::Image((ImTextureID)(intptr_t)th, ImVec2(tile, tile));
+            else ImGui::Dummy(ImVec2(tile, tile));
+            ImGui::SameLine();
+            ImGui::BeginGroup();
+            ImGui::TextUnformatted(plant_label_of(*this, cat_.get(), ps.name, ps.templates.front()).c_str());
+            float mb = gfx_cell_mb(ps.templates.front(), false);
+            if (mb < 0 && palette_gfx_budget_ > 0) { palette_gfx_budget_--; mb = gfx_cell_mb(ps.templates.front(), true); }
+            ImGui::SameLine();
+            if (mb < 0) ImGui::TextDisabled("...");
+            else if (mb < 0.05f) ImGui::TextDisabled("(no extra graphics memory)");
+            else ImGui::TextDisabled("(adds about %.1f MB)", mb);
+            bool already = false;
+            for (auto& c : culture_.types) already = already || iequals(c.name, ps.name);
+            if (kCrossLevelPlants) {
+                ImGui::BeginDisabled(already || !editable());
+                if (ImGui::Button("Add to this map##add")) {
+                    plant_msg_.clear();
+                    plant_add(ps);
+                    if (plant_msg_.empty()) ImGui::CloseCurrentPopup();   // done: the map is usable again (a refusal stays on screen)
+                }
+                ImGui::EndDisabled();
+                if (already) ImGui::SetItemTooltip("This map already has it.");
+                ImGui::SameLine();
+            }
+            if (ImGui::Button("Scatter it as objects##sco")) {
+                plant_scatter(ps.templates.front());
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SetItemTooltip("Puts it in the scatter brush: the Scatter tool places it as ordinary objects.");
+            ImGui::EndGroup();
+            ImGui::PopID();
+        }
+        if (!shown) ImGui::TextDisabled("No plants found on the disc.");
+    }
+    ImGui::EndChild();
+    if (!plant_msg_.empty()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::tok().warn);
+        ImGui::TextWrapped("%s", plant_msg_.c_str());
+        ImGui::PopStyleColor();
+    }
+    if (ImGui::Button("Close", ImVec2(120 * dpi_, 0))) ImGui::CloseCurrentPopup();
+    theme::end_modal();
+}
+
+// Paint > Plants: which of the level's ground plants to grow or clear, and plants from other levels.
+void App::plants_ui() {
+    if (culture_.doc != doc_.get() || culture_.objs != doc_->world.objs.size()) load_culture();
+    const bool none = culture_.map.empty() || culture_.types.empty();
+    if (none) {
+        hint_text("This map has no ground plants (grass, bushes, small rocks) to paint yet. \"Add a plant\" brings one from any level of the game. Trees and rocks as objects: the Scatter tool.");
+    } else {
+        float near_m = 0;
+        for (auto& c : culture_.types) near_m = std::max(near_m, c.stop_fade);
+        char buf[448];
+        snprintf(buf, sizeof buf, "The game grows these around the player wherever you paint them, like the grass and bushes of the real levels; painting again makes them thicker. Green on the map shows where the chosen plant grows; the plants themselves show only within %.0f m of the camera, as in the game. Trees and rocks as objects: the Scatter tool.", near_m);
+        hint_text(buf);
+        if (ImGui::RadioButton("Grow", !plant_erase_)) plant_erase_ = false;
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Clear", plant_erase_)) plant_erase_ = true;
+    }
+    if (ImGui::Button("+ Add a plant##plants")) plant_picker_open_ = true;
+    ImGui::SetItemTooltip("Grass, bushes and small rocks from any level of the game.");
+    // Two homes for plants; each page names the other.
+    hint_text("These grow by themselves around the player (the game's own ground plants, not objects). Single trees, rocks or grass clumps placed as objects: the Scatter tool (Build tab).");
+    if (none) return;
     plant_pick_ = std::clamp(plant_pick_, 0, int(culture_.types.size()) - 1);
     std::set<std::pair<int, int>> shown;  // one row per culture-map field (a type can have several generators)
     const float sz = ImGui::GetFrameHeight() * 2.f;
@@ -240,9 +380,12 @@ void App::plants_ui() {
         else ImGui::Dummy(ImVec2(sz, sz));
         bool click = ImGui::IsItemClicked();
         ImGui::SameLine();
+        ImGui::BeginGroup();
         std::string label = plant_label(c);
         if (ImGui::RadioButton(label.c_str(), plant_pick_ == i) || click) plant_pick_ = i;
         if (t) ImGui::SetItemTooltip("Grows %s (%.0f per square km at full).", t->name.c_str(), c.density);
+        if (t && ImGui::SmallButton("Scatter it as objects##sco")) plant_scatter(c.templ);
+        ImGui::EndGroup();
         ImGui::PopID();
     }
     if (!show_culture_) {

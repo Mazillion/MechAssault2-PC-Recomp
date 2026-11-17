@@ -592,7 +592,7 @@
    },
    "addresses": [],
    "related": [],
-   "fact": "obj_order kept a non-pilot in its vehicle while an enemy-owned foot terminal had a live turret (g_tur) within 50 m; nothing but F37 or an ownership flip ended it: r4_73 b0 parked 2 m from the enemy Tc 117 s (3421 -> 825 hp), b6 17 s in the cab; pilots that got out afterwards captured in 2-3 s. The hold now lasts 8 s from first coming within 40 m of that terminal.",
+   "fact": "obj_order kept a non-pilot in its vehicle while an enemy-owned foot terminal had a live turret (g_tur) within 50 m; nothing but or an ownership flip ended it: r4_73 b0 parked 2 m from the enemy Tc 117 s (3421 -> 825 hp), b6 17 s in the cab; pilots that got out afterwards captured in 2-3 s. The hold now lasts 8 s from first coming within 40 m of that terminal.",
    "how_to_use": "RECOMP_BOT_EJECT_CAP / [Bots] EjectCap; [C7] ejectcap lifted.",
    "status": "current",
    "confidence": "verified-in-game",
@@ -629,14 +629,14 @@
   },
   {
    "id": "audit-f37-stay-no-ride",
-   "title": "F37 'stay' is right where no free ride is near: 291-1070 m in all 11 measured stays",
+   "title": "'stay' is right where no free ride is near: 291-1070 m in all 11 measured stays",
    "subject": {
     "kind": "topic",
     "id": "Bots"
    },
    "addresses": [],
    "related": [],
-   "fact": "F37 (EjectSave) bails in respawn modes only with a usable ride within 150 m. In r4_83/r4_85 all 13 rolls were 'stay'; the nearest free vehicle was 291-1070 m away in each of 11 measured, and Check It F37 ejects with a ride still died within 5 s. Not a bug; the open gap is the late low-hp retreat.",
+   "fact": "(EjectSave) bails in respawn modes only with a usable ride within 150 m. In r4_83/r4_85 all 13 rolls were 'stay'; the nearest free vehicle was 291-1070 m away in each of 11 measured, and Check It ejects with a ride still died within 5 s. Not a bug; the open gap is the late low-hp retreat.",
    "how_to_use": "[BOT-F37] lines; botrec w.vehicles (occupied, hp) for nearest free ride.",
    "status": "current",
    "confidence": "verified-in-game",

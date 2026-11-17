@@ -1,0 +1,67 @@
+{
+ "pack": "t57_f56_e2c_water_model_space_sky_1116",
+ "title": "Generated water / wall models on custom levels, and the Starry space (second) sky brightness (2026-11-16)",
+ "facts": [
+  {
+   "id": "corporeal-own-block-holds-template-path",
+   "title": "A placed MACorporeal's [obj+0x198] already points at a block holding the TEMPLATE's Corporal3DObj path, so an instance's own model (resized water, cut wall, base, parking lot) is ignored by the slot-113 build",
+   "subject": {
+    "kind": "concept",
+    "id": "MACorporeal +0x198"
+   },
+   "addresses": [
+    "000D75C7",
+    "000D6EC6",
+    "000D6E33"
+   ],
+   "related": [
+    "mawater-draws-template-model"
+   ],
+   "fact": "Traced in a custom level (RECOMP_SCENARIO_TRACE): on the build call sub_000D75C7 (ecx = object, UID at +0x2C) every placed MAWater / MAWall / base / parking lot already has [obj+0x198] non-null. It points at a 0x18-byte block of two begin/end/cap std:strings, +0 Corporal3DObj and +0xC CorporalMTB (getters sub_000D6EC6 returns the block, sub_000D6E33 returns block+0xC), holding the template's path (Env_Water1000x1000.MGMODEL, Env_MedWall_Span.MGMODEL, Env_ParkingLot_30x30.NODE .); the world entry's Corporal3DObj is never read. So the editor's generated MA2SE_<model>_<W>x<L>.MGMODEL / cut models were never built. A lookup override on 0x000D75C7 that swaps [obj+0x198] for a block holding the world entry's path for the call and puts the old pointer back after makes the game build them: the three resized waters of the p10 map then draw 10 vertices each (before: 878-vertex strips, extents -500.500) and the 1000 m sheet over the ground is gone.",
+   "how_to_use": "kit/source/game/src/scenario/ma2_scenario.c ma2_scn_corporeal_build (custom levels only, entries whose path holds MA2SE_, matched by UID). Guest strings: xbox_HeapAlloc, never freed; restore [obj+0x198] because the destructor frees what it finds there.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "water",
+    "model",
+    "editor",
+    "scenario"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "starry-space-second-sky-animates",
+   "title": "The game's Starry space (second) sky is animated: its mean brightness swings about -13 / +8 % around the level-start value, so a late game frame is not the editor's static sky",
+   "subject": {
+    "kind": "concept",
+    "id": "Env_SkySpace02"
+   },
+   "addresses": [],
+   "related": [
+    "sky-dome-ignores-corporalheading"
+   ],
+   "fact": "Sky pixels (rows above the wall top, dark truss excluded) of PC Release frames every 0.5 s on the p10 map with Starry space second, pose of spot A: level start (first frame with the world drawn) 72.6, 70.8, 55.0; peak about 30-50 s later 73.5, 78.0, 58.5; about 100 s 70.0, 62.7, 49.3 (the late frame E2b compared: 63, 62, 49 = the '1.18x'). The aurora02 / aurora03 layers are turned by the sky's .mtb (rotation 0.026 rad/s), so the visible nebula part and the mean move. The editor's frame (static, no .mtb rotation; two screenshots minutes apart are byte-identical) is 73.9, 72.3, 54.8 = 1.02 x the level start. There is no brightness bug in the static sky.",
+   "how_to_use": "Compare skies with the game at level start (first shots), not a late frame. The editor shows the start state; previewing the rotation is not done.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "sky",
+    "render",
+    "editor"
+   ],
+   "date": "2026-11-16"
+  }
+ ]
+}

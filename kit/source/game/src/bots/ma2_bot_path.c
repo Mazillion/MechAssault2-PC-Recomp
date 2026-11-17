@@ -242,7 +242,7 @@ void ma2_path_set_drop(float metres) { g_drop = metres > 0.0f ? metres : 0.0f; }
 static float g_dropk = 1.0f;
 static int g_drop_water;
 void ma2_path_set_drop_pref(float cost_k, int water_ok) { g_dropk = cost_k > 0.05f && cost_k <= 1.0f ? cost_k : 1.0f; g_drop_water = water_ok ? 1 : 0; }
-/* F38 (batch 2): up a ledge on the jets. The planner had only the drops: a 'Mech or BattleArmor
+/* Up a ledge on the jets. The planner had only the drops: a 'Mech or BattleArmor
  * walked the long way round to a ramp, and a plateau with none was out of reach (a player just
  * jets up). An up-link is the drop turned round: from a free cell over the steep band to free
  * natural ground higher up, within PATH_UP_REACH cells, at least PATH_UP_MIN higher and at most

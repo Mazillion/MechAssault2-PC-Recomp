@@ -1,0 +1,224 @@
+{
+ "pack": "t49_mission_result_1115",
+ "title": "How a mission ends: the level result (level descriptor +0x10C), its writers, the death path, and the custom-mission result screen (v35-edgame, 2026-11-15)",
+ "facts": [
+  {
+   "id": "level-result-0x10c-values",
+   "title": "Level descriptor [0x524A60] +0x10C is the level result: 1 lose (reload checkpoint), 2 win (next campaign entry), 3 restart, 4 quit to the hub; any nonzero value ends the level",
+   "subject": {
+    "kind": "address",
+    "id": "00524A60"
+   },
+   "addresses": [
+    "00524A60",
+    "00018F10",
+    "00015AF0",
+    "0014E259",
+    "0022409B"
+   ],
+   "related": [
+    "MAActionGameCondition",
+    "gamecondition-values",
+    "t49.player-death-path",
+    "t49.custom-mission-result-screen"
+   ],
+   "fact": "sub_00018F10 returns the level descriptor (global [0x524A60], static object 0x52B798). Its +0x10C is the level result: 0 while the level runs; the frame step sub_00015AF0 ends the level once it is nonzero (no HUD menu frame runs after it is written; the level unloads about 0.5 s later). Traced in game (, hardware write watch on +0x10C): 1 = lose, the level reloads from the last checkpoint (or its start), silently; 2 = win, the campaign goes to its next entry (custom entries have returntolobby = true: hub, then Custom Scenarios; a retail cinematic level's win went hub -> credits); 3 = restart from the mission's own world (the pause menu's Restart Mission, p_restart.ggf handler sub_0022409B, also writes +0x118 = 2); 4 = quit to the hub (written by sub_00015AF0 when the menu stack update vt+0x18 returns 0 after pause -> Quit -> Yes; the quit leaves +0x118 = 1, which is what sends it to the front end: writing 4 alone with +0x118 = 2 reloads the level instead). After a win +0x110 = 2 and +0x118 = 3; the results menu (vt 0x482638, slot 14 sub_001FB241) copies +0x10C to +0x110 and builds failed.ggf only when +0x10C == 1. Writers: MAActionGameCondition Execute sub_0014E259 (value = action +0x64), the player death path (t49.player-death-path), the frame step (4), sub_0022409B / sub_00224075 (3), MP network handlers sub_001D1590 / sub_001D37E0 / sub_001D3A30, and sub_00016880 resets it to 0 at level start.",
+   "how_to_use": "To end a level from host code write the value the original path writes (and +0x118 = 1 for a quit to the hub); do it from a HUD frame with the world running.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 2560
+    }
+   ],
+   "tags": [
+    "mission",
+    "end",
+    "lose",
+    "win",
+    "level",
+    "result"
+   ],
+   "date": "2026-11-15"
+  },
+  {
+   "id": "gamecondition-execute-writes-level-result",
+   "title": "MAActionGameCondition Execute sub_0014E259 (slot 22) only writes the level result: descriptor +0x10C = action +0x64",
+   "subject": {
+    "kind": "function",
+    "id": "0014E259"
+   },
+   "addresses": [
+    "0014E259",
+    "00018F10",
+    "0014E215"
+   ],
+   "related": [
+    "MAActionGameCondition",
+    "gamecondition-values",
+    "t49.level-result-0x10c-values"
+   ],
+   "fact": "MAActionGameCondition (class key 812C9027; loader sub_0014E215 reads 'GameCondition' into +0x64) Execute is vtable slot 22, sub_0014E259: thiscall, ret 4 (one stack argument, unused); it calls sub_00018F10 and stores [ecx+0x64] at descriptor +0x10C, nothing else. It is reached through the icall resolver (trigger fire, return address 0x0014561E), so recomp_lookup_manual can override it.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "mission",
+    "gamecondition",
+    "action"
+   ],
+   "date": "2026-11-15"
+  },
+  {
+   "id": "player-death-path",
+   "title": "Player death -> lose: player entity update sub_000C80DB (vtable 0x4654CC) -> sub_000C9F32 -> sub_0015E6F5 writes descriptor +0x10C = 1; no menu, retail and custom alike",
+   "subject": {
+    "kind": "function",
+    "id": "0015E6F5"
+   },
+   "addresses": [
+    "000C80DB",
+    "000C9F32",
+    "0015E6F5",
+    "0015E213",
+    "0015D2E9",
+    "004654CC"
+   ],
+   "related": [
+    "t49.level-result-0x10c-values",
+    "failed-ggf"
+   ],
+   "fact": "When the player is destroyed (after the death explosion, about 3 s) the player entity update sub_000C80DB (only reference: vtable 0x4654CC, called through the world walker sub_0015D2E9) calls sub_000C9F32, which calls sub_0015E6F5; that one asks sub_0015E213 and stores its nonzero answer (1) at descriptor +0x10C (0x15E73E). Found with a hardware write watch; with FastCode on the running copy is sub_0015E6F5__fast. The level then reloads with no screen: on retail Mission_17b (, menu path) the player died at 00:25:32, LOADING at:38, the mission's intro cinema again; no menu object, no failed.ggf. So the retail campaign does NOT show the 'Mission failed' (failed.ggf) screen on death (closes F1 D0 Q8(c)); failed.ggf belongs to the results menu (vt 0x482638) built for result 1, which the death path never opens.",
+   "how_to_use": "To hold a death, override 0x000C80DB in recomp_lookup_manual: call the original and put +0x10C back to 0 when it turned 0 -> 1 (F1 G2 does this on custom missions).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 2560
+    }
+   ],
+   "tags": [
+    "mission",
+    "death",
+    "player",
+    "lose",
+    "failed"
+   ],
+   "date": "2026-11-15"
+  },
+  {
+   "id": "pause-request-0x50c9e8-freezes-world",
+   "title": "Writing 1 to 0x50C9E8 freezes the whole campaign world (clock, units, HUD) until 2 is written; the game's message box shows and takes input meanwhile",
+   "subject": {
+    "kind": "address",
+    "id": "0050C9E8"
+   },
+   "addresses": [
+    "0050C9E8",
+    "004D382A",
+    "00015AF0",
+    "001F6ABF",
+    "001F7354",
+    "001FB975"
+   ],
+   "related": [
+    "pause-freezes-the-world-only-in-bot-matches",
+    "t49.custom-mission-result-screen"
+   ],
+   "fact": "0x50C9E8 is the pause request the frame step sub_00015AF0 reads each frame: 1 sets the world freeze byte 0x4D382A, 2 clears it and the request (game writers: sub_001F6ABF = 1, sub_001F7354 = 2, the pausing menus). Host code can write it from a HUD frame: in F1 G2 runs the frames outside the result box stayed pixel-identical for 10.7 minutes (1289 frames at 0.5 s) while the native message box (ma2_gui_dialog -> sub_001FB975) was drawn and answered Enter / Esc, and the mission went on normally after 2.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 2560
+    }
+   ],
+   "tags": [
+    "pause",
+    "freeze",
+    "world"
+   ],
+   "date": "2026-11-15"
+  },
+  {
+   "id": "checkpoint-restart-loads-save-world",
+   "title": "A restart from a checkpoint loads the world from the checkpoint file (MASaveGame.wdf / MAScnsGame.wdf), so the level descriptor no longer names Scn<ID>.wdf",
+   "subject": {
+    "kind": "address",
+    "id": "00524A60"
+   },
+   "addresses": [
+    "00524A60",
+    "0050E844"
+   ],
+   "related": [
+    "save-file-z-missions-masavegame-wdf-global-50c958-is-a-plain-0xb0-struct",
+    "t49.level-result-0x10c-values"
+   ],
+   "fact": "After a lose (result 1) in a mission that saved a checkpoint, the level load hook sees the world path MASaveGame.wdf (the checkpoint file named by the string 0x50E844), not the scenario's Scn<ID>.wdf: anything that recognises a custom level by the world name (level_scenario in ma2_scenario.c) loses it after a checkpoint restart (G1's message queue, the [Assets] archive mount, the result screen). ma2_scenario.c keeps the last scenario level for a checkpoint world (level_scenario_or_checkpoint).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 2560
+    }
+   ],
+   "tags": [
+    "checkpoint",
+    "save",
+    "scenario",
+    "level"
+   ],
+   "date": "2026-11-15"
+  },
+  {
+   "id": "custom-mission-result-screen",
+   "title": "Custom missions show a result screen (MISSION FAILED: Retry / Quit, MISSION COMPLETE: Continue / Replay) instead of the silent restart (v35-edgame, )",
+   "subject": {
+    "kind": "function",
+    "id": "0014E259"
+   },
+   "addresses": [
+    "0014E259",
+    "000C80DB",
+    "00524A60",
+    "0050C9E8",
+    "001FB975"
+   ],
+   "related": [
+    "t49.level-result-0x10c-values",
+    "t49.player-death-path",
+    "t49.pause-request-0x50c9e8-freezes-world",
+    "t48.scenario-message-queue"
+   ],
+   "fact": "recomp_manual.c maps 0x0014E259 -> ma2_scn_gamecond_execute and 0x000C80DB -> ma2_scn_player_update. On a scenario level of Type Mission a GameCondition 1/2 is held (not executed) and a death's result 1 is put back to 0; the next HUD frame writes 0x50C9E8 = 1 and opens the game's message box: title MISSION FAILED / MISSION COMPLETE, the line = scenario.ini [Mission] LoseText / WinText or a default ('The mission was lost.', 'Your 'Mech was destroyed.', 'All objectives complete.'), Enter button (action 0x466) Retry / Continue, Esc button (0x465) Quit / Replay. The choice writes 0x50C9E8 = 2 and the result: Retry 1, Continue 2, Replay 3, Quit 4 (+0x118 = 1), then on the hub the Custom Scenarios item is chosen with the mission selected. --quick-test takes Quit / Continue after 3 s. Retail levels and multiplayer maps run the originals (logged 'original path' under RECOMP_SCENARIO_TRACE).",
+   "how_to_use": "Editor E3 writes WinText / LoseText in scenario.ini [Mission].",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 2560
+    }
+   ],
+   "tags": [
+    "mission",
+    "scenario",
+    "result",
+    "lose",
+    "win",
+    "retry"
+   ],
+   "date": "2026-11-15"
+  }
+ ]
+}

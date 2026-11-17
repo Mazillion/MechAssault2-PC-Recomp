@@ -1,0 +1,279 @@
+{
+ "pack": "t43_vtol_rider_1112",
+ "title": "Bot VTOL rider pick-up / carry polish",
+ "facts": [
+  {
+   "id": "vtol-rider-sink-ignored-ground-ahead",
+   "title": "VtolArrive rider sink ignored the ground ahead: the craft sank its BattleArmor into a block short of the flag (SinkAhead)",
+   "subject": {
+    "kind": "concept",
+    "id": "vt_arrive"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_ctrl.c",
+    "vt_arrive",
+    "vt_ground_ahead",
+    "RECOMP_BOT_VTOL_SINK_AHEAD",
+    "t28.vtol-ferry-stale-ai-forward-speed"
+   ],
+   "fact": "Inside 90 m of a rider's stop vt_arrive asked the stick for -30 (sink) until the craft was at max(ground at the point + 12, ground straight under the craft + 10). The same rule held bot 5's two riders snagged on a 16.4 m block for 2.4 s at 0 m/s with full forward stick (t=39.8-42.2). SinkAhead raises the height asked to the highest ground the craft reaches in the next 1.5 s (along its velocity and toward the point, +-4 m abeam) + 11 m with a rider (+ 6 m without). A sink left set also outlived its step: v29d4 (BD) the craft kept -30 through 0.8 s of steps that flew no stick branch after the brain turned to lift-climb, 27 -> 4 m over the ground; a negative lift demand is now cleared at the start of every ctrl_tick and re-asserted only by whoever still wants it.",
+   "how_to_use": "Switch SinkAhead / RECOMP_BOT_VTOL_SINK_AHEAD (default on). [C7] sinkahead: held_s. Branch v29-vtol (exe v13-v29v10).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 3099
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "ctf",
+    "rider",
+    "fix"
+   ],
+   "date": "2026-11-12"
+  },
+  {
+   "id": "vtol-pickup-glide",
+   "title": "Bot VTOL pick-up flew in at cruise height and sank 12 m on MoveTo only once over the BattleArmor (PickupGlide)",
+   "subject": {
+    "kind": "concept",
+    "id": "vt_arrive"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_ctrl.c",
+    "vt_arrive",
+    "order_lift",
+    "lift_hold",
+    "RECOMP_BOT_VTOL_PICKUP_GLIDE",
+    "RiderHover",
+    "HoverFix"
+   ],
+   "fact": "PickupGlide: inside 80 m the craft sinks while it brakes, to the BattleArmor + 11 m (+0.15 m per m beyond 20 m out), never under the ground ahead + 6 m, so it arrives at claw height. On the recording the glide starts 1.3-2.0 s before the old hover sink began.",
+   "how_to_use": "Switch PickupGlide / RECOMP_BOT_VTOL_PICKUP_GLIDE (default on). [C7] pickupglide: sink_s. g_vt_pickup is set round the cargo-3 run in (ma2_bot_ctrl.c ORD_TRAVEL cargo branch).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 3123
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "pickup",
+    "rider",
+    "fix"
+   ],
+   "date": "2026-11-12"
+  },
+  {
+   "id": "vtol-two-riders-quick",
+   "title": "VtolTwoRiders held a VTOL with a rider aboard 8-11 s for a pilot still boarding a BattleArmor (TwoQuick)",
+   "subject": {
+    "kind": "setting",
+    "id": "TwoQuick"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c",
+    "VtolTwoRiders",
+    "VtolMuster",
+    "TwoWaitCap",
+    "RECOMP_BOT_VTOL_TWO_QUICK"
+   ],
+   "fact": "With one rider aboard the VtolMuster hold looked for a second BattleArmor within 50 m or a teammate's boarding claim on a suit within 70 m and held 8-11 s. TwoQuick: aboard, only a teammate already in a BattleArmor within 35 m is held for, 4 s at most; a boarding claim is not waited for. The player keeps his 8-11 s (25 s as CtfPair partner).",
+   "how_to_use": "Switch TwoQuick / RECOMP_BOT_VTOL_TWO_QUICK (default on). [C7] muster held_bot / gave_up, tworiders hold_second_bot.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 4399
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "ctf",
+    "rider",
+    "fix"
+   ],
+   "date": "2026-11-12"
+  },
+  {
+   "id": "bot-rider-stay-aboard",
+   "title": "A bot BattleArmor on a bot's VTOL let go mid-air when any goal outscored the ride's flat 1.5 (RiderStay)",
+   "subject": {
+    "kind": "setting",
+    "id": "RiderStay"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c",
+    "order_ride",
+    "G_RIDE",
+    "frun_eval",
+    "RECOMP_BOT_RIDER_STAY"
+   ],
+   "fact": "Riding a bot's VTOL (not a flag-run member, not carrying) the brain scored G_RIDE 1.5; an objective (defend/hunt), power-up or retreat score above it took the goal while the BattleArmor hung on, its order left IDLE and the claw let go. RiderStay: aboard a bot's VTOL the ride wins outright (order_ride alone decides to let go), and 'cornered' lets go only once the VTOL is under 10 m/s. Also: near a lift request's destination (150 m) the rider let go at once, 34 m up, while the VTOL still flew in (v29f3 t=137.3); now it waits until it hangs under 14 m or is within 40 m.",
+   "how_to_use": "Switch RiderStay / RECOMP_BOT_RIDER_STAY (default on). [C7] riderstay: held_s.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 4706
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "rider",
+    "battlearmor",
+    "fix"
+   ],
+   "date": "2026-11-12"
+  },
+  {
+   "id": "vtol-carry-commit",
+   "title": "A VTOL with a rider aboard scored its lift a flat 1.2: support/attack took it off the run mid-carry (CarryCommit)",
+   "subject": {
+    "kind": "setting",
+    "id": "CarryCommit"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_brain.c",
+    "order_lift",
+    "G_LIFT",
+    "RECOMP_BOT_VTOL_CARRY_COMMIT",
+    "t43.bot-rider-stay-aboard"
+   ],
+   "fact": "With someone aboard, ma2_bot_brain.c scored G_LIFT 1.2 (0 under 30 % health), so G_SUPPORT / attack / objective scores beat it and the craft left the run with its rider hanging. CarryCommit: with a rider aboard and over 30 % health the lift outscores every other goal; under 30 % the old scores stand (repair / retreat).",
+   "how_to_use": "Switch CarryCommit / RECOMP_BOT_VTOL_CARRY_COMMIT (default on). [C7] carrycommit: held_s. Branch v29-vtol, exe v13-v29v10.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 4721
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "rider",
+    "fix"
+   ],
+   "date": "2026-11-12"
+  },
+  {
+   "id": "vtol-rider-dodge-towers",
+   "title": "Rider strikes on New River City towers: the craft clears a ~42 m top at its 48 m ceiling, its rider 4.7 m lower does not (RiderDodge)",
+   "subject": {
+    "kind": "concept",
+    "id": "vt_rider_dodge"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_ctrl.c",
+    "vtol_manual",
+    "vt_ceil_at",
+    "StickCeil",
+    "RiderRay",
+    "RECOMP_BOT_VTOL_RIDER_DODGE"
+   ],
+   "fact": "RiderRay only learns a shut way after a hit. RiderDodge: with a rider aboard, each stick step checks 30-100 m toward the steer point (+-5 m abeam); where the ground stands above the local ceiling - 10.5 m it flies the nearest clear heading (+-20.90 deg) instead. Replayed on the three strikes it fires 0.6-2.0 s before each hit with +20.+90 deg clear.",
+   "how_to_use": "Switch RiderDodge / RECOMP_BOT_VTOL_RIDER_DODGE (default on). [C7] riderdodge: steer_s, none_s.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 3129
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "rider",
+    "nrc",
+    "fix"
+   ],
+   "date": "2026-11-12"
+  },
+  {
+   "id": "vtol-edge-slide",
+   "title": "VtolEdgeAll recovery MoveTo fought the stick by NRC red base: ferry with rider hung 14-50 s (EdgeSlide)",
+   "subject": {
+    "kind": "concept",
+    "id": "vt_edge_recover"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_ctrl.c",
+    "vt_edge_recover",
+    "VtolEdgeAll",
+    "EdgeStickOut",
+    "ef_dist",
+    "RECOMP_BOT_VTOL_EDGE_SLIDE"
+   ],
+   "fact": "An out-of-bounds area lies on the straight line from New River City's red base to the blue flag. The red ferry (rider aboard, 45-75 m up) sat 24 m off it: the carrot led into the band, vt_edge_recover's MoveTo pushed it back out every other step and the parked window's MoveTo climbed it to 75 m -- 0-2 m/s for 51 s (v29b1 rc30 t=13-64), 42 s (v29a2), 14 s (v29d5). EdgeStickOut only helps with the nose pointing outward. EdgeSlide: on a travel leg 60 m+ long the recovery flies the stick along the edge (distance-field tangent on the side of the point, kept 4 s; 20-35 m on plus out to 36 m) instead of MoveTo straight out. Red exits in v29f1/f3 (v8+) took 0-4 s.",
+   "how_to_use": "Switch EdgeSlide / RECOMP_BOT_VTOL_EDGE_SLIDE (default on). [C7] edgeslide: slide_s; [BOT-EDGESLIDE] with RECOMP_BOT_DIAG.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 6072
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "edge",
+    "nrc",
+    "fix"
+   ],
+   "date": "2026-11-12"
+  },
+  {
+   "id": "vtol-low-stick-bog",
+   "title": "The VTOL stick needed world y > 6 m: over Bogged Down's bog (y -16.-12) a craft never got it and sank (LowStick)",
+   "subject": {
+    "kind": "setting",
+    "id": "LowStick"
+   },
+   "addresses": [],
+   "related": [
+    "ma2_bot_ctrl.c",
+    "ctrl_travel",
+    "vtol_manual",
+    "RECOMP_BOT_VTOL_LOW_STICK"
+   ],
+   "fact": "ctrl_travel flew the stick (vtol_manual) only with me->pos.y > 6, a world height that assumed NRC's ground at ~0. Bogged Down's bog lies at -16.-12: a pick-up there fell to the awake drive, sank into the bog and with its rider aboard could not climb (v29f2 blue bot 7 t=165.3-173: lift-climb at 0 m/s, vy -5, rider off four times, 12 s). LowStick: 6 m over the terrain under the craft also qualifies. Replay: 101 frames of that stretch would have had the stick.",
+   "how_to_use": "Switch LowStick / RECOMP_BOT_VTOL_LOW_STICK (default on). [C7] lowstick: n_s.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 4498
+    }
+   ],
+   "tags": [
+    "bots",
+    "vtol",
+    "boggeddown",
+    "fix"
+   ],
+   "date": "2026-11-12"
+  }
+ ]
+}

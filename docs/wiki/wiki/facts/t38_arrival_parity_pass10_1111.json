@@ -1,0 +1,112 @@
+{
+ "pack": "t38_arrival_parity_pass10_1111",
+ "title": "Arrival parity pass 10: JetOverYield, LeapStallUpFar, WalkChainHold; corrected floor table",
+ "facts": [
+  {
+   "id": "body-stop-holds-armed-jet",
+   "title": "The right-of-way body_stop (MechAI mode 7) holds an armed jet on the ground until the wait runs out",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_ctrl.c JetOverYield"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A jet started by / LeapStall sets the MechAI burn flag ai+0x240, but the same frame's right-of-way wait (ctrl.yield_until, renewed every 0.5 s while boxed in behind a teammate) calls body_stop -> ai_setmode 7, and the body stays standing with ai+0x240 = 1 until the wait ends: X9_81a1 b5 (Ill Wind Snatch It T2) jetted at 36.3 at the exit ledge 713,-1,1394, armed 36.34-37.17 standing, flew at 37.2. 18 such holds of 0.03-1.07 s over 12 Ill Wind recordings, both teams (yieldjet_proof.py).",
+   "how_to_use": "JetOverYield (RECOMP_BOT_JET_OVER_YIELD / [Bots] JetOverYield, default on): a 'Mech/BA with ai+0x240 set clears its yield_until and is not stopped. [C7] jetoveryield n (frames).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 4351
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "jets",
+    "avoid"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "leapstallup-reach-24m",
+   "title": "Jet-up legs: bodies stood 14-24 m from the foot (outside LeapStallUp's 14 m), the 3 s burn reaches 50 m+",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_ctrl.c LeapStallUpFar"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The goto halts short of a jet-up foot and also stands 14-24 m out (X9_81b1 b10 38.7-39.6 s at 710,-0,1396, foot 15.5 m, landing 42 m off +17 m; 16 such stands over 12 Ill Wind recordings, mostly T2 at the exit ledge 705-726,1392-1405 and the basin exit 748-793,1308-1427, also T1 at its base 366,1014). LeapStallUpFar: standing, foot < 24 m, landing < 52 m off, 5-22 m higher, clear line: jet from here (lsupfar_proof.py: jets 0.1-0.6 s before the recorded walk-, then no walk to the 8 m foot). Live P13_81b1 b8 jetted from 15 m at 34.7 and landed on the band (y 19 at 37.1).",
+   "how_to_use": "RECOMP_BOT_LEAP_STALL_UP_FAR / [Bots] LeapStallUpFar (default on). [C7] leapstall up_far.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 3783
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "jets",
+    "leap"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "goto-rehandback-stall-chain",
+   "title": "After a GotoWalk direct walk the MechAI goto often stands the body again within 0.6 s (chain stalls, 20-26 per 90 s per match)",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_ctrl.c WalkChainHold"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "When a direct walk (mode 7) has moved 6 m it hands back to the goto (mode 6), which on mounds and slopes re-latches a turn target far off the route (X9_81b1 b10 on Ill Wind's basin mounds 26.6-29.5 s: comp+0xA0 170 vs bearing -100) and stands the body 0.3-0.7 s before the next walk -- walkchain.py counted 20-26 such chain stalls per 90 s per match, both teams. WalkChainHold: a walk that moved while the previous one had moved < 4 s before keeps walking to the first route corner ahead (8 m+, within 25 deg of the facing, no leap/jet leg before it), twice at most. A bank descent whose route's next leg is a jet leg planned in the air (P13_81b2 b6 13.5-17.0 s, five 0.7 s walks each followed by a 0.3 s stand) walks on to the walk's own lower point (four times at most). walkchain_proof.py over 12 older Ill Wind recordings: 0-6 rearms per team per run, recorded stands after them 0-2.2 s (T2) / 0-5.0 s (T1).",
+   "how_to_use": "RECOMP_BOT_WALK_CHAIN_HOLD / [Bots] WalkChainHold (default on). [C7] walkchain rearm. [BOT-WALKCHAIN] with RECOMP_BOT_DIAG.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 3559
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "goto",
+    "mechai"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "floor-table-step-limited-1111",
+   "title": "Corrected (FLOOR_STEP 1.5 m) floor gaps, all Check It / Snatch It maps: Ill Wind Snatch It best-ground gap 2.3 s",
+   "subject": {
+    "kind": "concept",
+    "id": "tools/floor_model.py floor_all3.csv"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "floor_model.py with the 1.5 m walk step limit over one recording per map x mode (11 cells): best-ground-class T2-T1 gap (s): Check It Deliverance -9.2, Ill Wind +2.9, Killing Field +4.1, No Man's Land +4.1, Witch's Cauldron +11.2; Snatch It Bogged Down +1.8, Ill Wind +2.3 (jet 'Mech 4.2), Killing Field +1.4, No Man's Land +2.0, On the Rocks +1.6, Rush Hour +1.7. CTF / Base War NavCaches are missing for most maps (the floor needs a match run per map to build them; height-fit fallback picked wrong maps -> rows dropped).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "floor"
+   ],
+   "date": "2026-11-11"
+  }
+ ]
+}

@@ -7,6 +7,7 @@
 #include <map>
 #include <set>
 
+#include "cutscene.h"
 #include "scenario.h"
 #include "triggers.h"
 
@@ -196,7 +197,7 @@ uint32_t ScenarioIO::duplicate_subtree(Scenario& s, uint32_t uid, float offset) 
             int si = su ? t.find(su) : -1;
             if (si >= 0 && w.objs[size_t(si)].cls == K_SET) joins.push_back({su, o.uid()});
         }
-    if (clone.front().find("Description")) clone.front().set_str("Description", clone.front().description() + " (copy)");
+    if (clone.front().find("Description")) clone.front().set_str("Description", ma2::copy_name(clone.front().description()));
     wedit::insert_subtree(w, parent_uid, std::move(clone));
     for (auto& [su, mu] : joins)
         for (auto& o : w.objs)
@@ -240,7 +241,7 @@ static void relink(std::vector<WObj>& v) {
     }
 }
 
-uint32_t ScenarioIO::add_cutscene(Scenario& s, Vec3 at, const std::string& name, const float* behind) {
+uint32_t ScenarioIO::add_cutscene(Scenario& s, Vec3 at, const std::string& name, const float* behind, bool detach_flyby) {
     part_kinds();
     const Wdf* src = retail_world("Mission_05");
     if (!src) return 0;
@@ -345,6 +346,10 @@ uint32_t ScenarioIO::add_cutscene(Scenario& s, Vec3 at, const std::string& name,
     }
     uint32_t root = clone.front().uid();
     wedit::insert_subtree(s.world, grp, std::move(clone));
+    // A fresh cutscene is not tied to the template's retail flyby marker (the game would fly from it first), so its shot 1
+    // plays from its own points and the Check row for old maps does not list it.
+    if (detach_flyby)
+        for (const ShotInfo& sh : cutscene_shots(s.world, root)) cutscene_play_from_own_view(s, sh.ctrl);
     s.dirty = true;
     return root;
 }
@@ -401,10 +406,9 @@ static std::vector<uint32_t> shot_roots(const Wdf& w, const WTree& t, int ctrl, 
     return roots;
 }
 
-uint32_t ScenarioIO::add_cutscene_shot(Scenario& s, uint32_t cinema_uid, const Vec3* at) {
+uint32_t ScenarioIO::add_cutscene_shot(Scenario& s, uint32_t cinema_uid, const Vec3* eye, const Vec3* look, float len) {
     Wdf& w = s.world;
-    static const uint32_t K_CTRL = key_of("MAFreeCameraController"), K_PROP = key_of("MACameraProperty"), K_GROUP_ = key_of("MAGroup"),
-                          K_CINEMA = key_of("MACinema"), K_PATH = key_of("MAPath");
+    static const uint32_t K_CTRL = key_of("MAFreeCameraController"), K_CINEMA = key_of("MACinema"), K_PATH = key_of("MAPath");
     WTree t;
     t.build(w);
     int ci = t.find(cinema_uid);
@@ -416,6 +420,7 @@ uint32_t ScenarioIO::add_cutscene_shot(Scenario& s, uint32_t cinema_uid, const V
     if (ctrl < 0) return 0;
     std::vector<uint32_t> roots = shot_roots(w, t, ctrl, sub);
     const WObj& c = w.objs[size_t(ctrl)];
+    const uint32_t old_init = c.u32("triggerInit"), old_exit = c.u32("triggerExit");
     std::unordered_set<uint32_t> keep = cat_.ref_keys();
     keep.erase(key_of("ReferenceUID"));
     keep.insert(key_of("TemplateID"));
@@ -431,15 +436,27 @@ uint32_t ScenarioIO::add_cutscene_shot(Scenario& s, uint32_t cinema_uid, const V
         parents.push_back(w.objs[size_t(t.parent_of[size_t(ri)])].uid());
     }
     uint32_t new_ctrl = all.count(c.uid()) ? all[c.uid()] : 0;
-    // Move: to `at` (the middle of the positioned pieces goes there), else 25 m +X.
-    float dx = 25.f, dz = 0.f;
-    if (at) {
-        double sx = 0, sz = 0;
-        int n = 0;
-        for (auto& v : copies)
-            for (auto& o : v) if (Vec3 q; get_pos(o, q)) { sx += q.x; sz += q.z; n++; }
-        if (n) { dx = at->x - float(sx / n); dz = at->z - float(sz / n); }
+    // Nothing the last shot carries is copied: the new shot's start / end triggers are cloned empty.
+    {
+        std::unordered_set<uint32_t> trig;
+        for (uint32_t u : {old_init, old_exit}) if (all.count(u)) trig.insert(all[u]);
+        for (auto& v : copies) {
+            std::unordered_set<uint32_t> drop;
+            for (size_t i = 1; i < v.size(); i++)
+                if (trig.count(v[i].parent()) && is_trigger_action(gd_.names(), v[i])) drop.insert(v[i].uid());
+            for (bool more = !drop.empty(); more;) {
+                more = false;
+                for (size_t i = 1; i < v.size(); i++) if (!drop.count(v[i].uid()) && drop.count(v[i].parent())) { drop.insert(v[i].uid()); more = true; }
+            }
+            if (drop.empty()) continue;
+            std::vector<WObj> kept;
+            for (auto& o : v) if (!drop.count(o.uid())) kept.push_back(std::move(o));
+            v = std::move(kept);
+            relink(v);
+        }
     }
+    // With a given eye the view is written below; without one the pieces move 25 m +X of the last shot (the old behaviour).
+    const float dx = eye ? 0.f : 25.f, dz = 0.f;
     int shot_no = 1;
     for (int i : sub) shot_no += w.objs[size_t(i)].cls == K_CTRL;
     const std::string tag = " (shot " + std::to_string(shot_no) + ")";
@@ -451,7 +468,7 @@ uint32_t ScenarioIO::add_cutscene_shot(Scenario& s, uint32_t cinema_uid, const V
                     if (it != all.end()) p.set_int(it->second);
                 }
             Vec3 q;
-            if (get_pos(o, q)) set_pos(o, {q.x + dx, q.y + s.terrain.height_at(q.x + dx, q.z + dz) - s.terrain.height_at(q.x, q.z), q.z + dz});
+            if (dx != 0.f && get_pos(o, q)) set_pos(o, {q.x + dx, q.y + s.terrain.height_at(q.x + dx, q.z + dz) - s.terrain.height_at(q.x, q.z), q.z + dz});
             // Names say which shot they belong to: "Intro - camera (shot 2)", "Intro - shot 2" (no bare " 2").
             std::string d = o.description();
             if (d.empty() || !o.find("Description")) continue;
@@ -463,8 +480,122 @@ uint32_t ScenarioIO::add_cutscene_shot(Scenario& s, uint32_t cinema_uid, const V
             o.set_str("Description", d);
         }
     for (size_t i = 0; i < copies.size(); i++) wedit::insert_subtree(w, parents[i], std::move(copies[i]));
+    // The cutscene's end actions belong to the LAST shot (2.1): they move from the old last shot's end trigger to the new one's.
+    if (all.count(old_exit)) cutscene_move_end_actions(s, gd_.names(), old_exit, all[old_exit]);
+    if (new_ctrl) {
+        set_shot_length(s, new_ctrl, len);
+        if (eye) set_shot_view(s, new_ctrl, 0, *eye, look ? *look : Vec3{}, look != nullptr, this);
+        // The move spans the whole shot: the copied path may carry the last shot's own duration.
+        for (auto& sh : cutscene_shots(w, cinema_uid))
+            if (sh.ctrl == new_ctrl)
+                if (WObj* p = sh.eye_path ? object_by_uid(w, sh.eye_path) : nullptr; p && p->cls == K_PATH) p->set_f32("duration", std::clamp(len, kShotMin, kShotMax));
+    }
     s.dirty = true;
     return new_ctrl;
+}
+
+uint32_t ScenarioIO::ensure_shot_eye_path(Scenario& s, uint32_t ctrl_uid) {
+    Wdf& w = s.world;
+    static const uint32_t K_CTRL = key_of("MAFreeCameraController"), K_PROP = key_of("MACameraProperty"), K_PATH = key_of("MAPath"),
+                          K_WPG = key_of("MAWaypointGroup"), K_CINEMA = key_of("MACinema"), K_GROUP_ = key_of("MAGroup");
+    WTree t;
+    t.build(w);
+    int ci = t.find(ctrl_uid);
+    if (ci < 0 || w.objs[size_t(ci)].cls != K_CTRL) return 0;
+    int step = -1;
+    for (int k : t.kids[size_t(ci)]) if (w.objs[size_t(k)].cls == K_PROP && w.objs[size_t(k)].i32("type") == 2) { step = k; break; }
+    if (step < 0) return 0;
+    const uint32_t eye = w.objs[size_t(step)].u32("eyeUID");
+    int pi = t.find(eye);
+    if (pi >= 0 && w.objs[size_t(pi)].cls != K_PATH) return eye;  // a shot that flies to one object: nothing to rebuild
+    int gi = pi >= 0 ? t.find(w.objs[size_t(pi)].u32("m_wptGroupUID")) : -1;
+    if (gi >= 0 && w.objs[size_t(gi)].cls == K_WPG && !t.kids[size_t(gi)].empty()) return eye;  // a path with points: fine as it is
+    // The template: Mission_05's cutscene, its first shot's eye path and the owner of the waypoint group.
+    part_kinds();
+    const Wdf* src = retail_world("Mission_05");
+    if (!src) return 0;
+    WTree st;
+    st.build(*src);
+    uint32_t tpl_path = 0;
+    for (auto& o : src->objs)
+        if (o.cls == K_CINEMA && o.description() == "IcarusGoBoom Cutscene") {
+            std::vector<int> sb;
+            st.subtree(st.find(o.uid()), sb);
+            for (int k : sb)
+                if (src->objs[size_t(k)].cls == K_CTRL)
+                    for (int m : st.kids[size_t(k)])
+                        if (src->objs[size_t(m)].cls == K_PROP && src->objs[size_t(m)].i32("type") == 2 && !tpl_path) tpl_path = src->objs[size_t(m)].u32("eyeUID");
+            break;
+        }
+    int tp = st.find(tpl_path);
+    if (tp < 0) return 0;
+    const uint32_t tpl_group = src->objs[size_t(tp)].u32("m_wptGroupUID");
+    int tg = st.find(tpl_group);
+    if (tg < 0) return 0;
+    int owner = st.parent_of[size_t(tg)];
+    const uint32_t tpl_owner = owner >= 0 && src->objs[size_t(owner)].cls != K_GROUP_ && src->objs[size_t(owner)].cls != K_CINEMA ? src->objs[size_t(owner)].uid() : tpl_group;
+    // The cinema the shot is in, its camera (where the new points start) and the groups the pieces go under.
+    int cin = ci;
+    while (cin >= 0 && w.objs[size_t(cin)].cls != K_CINEMA) cin = t.parent_of[size_t(cin)];
+    if (cin < 0) return 0;
+    auto group_named = [&](const char* name) -> uint32_t {
+        for (int k : t.kids[size_t(cin)]) if (w.objs[size_t(k)].cls == K_GROUP_ && w.objs[size_t(k)].description() == name) return w.objs[size_t(k)].uid();
+        return w.objs[size_t(cin)].uid();
+    };
+    Vec3 base{};
+    const WObj* cam = object_by_uid(w, w.objs[size_t(ci)].u32("Camera"));
+    if (!cam || !get_pos(*cam, base)) get_pos(w.objs[size_t(cin)], base);
+    std::unordered_set<uint32_t> keep = cat_.ref_keys();
+    keep.erase(key_of("ReferenceUID"));
+    keep.insert(key_of("TemplateID"));
+    uint32_t next = next_uid(w);
+    std::unordered_map<uint32_t, uint32_t> m_owner;
+    std::vector<WObj> own = wedit::clone_subtree(*src, tpl_owner, next, &keep, &m_owner);
+    if (own.empty() || !m_owner.count(tpl_group)) return 0;
+    const uint32_t new_group = m_owner[tpl_group];
+    Vec3 first{};
+    bool have_first = false;
+    for (auto& o : own)  // the first waypoint of the group goes to the camera; the rest of the shape follows
+        if (!have_first && o.parent() == new_group && get_pos(o, first)) have_first = true;
+    if (!have_first) first = base;
+    for (auto& o : own) {
+        Vec3 q;
+        if (get_pos(o, q)) set_pos(o, {q.x - first.x + base.x, q.y - first.y + base.y, q.z - first.z + base.z});
+        if (o.uid() == new_group) o.set_str("Description", "Camera path points");
+    }
+    {   // two points are enough to start from (the first and the last of the template); the caller's view or Draw flight path shapes them
+        std::vector<uint32_t> wp;
+        for (auto& o : own) if (o.parent() == new_group) wp.push_back(o.uid());
+        if (wp.size() > 2) {
+            std::unordered_set<uint32_t> drop(wp.begin() + 1, wp.end() - 1);
+            std::vector<WObj> kept;
+            for (auto& o : own) if (!drop.count(o.uid())) kept.push_back(std::move(o));
+            own = std::move(kept);
+            relink(own);
+        }
+        for (auto& o : own) if (o.uid() == new_group && !wp.empty()) o.set_u32("WaypointID", wp.back());
+    }
+    const uint32_t objects_grp = group_named("Objects");
+    if (pi >= 0) {  // the path object is still there: only its points were lost
+        wedit::insert_subtree(w, objects_grp, std::move(own));
+        if (WObj* p = object_by_uid(w, eye)) p->set_u32("m_wptGroupUID", new_group);
+        detach_path_group(w, eye);  // The template's flyby marker would be the game's first point
+        s.dirty = true;
+        return eye;
+    }
+    std::vector<WObj> pv = wedit::clone_subtree(*src, tpl_path, next, &keep);
+    if (pv.empty()) return 0;
+    const uint32_t new_path = pv.front().uid();
+    pv.front().set_u32("m_wptGroupUID", new_group);
+    pv.front().set_str("Description", w.objs[size_t(cin)].description() + " - flight path");
+    pv.front().set_f32("duration", 8.f);
+    const uint32_t step_uid = w.objs[size_t(step)].uid();
+    wedit::insert_subtree(w, objects_grp, std::move(own));
+    wedit::insert_subtree(w, group_named("Paths"), std::move(pv));
+    if (WObj* stp = object_by_uid(w, step_uid)) stp->set_u32("eyeUID", new_path);
+    detach_path_group(w, new_path);  // The template's flyby marker would be the game's first point
+    s.dirty = true;
+    return new_path;
 }
 
 int ScenarioIO::remove_cutscene_shot(Scenario& s, uint32_t controller_uid) {
@@ -484,8 +615,17 @@ int ScenarioIO::remove_cutscene_shot(Scenario& s, uint32_t controller_uid) {
         if (i != ci && w.objs[size_t(i)].cls == K_CTRL)
             for (uint32_t r : shot_roots(w, t, i, sub)) others.insert(r);
     int before = int(w.objs.size());
+    {  // the cutscene's end actions belong to the last shot: when the last one goes they move to the new last
+        std::vector<ShotInfo> shots = cutscene_shots(w, w.objs[size_t(cin)].uid());
+        if (shots.size() >= 2 && shots.back().ctrl == controller_uid) cutscene_move_end_actions(s, gd_.names(), shots.back().exit, shots[shots.size() - 2].exit);
+    }
+    const WObj* ctrl_obj = object_by_uid(w, controller_uid);
+    const uint32_t init = ctrl_obj ? ctrl_obj->u32("triggerInit") : 0, exit = ctrl_obj ? ctrl_obj->u32("triggerExit") : 0;
+    std::vector<uint32_t> cues;  // The shot's cue timers and the orders waiting for its triggers go with it (they live outside the shot's objects)
+    for (auto& c : cutscene_cue_timers(w, init)) cues.push_back(c.first);
     for (uint32_t r : shot_roots(w, t, ci, sub))
         if (!others.count(r) && object_by_uid(w, r)) wedit::remove_subtree(w, r);
+    cutscene_drop_shot_triggers(s, others.count(init) ? 0 : init, others.count(exit) ? 0 : exit, cues);
     s.dirty = true;
     return before - int(w.objs.size());
 }

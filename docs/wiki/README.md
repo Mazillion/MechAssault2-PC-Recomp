@@ -2,7 +2,7 @@
 
 Facts about how the recompiled MechAssault 2 game code works: what a function does, which global holds what, which
 setting or environment variable changes which behaviour, what a bug was, how it was fixed and whether the fix shipped.
-3305 facts in 37 topics.
+3472 facts in 72 topics.
 
 Addresses are virtual addresses in the Xbox executable `ma2.xbe` of the US/NTSC retail disc (range `00010000`..`005FFFFF`,
 8 hex digits, for example `003AE754`). `sub_0018ABB5` is the function that starts at that address.

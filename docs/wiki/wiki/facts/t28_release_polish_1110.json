@@ -637,7 +637,7 @@
    "addresses": [],
    "related": [],
    "fact": "The game log starts with '[LAUNCH] build version=1.0.2 exe_version=1.0.2 install=. kit=. exe_bytes=. exe_time=.', a '[LAUNCH] windows=' line, and '[GPU-D3D11] . vendor . device . video memory N MB; driver .'. The crash box names the two files to send (log and dump), and shows 'Report at: <url>' only when MA2_SUPPORT_URL in ma2_release.h is set. The exe version resource (app.rc) carries the same version.",
-   "how_to_use": "r26 commit b0e15fd (W-06a), not yet published. Proof (r26a): the three lines read in a fresh-run log. The crash box itself is not checkable in the harness (suppressed when RECOMP_SAVE_DIR is set).",
+   "how_to_use": "r26 commit b0e15fd, not yet published. Proof (r26a): the three lines read in a fresh-run log. The crash box itself is not checkable in the harness (suppressed when RECOMP_SAVE_DIR is set).",
    "status": "current",
    "confidence": "verified-in-game",
    "source": [
@@ -768,7 +768,7 @@
    "addresses": [],
    "related": [],
    "fact": "kernel_thunks.c (an unchanged copy of the runtime file that the exe's xbox_kernel.lib was built from is now in the game tree) no longer writes xbox_kernel.log by default and removes a stale one at start. Empty thunk slots (ordinal 0) are not logged; one 'Unresolved kernel ordinal 270' line remains. The [KERNEL] summary prints only with RECOMP_PERF or RECOMP_KERNEL_SUMMARY, and [XA2] reopen lines are logged 5 times, then once a minute.",
-   "how_to_use": "r26 commits 60c6514, 8a8cd00, 786793c (W-09a), not yet published. Proof (r26a log): exactly one ordinal 270 line, no ordinal 0, no [KERNEL] summary. Not done: the [FMV] reword (kit-only file). Side effect seen: the exe deleted an older xbox_kernel.log in its folder.",
+   "how_to_use": "r26 commits 60c6514, 8a8cd00, 786793c, not yet published. Proof (r26a log): exactly one ordinal 270 line, no ordinal 0, no [KERNEL] summary. Not done: the [FMV] reword (kit-only file). Side effect seen: the exe deleted an older xbox_kernel.log in its folder.",
    "status": "current",
    "confidence": "verified-in-game",
    "source": [
@@ -798,7 +798,7 @@
    "addresses": [],
    "related": [],
    "fact": "A normal bot match no longer fills the log with per-event bot lines. The switch is RECOMP_BOT_DIAG=1 or [Bots] BotLog=1 (default off). Counters and the bot recorder stay live either way, so analysis tools still work. Three direct [C7] prints (yield, c3, vtolpads) were found live (5 lines in a match) and also follow the switch since 2c51429; a clean confirmation match without the switch is still to be run.",
-   "how_to_use": "r26 commits 3285ed5, 2c51429 (W-09b), not yet published. Turn it on for any bot investigation.",
+   "how_to_use": "r26 commits 3285ed5, 2c51429, not yet published. Turn it on for any bot investigation.",
    "status": "current",
    "confidence": "code-confirmed",
    "source": [
@@ -890,7 +890,7 @@
     "t27.pink-placeholder-is-failed-object-build"
    ],
    "fact": "The editor writes SavedWith = 2 (kSaveRevision) into every .ma2map; revision 2 writes the asset closure with .mtb references and the MABuilding code files. The game reads it (a missing value means an older editor) and adds a note to the scenario description when it is below 2. The editor reads missing values as 1, offers 'Update old scenarios.' (File menu, just above 'Check scenario.') at start and from the menu, rewrites them with SavedWith = 2 and keeps a .bak, and says 'Opened <file>. It was saved with an older editor: save it once to update it for the game.'",
-   "how_to_use": "Game r26 commits 1d83c36, 7d2cd8d (W-13a); editor 7d40d9f (W-13b); not yet published. Editor proof (MCP): two old files updated, 158 [Assets] lines each,bak kept; fmt_test +13. The game note was shortened because the 3-line description box clipped it and was not re-shot.",
+   "how_to_use": "Game r26 commits 1d83c36, 7d2cd8d; editor 7d40d9f; not yet published. Editor proof (MCP): two old files updated, 158 [Assets] lines each,bak kept; fmt_test +13. The game note was shortened because the 3-line description box clipped it and was not re-shot.",
    "status": "current",
    "confidence": "code-confirmed",
    "source": [
@@ -926,7 +926,7 @@
     "t04.scenario-scan-and-duplicates"
    ],
    "fact": "add_scenario now records why a file was skipped (damaged file, duplicate Id, a copy of another file, Ready = 0) and the hub shows a note for 12 s, for example '2 scenario files not listed. City Fight.ma2map is a copy of City Fight copy.ma2map (open it in the Scenario Editor and use File > Save as)'. A skipped file is not parsed again until its time stamp changes. A Test that cannot start itself says so instead of failing silently.",
-   "how_to_use": "r26 commit 9490421 (W-14a), not yet published; editor half 7b5e45b (W-14b: a copy made in Explorer keeps the Id; the editor says 'This file is a copy of <file>: saving it gives it its own entry in the game' and gives it a new Id on save). Proof (r26d): the note above with junk.ma2map as the second file.",
+   "how_to_use": "r26 commit 9490421, not yet published; editor half 7b5e45b (W-14b: a copy made in Explorer keeps the Id; the editor says 'This file is a copy of <file>: saving it gives it its own entry in the game' and gives it a new Id on save). Proof (r26d): the note above with junk.ma2map as the second file.",
    "status": "current",
    "confidence": "verified-in-game",
    "source": [
@@ -956,7 +956,7 @@
    "addresses": [],
    "related": [],
    "fact": "The editor's Save writes 'Ready = 1' only when the Check passed and no limit is exceeded, otherwise 'Ready = 0'. The game's scan logs 'Ready = 0, not listed' and shows the skip note with the reason. Loading the file by --scenario or by the editor's Test still works, so an unfinished map can be tested.",
-   "how_to_use": "Game r26 commit ed50ee7 (W-15a); editor b61993f (W-15b); not yet published. Editor proof (MCP): one spawn point deleted, Check red, Save writes Ready = 0; fmt_test +4. The game half was code-reviewed only: a Ready = 0 file written by the new editor was not yet loaded in a game run.",
+   "how_to_use": "Game r26 commit ed50ee7; editor b61993f; not yet published. Editor proof (MCP): one spawn point deleted, Check red, Save writes Ready = 0; fmt_test +4. The game half was code-reviewed only: a Ready = 0 file written by the new editor was not yet loaded in a game run.",
    "status": "current",
    "confidence": "code-confirmed",
    "source": [
@@ -1269,7 +1269,7 @@
     "t28.custom-scenarios-picker-lists-scenario-name"
    ],
    "fact": "New mission and Save pick the first free Name ('New Mission', 'New Mission 2') and the saved file name follows 'Name (n).ma2map'. If the chosen Name is also the Name of another file, the save status adds '\"<Name>\" is also the name of <file>; the game lists them as \"<Name> (<file name>)\". Rename it on the Map tab.' The game side lists duplicates with the file name (see custom-scenarios-picker-lists-scenario-name).",
-   "how_to_use": "Editor commit 5ae9bd7 (W-12b), not yet published. Proof (MCP, scratch folder): New mission and Save twice give 'New Mission' and 'New Mission 2' with different headers; Test saves 'New Mission (2).ma2map' with Name 'New Mission (2)' in a from-game run. A real game Test round trip was not run (the editor starts an unmanaged game process).",
+   "how_to_use": "Editor commit 5ae9bd7, not yet published. Proof (MCP, scratch folder): New mission and Save twice give 'New Mission' and 'New Mission 2' with different headers; Test saves 'New Mission (2).ma2map' with Name 'New Mission (2)' in a from-game run. A real game Test round trip was not run (the editor starts an unmanaged game process).",
    "status": "current",
    "confidence": "verified-in-game",
    "source": [

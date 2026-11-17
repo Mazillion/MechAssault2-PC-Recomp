@@ -14,6 +14,10 @@ GAME
 - During a bot match there is no known keyboard key that shows the score
   table; it appears at the end of the match.
 - A short pause can occur when the game saves a checkpoint.
+- Custom missions: walk and patrol orders can be pulled off route by an enemy
+  within about 450 m.
+- Custom missions: Defend picked from the Order drop-down only guards the
+  spot; use the orders chooser to walk there first.
 - Mission 2: one unexplained close to the desktop was seen once and has not
   been reproduced. If it happens to you, send the log.
 - Only the US (NTSC) retail disc is supported, and only English menus have
@@ -44,7 +48,17 @@ SCENARIO EDITOR
 - Scenarios saved with an editor older than 1.0.2 can show pink markers in
   the game until they are saved once with the current editor (the editor
   offers to update them).
-- Very large maps and the in-game editor mode have had little testing.
+- Very large maps have had little testing.
+- Maps with a cut road that were saved with editor 1.0.9 can crash the game
+  when loading. Open them in this editor and save them again (Check scenario
+  warns about them until you do).
+- Retail sound cues cannot be played in the editor (Play is greyed out); your
+  own sound clips can.
+- A cutscene that can play twice uses hard cuts instead of fades.
+- A briefing of more than six lines (several pages) has not been played in the
+  game.
+- Snow flakes close to the camera look larger and softer in the editor than in
+  the game.
 
 
 INSTALLER

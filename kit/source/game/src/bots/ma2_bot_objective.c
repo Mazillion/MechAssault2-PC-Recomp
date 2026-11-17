@@ -113,7 +113,9 @@ static void objective_diag(void)
  *   +0x1B4 home position (vec3)            +0x1CC state 0 home, 1 carried, 2/3 dropped, 4 scored
  *   pickup = touch (sub_150E89 -> sub_1513D6): an enemy-nation MAMover with property
  *   bit actor+0x1E8.3; touching your own dropped flag returns it. Capture (sub_150880):
- *   carried flag within 10 m of the other flag's home while that flag is home (state 0).
+ *   carried flag within ~10 m of the other flag's home. CORRECTION 11-14 (measured, v34-ctf): the other flag does NOT
+ *   have to be home -- carriers scored (player stat 18 +1, team +10) with their own flag carried by the enemy
+ *   (c34bd_b1 t=57.5, c34bd_a1 t=54.6, c34de1 t=143.8; recorded runs).
  * MASnatchItDataCore (0x23C): +0x1AC number, +0x1B8 home, +0x1CC carrier actor uid,
  *   +0x1D0 uid of the MASnatchItBase holding it (0 = none), +0x1E0 carrier player id.
  * MASnatchItBase: nation via vfunc 0xA8, +0x1A8 drop radius (13 m); a carried core is
@@ -136,7 +138,7 @@ static struct {
 
 static int obj_on(void) { return env_int("RECOMP_BOT_OBJECTIVES", 1) != 0; }
 
-/* Base War: a team building our fire does not hurt (batch 4, 4D). Bogged Down's VTOL bays (2000 hp, saved
+/* Base War: a team building our fire does not hurt. Bogged Down's VTOL bays (2000 hp, saved
  * Indestructible=1) are team MABuildings too, so the attackers' rank spread sent some of them to shoot a bay
  * for the whole trip (batch-3 review: bays never left 2000 hp; plants took all the damage). After 8 s of bot
  * fire at a target with its hp unchanged it is left out of the objectives for the rest of the match; one that

@@ -11,8 +11,8 @@
 #pragma once
 
 #define MA2_VERSION_MAJOR 1
-#define MA2_VERSION_MINOR 0
-#define MA2_VERSION_PATCH 9
-#define MA2_PUBLIC_VERSION "1.0.9"
+#define MA2_VERSION_MINOR 1
+#define MA2_VERSION_PATCH 0
+#define MA2_PUBLIC_VERSION "1.1.0"
 
 #define MA2_SUPPORT_URL "https://github.com/Mazillion/MechAssault2-PC-Recomp/issues"

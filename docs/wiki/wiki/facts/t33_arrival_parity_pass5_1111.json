@@ -1,0 +1,143 @@
+{
+ "pack": "t33_arrival_parity_pass5_1111",
+ "title": "Arrival parity pass 5: leap stalls, step-off clearance, deep jet landings, floor tool fixes",
+ "facts": [
+  {
+   "id": "leapstall-jet-from-short-of-top",
+   "title": "LeapStall: a jet body stalled 6-18 m short of a leap-down top jets from where it stands",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_ctrl.c follower (RECOMP_BOT_LEAP_STALL)"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The campaign MechAI goto sometimes will not walk the last 10-15 m of a gentle slope (grade ~0.33) down to the planner's leap-top cell: it turns on the spot with no forward speed. The leap executors only fire within 6-12 m of the top, so the body stood until a replan or backtrack. P8_81b2 b6 (Ill Wind Snatch It, team 2) stood 10.7-17.6 s at 1160-1162,1511-1517, 12 m short of its top 1150,1508. LeapStall: a 'Mech with jets or a BattleArmor, standing, whose route leaps down (drop leg) within the next 3 corners, 6-18 m short of that top, not 1 m closer for 1.2 s, landing <= 60 m away and 5 m+ lower, nothing rising between body and top: the leg becomes a jet leap from where it stands (pt[top] = body, drop = 2, next = that leg) and the jump spacing is waived. Rule replay on the recording fires at 11.6 s (6 s before the real leave); it also covers team 1's failing step-off 372,978 -> 392,998 on Ill Wind (7 recordings).",
+   "how_to_use": "[C7] leapstall: n; RECOMP_BOT_DIAG prints [BOT-LEAPSTALL].",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "pathing",
+    "jets"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "dropclear-step-off-past-built",
+   "title": "DropClear: a step-off link may not pass within the body radius of something built rising above the top",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_path.c drop links (RECOMP_BOT_DROP_CLEAR)"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Drop (step-off) links tested only the cells on the run line; the blocked cells beside a post are step cells, so a link from 374,956 to 386,968 on Ill Wind passed 1.4 m from a 12 m post at 378,962 (sf 27.5 over 15.2 ground, i.e. built). A 'Mech pressed on the post 4-7 s, the step-off 'did not come down' and was barred, in every recorded Ill Wind run (P8_81a1 b1, P8_81a2 b3, P8_81a3 b1, P8_81b1 b0, P8_81b2 b0, P8_81b3 b4, X_81a b2). Now every run cell checks cells within 0.9 x radius for sf > top + 0.5 and sf - th > 0.5 (built and taller than the top); natural terrain never triggers it.",
+   "how_to_use": "[C7] dropclear: cut (counts link candidates cut, ~290k per 180 s Ill Wind match). Planner cost per match rose ~25% (pathslice queue_ms_sum 8.8 -> 11.4 s) together with UpLandDeep.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_path.c",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "pathing",
+    "planner"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "uplanddeep-jet-landing-further-on",
+   "title": "UpLandDeep: an up-link looks past a tight first landing for an open one on higher ground",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_path.c up-links (RECOMP_BOT_UP_LAND_DEEP)"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Up-links (jet up a ledge) stopped at the first passable cell beyond the steep band; that cell is at the band's foot with clearance < radius + 2 m, and the search in that direction broke. A ledge was reachable only where the band opens onto a wide top. Ill Wind's basin ramp top (y 2.5) to the core-pile terrace (y 16.7) across the 6 m band at z 1364-1376 had no link from 700-740,1376-1396 (Python replica of the planner on the NavCache grid: 0 links), so team 2 walked 60-80 m west round the rocks and jetted at 690,1346 (P8_81b2 b6 43-58 s). With the change the planner continues outward within the jet reach while the cells are higher natural ground: 11 links appear, e.g. 712,1382 -> 712,1358 (24 m run, 14 m up).",
+   "how_to_use": "[C7] uplanddeep: links.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_path.c",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "pathing",
+    "planner",
+    "jets"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "floor-model-map-by-name",
+   "title": "floor_model.py picks the NavCache by the map name the game logs, and waits for the objectives",
+   "subject": {
+    "kind": "concept",
+    "id": "tools/floor_model.py"
+   },
+   "addresses": [],
+   "related": [
+    "t32.floor-model-tool"
+   ],
+   "fact": "stderr.txt beside each stderr.botrec carries '[BOT-NAV-CACHE] . map=<name> mode=<gt>'; floor_model.py (rec_map) now picks <name>_m<gt>.navc from it and falls back to the height fit. On the Rocks Snatch It had no floor row because its core pile does not exist at 0.3 s; read_rec now takes the objectives when they appear. On the Rocks floor (median s): T1 BA 34.3 / jet 'Mech 39.7, T2 BA 36.0 / jet 'Mech 40.3. The CSV is written row by row.",
+   "how_to_use": "python tools/floor_model.py TOOLS NAVCACHE OUT.csv REC.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "tools"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "rushhour-snatch-team2-corridor-stall",
+   "title": "Rush Hour Snatch It: team 2 'Mechs mill 25-30 s at 1120-1145,1309-1317 (y 30) in front of a corridor the grid shows open",
+   "subject": {
+    "kind": "concept",
+    "id": "Rush Hour map / MechAI goto"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Both Z_85a and Z_85b (v27p10): a team-2 'Mech stood or slid sideways along z ~1317 from 28 to 56 s, its MechAI goto (drive A348) aimed north up the corridor x 1120-1136 between two built walls (1112-1118, 1138-1142, z 1322-1344), with no forward speed; GotoWalk fired 3 times, the live surface probe at the carrot reads 79.8 m (a roof) over grid floor 30. The NavCache grid shows the corridor free (sf 30), so either a front face at z ~1318-1320 or a low ceiling the one-layer grid misses blocks 'Mechs. Not fixed yet: probe it in game (RECOMP_BOT_PATHTEST / a direct walk test) before changing the planner. It is the largest single loss vs the floor in the Z sweep (Rush Hour Snatch It loses 20-42 s per side).",
+   "how_to_use": "Next step for parity on Rush Hour; see r26-notes/parity.md Pass 5.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "rushhour",
+    "open-issue"
+   ],
+   "date": "2026-11-11"
+  }
+ ]
+}

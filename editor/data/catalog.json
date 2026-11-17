@@ -49657,17 +49657,17 @@
   "2988A62E": {
    "owner": "MATriggerGameTime",
    "key": "2988A62E",
-   "label": "Percent of time left (internal)",
-   "tooltip": "Game time percentage used by this trigger. 0 on every retail map. Internal; do not edit.",
+   "label": "Fires when this much of the match time is left (%)",
+   "tooltip": "For multiplayer maps with a time limit: 100 = at the start, 50 = half the match left, 0 = when time runs out. A mission has no match clock, so it never fires there: use After a delay.",
    "type": "int",
    "wire_type": 3,
    "units": "%",
    "default": 0,
    "range": [
     0,
-    0
+    100
    ],
-   "tier": "Internal",
+   "tier": "Advanced",
    "confidence": "inferred",
    "evidence": "m_ prefix; 0 in all 16 retail instances; read at 0019F3D7.",
    "name": "m_nPercentLeft",

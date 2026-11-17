@@ -1,0 +1,93 @@
+{
+ "pack": "t32_floor_model_1110",
+ "title": "Objective arrival floor model and measured movement speeds",
+ "facts": [
+  {
+   "id": "floor-model-tool",
+   "title": "floor_model.py computes the optimal-human arrival time per map, mode, team and body class from the NavCache grid",
+   "subject": {
+    "kind": "tool",
+    "id": "tools/floor_model.py"
+   },
+   "addresses": [],
+   "related": [
+    "t30.jettryfuel-judge-from-first-burn",
+    "t31.footslope-pilot-walk-precheck-slope-66"
+   ],
+   "fact": "The tool reads a bot-match .botrec (game type, pilot spawns, vehicles at kickoff, objectives) and the .navc grid the navigator builds at match start (sf, blk, hblk, slp; 2 m cells). It picks the .navc by height fit and runs a time-optimal Dijkstra from the objective cells for each body class (pilot, 'Mech with and without jets, tank, BattleArmor, VTOL). Walk edges go onto free cells or down steep cells. Jet edges are 6-40 m long, rise at most the measured climb per burn, and are used only where walking cannot do it. Boarding is a straight pilot walk at 12 m/s plus 2 s. Fuel is not tracked, so the result is optimistic. On Ill Wind Snatch It the floor gap is about 2-3 s for a 'Mech (T1 26.6 s, T2 29.3 s median), not the 8-10 s estimated before.",
+   "how_to_use": "python tools/floor_model.py TOOLS_DIR %LOCALAPPDATA%/MechAssault2/NavCache OUT.csv REC. speeds can be overridden with FLOOR_<PARAM> env vars.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "pathing",
+    "tools"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "mech-airborne-not-faster",
+   "title": "A 'Mech is not faster in the air than walking: airborne horizontal speed p50 18.3, p90 22 m/s",
+   "subject": {
+    "kind": "concept",
+    "id": "jumpjet-horizontal-speed"
+   },
+   "addresses": [
+    "0018ABB5"
+   ],
+   "related": [],
+   "fact": "Measured over 317 'Mech hops (height above the nav surface more than 2.5 m) in Ill Wind recordings: airborne horizontal speed p50 18.3 m/s and p90 22 m/s; flat hops with a rise under 6 m ran at 16-20 m/s. On the ground the same 'Mechs move at p50 18.7 m/s and p90 27.5 m/s, with a per-body p95 of 25-33 m/s. The 30-45 m/s seen earlier was the slide down a bank. Jet-hop cruising across open ground saves a 'Mech no time. BattleArmor does gain: it hops at 24.5 m/s horizontally against a 13.6 m/s walk. The best 'Mech climb per burn is 24-25 m (mode of 17.8k [BOT-JETGAIN] samples); BattleArmor climbs 18 m. A pilot on foot runs at p90 12.1 m/s.",
+   "how_to_use": "Use these as the model speeds; do not add 'Mech jet-hop travel as a speed lever.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "bots",
+    "movement",
+    "jumpjet",
+    "parity"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "ill-wind-t2-loss-places",
+   "title": "Ill Wind Snatch It: blue 'Mechs lose 6-11 s at the BankDive leap top and 5-12 s on the basin exit climb",
+   "subject": {
+    "kind": "concept",
+    "id": "illwind"
+   },
+   "addresses": [],
+   "related": [
+    "t30.jettryfuel-judge-from-first-burn"
+   ],
+   "fact": "Compared with the floor field (loss per 4 s window = elapsed time minus the drop in floor time to go), team 2's first-life 'Mechs lose time in two places. The first is 6-11 s in the 8-12 s after boarding, standing or turning at the top of the bank leap. The second is 5-12 s on the jet climb out of the basin to the core pile. The basin floor runs at floor speed. Team 1's best 'Mech per run loses only 0.9-1.2 s in total. Team 1's other 'Mechs lose 5-23 s at their own base exit, around 340-380,940-980.",
+   "how_to_use": "Fix generally (leap-top hesitation and climb-exit dwell). Re-measure with loss.py on new recordings.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "bots",
+    "snatch-it",
+    "parity"
+   ],
+   "date": "2026-11-10"
+  }
+ ]
+}

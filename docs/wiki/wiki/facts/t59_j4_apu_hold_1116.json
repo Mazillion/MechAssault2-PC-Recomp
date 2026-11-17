@@ -1,0 +1,44 @@
+{
+ "pack": "t59_j4_apu_hold_1116",
+ "title": "J4 follow-up: audio emulation held while the in-game editor is on screen",
+ "facts": [
+  {
+   "id": "apu-hold-behind-editor",
+   "title": "mcpx_apu_hold parks the whole APU while the hidden game idles behind its live editor (55% -> ~6% of a core)",
+   "subject": {
+    "kind": "file",
+    "id": "apu_core.c mcpx_apu_hold"
+   },
+   "addresses": [],
+   "related": [
+    "t58.hidden-game-audio-cpu",
+    "live_thread",
+    "mcpx_apu_frame_thread",
+    "dsp_thread_main",
+    "t26.dsound-active-reinsert-freeze"
+   ],
+   "fact": "apu_core.c mcpx_apu_hold(1) makes mcpx_apu_frame_thread wait on its condition at the top of its loop, between frames (never inside the guest ISR or an output wait), so the voice processor, the GP/EP DSP frames (dsp_thread_main only runs when the frame thread hands it one), the doorbell ack, the output and interrupt delivery all stop with nothing reset; mcpx_apu_hold(0) wakes it under the APU lock. It is separate from the title's pause_requested. Measured: hidden game 47-63% of a core before, 5.2-6.7% after; the remainder is nv2a_ack_thread (~1.7%), kernel_timer_thread (~1.6%, 1 ms timer), ohci_thread (~1.3%), fb_thread, XAudio2, clock_worker and the game's one menu frame a second, none of it audio.",
+   "how_to_use": "Commit e04f328 on v35-edgame (exe f84e9098). Log: [APU] audio emulation held / running again and [SCN-LIVE] audio emulation held / running. Getting under 5% would also need the nv2a ack (250 us poll), the kernel timer (1 ms) and the USB thread to idle (other files).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/apu/apu_core.c",
+     "line": 1
+    },
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 2436
+    }
+   ],
+   "tags": [
+    "audio",
+    "cpu",
+    "idle",
+    "J4",
+    "editor"
+   ],
+   "date": "2026-11-16"
+  }
+ ]
+}

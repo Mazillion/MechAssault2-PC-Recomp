@@ -1,0 +1,61 @@
+{
+ "pack": "t51_f1_g5_keepalive_1115",
+ "title": "Keep these alive: diagnosis (2026-11-15)",
+ "facts": [
+  {
+   "id": "editor-win-all-trigger-saved-enabled-with-zero-inputs",
+   "title": "The editor saves 'Win: every objective done' switched ON with zero inputs when no objective has a completing trigger (keep-alive only), and the mission wins at load",
+   "subject": {
+    "kind": "concept",
+    "id": "keep-alive objective"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Editor app_tabs.cpp:2600-2613 sets the win trigger's TriggerEnabled from want.empty only inside 'if (have != want)'; a new MATriggerLogic (triggers.cpp:1022 gives TriggerEnabled 1) with no completers has have == want == empty, so it stays enabled with 0 inputs. Keep-alive objectives never have a completer. Proven: mapB3 + the box ticked, saved by the released editor = MATriggerLogic 'Win: every objective done' TriggerEnabled 1, 0 MoeEntityReference; quick-test: '[text omitted]', hub menu 00481B70 (win). The same map with TriggerEnabled 0 plays 45 s. Check scenario (scenario.cpp:2200) already blocks Test for it, but a saved mission started from Custom Scenarios wins at once.",
+   "how_to_use": "Fix (editor): keep TriggerEnabled in step with want.empty on every sync pass, not only when the inputs change. Repro: the audit notes",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "objective",
+    "win",
+    "editor-bug"
+   ],
+   "date": "2026-11-15"
+  },
+  {
+   "id": "removing-a-watched-unit-counts-as-destroyed",
+   "title": "A unit removed by 'Remove units' (or any watched UID that no longer resolves) counts as destroyed for MATriggerDestroyed",
+   "subject": {
+    "kind": "class",
+    "id": "MATriggerDestroyed"
+   },
+   "addresses": [
+    "001491EF",
+    "001494AC",
+    "000B4F70"
+   ],
+   "related": [],
+   "fact": "sub_001491EF with TypeOfCheck 1 looks up each MoeEntityReference ReferenceUID with sub_000B4F70 (recomp_0033.c:4897); a failed lookup goes to the walker sub_001494AC with a null entity (4902 -> 4916-4922), which increments the checked count +0xC8 and returns 1 = destroyed (5231-5242). Game-proven: a keep-alive (Any, Damage 0, Lose) on a live friendly Hackman plays 55 s; with a timer that removes the unit at 12 s the mission is lost at 12 s on every start (AllowJacking 0 or 1 alike). A deleted or stale watched UID therefore fires the trigger at load.",
+   "how_to_use": "Do not use Remove units on a unit a Lose trigger watches unless the loss is wanted.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "trigger",
+    "lose"
+   ],
+   "date": "2026-11-15"
+  }
+ ]
+}

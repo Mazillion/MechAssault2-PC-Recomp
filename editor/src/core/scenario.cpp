@@ -1,18 +1,25 @@
 #include "scenario.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <ctime>
+#include <exception>
+#include <new>
 #include <random>
 #include <regex>
 #include <set>
 
 #include "../app/version.h"
 #include "crop.h"
+#include "cutscene.h"
 #include "json.h"
+#include "lossless.h"
 #include "ma2models.h"
+#include "mission_extras.h"
+#include "placement.h"
 #include "triggers.h"
 #include "water_custom.h"
 #include "weather.h"
@@ -374,10 +381,192 @@ void ScenarioIO::load_terrain_textures(Scenario& s) {
     }
 }
 
-Image ScenarioIO::procedural_colormap(const Scenario& s, int size) {
-    // Palette from the Base colormap: dark / mid / bright luminance bands. Its alpha is a blend
-    // mask between the two detail textures (BoggedDown mean 182, GoCommando 22); the generated map
-    // uses the Base mean so the ground keeps the Base level's detail look.
+// Which colour-map pixels lie on a level's playable ground (type map 0), row 0 of the colour map = the far
+// (high z) edge, row 0 of the type map = z 0. The out-of-bounds skirt is most of many levels' colour map
+// (Mission_06a: 85% of all pixels are the sea-side rim on texture 1, half of the island is texture 2), so
+// "the level's ground" is read where the player plays. Every pixel when the level has no type map or too
+// little playable ground.
+std::vector<uint8_t> playable_colormap_mask(const Image& cm, const std::vector<uint16_t>& tm, int tw, int th) {
+    std::vector<uint8_t> m(cm.px.size(), 1);
+    if (cm.px.empty() || tm.empty() || tw <= 0 || th <= 0 || cm.w <= 0 || cm.h <= 0) return m;
+    size_t n = 0;
+    for (int py = 0; py < cm.h; py++)
+        for (int px = 0; px < cm.w; px++) {
+            const int tx = std::clamp(int((float(px) + 0.5f) / float(cm.w) * float(tw)), 0, tw - 1);
+            const int tz = std::clamp(int((1.f - (float(py) + 0.5f) / float(cm.h)) * float(th)), 0, th - 1);
+            const bool on = tm[size_t(tz) * size_t(tw) + size_t(tx)] == 0;
+            m[size_t(py) * size_t(cm.w) + size_t(px)] = on;
+            n += on;
+        }
+    if (n < cm.px.size() / 20) std::fill(m.begin(), m.end(), uint8_t(1));
+    return m;
+}
+
+// On a green-led level (a grass level) the colours a new map takes are its grass's: the green pixels of the playable
+// ground, when there are enough of them (5%); rims, paths and rock keep out. Else the mask as it is.
+std::vector<uint8_t> green_ground_mask(const Image& cm, const std::vector<uint8_t>& mask) {
+    double n = 0, gsum = 0;
+    for (size_t i = 0; i < cm.px.size(); i++) {
+        if (i < mask.size() && !mask[i]) continue;
+        const uint32_t c = cm.px[i];
+        gsum += std::max(0.0, double((c >> 8) & 255) - 0.5 * (double(c & 255) + double((c >> 16) & 255)));
+        n++;
+    }
+    if (n <= 0 || gsum / n < 3.0) return mask;
+    // the greenest quarter of the playable ground: its grass (Mission_06a's average ground is olive with its paths and rims)
+    std::vector<double> gr;
+    gr.reserve(size_t(n));
+    auto greenness = [](uint32_t c) { return double((c >> 8) & 255) - 0.5 * (double(c & 255) + double((c >> 16) & 255)); };
+    for (size_t i = 0; i < cm.px.size(); i++)
+        if (i >= mask.size() || mask[i]) gr.push_back(greenness(cm.px[i]));
+    std::nth_element(gr.begin(), gr.begin() + ptrdiff_t(gr.size() * 3 / 4), gr.end());
+    const double cut = std::max(4.0, gr[gr.size() * 3 / 4]);
+    std::vector<uint8_t> g(cm.px.size(), 0);
+    size_t k = 0;
+    for (size_t i = 0; i < cm.px.size(); i++) {
+        if (i < mask.size() && !mask[i]) continue;
+        if (greenness(cm.px[i]) >= cut) g[i] = 1, k++;
+    }
+    return k * 20 >= size_t(n) ? g : mask;
+}
+
+// The share of a level's own ground that shows its first texture (TerrainDetailMap, colour-map alpha 255)
+// rather than its second (alpha 0), over the playable ground. On green ground (grass levels) each pixel
+// counts by how green it is, so the texture under the grass wins over the one on paths and cliff rims.
+float first_texture_share(const Image& cm, const std::vector<uint8_t>& mask) {
+    double a = 0, n = 0, ga = 0, gn = 0;
+    for (size_t i = 0; i < cm.px.size(); i++) {
+        if (i < mask.size() && !mask[i]) continue;
+        const uint32_t c = cm.px[i];
+        const double al = double(c >> 24) / 255.0, r = double(c & 255), g = double((c >> 8) & 255), b = double((c >> 16) & 255);
+        const double green = std::max(0.0, g - (r + b) * 0.5);
+        a += al, n += 1, ga += al * green, gn += green;
+    }
+    if (n <= 0) return 1.f;
+    if (gn / n >= 3.0) return float(ga / gn);  // green-led ground: a grass level
+    return float(a / n);
+}
+
+// The ground a new map starts on, per theme level (playtest 11-17). Chosen by looking at each real level's playable ground in
+// the editor (which draws it with the game's combiner) next to its texture pictures, not by counting: Mission_06a / 06b
+// show grass, which is their close-up texture M05_Detail02 (both their detail slots are gravel / rock), and the other
+// levels show one of their two detail textures. Levels not listed (none on the disc) fall back to first_texture_share.
+static const char* theme_ground_texture(const std::string& level) {
+    static const std::pair<const char*, const char*> t[] = {
+        {"BoggedDown", "\\Terrain\\M05_Detail02.tif"},          {"Deliverance", "\\Terrain\\NORthwind_Detail_03.tif"},
+        {"GoCommando", "\\Terrain\\Dante_Detail_03.tif"},       {"IllWind", "\\Terrain\\NORthwind_Detail_05.tif"},
+        {"InYourFace", "\\Terrain\\MissionXX_Detail01.tif"},    {"KillingField", "\\Terrain\\UrAsKicked_Park_detail.tif"},
+        {"NewRiverCity", "\\Terrain\\UrAsKicked_Park_detail.tif"}, {"NoMansLand", "\\Terrain\\UrAsKicked_Park_Mdetail01.tif"},
+        {"OnTheRocks", "\\Terrain\\NORthwind_Detail_05.tif"},   {"OverFalls", "\\Terrain\\NORthwind_Detail_03.tif"},
+        {"ProvingGround", "\\Terrain\\NORthwind_Detail_03.tif"}, {"RushHour", "\\Terrain\\RushHourDetail_02.tif"},
+        {"UnderCover", "\\Terrain\\UrAsKicked_Park_Mdetail01.tif"}, {"WitchCauldron", "\\Terrain\\NORthwind_Detail_03.tif"},
+        {"Mission_01b", "\\Terrain\\Dante_Detail_03.tif"},      {"Mission_02", "\\Terrain\\Dante_Detail_03.tif"},
+        {"Mission_03", "\\Terrain\\NORthwind_Detail_03.tif"},   {"Mission_04", "\\Terrain\\MissionXX_Detail01.tif"},
+        {"Mission_05", "\\Terrain\\M05_Detail02.tif"},          {"Mission_06a", "\\Terrain\\M05_Detail02.tif"},
+        {"Mission_06b", "\\Terrain\\M05_Detail02.tif"},         {"Mission_07", "\\Terrain\\M05_Detail02.tif"},
+        {"Mission_08", "\\Terrain\\M05_Detail02.tif"},          {"Mission_09A", "\\Terrain\\NORthwind_Detail_03.tif"},
+        {"Mission_09b", "\\Terrain\\NORthwind_Detail_03.tif"},  {"Mission_10", "\\Terrain\\NORthwind_Detail_04.tif"},
+        {"Mission_11a", "\\Terrain\\NORthwind_Detail_04.tif"},  {"Mission_11b", "\\Terrain\\NORthwind_Detail_04.tif"},
+        {"Mission_12", "\\Terrain\\NORthwind_Detail_03.tif"},   {"Mission_13a", "\\Terrain\\MissionXX_Detail02.tif"},
+        {"Mission_13b", "\\Terrain\\NORthwind_Detail_03.tif"},  {"Mission_14", "\\Terrain\\NORthwind_Detail_06.tif"},
+        {"Mission_15", "\\Terrain\\NORthwind_Detail_03.tif"},   {"Mission_16", "\\Terrain\\MissionXX_Detail01.tif"},
+        {"Mission_17a", "\\Terrain\\MissionXX_Detail01.tif"},   {"Mission_17b", "\\Terrain\\MissionXX_Detail01.tif"},
+        {"SPDemoMission", "\\Terrain\\M05_Detail02.tif"},
+    };
+    for (auto& [name, path] : t)
+        if (iequals(level, name)) return path;
+    return nullptr;
+}
+
+// The grass themes (their table texture is the grass M05_Detail02): a new map takes their grass colours (green_ground_mask).
+// Snow, jungle and lime-lit levels are green-tinted too but their ground is not grass (Ill Wind, Under Cover, No Man's Land).
+static bool theme_is_grass(const std::string& level) {
+    const char* p = theme_ground_texture(level);
+    return p && iequals(p, "\\Terrain\\M05_Detail02.tif");
+}
+
+std::string ScenarioIO::new_map_ground(const MapInfo& base, const WObj& terrain, const Image& cm, const std::vector<uint8_t>& mask) {
+    if (const char* p = theme_ground_texture(base.name)) return p;
+    const std::string a = terrain.str("TerrainDetailMap"), b = terrain.str("TerrainDetailMap 1");
+    if (!b.empty() && !cm.px.empty() && first_texture_share(cm, mask) < 0.5f) return b;
+    return a;
+}
+
+// The average colour (0..1 per channel) of a ground texture, looked up like the save does (the Base archive, common.mgf,
+// then every level archive). Cached by path.
+bool ScenarioIO::ground_texture_average(const std::string& base, const std::string& path, double rgb[3]) {
+    static std::map<std::string, std::array<double, 3>> cache;
+    const std::string np = norm_path(path);
+    if (np.empty()) return false;
+    if (auto it = cache.find(lower(np)); it != cache.end()) { for (int c = 0; c < 3; c++) rgb[c] = it->second[size_t(c)]; return rgb[0] >= 0; }
+    std::vector<std::string> archives = {lower(base), "common.mgf"};
+    for (auto& an : gd_.level_archives()) archives.push_back(an);
+    Image tex;
+    for (auto& an : archives) {
+        MgfReader* a = gd_.archive(an);
+        if (a && a->find(np) >= 0 && load_ground_texture(*a, np, tex, nullptr)) break;
+    }
+    std::array<double, 3> v = {-1, -1, -1};
+    if (!tex.px.empty()) {
+        v = {0, 0, 0};
+        for (uint32_t p : tex.px) for (int c = 0; c < 3; c++) v[size_t(c)] += double((p >> (8 * c)) & 255) / 255.0;
+        for (auto& x : v) x /= double(tex.px.size());
+    }
+    cache[lower(np)] = v;
+    for (int c = 0; c < 3; c++) rgb[c] = v[size_t(c)];
+    return v[0] >= 0;
+}
+
+// The new map's ground as the New dialog previews it: the chosen texture's average colour times the new map's colour,
+// as the game's combiner makes it (albedo = 4 x DetailBlend x detail x colour), lit by the level's own ambient + sun
+// (x2, as the game), times kPreviewGain, measured on the rendered ground (the rest of the game's chain: baked light,
+// micro detail). Cached by the caller.
+static const double kPreviewGain = 1.0;
+bool ScenarioIO::theme_ground(const MapInfo& m, std::string& path, uint32_t& rgb) {
+    // The new map itself, as the New dialog's defaults make it (flat, 1 km), so the preview reads what loads.
+    NewMapParams p;
+    p.base = m.resource;
+    p.multiplayer = m.multiplayer;
+    p.start = NewMapParams::Flat;
+    p.name = "preview";
+    Scenario s;
+    if (!create(p, s, nullptr)) return false;
+    const int ti = find_class(s.world, K_TERRAIN);
+    if (ti < 0) return false;
+    const WObj& t = s.world.objs[size_t(ti)];
+    path = t.str("TerrainDetailMap");
+    const std::vector<uint8_t> mask;   // the whole (generated) colour map
+    double tc[3] = {}, cc[3] = {}, n = 0;
+    if (!ground_texture_average(s.base, path, tc)) return false;
+    for (size_t i = 0; i < s.colormap.px.size(); i++) {
+        if (i < mask.size() && !mask[i]) continue;
+        for (int c = 0; c < 3; c++) cc[c] += double((s.colormap.px[i] >> (8 * c)) & 255) / 255.0;
+        n++;
+    }
+    if (n <= 0) for (int c = 0; c < 3; c++) cc[c] = 0.5, n = 1;
+    else for (int c = 0; c < 3; c++) cc[c] /= n;
+    const double blend = t.find("TerrainDetailBlend") ? t.f32("TerrainDetailBlend") : 0.3;
+    double light[3] = {1, 1, 1};
+    if (int ei = find_class(s.world, K_ENV); ei >= 0) {
+        const WObj& e = s.world.objs[size_t(ei)];
+        // packed 0xAARRGGBB (the renderer's rgbf); the sun only when it is on
+        const uint32_t am = e.u32("LightAmbientColor", 0xFF202028u);
+        const uint32_t sn = e.i32("DirectionalLightOn", 1) ? e.u32("DirectionalLightColor", 0xFF595959u) : 0u;
+        for (int c = 0; c < 3; c++) {
+            const int sh = 16 - 8 * c;   // c 0 = red
+            light[c] = 2.0 * (double((am >> sh) & 255) / 255.0 + 0.7 * double((sn >> sh) & 255) / 255.0);   // flat ground, sun about 45 degrees up
+        }
+    }
+    rgb = 0xFF000000u;
+    for (int c = 0; c < 3; c++) rgb |= uint32_t(std::clamp(kPreviewGain * 4.0 * blend * tc[c] * cc[c] * light[c] * 255.0, 0.0, 255.0)) << (8 * c);
+    return true;
+}
+
+Image ScenarioIO::procedural_colormap(const Scenario& s, int size, const std::vector<uint8_t>* use, bool centred) {
+    // Palette from the Base colormap: dark / mid / bright luminance bands (from the pixels in `use`, the
+    // playable ground for a new map, else all). Its alpha is a blend mask between the two detail textures
+    // (BoggedDown mean 182, GoCommando 22); the generated map uses the Base mean so the ground keeps the
+    // Base level's detail look.
     uint32_t pal[3] = {0xFF2A3A30u, 0xFF4A6050u, 0xFF8A9A90u};
     uint32_t alpha = 0xFFu;
     if (!s.colormap.px.empty()) {
@@ -387,7 +576,9 @@ Image ScenarioIO::procedural_colormap(const Scenario& s, int size) {
     }
     if (!s.colormap.px.empty()) {
         std::vector<std::pair<int, uint32_t>> px;
-        for (size_t i = 0; i < s.colormap.px.size(); i += 7) {
+        const bool masked = use && use->size() == s.colormap.px.size();
+        for (size_t i = 0; i < s.colormap.px.size(); i += masked ? 1 : 7) {
+            if (masked && !(*use)[i]) continue;
             uint32_t c = s.colormap.px[i];
             int l = int(c & 255) * 3 + int((c >> 8) & 255) * 6 + int((c >> 16) & 255);
             px.push_back({l, c});
@@ -409,6 +600,14 @@ Image ScenarioIO::procedural_colormap(const Scenario& s, int size) {
     img.px.resize(size_t(size) * size);
     const Terrain& t = s.terrain;
     float range = std::max(1.f, t.max_h - t.min_h);
+    // centred (a new map): the ground at the map's mean height takes the theme's middle colour band, higher ground the
+    // brighter, lower the darker. Absolute heights put flat new ground (10 m of -20..107.5) in the darkest band (playtest 11-17).
+    float mean_h = t.min_h;
+    if (centred && !t.hgt.empty()) {
+        double sum = 0;
+        for (float h : t.hgt) sum += h;
+        mean_h = float(sum / double(t.hgt.size()));
+    }
     Rng rng(s.id ? s.id : 7);
     std::vector<float> noise(size_t(size) * size);
     for (auto& n : noise) n = rng.unit();
@@ -424,7 +623,7 @@ Image ScenarioIO::procedural_colormap(const Scenario& s, int size) {
         for (int px = 0; px < size; px++) {
             float x = (float(px) + 0.5f) / float(size) * t.size_x();
             float z = (1.f - (float(py) + 0.5f) / float(size)) * t.size_z();
-            float hf = (t.height_at(x, z) - t.min_h) / range;
+            float hf = centred ? 0.5f / 1.2f + (t.height_at(x, z) - mean_h) / range : (t.height_at(x, z) - t.min_h) / range;
             float slope = 1.f - t.normal_at(x, z).y;
             float f = std::clamp(hf * 1.2f + (noise[size_t(py) * size + px] - 0.5f) * 0.08f, 0.f, 1.f);
             uint32_t c = f < 0.5f ? lerp(pal[0], pal[1], f * 2) : lerp(pal[1], pal[2], (f - 0.5f) * 2);
@@ -484,7 +683,7 @@ NavGraph ScenarioIO::build_nav(const Scenario& s) {
         for (auto& b : buildings) if ((x - b.x) * (x - b.x) + (z - b.z) * (z - b.z) < 14.f * 14.f) return true;
         int v = typemap_at(s, x, z);
         if (v > 0) {
-            // 2 = border band, 16 = deep water (guess, NOTES.md). 1 = out of bounds blocks MP only:
+            // 2 = border band, 16 = deep water (guess). 1 = out of bounds blocks MP only:
             // retail mission graphs cross type 1 (Mission_04: 456 of 1,504 nodes).
             if (v & (tmtype::Border | 16)) return true;
             if (s.multiplayer && (v & tmtype::OutOfBounds)) return true;
@@ -609,7 +808,7 @@ bool ScenarioIO::create(const NewMapParams& p, Scenario& s, std::string* err) {
         for (auto& o : w.objs)
             if (o.cls == K_EREF && !uids.count(o.u32("ReferenceUID"))) dead.push_back(o.uid());
         for (uint32_t u : dead) wedit::remove_subtree(w, u);
-        // Review B16: the kept MoeGroupSet brings the base level's sets ("Red Stuff" 15, "Invulnerabilty at Start" 4)
+        // The kept MoeGroupSet brings the base level's sets ("Red Stuff" 15, "Invulnerabilty at Start" 4)
         // whose MoeEntitySetMember uids were not kept: a new map listed them full of missing units. Drop those members;
         // a mission keeps none of the base level's triggers, so its emptied sets go too (MP setup triggers may name theirs).
         static const uint32_t K_ESET = key_of("MoeEntitySet");
@@ -667,7 +866,7 @@ bool ScenarioIO::create(const NewMapParams& p, Scenario& s, std::string* err) {
     if (!p.keep_base_terrain) {
         s.terrain.min_h = p.min_h;
         s.terrain.max_h = p.max_h;
-        s.terrain.resize_flat(p.w, p.h, std::clamp(p.flat_height, p.min_h, p.max_h));
+        s.terrain.resize_flat(p.w, p.h, s.terrain.stored(std::clamp(p.flat_height, p.min_h, p.max_h)));  // a step the game can store
     }
     if (p.start == NewMapParams::Noise && !p.keep_base_terrain) {
         // Value noise, 4 octaves.
@@ -685,7 +884,7 @@ bool ScenarioIO::create(const NewMapParams& p, Scenario& s, std::string* err) {
         };
         float range = p.max_h - p.min_h;
         // Four averaged octaves stay near 0.5 (about +-13 m at the default 'up to 42 m'): from the editor's camera the
-        // map read as flat (campaign dogfood M2-1). Stretch the noise to 0..1 so the hills reach the height the dialog shows.
+        // map read as flat. Stretch the noise to 0..1 so the hills reach the height the dialog shows.
         std::vector<float> nv(size_t(p.w) * p.h);
         float vmin = 1, vmax = 0;
         for (int gz = 0; gz < p.h; gz++)
@@ -712,9 +911,11 @@ bool ScenarioIO::create(const NewMapParams& p, Scenario& s, std::string* err) {
     // use 512x512 too). Its values: 0 playable, 8 playable water/special, 2 border band, 1 out of
     // bounds (nothing moves there). The Base level's own map fits only the Base's own terrain:
     // on generated terrain its out-of-bounds areas fall anywhere, and editor spawns on 1 never
-    // start a round (maintainer bisects X5, G1, B10, G10). Generated terrain gets one playable
+    // start a round (bisect runs). Generated terrain gets one playable
     // area with a retail-style edge; the culture map is kept.
     load_typemap(s);
+    const std::vector<uint16_t> base_typemap = s.typemap;  // the Base level's own playable area (its ground texture and colours are read there)
+    const int base_tw = s.typemap_w, base_th = s.typemap_h;
     if (!p.keep_base_terrain) fill_playable_typemap(s);
     if (p.drop_culture) {
         static const uint32_t K_CULTSYS = key_of("MACultureSystem");
@@ -738,13 +939,45 @@ bool ScenarioIO::create(const NewMapParams& p, Scenario& s, std::string* err) {
     load_terrain_textures(s);
     if (!p.keep_base_terrain) {
         int csize = s.colormap_layout.width ? int(s.colormap_layout.width) : 256;
-        s.colormap = procedural_colormap(s, csize);
+        // Playtest 11-17: a "Clear blue day" map started on gravel, then (first fix) on rock. The theme's ground is the
+        // texture its real level shows on its playable ground, picked by looking at every level (new_map_ground).
+        const std::vector<uint8_t> ground = playable_colormap_mask(s.colormap, base_typemap, base_tw, base_th);
+        int ti0 = find_class(s.world, K_TERRAIN);
+        const std::string ground_tex = ti0 >= 0 ? new_map_ground(*bm, s.world.objs[size_t(ti0)], s.colormap, ground) : std::string();
+        const std::vector<uint8_t> colours = theme_is_grass(bm->name) ? green_ground_mask(s.colormap, ground) : ground;
+        // The theme's colours were made for its own textures; a darker or brighter chosen texture (Mission_06's grass is
+        // darker than its gravel) would change the ground's brightness, so the colours are scaled by the ratio.
+        double gain = 1.0;
+        if (ti0 >= 0 && !ground_tex.empty() && !s.colormap.px.empty()) {
+            const WObj& t0 = s.world.objs[size_t(ti0)];
+            double a[3], b[3], g[3];
+            const bool ha = ground_texture_average(s.base, t0.str("TerrainDetailMap"), a), hb = ground_texture_average(s.base, t0.str("TerrainDetailMap 1"), b);
+            if (ground_texture_average(s.base, ground_tex, g) && (ha || hb)) {
+                const double share = ha && hb ? first_texture_share(s.colormap, ground) : ha ? 1.0 : 0.0;
+                auto lum = [](const double* v) { return 0.3 * v[0] + 0.6 * v[1] + 0.1 * v[2]; };
+                const double was = (ha ? share * lum(a) : 0.0) + (hb ? (1 - share) * lum(b) : 0.0);
+                if (lum(g) > 0.02) gain = std::clamp(was / lum(g), 0.5, 2.5);
+            }
+        }
+        s.colormap = procedural_colormap(s, csize, &colours, true);
+        if (std::fabs(gain - 1.0) > 0.01)
+            for (auto& px : s.colormap.px) {
+                uint32_t o = px & 0xFF000000u;
+                for (int c = 0; c < 3; c++) o |= uint32_t(std::clamp(double((px >> (8 * c)) & 255) * gain, 0.0, 255.0)) << (8 * c);
+                px = o;
+            }
         s.colormap_custom = true;
         // One ground texture (design note 10-26, AoE-style palette): the theme's own covers the whole map, and the
         // engine's second slot holds the same file at 0% (colour-map alpha 255 = TerrainDetailMap everywhere), so the
         // palette shows one swatch and the game shows nothing odd. Adding a texture in the editor takes that slot.
         if (int ti = find_class(s.world, K_TERRAIN); ti >= 0) {
             WObj& t = s.world.objs[size_t(ti)];
+            if (!ground_tex.empty() && !iequals(norm_path(ground_tex), norm_path(t.str("TerrainDetailMap")))) {
+                // The second slot's repeats go with its texture; a close-up texture (Mission_06's grass) keeps the first slot's.
+                if (iequals(norm_path(ground_tex), norm_path(t.str("TerrainDetailMap 1"))) && t.find("TerrainDetailMult1") && t.find("TerrainDetailMult"))
+                    t.set_f32("TerrainDetailMult", t.f32("TerrainDetailMult1"));
+                t.set_str("TerrainDetailMap", ground_tex);
+            }
             // Texture repeats count across the whole map: scale them so a pattern keeps the Base level's size on
             // the ground (a 1 km map from a 2 km level would show its cracks and stones at half size).
             const float k = s.terrain.size_x() / std::max(1.f, base_terrain.size_x());
@@ -765,7 +998,7 @@ bool ScenarioIO::create(const NewMapParams& p, Scenario& s, std::string* err) {
             WObj& env = s.world.objs[size_t(ei)];
             float top = env.f32("FogTop"), bottom = env.f32("FogBottom");
             if (env.find("FogTop") && env.find("FogBottom") && top > bottom) {
-                float lowest = *std::min_element(s.terrain.hgt.begin(), s.terrain.hgt.end());
+                float lowest = s.terrain.lowest();
                 env.set_f32("FogTop", lowest - 2.f);
                 env.set_f32("FogBottom", lowest - 2.f - (top - bottom));
             }
@@ -811,7 +1044,7 @@ bool ScenarioIO::create(const NewMapParams& p, Scenario& s, std::string* err) {
     // Lightning is off in every new map, whatever theme level it started from (the Weather tab turns it on).
     if (int ei = find_class(s.world, K_ENV); ei >= 0) weather::set_lightning(s.world.objs[size_t(ei)], false);
     // A new mission starts the player in a 'Mech: on foot (the Base's own start) a pilot can hardly finish a
-    // 'Destroy these' objective (dogfood M2-2). The Mad Dog (the campaign's own start 'Mech), else the first 'Mech;
+    // 'Destroy these' objective. The Mad Dog (the campaign's own start 'Mech), else the first 'Mech;
     // the save ships the unit's files when the Base lacks them (fresh_templates: start_templates), as for the Map tab pick.
     if (!p.multiplayer && p.start != NewMapParams::CopyRetail) {
         const StartChoice* pick = nullptr;
@@ -1062,6 +1295,7 @@ int ScenarioIO::add_mode_kit(Scenario& s, const std::string& gt, const std::stri
 struct ScenarioIO::ArchiveSetHolder {
     ma2m::ArchiveSet set;
     std::unordered_map<std::string, std::vector<ma2m::Dependency>> deps;  // asset_closure: per template (Check runs it often)
+    std::unordered_map<uint32_t, double> tpl_mb;                           // template_graphics_mb cache (rebuilt with the archives)
 };
 
 // Every archive on the disc, Base first (dependency collection and model-path resolution).
@@ -1107,11 +1341,33 @@ std::unordered_set<uint32_t> ScenarioIO::fresh_templates(const Scenario& s, cons
         fresh.objs.push_back(o);
         out.insert(tid);
     }
+    // A ground plant (MACultureGenerator) draws its GenerationTemplate's model: new to this Base, it needs files like a placed
+    // object does (a plant added from another level).
+    static const uint32_t K_CGEN = key_of("MACultureGenerator");
+    for (auto& o : world.objs) {
+        if (o.cls != K_CGEN) continue;
+        uint32_t g = o.u32("GenerationTemplate");
+        if (!g || !cat_.find(g) || (known.count(g) && !missing_here(g))) continue;
+        out.insert(g);
+        fresh.objs.push_back(o);
+        if (const WObj* t = cat_.object(g)) fresh.objs.push_back(*t);
+    }
     // The unit the player starts in (MARoot's player configuration container) and what it reaches.
     {
         std::unordered_set<uint32_t> seed;
         if (!start_is_retail(s))
             for (uint32_t u : start_templates(s)) if (!known.count(u)) seed.insert(u);
+        // part 2: a "Put the player in a vehicle" action (MAActionChangePlayerVehicle) hands the player that configuration later:
+        // its body, camera and model files ship like the start body's (without them the swap leaves a HUD-less ground camera, game run).
+        static const uint32_t K_CHANGE = key_of("MAActionChangePlayerVehicle");
+        std::unordered_set<uint32_t> swaps;
+        for (auto& o : world.objs)
+            if (o.cls == K_CHANGE)
+                if (uint32_t c = o.u32("ConfigTemplateUID"); c && cat_.object(c)) swaps.insert(c);
+        if (!swaps.empty()) {
+            for (uint32_t u : swaps) if (!known.count(u) || missing_here(u)) out.insert(u);
+            for (uint32_t u : cat_.closure(swaps)) if (!known.count(u) || missing_here(u)) out.insert(u);
+        }
         if (!seed.empty()) {
             for (uint32_t u : seed) out.insert(u);
             for (uint32_t u : cat_.closure(seed)) if (!known.count(u)) out.insert(u);
@@ -1149,7 +1405,10 @@ int ScenarioIO::resolve_model_paths(const Scenario& s, Wdf& w, const std::unorde
             // A file outside Base/common ships only for templates new to this Base; the Base
             // level's own templates keep their retail paths.
             int ai = ar.Find(r);
-            bool shipped = ai == 0 || ai == 1 || fresh.count(templates ? o.uid() : o.template_id());
+            // A picked sky (MASky2) ships the file the resolver finds whenever it is not the Base level's own (asset_closure),
+            // so the world must name that file. Starry space: the picker writes Env_SkySpace.MGMODEL (Cinema 2_4) but the first archive
+            // holding the sky (cinema_2_1) has only Env_SkySpace.NODE, which [Assets] ships; the game, asked for the MGMODEL, drew no sky.
+            bool shipped = ai == 0 || ai == 1 || fresh.count(templates ? o.uid() : o.template_id()) || (!templates && o.cls == K_SKY);
             if (!shipped) continue;
             std::string game = "\\" + r;
             for (char& c : game) if (c == '/') c = '\\';
@@ -1602,6 +1861,19 @@ void ScenarioIO::add_custom_water(const Scenario& s, Wdf& w, MgfWriter& mgf, std
     }
 }
 
+bool ScenarioIO::model_cuttable(const Scenario& s, const std::string& model, std::string* why) {
+    ensure_deps_archives(s);
+    const std::string key = lower(s.base) + "|" + lower(ma2m::NormalizePath(model));
+    auto it = cuttable_.find(key);
+    if (it == cuttable_.end()) {
+        std::string w;
+        const bool ok = crop::cuttable(deps_archives_->set, model, &w);
+        it = cuttable_.emplace(key, std::make_pair(ok, w)).first;
+    }
+    if (why) *why = it->second.second;
+    return it->second.first;
+}
+
 // Cropped road pieces and foundations (crop.h, playtest 11-01). The cut files sit beside their source, so the relative
 // texture and material paths inside them still resolve (the source's own files come from Base, common.mgf or [Assets],
 // which asset_closure lists from the uncut world before this runs). Pieces cut the same way share one set of files.
@@ -1695,6 +1967,66 @@ ScenarioIO::GraphicsEstimate ScenarioIO::graphics_estimate(const Scenario& s) {
     return g;
 }
 
+double ScenarioIO::base_graphics_mb(const Scenario& s) {
+    ensure_deps_archives(s);
+    if (!iequals(gfx_base_name_, s.base)) {
+        gfx_base_name_ = s.base;
+        uint64_t b = 0;
+        for (auto& p : deps_archives_->set.List(0))
+            if (graphics_file(p)) b += deps_archives_->set.FileSize(p);
+        gfx_base_bytes_ = b;
+    }
+    return 0.88 * double(gfx_base_bytes_) / 1048576.0;
+}
+
+double ScenarioIO::template_graphics_mb(const Scenario& s, uint32_t uid) {
+    ensure_deps_archives(s);
+    if (auto it = deps_archives_->tpl_mb.find(uid); it != deps_archives_->tpl_mb.end()) return it->second;
+    const ma2m::ArchiveSet& ar = deps_archives_->set;
+    const auto& culled = cat_.culled_set(s.base_level());
+    const auto& common = cat_.common_set(s.multiplayer);
+    auto known = [&](uint32_t u) { return culled.count(u) || common.count(u); };
+    // Same rule as fresh_templates: a template the Base carries (and ships its model for) adds nothing.
+    auto missing_here = [&](uint32_t tid) {
+        const WObj* t = cat_.object(tid);
+        std::string m = t ? ma2m::NormalizePath(t->str("Corporal3DObj")) : std::string();
+        if (m.empty() || ar.ExistsIn(0, m) || ar.ExistsIn(1, m)) return false;
+        size_t dot = m.rfind('.');
+        std::string low = dot == std::string::npos ? m + "_low" : m.substr(0, dot) + "_low" + m.substr(dot);
+        return !ar.ExistsIn(0, low) && !ar.ExistsIn(1, low) && !model_absent(s, tid);
+    };
+    double mb = 0;
+    if (!known(uid) || missing_here(uid)) {
+        std::unordered_set<uint32_t> out{uid};
+        for (uint32_t u : cat_.closure({uid})) if (!known(u) || missing_here(u)) out.insert(u);
+        Wdf scan;
+        for (uint32_t u : out) if (const WObj* o = cat_.object(u)) scan.objs.push_back(*o);
+        Bytes sb = scan.serialize();
+        std::vector<ma2m::TemplateModel> models;
+        ma2m::ReadTemplateModels(sb.data(), sb.size(), models);
+        std::set<std::string> seen;
+        uint64_t bytes = 0;
+        for (auto& t : models) {
+            std::string dk = std::to_string(t.uid) + "|" + std::to_string(t.class_key) + "|" + t.model + "|" + t.mtb;
+            for (auto& [k2, v2] : t.extra_files) dk += "|" + k2 + "=" + v2;
+            for (auto& [k2, v2] : t.links) dk += "|" + k2 + "#" + std::to_string(v2);
+            auto dit = deps_archives_->deps.find(dk);
+            if (dit == deps_archives_->deps.end()) {
+                std::vector<ma2m::Dependency> fresh_deps;
+                ma2m::CollectTemplateDependencies(ar, t, fresh_deps);
+                dit = deps_archives_->deps.emplace(std::move(dk), std::move(fresh_deps)).first;
+            }
+            for (auto& d : dit->second) {
+                if (!d.found || iequals(d.archive, deps_base_) || iequals(d.archive, "common.mgf") || !graphics_file(d.path)) continue;
+                if (seen.insert(lower(d.archive) + "|" + lower(d.path)).second) bytes += ar.FileSize(d.path);
+            }
+        }
+        mb = 0.88 * double(bytes) / 1048576.0;
+    }
+    deps_archives_->tpl_mb[uid] = mb;
+    return mb;
+}
+
 // ----------------------------------------------------------------------------- validation
 
 static const std::map<std::string, std::vector<std::string>>& mode_requirements() {
@@ -1703,7 +2035,7 @@ static const std::map<std::string, std::vector<std::string>>& mode_requirements(
         {"CTF", {"MAFlagCTF"}},
         {"SnatchIt", {"MASnatchItBase", "MASnatchItDataCore"}},
         {"BaseWar", {"MAObjectiveType"}},
-        // Check It (bots F13): the control plates (MACheckpoint) and their 'Check It!' terminals sit in the
+        // Check It: the control plates (MACheckpoint) and their 'Check It!' terminals sit in the
         // retail maps' "Check-It! Common" group; without them a Check It match ended 0-0 after ~5 s.
         {"CheckIt", {"MACheckpoint"}},
     };
@@ -1802,7 +2134,7 @@ static void validate_ground(const Scenario& s, const WTree& t, std::vector<Valid
 }
 
 // Every game type copies its retail objects, not only the types with required pieces: Team Destruction's
-// vehicle bays and turrets sit in its own group ("TD Specific"), so a TD map got no vehicles (bots F15).
+// vehicle bays and turrets sit in its own group ("TD Specific"), so a TD map got no vehicles.
 bool ScenarioIO::mode_needs_kit(const std::string& gt) {
     return find_game_type(gt) != nullptr;
 }
@@ -1884,7 +2216,7 @@ const std::vector<std::string>* ScenarioIO::retail_layout(const Scenario& s) {
     return &it->second;
 }
 
-std::vector<ValidationItem> ScenarioIO::validate(const Scenario& s) {
+std::vector<ValidationItem> ScenarioIO::validate_unguarded(const Scenario& s) {
     std::vector<ValidationItem> v;
     size_t n = s.world.objs.size();
     if (n > 3000)
@@ -1932,6 +2264,37 @@ std::vector<ValidationItem> ScenarioIO::validate(const Scenario& s) {
             for (auto& w : s.world.objs) if (w.uid() == u) name = w.description();
             v.push_back({1, name + ": its patrol route has " + std::to_string(pts) + (pts == 1 ? " point" : " points") +
                                 ", so it will not move. On the Objectives & Triggers tab, open its orders and press Draw on map (2 or more points), or change the order.", u});
+        }
+    }
+    // F2 (S-trig, Neutral units never move): a neutral unit has no AI, so orders given to it are ignored. One row per unit.
+    if (!s.multiplayer) {
+        std::set<uint32_t> told;
+        for (auto& o : s.world.objs) {
+            if (!is_order_behaviour(o.cls)) continue;
+            const uint32_t u = order_unit(s.world, o.parent());
+            const WObj* uo = u ? object_by_uid(s.world, u) : nullptr;
+            if (!uo || !uo->find("Nation") || uo->i32("Nation") != 0 || !told.insert(u).second) continue;
+            std::string name = uo->description().empty() ? "A unit" : "\"" + uo->description() + "\"";
+            v.push_back({1, name + " is Neutral, so it ignores its orders (neutral units have no AI). Select it and set its Side to the player's side or the enemy's, "
+                            "or press the buttons in its Starting orders.", u});
+        }
+        // A side change on an EMPTY unit (no pilot) leaves it standing: retail side changes act on crewed units.
+        static const uint32_t K_NATION = key_of("MAActionNation");
+        std::set<uint32_t> told_empty;
+        for (auto& a : s.world.objs) {
+            if (a.cls != K_NATION || a.i32("Nation") == 0) continue;
+            std::vector<uint32_t> units;
+            if (a.u32("ActionEntity")) units.push_back(a.u32("ActionEntity"));
+            if (const WObj* set = a.u32("AISet") ? object_by_uid(s.world, a.u32("AISet")) : nullptr)
+                for (int k = 0, n = set->i32("MoeEntitySetCount"); k < n && k < 256; k++)
+                    if (uint32_t m = set->u32(("MoeEntitySetMember" + std::to_string(k)).c_str())) units.push_back(m);
+            for (uint32_t u : units) {
+                const WObj* uo = object_by_uid(s.world, u);
+                if (!uo || !uo->find("StartAbandoned") || uo->i32("StartAbandoned") == 0 || !told_empty.insert(u).second) continue;
+                std::string name = uo->description().empty() ? "A unit" : "\"" + uo->description() + "\"";
+                v.push_back({1, name + " is empty (no pilot), so changing its side will not make it move or fire. Open the trigger's "
+                                "\"Change which side units are on\" and tick It has a pilot from the start.", u});
+            }
         }
     }
     WTree t;
@@ -2077,7 +2440,7 @@ std::vector<ValidationItem> ScenarioIO::validate(const Scenario& s) {
                                             "so most of them fight on foot. Map tab: \"Players start as\" Battle Armor, or place more vehicle pads.", 0});
                 }
             }
-            // Per team (bots F33/F34): a pad near each team's spawns, and a helipad by a team that has VTOLs. The bots
+            // Per team: a pad near each team's spawns, and a helipad by a team that has VTOLs. The bots
             // take the nearest pad, so a team without one walks across the map (or stays on foot); a damaged VTOL
             // flies to the nearest helipad (an MABuilding with an MACollectionArea), the enemy's if its own has none.
             static const uint32_t K_BLD = key_of("MABuilding"), K_COLL = key_of("MACollectionArea");
@@ -2157,19 +2520,31 @@ std::vector<ValidationItem> ScenarioIO::validate(const Scenario& s) {
                                 "the player comes close\" also wakes them when hit).", o.uid()});
             }
         }
+        // "During this cutscene": a hold without a shot, a held unit that wakes on camera.
+        if (!s.read_only)
+            for (auto& [text, uid] : cutscene_hold_notes(s.world)) v.push_back({1, text, uid});
         static const uint32_t K_VARSET = key_of("MAActionMissionVariableSet"), K_GAMECOND = key_of("MAActionGameCondition"),
                               K_TRIG_RAD = key_of("MATriggerRadius"), K_TRIG_DESTR = key_of("MATriggerDestroyed"), K_REFERENCE = key_of("MoeEntityReference");
         bool win = false;
         for (auto& o : s.world.objs) if (o.cls == K_GAMECOND && o.i32("GameCondition") == 2) win = true;
         if (!win)
             v.push_back({1, "Nothing wins the mission, so it can only end by losing. Objectives & Triggers tab: add a trigger with the action \"Win the mission\".", 0});
+        else if (win_all_idle(s.world)) {
+            bool other = false;
+            for (auto& o : s.world.objs)
+                if (o.cls == K_GAMECOND && o.i32("GameCondition") == 2)
+                    if (const WObj* p = object_by_uid(s.world, o.parent()); p && p->description() != kWinAllTrigger) other = true;
+            if (!other)
+                v.push_back({1, std::string("Nothing can win this mission: \"") + kWinAllTrigger + "\" has no objective to wait for, so it is switched off. "
+                                "Objectives & Triggers tab: add an objective the player completes (Destroy, Survive, Reach) or a trigger with the action \"Win the mission\".", 0});
+        }
         // A "player is in a circle" trigger around the start fires the moment the mission begins.
         Vec3 start{};
         bool have_start = false;
         for (auto& o : s.world.objs) if (o.cls == K_LEVELSTART && get_pos(o, start)) { have_start = true; break; }
         if (have_start)
             for (auto& o : s.world.objs) {
-                if (o.cls != K_TRIG_RAD || !o.i32("TriggerEnabled", 1) || !o.i32("InRadiusCheck", 1) || o.i32("PlayerEntitesOnly") != 1) continue;
+                if (o.cls != K_TRIG_RAD || !o.i32("TriggerEnabled", 1) || o.i32("InRadiusCheck", 1) != 1 || o.i32("PlayerEntitesOnly") != 1) continue;
                 bool has_action = false;
                 for (auto& c : s.world.objs) has_action |= c.parent() == o.uid() && c.cls != K_REFERENCE;
                 Vec3 p;
@@ -2181,7 +2556,7 @@ std::vector<ValidationItem> ScenarioIO::validate(const Scenario& s) {
             }
         // "Units are destroyed" that watches nothing (no units, no unit set) counts as already met: its actions run the
         // moment the mission starts (seen: a Win trigger won at once). "Include player units" alone does not help: a Lose
-        // trigger with only that ticked lost at load, an endless restart loop (dogfood D11, in game).
+        // trigger with only that ticked lost at load, an endless restart loop (in game).
         for (auto& tr : s.world.objs) {
             if (tr.cls != K_TRIG_DESTR || !tr.i32("TriggerEnabled", 1) || tr.u32("DestroySet")) continue;
             bool watches = false, acts = false;
@@ -2234,7 +2609,7 @@ std::vector<ValidationItem> ScenarioIO::validate(const Scenario& s) {
             if (ObjectiveSlot sl = objective_slot(s, k); sl.game_text || sl.hidden) continue;  // the level's own slot, as shipped
             else if (!completed.count(objective_var(s, k)) && objective_losers(s.world, k).empty())  // "keep these alive" objectives only lose
                 v.push_back({1, "Objective \"" + s.objectives[size_t(k)] + "\" is never completed" +
-                                    // The game shows objectives one at a time, in order (D12): a stuck one hides the rest.
+                                    // The game shows objectives one at a time, in order: a stuck one hides the rest.
                                     (k + 1 < int(s.objectives.size()) ? std::string(", so the objectives after it never appear") : std::string()) +
                                     ". Objectives & Triggers tab: add the action \"Complete objective\" to the trigger that should complete it.", 0});
         // "Keep these alive" on enemy units: the palette places for Enemy by default, so a convoy to protect
@@ -2278,9 +2653,35 @@ std::vector<ValidationItem> ScenarioIO::validate(const Scenario& s) {
                 auto it = id >= kTextBase ? s.strings.find(int(id - kTextBase)) : s.strings.end();
                 if (it != s.strings.end() && trim(it->second).empty())
                     v.push_back({1, "Trigger \"" + owner(o) + "\" shows a message with no text. Type the text in its \"Show a message\" action.", o.uid()});
+                // A message a timer shows while the briefing is on screen replaces it (one box); say so.
+                if (o.description().compare(0, std::string(kGenPrefix).size(), kGenPrefix) != 0) {
+                    float bf = 0, bt = 0, in = 0;
+                    const int pi = t.find(o.parent());
+                    const WObj* pt = pi >= 0 ? &s.world.objs[size_t(pi)] : nullptr;
+                    if (pt && pt->cls == key_of("MATriggerTimer") && pt->i32("TriggerEnabled", 1) && briefing_span(s, bf, bt, &in)) {
+                        float at = pt->f32("TrgTimerDurationSeconds");
+                        if (at <= 0) at = pt->f32("TrgTimerDuration") * 60.f;
+                        char nb[160];
+                        snprintf(nb, sizeof nb, "Trigger \"%s\" shows a message at %.0f s, while the briefing is on screen (%.0f to %.0f s%s). It would replace the rest of the "
+                                 "briefing. Give it a later time, or shorten the briefing.", owner(o).c_str(), double(at), double(bf), double(bt),
+                                 in > 0 ? ", after the intro" : "");
+                        if (at >= bf && at < bt) v.push_back({1, nb, o.uid()});
+                    }
+                    // A "When it ends" message on the intro cutscene fires as the briefing starts and replaces it.
+                    if (pt && pt->cls != key_of("MATriggerTimer") && briefing_span(s, bf, bt, &in) && in > 0.f)
+                        if (const uint32_t ic = intro_cinema(s.world); ic) {
+                            const std::vector<ShotInfo> sh = cutscene_shots(s.world, ic);
+                            if (!sh.empty() && sh.back().exit == pt->uid()) {
+                                char nb[220];
+                                snprintf(nb, sizeof nb, "Trigger \"%s\" shows a message when the intro cutscene ends, at %.0f s, just as the briefing starts. It would replace the "
+                                         "briefing. Move the message into the cutscene (an earlier time), or give it a timer after the briefing.", owner(o).c_str(), double(in));
+                                v.push_back({1, nb, o.uid()});
+                            }
+                        }
+                }
             } else if (o.cls == K_CINE_ACT && !o.u32("cinemaID")) {
                 // No retail level has one (all 94 retail uses pick a cinema); in the game it plays nothing.
-                v.push_back({1, "Trigger \"" + owner(o) + "\" plays a cutscene but none is picked. Pick one in its \"Play a camera sequence\" "
+                v.push_back({1, "Trigger \"" + owner(o) + "\" plays a cutscene but none is picked. Pick one in its \"Play a cutscene\" "
                                 "action, or make one on the Cameras & Cutscenes tab.", o.uid()});
             }
         }
@@ -2298,6 +2699,103 @@ std::vector<ValidationItem> ScenarioIO::validate(const Scenario& s) {
                 if (u && t.find(u) < 0 && seen.insert(std::to_string(o.uid()) + k).second)
                     v.push_back({1, "\"" + (o.description().empty() ? cn : o.description()) + "\" (" + owner(o) + ") points at an object that is not on this map (deleted, or already missing in "
                                     "the real level it was copied from). That part does nothing in the game until you pick an object again.", o.uid()});
+            }
+        }
+    }
+    // Cutscenes: a shot whose eye path or focus was deleted, a very long cutscene or a long hold, and a mission that ends
+    // (a timer's Win / Lose) while a cutscene that starts with the mission is still playing.
+    {
+        static const uint32_t K_CIN = key_of("MACinema"), K_PROP_ = key_of("MACameraProperty"), K_TIMER_ = key_of("MATriggerTimer"),
+                              K_ACT_CIN = key_of("MAActionActivateCinema"), K_COND = key_of("MAActionGameCondition"), K_LOGIC_ = key_of("MATriggerLogic");
+        auto fmt1 = [](float v) { char b[32]; snprintf(b, sizeof b, "%.1f", v); return std::string(b); };
+        // When a trigger fires, if that follows from timers alone: an enabled timer = its delay; "all of" logic = the latest of its
+        // inputs, "any of" = the earliest; anything else (units, areas) = unknown (-1).
+        std::function<float(uint32_t, int)> fire_time = [&](uint32_t u, int depth) -> float {
+            const WObj* tr = object_by_uid(s.world, u);
+            if (!tr || depth > 6 || !tr->i32("TriggerEnabled", 1)) return -1.f;
+            if (tr->cls == K_TIMER_) return tr->f32("TrgTimerDurationSeconds");
+            if (tr->cls != K_LOGIC_) return -1.f;
+            std::vector<float> in;
+            for (uint32_t r : reference_children(s.world, u)) {
+                const WObj* ro = object_by_uid(s.world, r);
+                in.push_back(ro ? fire_time(ro->u32("ReferenceUID"), depth + 1) : -1.f);
+            }
+            if (in.empty()) return -1.f;
+            float best = tr->i32("LogicType") == 1 ? 1e9f : 0.f;
+            for (float f : in) {
+                if (tr->i32("LogicType") == 1) { if (f >= 0) best = std::min(best, f); }
+                else { if (f < 0) return -1.f; best = std::max(best, f); }
+            }
+            return best >= 1e9f ? -1.f : best;
+        };
+        auto cname = [&](const WObj& c) { return c.description().empty() ? std::string("a cutscene") : c.description(); };
+        for (auto& cin : s.world.objs) {
+            if (cin.cls != K_CIN) continue;
+            std::vector<ShotInfo> shots = cutscene_shots(s.world, cin.uid());
+            if (shots.empty()) continue;
+            for (size_t k = 0; k < shots.size(); k++) {
+                bool lost = false;
+                for (auto& pr : s.world.objs) {
+                    if (pr.cls != K_PROP_ || pr.parent() != shots[k].ctrl) continue;
+                    const char* key = pr.i32("type") == 2 ? "eyeUID" : pr.i32("type") == 3 ? "focusUID" : nullptr;
+                    if (key && pr.u32(key) && t.find(pr.u32(key)) < 0) lost = true;
+                }
+                if (lost)
+                    v.push_back({1, "Shot " + std::to_string(k + 1) + " of \"" + cname(cin) + "\" has no camera path or focus left (deleted): it shows a still view at the "
+                                    "camera's own spot. Cameras & Cutscenes tab: select the shot and use \"Draw a path on the map\" or \"Move on map\" to give it one again.", shots[k].ctrl});
+            }
+            const float total = cutscene_total(shots);
+            size_t worst = 0;
+            float hold = 0;
+            for (size_t k = 0; k < shots.size(); k++)
+                if (!shots[k].still && shots[k].move_len > 0.05f && shots[k].len - shots[k].move_len > hold) { hold = shots[k].len - shots[k].move_len; worst = k; }
+            if (total > 60.f || hold > 5.f)
+                v.push_back({1, "Cutscene \"" + cname(cin) + "\" is " + fmt1(total) + " s long" +
+                                (hold > 5.f ? " (shot " + std::to_string(worst + 1) + " holds still for " + fmt1(hold) + " s)" : std::string()) +
+                                ". The player waits that long with no control; shorten the shots' Length on the Cameras & Cutscenes tab.", cin.uid()});
+            // An event after the cutscene's end plays once the player has control back (a cue timer longer than its shot).
+            for (auto& e : cutscene_events(s.world, gd_.names(), cin.uid()))
+                if (e.t > total + 0.05f) {
+                    const WObj* eo = object_by_uid(s.world, e.obj);
+                    v.push_back({1, "Cutscene \"" + cname(cin) + "\": an event at " + fmt1(e.t) + " s (" + (eo && !eo->description().empty() ? eo->description() : std::string("an action")) +
+                                    ") is after its end (" + fmt1(total) + " s): it plays after the player has control. Cameras & Cutscenes tab: drag it earlier on the timeline, or make the shots longer.", e.obj});
+                }
+            // A shot of a cutscene made in the editor whose camera path still hangs under the template's flyby marker plays from that
+            // marker first, and looks above its focus. Retail cinemas (the Base level's own) are never touched.
+            {
+                const Wdf* bw = base_world(s);
+                const bool retail_cin = bw && object_by_uid(*bw, cin.uid()) && object_by_uid(*bw, cin.uid())->cls == K_CIN;
+                if (!retail_cin) {
+                    ValidationItem it{1, "", 0};
+                    for (size_t k = 0; k < shots.size(); k++)
+                        if (shot_hangs_under_marker(s.world, t, shots[k])) { it.uids.push_back(shots[k].ctrl); if (!it.uid) it.uid = shots[k].ctrl; }
+                    if (it.uid) {
+                        std::string which;
+                        for (size_t k = 0; k < shots.size(); k++)
+                            for (uint32_t u : it.uids) if (u == shots[k].ctrl) which += (which.empty() ? "" : ", ") + std::to_string(k + 1);
+                        it.text = std::string(it.uids.size() == 1 ? "Shot " : "Shots ") + which + " of \"" + cname(cin) + "\" fly" + (it.uids.size() == 1 ? "s" : "") +
+                                  " from a marker above the map first and look above the point they were aimed at, so the game does not show the view you framed. "
+                                  "\"Play from its own view\" makes " + (it.uids.size() == 1 ? "it" : "them") + " start where the camera stands and look at the marker.";
+                        it.fix = 4;
+                        v.push_back(std::move(it));
+                    }
+                }
+            }
+            // A timer that starts the cutscene as the mission starts, and a Win / Lose timer that fires while it plays.
+            for (auto& a : s.world.objs) {
+                if (a.cls != K_ACT_CIN || a.u32("cinemaID") != cin.uid()) continue;
+                const WObj* st = object_by_uid(s.world, a.parent());
+                if (!st || st->cls != K_TIMER_ || !st->i32("TriggerEnabled", 1)) continue;
+                const float S = st->f32("TrgTimerDurationSeconds"), E = S + total;
+                for (auto& e : s.world.objs) {
+                    if (e.cls != K_COND || (e.i32("GameCondition") != 1 && e.i32("GameCondition") != 2)) continue;
+                    const WObj* et = object_by_uid(s.world, e.parent());
+                    if (!et) continue;
+                    const float T = fire_time(et->uid(), 0);
+                    if (T > S && T < E)
+                        v.push_back({1, "The mission ends (trigger \"" + et->description() + "\" at " + fmt1(T) + " s) while cutscene \"" + cname(cin) + "\" (" + fmt1(S) + "-" + fmt1(E) +
+                                        " s) still plays. Move that trigger later or shorten the cutscene.", et->uid()});
+                }
             }
         }
     }
@@ -2386,6 +2884,17 @@ static Image resample(const Image& src, int w, int h) {
     return d;
 }
 
+// The colour map the game draws is written uncompressed (swizzled A8R8G8B8, same size and mip count as
+// the level's own). Retail colour maps are DXT, whose 5:6:5 endpoints move a dark ground colour by up to 8 levels per
+// channel: on the usual dark greens (about 24-48) that is up to 30 %, and a faint tint stroke turned olive into brown
+// bands in the game while the editor drew the colours it painted. Game run 2026-11-16 (PC Release): the terrain draw
+// samples the A8R8G8B8 map (t0 fmt 06) and its texels equal the editor's map. A few hundred KB of graphics memory more.
+Picture colormap_game_layout(const Picture& level) {
+    Picture p = level;
+    p.flags = (p.flags & ~0xF1Fu) | 0x10u | uint32_t(PF_ARGB8888);
+    return p;
+}
+
 static Bytes encode_texture(const Image& img, const Mgic& style, Picture layout) {
     Image top = resample(img, int(layout.width), int(layout.height));
     Bytes bits = encode_levels(layout, top);
@@ -2418,20 +2927,32 @@ static Bytes make_preview(const Scenario& s) {
     return build_picture(empty, layout.flags, N, N, 1, encode_levels(layout, img), 1);
 }
 
-bool ScenarioIO::build(Scenario& s, Bytes& out, SaveReport* rep, std::string* err, bool ready) {
+bool ScenarioIO::build_unguarded(Scenario& s, Bytes& out, SaveReport* rep, std::string* err, bool ready) {
+    if (test_fail_alloc) { test_fail_alloc = false; throw std::bad_alloc(); }
     sync_reach_markers(s);  // a 'Reach a place' circle moved since: its radar marker goes with it
     SaveReport local;
     SaveReport& R = rep ? *rep : local;
     R = SaveReport();
     if (!s.id) s.id = random_id();
     const std::string id = s.id_hex(), scn = "Scn" + id;
+    // The win trigger with no inputs would win the mission at load: switch it off in the document too, whatever tab is open.
+    fix_win_all(s.world);
+    if (!s.multiplayer && win_all_idle(s.world)) {
+        bool other = false;
+        for (auto& o : s.world.objs)
+            if (o.cls == key_of("MAActionGameCondition") && o.i32("GameCondition") == 2)
+                if (const WObj* p = object_by_uid(s.world, o.parent()); p && p->description() != kWinAllTrigger) other = true;
+        if (!other)
+            R.warnings.push_back(std::string("Nothing can win this mission: \"") + kWinAllTrigger + "\" has no objective to wait for, so it is switched off. "
+                                 "Objectives & Triggers tab: add an objective the player completes (Destroy, Survive, Reach) or a trigger with the action \"Win the mission\".");
+    }
     Wdf w = s.world;
     if (!s.terrain.store_to_world(w, err)) return false;
     store_typemap(s.typemap, w);
     MgfWriter mgf;
     // Terrain textures.
     int ti = find_class(w, K_TERRAIN), ei = find_class(w, K_ENV);
-    // P4 ground layers: the file for the PC runtime, and the colour-map alpha a runtime without
+    // Ground layers: the file for the PC runtime, and the colour-map alpha a runtime without
     // them shows (the pair of retail textures, mixed like the weights).
     const bool layers = s.ground.enabled && s.ground.count() >= 2 && s.ground.weights;
     if (layers && !s.colormap.px.empty()) { s.ground.map_w = s.colormap.w; s.ground.map_h = s.colormap.h; }  // the runtime matches T0 by this size
@@ -2440,7 +2961,10 @@ bool ScenarioIO::build(Scenario& s, Bytes& out, SaveReport* rep, std::string* er
         std::string p = "Terrain/" + scn + "_ColorMap.tif";
         Image cm = s.colormap;
         if (layers) s.ground.bake_colormap_alpha(cm);
-        mgf.add(p, encode_texture(cm, s.colormap_style, s.colormap_layout));
+        const Bytes tif = encode_texture(cm, s.colormap_style, colormap_game_layout(s.colormap_layout));
+        mgf.add(p, tif);
+        // The editor's own copy, lossless (F3): the DXT file above is lossy, and the editor must not re-encode what it decoded.
+        mgf.add(kColormapStore, colormap_store(s.colormap, fnv1a64(tif)));
         if (ti >= 0) w.objs[size_t(ti)].set_str("TerrainBaseMap", "\\Terrain\\" + scn + "_ColorMap.tif");
     }
     // Ground textures picked from another level (Terrain tab): the game reads MATerrain's paths
@@ -2487,6 +3011,7 @@ bool ScenarioIO::build(Scenario& s, Bytes& out, SaveReport* rep, std::string* er
                 keep_retail_nav = true;
         }
     }
+    std::vector<uint32_t> save_added;  // objects this save adds for the game only (the MAPathDB); removed again on open (F3)
     if (keep_retail_nav) R.nav_nodes = -1;
     else {
         Scenario tmp_view;  // nav uses the world being saved
@@ -2506,7 +3031,9 @@ bool ScenarioIO::build(Scenario& s, Bytes& out, SaveReport* rep, std::string* er
                 WObj db = mw.objs[size_t(k)];
                 db.set_u32("UID", next_uid(w));
                 db.set_u32("child", 0);
+                const uint32_t added_uid = db.uid();
                 wedit::append_child(w, root_uid(w), std::move(db));
+                save_added.push_back(added_uid);
                 pi = find_class(w, K_PATHDB);
                 break;
             }
@@ -2521,11 +3048,17 @@ bool ScenarioIO::build(Scenario& s, Bytes& out, SaveReport* rep, std::string* er
     // Briefing and objective text (and, for a caller that still fills Scenario::triggers, that list compiled
     // into the copy); inline text becomes extra [Strings] entries.
     std::map<int, std::string> strings = s.strings;
+    std::vector<std::string> generated_ini;  // scenario.ini [Generated]
     {
         std::map<int, std::string> extra;
         compile_triggers(s, w, &R.warnings, &extra);
         for (auto& [n, t] : extra) strings[n] = t;
+        // Objects and texts the export adds to the game's copy only ([gen] prefix, text ids 64000+): removed again on open.
+        add_mission_extras(s, w, strings, generated_ini, &R.warnings);
     }
+    // Cutscenes the player must watch to the end: the game reads scenario.ini [Cutscenes] NoSkip.
+    std::vector<uint32_t> noskip;
+    if (!s.multiplayer) noskip = cutscene_noskip_uids(w);
     // Templates.
     auto tpl = cat_.closure_for_world(w, s.base_level(), s.multiplayer);
     {
@@ -2535,11 +3068,16 @@ bool ScenarioIO::build(Scenario& s, Bytes& out, SaveReport* rep, std::string* er
     }
     {
         Wdf tw = cat_.culled(tpl);
-        // Rain ships its own particle again (E1, 2026-10-26): the magenta quads came from the renamed particle, which now
+        // Rain ships its own particle again (2026-10-26): the magenta quads came from the renamed particle, which now
         // keeps the snow effect's name.
         if (int ei = find_class(w, K_ENV); ei >= 0 && weather::precip(w.objs[size_t(ei)]) == weather::Precip::Rain) {
             std::string werr;
             if (!weather::add_rain(gd_, mgf, weather::rain_level(w.objs[size_t(ei)]), &werr)) R.warnings.push_back(werr);
+        }
+        // The dust storm's effect files (no archive has them).
+        if (int ei = find_class(w, K_ENV); ei >= 0 && weather::precip(w.objs[size_t(ei)]) == weather::Precip::Dust) {
+            std::string werr;
+            if (!weather::add_dust(gd_, mgf, &werr)) R.warnings.push_back(werr);
         }
         mgf.add("templates.wdf", tw.serialize());
     }
@@ -2560,8 +3098,31 @@ bool ScenarioIO::build(Scenario& s, Bytes& out, SaveReport* rep, std::string* er
             glue.push_back({o.uid(), o.str("EditorGlue")});
             o.erase(key_of("EditorGlue"));
         }
+    // Layers of flat pieces (placement.h): the stacking order of roads and plates, editor-only, kept in
+    // editor/project.json ("layers"), never in the game's world.
+    std::vector<std::pair<uint32_t, std::string>> sheet_layers;
+    for (auto& o : w.objs)
+        if (o.find(place::kLayerProp)) {
+            sheet_layers.push_back({o.uid(), o.str(place::kLayerProp)});
+            o.erase(key_of(place::kLayerProp));
+        }
+    // What a cutscene does to the fight and whether it can be skipped: editor-only, kept in editor/project.json
+    // ("cutscene_hold", "cutscene_skip"); the game gets the generated triggers and [Cutscenes] NoSkip instead.
+    std::vector<std::pair<uint32_t, int>> cut_hold, cut_skip;
+    for (auto& o : w.objs) {
+        if (o.cls != key_of("MACinema")) continue;
+        if (o.find(kHoldProp)) { cut_hold.push_back({o.uid(), o.i32(kHoldProp)}); o.erase(key_of(kHoldProp)); }
+        if (o.find(kSkipProp)) { cut_skip.push_back({o.uid(), o.i32(kSkipProp)}); o.erase(key_of(kSkipProp)); }
+    }
+    // The basin a water remembers: editor-only, kept in editor/project.json ("basins").
+    std::vector<std::pair<uint32_t, std::string>> basins;
+    for (auto& o : w.objs)
+        if (o.find(place::kBasinProp)) {
+            basins.push_back({o.uid(), o.str(place::kBasinProp)});
+            o.erase(key_of(place::kBasinProp));
+        }
     // A file the scenario carries itself (the rain particle made from Env_Snow_01) must not also be listed under [Assets]:
-    // the game then loads the retail copy over it and the edited rain never shows (E1, 2026-10-26).
+    // the game then loads the retail copy over it and the edited rain never shows (2026-10-26).
     assets.erase(std::remove_if(assets.begin(), assets.end(), [&](const auto& a) { return mgf.has(a.second); }), assets.end());
     R.asset_files = assets.size();
     pick_detail_levels(s, w, assets, &R.warnings);
@@ -2577,6 +3138,31 @@ bool ScenarioIO::build(Scenario& s, Bytes& out, SaveReport* rep, std::string* er
                                  " characters, the limit is 190), so those files will be missing in the game.");
     }
     weather::to_game(w);
+    // What this save changed on the editor's objects only for the game (F3): the editor's values go to project.json so that
+    // reopening shows the document as it was saved, while world.wdf keeps what the game needs.
+    std::vector<std::pair<uint32_t, Json>> save_rewrites;
+    {
+        static const struct { const char* key; bool text; } kKeys[] = {{"Corporal3DObj", true}, {"ForceUseLowDetail", false}, {"ForceUseHighDetail", false},
+                                                                       {"LightMapName", true}, {"TerrainBaseMap", true}};
+        std::unordered_map<uint32_t, const WObj*> editor;
+        for (auto& o : s.world.objs) editor[o.uid()] = &o;
+        std::unordered_set<uint32_t> cropped;
+        for (auto& c : crops) cropped.insert(c.uid);
+        for (auto& o : w.objs) {
+            auto it = editor.find(o.uid());
+            if (it == editor.end()) continue;
+            Json one = Json::object();
+            for (auto& k : kKeys) {
+                if (k.text && !std::strcmp(k.key, "Corporal3DObj") && cropped.count(o.uid())) continue;  // crops restore their own path
+                const WProp* now = o.find(k.key);
+                const WProp* was = it->second->find(k.key);
+                if (!now && !was) continue;
+                if (now && was && now->type == was->type && now->data == was->data) continue;
+                one.set(k.key, !was ? Json() : k.text ? Json::string(was->as_string()) : Json::number(double(was->as_int())));
+            }
+            if (!one.o.empty()) save_rewrites.push_back({o.uid(), std::move(one)});
+        }
+    }
     mgf.add("world.wdf", w.serialize());
     std::error_code ec;
     R.base_bytes = fs::file_size(gd_.game_files() / widen(s.base), ec);
@@ -2601,9 +3187,12 @@ bool ScenarioIO::build(Scenario& s, Bytes& out, SaveReport* rep, std::string* er
     // scenario.ini
     // The game shows "NULL" for an empty map description, and an empty name as a blank row.
     std::string shown_name = trim(s.name).empty() ? std::string("Custom scenario") : s.name;
-    std::string shown_desc = trim(s.description).empty()
-                                 ? (trim(s.author).empty() ? std::string("A custom scenario.") : "A custom scenario by " + s.author + ".")
-                                 : s.description;
+    // A mission without a description shows its briefing (title and the start of the text) in the Custom Scenarios list.
+    const std::string from_briefing = s.multiplayer ? std::string() : briefing_description(s.briefing_title, s.briefing);
+    std::string shown_desc = !trim(s.description).empty() ? s.description
+                             : !from_briefing.empty()     ? from_briefing
+                             : trim(s.author).empty()     ? std::string("A custom scenario.")
+                                                          : "A custom scenario by " + s.author + ".";
     std::string ini = "[Scenario]\r\nFormatVersion = 1\r\nSavedWith = " + std::to_string(kSaveRevision) + "\r\nEditor = " MA2SE_VERSION " (" MA2SE_GIT
                       ")\r\nReady = " + (ready && !R.over_limit ? "1" : "0") + "\r\nId = " + id + "\r\nName = " + ini_escape(shown_name) +
                       "\r\nDescription = " + ini_escape(shown_desc) + "\r\nAuthor = " + ini_escape(s.author) +
@@ -2617,8 +3206,17 @@ bool ScenarioIO::build(Scenario& s, Bytes& out, SaveReport* rep, std::string* er
     ini += "\r\n[Audio]\r\n";
     for (auto& [n, c] : s.audio) ini += std::to_string(n) + " = Audio/" + std::to_string(n) + ".wav\r\n";
     if (!s.multiplayer) {
-        ini += "\r\n[Mission]\r\nBriefingTitle = " + ini_escape(s.briefing_title) + "\r\nBriefing = " + ini_escape(s.briefing) + "\r\n";
+        ini += "\r\n[Mission]\r\nBriefingTitle = " + ini_escape(s.briefing_title) + "\r\nBriefing = " + ini_escape(s.briefing) + "\r\nWinText = " + ini_escape(s.win_text) + "\r\nLoseText = " + ini_escape(s.lose_text) + "\r\n";
         for (auto& o : w.objs) if (o.cls == K_LEVELSTART) { ini += "PlayerStart = " + std::to_string(o.uid()) + "\r\n"; break; }
+    }
+    if (!noskip.empty()) {
+        ini += "\r\n[Cutscenes]\r\nNoSkip = ";
+        for (size_t i = 0; i < noskip.size(); i++) ini += (i ? "," : "") + std::to_string(noskip[i]);
+        ini += "\r\n";
+    }
+    if (!generated_ini.empty()) {
+        ini += "\r\n[Generated]\r\n";
+        for (auto& l : generated_ini) ini += l + "\r\n";
     }
     mgf.add("scenario.ini", Bytes(ini.begin(), ini.end()));
     // Editor project data.
@@ -2680,6 +3278,36 @@ bool ScenarioIO::build(Scenario& s, Bytes& out, SaveReport* rep, std::string* er
         for (auto& [u, v] : glue) gj.set(std::to_string(u), Json::string(v));
         pj.set("glue", gj);
     }
+    if (!sheet_layers.empty()) {
+        Json lj = Json::object();
+        for (auto& [u, v] : sheet_layers) lj.set(std::to_string(u), Json::string(v));
+        pj.set("layers", lj);
+    }
+    if (!cut_hold.empty()) {
+        Json hj = Json::object();
+        for (auto& [u, v] : cut_hold) hj.set(std::to_string(u), Json::number(v));
+        pj.set("cutscene_hold", hj);
+    }
+    if (!cut_skip.empty()) {
+        Json kj = Json::object();
+        for (auto& [u, v] : cut_skip) kj.set(std::to_string(u), Json::number(v));
+        pj.set("cutscene_skip", kj);
+    }
+    if (!basins.empty()) {
+        Json bj = Json::object();
+        for (auto& [u, v] : basins) bj.set(std::to_string(u), Json::string(v));
+        pj.set("basins", bj);
+    }
+    if (!save_rewrites.empty()) {
+        Json rj = Json::object();
+        for (auto& [u, v] : save_rewrites) rj.set(std::to_string(u), std::move(v));
+        pj.set("save_rewrites", rj);
+    }
+    if (!save_added.empty()) {
+        Json aj = Json::array();
+        for (uint32_t u : save_added) aj.push(Json::number(u));
+        pj.set("save_added", aj);
+    }
     std::string pjs = pj.dump(1);
     mgf.add("editor/project.json", Bytes(pjs.begin(), pjs.end()));
     mgf.add("preview.tif", make_preview(s));
@@ -2688,7 +3316,7 @@ bool ScenarioIO::build(Scenario& s, Bytes& out, SaveReport* rep, std::string* er
     return true;
 }
 
-bool ScenarioIO::save(Scenario& s, const fs::path& file, SaveReport* rep, std::string* err, bool force_over_limit) {
+bool ScenarioIO::save_unguarded(Scenario& s, const fs::path& file, SaveReport* rep, std::string* err, bool force_over_limit) {
     Bytes b;
     SaveReport local;
     SaveReport& R = rep ? *rep : local;
@@ -2715,7 +3343,53 @@ bool ScenarioIO::save(Scenario& s, const fs::path& file, SaveReport* rep, std::s
     s.dirty = false;
     s.read_only = false;
     s.saved_with = kSaveRevision;
+    s.old_cut_roads.clear();   // add_cropped wrote every cut road again (CR LF)
     return true;
+}
+
+// F-V5R-1: a Test / Save / autosave that runs out of memory (the machine, not the map: the file is a few MB) used to throw
+// std::bad_alloc out of the writer, nothing caught it and the editor died with the unsaved map. Now the build, the save and
+// Check report it and leave the document as it is.
+bool ScenarioIO::test_fail_alloc = false;
+
+static std::string guard_text(bool no_memory, const char* what) {
+    if (no_memory)
+        return "Not enough memory to build the file. Close other programs (or the game) and try again; the map is still open and unchanged.";
+    return std::string("The file could not be built (") + (what ? what : "unknown error") + "). The map is still open and unchanged; try again.";
+}
+
+bool ScenarioIO::build(Scenario& s, Bytes& out, SaveReport* rep, std::string* err, bool ready) {
+    try {
+        return build_unguarded(s, out, rep, err, ready);
+    } catch (const std::bad_alloc&) {
+        out = Bytes();
+        if (err) *err = guard_text(true, nullptr);
+    } catch (const std::exception& e) {
+        out = Bytes();
+        if (err) *err = guard_text(false, e.what());
+    }
+    return false;
+}
+
+bool ScenarioIO::save(Scenario& s, const fs::path& file, SaveReport* rep, std::string* err, bool force_over_limit) {
+    try {
+        return save_unguarded(s, file, rep, err, force_over_limit);
+    } catch (const std::bad_alloc&) {
+        if (err) *err = guard_text(true, nullptr);
+    } catch (const std::exception& e) {
+        if (err) *err = guard_text(false, e.what());
+    }
+    return false;
+}
+
+std::vector<ValidationItem> ScenarioIO::validate(const Scenario& s) {
+    try {
+        return validate_unguarded(s);
+    } catch (const std::bad_alloc&) {
+        return {{2, "Check could not run: " + guard_text(true, nullptr), 0}};
+    } catch (const std::exception& e) {
+        return {{2, "Check could not run: " + guard_text(false, e.what()), 0}};
+    }
 }
 
 bool ScenarioIO::peek(const fs::path& file, ScenarioHead& h) {
@@ -2768,7 +3442,13 @@ bool ScenarioIO::load(const fs::path& file, Scenario& s, std::string* err, std::
     for (auto* e : ini.section("Strings")) s.strings[atoi(e->key.c_str())] = ini_unescape(e->value);
     s.briefing_title = ini_unescape(ini.get("Mission", "BriefingTitle"));
     s.briefing = ini_unescape(ini.get("Mission", "Briefing"));
+    s.win_text = ini_unescape(ini.get("Mission", "WinText"));
+    s.lose_text = ini_unescape(ini.get("Mission", "LoseText"));
+    // A description equal to the one derived from the briefing was written by the export, not typed.
+    if (!s.description.empty() && s.description == briefing_description(s.briefing_title, s.briefing)) s.description.clear();
     if (!r.read_file("world.wdf", b, err) || !s.world.parse(b, err)) return false;
+    // The export's generated objects and texts ([gen] prefix, text ids 64000+) go: the document is the authored one.
+    strip_mission_extras(s, ini);
     weather::from_game(s.world, r);
     // Water saved with a model of its own size draws the template's model in the editor again (the size is in the Description).
     for (auto& o : s.world.objs) {
@@ -2779,8 +3459,13 @@ bool ScenarioIO::load(const fs::path& file, Scenario& s, std::string* err, std::
     if (!s.terrain.load_from_world(s.world, err)) return false;
     // Our own terrain textures, when present.
     const std::string scn = "Scn" + s.id_hex();
-    if (r.read_file("Terrain/" + scn + "_ColorMap.tif", b) && decode_file(b, s.colormap, s.colormap_style, s.colormap_layout))
+    if (r.read_file("Terrain/" + scn + "_ColorMap.tif", b) && decode_file(b, s.colormap, s.colormap_style, s.colormap_layout)) {
         s.colormap_custom = true;
+        // The lossless copy the save kept (F3), only when it was made for this very TIF; otherwise the decoded file stands.
+        Bytes cb;
+        Image lossless;
+        if (r.read_file(kColormapStore, cb) && colormap_restore(cb, fnv1a64(b), lossless)) { s.colormap = std::move(lossless); s.colormap_lossless = true; }
+    }
     if (r.read_file("Terrain/" + scn + "_Lightmap.tif", b) && decode_file(b, s.lightmap, s.lightmap_style, s.lightmap_layout))
         s.lightmap_custom = true;
     load_terrain_textures(s);
@@ -2830,6 +3515,7 @@ bool ScenarioIO::load(const fs::path& file, Scenario& s, std::string* err, std::
             // .road path replaces the cut one the game reads, so the editor cuts it again from the source.
             if (const Json* cr = pj.get("crops")) {
                 static const uint32_t K_ROAD = key_of("MARoad");
+                MgfReader& arc = r;   // the scenario archive (the loop's r is the crop rectangle)
                 for (auto& [k, v] : cr->o) {
                     crop::Rect r;
                     const uint32_t uid = uint32_t(strtoul(k.c_str(), nullptr, 10));
@@ -2837,6 +3523,16 @@ bool ScenarioIO::load(const fs::path& file, Scenario& s, std::string* err, std::
                     for (auto& o : s.world.objs) {
                         if (o.uid() != uid) continue;
                         crop::set(o, &r);
+                        if (o.cls == K_ROAD) {   // A cut .road from before has bare '\n' line ends, which the game cannot read
+                            std::string cutp = o.str("RoadDefinition");
+                            for (char& ch : cutp) if (ch == '\\') ch = '/';
+                            Bytes rb;
+                            if (!cutp.empty() && arc.read_file(cutp, rb)) {
+                                bool bare = false;
+                                for (size_t i = 0; i < rb.size() && !bare; i++) bare = rb[i] == '\n' && (i == 0 || rb[i - 1] != '\r');
+                                if (bare) s.old_cut_roads.push_back(uid);
+                            }
+                        }
                         const std::string orig = v.str("orig");
                         if (!orig.empty()) o.set_str(o.cls == K_ROAD ? "RoadDefinition" : "Corporal3DObj", orig);
                         break;
@@ -2848,6 +3544,46 @@ bool ScenarioIO::load(const fs::path& file, Scenario& s, std::string* err, std::
                     const uint32_t uid = uint32_t(strtoul(k.c_str(), nullptr, 10));
                     for (auto& o : s.world.objs)
                         if (o.uid() == uid) { o.set_str("EditorGlue", v.s); break; }
+                }
+            // What the save changed for the game only (F3): the editor's own values go back, and objects it added are removed.
+            if (const Json* sr = pj.get("save_rewrites"))
+                for (auto& [k, v] : sr->o) {
+                    const uint32_t uid = uint32_t(strtoul(k.c_str(), nullptr, 10));
+                    for (auto& o : s.world.objs) {
+                        if (o.uid() != uid) continue;
+                        for (auto& [pk, pv] : v.o) {
+                            if (pk != "Corporal3DObj" && pk != "ForceUseLowDetail" && pk != "ForceUseHighDetail" && pk != "LightMapName" && pk != "TerrainBaseMap") continue;
+                            if (pv.type == Json::Null) o.erase(key_of(pk));
+                            else if (pv.type == Json::String) o.set_str(pk, pv.s);
+                            else if (pv.type == Json::Number) o.set_i32(pk, int32_t(pv.n));
+                        }
+                        break;
+                    }
+                }
+            if (const Json* sa = pj.get("save_added"))
+                for (auto& j : sa->a) {
+                    const uint32_t uid = uint32_t(j.n);
+                    for (auto& o : s.world.objs)
+                        if (o.uid() == uid && o.cls == K_PATHDB) { wedit::remove_subtree(s.world, uid); break; }
+                }
+            if (const Json* ly = pj.get("layers"))
+                for (auto& [k, v] : ly->o) {
+                    const uint32_t uid = uint32_t(strtoul(k.c_str(), nullptr, 10));
+                    for (auto& o : s.world.objs)
+                        if (o.uid() == uid) { o.set_str(place::kLayerProp, v.s); break; }
+                }
+            for (const char* key : {"cutscene_hold", "cutscene_skip"})
+                if (const Json* cj = pj.get(key))
+                    for (auto& [k, v] : cj->o) {
+                        const uint32_t uid = uint32_t(strtoul(k.c_str(), nullptr, 10));
+                        for (auto& o : s.world.objs)
+                            if (o.uid() == uid && o.cls == key_of("MACinema")) { o.set_i32(std::string(key) == "cutscene_hold" ? kHoldProp : kSkipProp, int(v.n)); break; }
+                    }
+            if (const Json* bs = pj.get("basins"))
+                for (auto& [k, v] : bs->o) {
+                    const uint32_t uid = uint32_t(strtoul(k.c_str(), nullptr, 10));
+                    for (auto& o : s.world.objs)
+                        if (o.uid() == uid) { o.set_str(place::kBasinProp, v.s); break; }
                 }
             if (const Json* ob = pj.get("objectives")) for (auto& j : ob->a) s.objectives.push_back(j.s);
             if (const Json* us = pj.get("strings")) {
@@ -2862,6 +3598,10 @@ bool ScenarioIO::load(const fs::path& file, Scenario& s, std::string* err, std::
     // into ordinary objects (the file is unchanged until it is saved again).
     if (!s.triggers.empty()) load_trigger_prototypes(gd_, nullptr);
     convert_legacy_triggers(s);
+    // Older files: "outside" circles were saved as 0, which the game never matches (it tests 1 / 2); a win trigger with
+    // no inputs was left switched on. Quiet repairs: the document is not marked changed.
+    fix_outside_circles(s.world);
+    fix_win_all(s.world);
     // Repair: empty units placed by earlier editor builds lacked an owner controller and could not
     // be entered in the game. The repair marks the scenario changed so it is saved fixed.
     bool repaired = false;

@@ -1,0 +1,108 @@
+{
+ "pack": "t50_cinema_skip_1115",
+ "title": "Cutscene skip: fixed 0.2 s world steps, the skip flag, MACinema offsets, [Cutscenes] NoSkip (v35-edgame, 2026-11-15)",
+ "facts": [
+  {
+   "id": "cinema-skip-fast-step",
+   "title": "The cutscene skip does not stop the cinema: the frame step runs the world in fixed 0.2 s steps (game singleton +0x42 set) until the last shot's Stop, so every remaining shot trigger and timer runs once",
+   "subject": {
+    "kind": "address",
+    "id": "00015AF0"
+   },
+   "addresses": [
+    "00015AF0",
+    "00017B20",
+    "0001DD80",
+    "0001DE70",
+    "0050C958",
+    "00155B53"
+   ],
+   "related": [
+    "MACinema"
+   ],
+   "fact": "Traced in game (, per-HUD-frame clock log + hardware write watch on 0x4EB19C). sub_00015AF0 (frame step) stores al = sub_00017B20 at [esp+0x18]; nonzero -> sub_0001DD80(0.2) (fixed 0.2 s step, double 0x493CF8) instead of sub_0001DE70 (real frame time). sub_00017B20 returns game singleton ([0x50C958], sub_00161B4B) byte +0x42 after updating it. After a Space press the step dt (0x4E2428) reads 0.2000 every frame while the QPC time 0x4E2408 moves ~7 ms per frame: 8-12 s of game time pass in ~0.4 s wall; shot advance and Stop (sub_00155B53, called from the advance sub_001559A0, return 0x155A93) run as usual. 3-shot test (4 s shots, a message on each shot's starts/ends trigger, a 14 s timer): skip in shot 1 ran S1-end, S2-start, S2-end, S3-start, the timer, S3-end once each, in order; the natural play-through ran the same set once each. Time scale 0x4A14F0 stays 1.0 (only Stop writes it).",
+   "how_to_use": "Do not add trigger firing on skip; to block a skip, clear [0x50C958]+0x42 while that cinema is active (custom levels: [Cutscenes] NoSkip).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 2700
+    }
+   ],
+   "tags": [
+    "cinema",
+    "cutscene",
+    "skip",
+    "time"
+   ],
+   "date": "2026-11-15"
+  },
+  {
+   "id": "cinema-skip-flag-set-condition",
+   "title": "sub_00017B20 sets the skip flag (+0x42) when the button's press stamp is newer than the previous frame's counter and player +0x90 == 0; works at any frame rate",
+   "subject": {
+    "kind": "address",
+    "id": "00017B20"
+   },
+   "addresses": [
+    "00017B20",
+    "00017CD0",
+    "004E32AC",
+    "004E3BAC",
+    "004E3BA8"
+   ],
+   "related": [
+    "MACinema",
+    "t50.cinema-skip-fast-step"
+   ],
+   "fact": "sub_00017B20 (eax = frame arg): if pause byte 0x4D382A or the menu stack has more than one entry -> other path. S = [0x50C958]. If S+0x42 == 0: when the input object's vt+8 returns [0x4EC078] nothing; else if [0x4E32AC] (input time, ms) > [0x4E3BAC] (previous frame time, copied from 0x4E3BA8 by sub_0001F3F0) then S+0x42 = (sub_00017CD0 == 0), sub_00017CD0 = player 0 (sub_000C8DAE) +0x90. If S+0x42 != 0: input type == [0x4EC044] -> S+0x42 = (sub_00017CD0 == 0), else 0. Cinema Start sets S+0x42 = 1. CORRECTION 2026-11-15 (, t52.cinema-skip-frame-counter): the skip is NOT frame-rate dependent. 0x4E3BA8 is a frame counter (+1 per frame) and the press stamp is that counter at the poll, so the check passes in the press frame at any rate (retail 2/2 at 55-140 fps, custom 3/3 at ~140 fps). G3's 'no skip' reading came from the game clock: a skipped cinema ends at the same game clock as an unskipped one; judge a skip by wall time.",
+   "how_to_use": "Judge a skip by wall time (the cinema's game-clock end is the same either way).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 2700
+    }
+   ],
+   "tags": [
+    "cinema",
+    "skip",
+    "input"
+   ],
+   "date": "2026-11-15"
+  },
+  {
+   "id": "macinema-object-offsets",
+   "title": "MACinema +0x2C uid, +0x78 playing, +0x7C time, +0x80/+0x84 controllers vector, +0x8C shot index; MAFreeCameraController +0x9C triggerInit uid, +0xA0 triggerExit uid",
+   "subject": {
+    "kind": "address",
+    "id": "004EB198"
+   },
+   "addresses": [
+    "004EB198",
+    "004EB19C"
+   ],
+   "related": [
+    "MACinema",
+    "t50.cinema-skip-fast-step"
+   ],
+   "fact": "Read in game from the live objects (editor uids 130004 cinema, 130015/130018 shot 1 triggers): MACinema uid at +0x2C (also +0x5C), +0x78 byte playing, +0x7C float time, +0x80/+0x84 std:vector of controller pointers, +0x8C current shot index. MAFreeCameraController triggerInit uid at +0x9C, triggerExit uid at +0xA0. Editor uids are not renumbered by the game (remap_world only remaps text ids and cues), so [0x4EB198]+0x2C equals the editor's MACinema uid.",
+   "how_to_use": "Match a cutscene from scenario.ini by MEM32([0x4EB198] + 0x2C).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 2700
+    }
+   ],
+   "tags": [
+    "cinema",
+    "offsets"
+   ],
+   "date": "2026-11-15"
+  }
+ ]
+}

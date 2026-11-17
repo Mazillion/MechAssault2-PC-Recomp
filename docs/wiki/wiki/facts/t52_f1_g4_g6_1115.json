@@ -1,0 +1,79 @@
+{
+ "pack": "t52_f1_g4_g6_1115",
+ "title": "Checkpoint restart keeps the scenario [Assets] archive; frame counter and button press stamps (cutscene skip) (v35-edgame, 2026-11-15)",
+ "facts": [
+  {
+   "id": "scenario-assets-checkpoint-remount",
+   "title": "A checkpoint restart unloads the level (our hook drops the [Assets] archive); ma2_scn_level_load now mounts it again for the checkpoint world",
+   "subject": {
+    "kind": "address",
+    "id": "000138A0"
+   },
+   "addresses": [
+    "000138A0",
+    "000171E0",
+    "00524A60",
+    "0050BAC8"
+   ],
+   "related": [
+    "t49.level-result-0x10c-values",
+    "ma2_scn_level_load"
+   ],
+   "fact": "Traced in game (, S-trig D3 mission with a checkpoint and the MadDog from mission_06a.mgf in [Assets]): Retry after a lose runs the level unload (ma2_scn_level_unload unmounts T:\\scenarios\\Scn<ID>_assets_<hash>.mgf) and then the level load with world MASaveGame.wdf, which level_scenario does not match, so before c108940 the archive stayed unmounted for the rest of the mission. Models loaded before the restart still drew (the MadDog player and units looked normal), so the loss only hits files first read after the restart. c108940 takes the scenario from level_scenario_or_checkpoint for the mount: trace 'mounted . -> 1' after each checkpoint load, balanced unmount/mount over two Retries, unmounted on Quit to the hub.",
+   "how_to_use": "Commit c108940 (v35-edgame). Any per-level host state keyed on the world name must also accept the checkpoint world (MASaveGame.wdf / MAScnsGame.wdf).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/scenario/ma2_scenario.c",
+     "line": 1373
+    }
+   ],
+   "tags": [
+    "scenario",
+    "assets",
+    "checkpoint"
+   ],
+   "date": "2026-11-15"
+  },
+  {
+   "id": "cinema-skip-frame-counter",
+   "title": "0x4E3BA8 counts frames (0x4E2D40 stays 0.0, sub_0001F3F0 forces +1); button press stamps use it, so the cutscene skip check works at any frame rate",
+   "subject": {
+    "kind": "address",
+    "id": "0001F3F0"
+   },
+   "addresses": [
+    "0001F3F0",
+    "004E3BA8",
+    "004E3BAC",
+    "004E2D40",
+    "004E32A8",
+    "004E32AC",
+    "004E32B0",
+    "00017B20"
+   ],
+   "related": [
+    "t50.cinema-skip-flag-set-condition",
+    "t50.cinema-skip-fast-step"
+   ],
+   "fact": "sub_0001F3F0 copies 0x4E3BA8 to 0x4E3BAC, then sets 0x4E3BA8 = ftol(double [0x4E2D40] * 1000) (sub_0030A5C0 is _ftol, not a clock) , if that is not above the old value, old + 1. In the recomp [0x4E2D40] reads 0.0 in the front end and in missions, so 0x4E3BA8 is a plain frame counter. Pad 0 button slot at 0x4E32A8 (pad stride 0xF0): +0 float value (1.0 while held), +4 press stamp, +8 release stamp, both = the frame counter of the poll. Per HUD frame (probe, ): in the press frame stamp == 0x4E3BA8 and prev 0x4E3BAC = stamp - 1, the frame step's sub_00017B20 sees stamp > prev and sets the fast flag, next frame dt = 0.2. Retail Cinema_1_1a and Mission_01b intro skipped at ~55 and ~140 fps, custom g3a skipped 3/3 at ~140 fps (menu path, --quick-test, no-probe exe). The G3 'no skip on the final exe' and NoSkip 'cleared on 0 frames' were test artefacts: game-clock end times look the same skipped or not, and the g3n test map had '[Cutscenes]\nNoSkip' with a literal backslash-n, so NoSkip was never parsed.",
+   "how_to_use": "No host fix needed for the cutscene skip. A probe that wants 'input this frame' compares a slot's press stamp with 0x4E3BAC.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "cinema",
+    "skip",
+    "input",
+    "time"
+   ],
+   "date": "2026-11-15"
+  }
+ ]
+}

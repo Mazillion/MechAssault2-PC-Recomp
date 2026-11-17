@@ -160,24 +160,24 @@ have (`ma2_scenario.c:856`). The game uses the full GlobalEntities set.
 - **Audio volume** (SPEC mismatch). SPEC says voice volume; the code uses `[Audio] Volume` (superseded SPEC).
 - **Editor saved missions into the wrong folder** (W8). Modern save dialog pinned to the scenario folder.
 - **Mission restarted forever** (W9). Empty multiplayer pickups copied into missions counted as lost, so
-"units destroyed" won at once. Fixed by crewing units per side (`USABILITY.md:35`).
+"units destroyed" won at once. Fixed by crewing units per side.
 - **Base War match ended at once** (W7). A missing power plant (objective 0 or 1) ends the match. Check
-scenario now requires both (`USABILITY.md:33`).
+scenario now requires both.
 - **Round never started on from-scratch maps.** The type map was all 1 or copied from the Base. Fixed by a generated
 type map with the 0/8 playable rule (`editor\` to `:178`).
 - **Washed-out missions.** Colour-map alpha was written as 255 and the fog band was too high. Now the Base
 mean alpha is used and FogTop sits 2 m under the lowest ground (`editor\` to `:138`).
 - **Crash after a Raise click** (editor, C1). A GPU texture was released while ImGui still drew it; now released after
-Present (`USABILITY.md:14`).
+Present.
 - **Empty description showed NULL** (W1) and **map name stayed New Map** (W2). Both fixed in the editor.
-- **Test ignored `--mode/--bots/--skill`** (OB1, open in USABILITY). Superseded: the autostart walk runs in game
+- **Test ignored `--mode/--bots/--skill`** (OB1, open). Superseded: the autostart walk runs in game
 (`HND:110`, `:139`).
 
 ## Open questions
 
-- **Caption not shown.** A custom `CaptionTextID` does not show in the HUD message box (`USABILITY.md:109`).
+- **Caption not shown.** A custom `CaptionTextID` does not show in the HUD message box.
 - **Briefing screen skipped.** With one custom mission the campaign intro plays and the briefing screen is never
-shown, so custom `TitleText` and `BriefingText` are untested (`USABILITY.md:108`, to `:220`).
+shown, so custom `TitleText` and `BriefingText` are untested.
 - **Pink cube.** A user mission showed a pink cube on a pole. Rewriting the Ymir to `ymir_low.NODE` did not fix it. RESOLVED 11-09: the pink pole-and-cube marks any object whose build failed, usually a file named in its `.mtb` (debris, rubble, explosion) or the building damage effects not shipped; fixed in editor `dcdcad4` (see the t27 article).
 The object is not identified (`HND:6` to `:19`).
 - **Boarding.** Neutral units now get `StartAbandoned=1` and a crew controller in the editor source (unpublished).

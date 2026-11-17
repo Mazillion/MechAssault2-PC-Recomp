@@ -1,0 +1,552 @@
+{
+ "pack": "t60_reach_units_1116",
+ "title": "Reach overlay: per-unit movement facts (\"Can it get here?\")",
+ "facts": [
+  {
+   "id": "jump-key-is-shift",
+   "title": "The jump-jet key is Shift (left-stick click); Space is the Battle Armor claw",
+   "subject": {
+    "kind": "concept",
+    "id": "jump key"
+   },
+   "addresses": [],
+   "related": [
+    "t28.vtol-climb-demand-comp-90"
+   ],
+   "fact": "In the player controls the jump jets fire on Shift (left stick click on the pad). Space is the Battle Armor claw (latch climb), not a jump. VTOL climb demand is also Shift (+30 up, Ctrl -30). Measured in the M1 run with Shift held.",
+   "how_to_use": "Any player-side reach measurement or test script that jumps must hold Shift, not Space.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "controls",
+    "jets"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "jet-mech-apex-m1-per-chassis",
+   "title": "Jet 'Mech apex per chassis, full tank, standing start (M1, measured 2026-11-16)",
+   "subject": {
+    "kind": "concept",
+    "id": "'Mech jet apex"
+   },
+   "addresses": [],
+   "related": [
+    "t32.mech-airborne-not-faster",
+    "jet-mech-climb-overlay-vs-planner"
+   ],
+   "fact": "Height gained above the start ground (flat 10 m start, full tank, Shift held): Kit Fox 27.29, Uller 27.31, Corvus 27.33, Puma 25.95, Stiletto 25.16, Raptor 25.32, Cougar 25.32, Belial 25.80, Catapult 26.67, Bowman 26.75, Hellbringer 24.69, Thor 24.72 m. Uziel and Summoner were NOT run: they share the jet stats of Belial (Uziel) and Hellbringer/Thor (Summoner) in the catalog (same duration, rate, force, limiter), so their apex is taken as Belial 25.80 and Hellbringer 24.69, ESTIMATED, not measured. Every jet chassis clears 24.7 m, whatever its JumpjetDuration (Corvus, 4.25 s, gives 27.33; Stiletto, 7 s, gives 25.16).",
+   "how_to_use": "Overlay player climb = apex - 1 m per chassis (field climb in reach_rules.h). Uziel and Summoner rows must say \"same jet stats as Belial / Hellbringer, est.\".",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "jets",
+    "measured",
+    "m1"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "jet-mech-climb-overlay-vs-planner",
+   "title": "Jet 'Mech climb: the player does ~25-27 m, the bot planner trusts 12-22 m (JetPrior)",
+   "subject": {
+    "kind": "concept",
+    "id": "'Mech jet climb"
+   },
+   "addresses": [],
+   "related": [
+    "jet-mech-apex-m1-per-chassis"
+   ],
+   "fact": "Catalog durations: 14 chassis have jets (Kit Fox, Uller 5 s; Corvus 4.25; Puma, Cougar, Hellbringer, Summoner, Thor 5; Stiletto, Raptor 7; Belial, Uziel 6; Bowman, Catapult 8); 16 have none. Planner prior (ma2_bot_ctrl.c about 2373): g_up = min(24, 3.4 x fullest fuel seen) - 2, default 8 before any fuel is seen, and g_upx = max(g_up + 4, 20). Measured player apex is 24.7-27.3 m for every chassis (see the M1 fact), independent of duration, so the 3.4 x duration prior is far too low (Corvus: prior 12.5 against 27.3). The planner also counts a 'Mech as jetted only while fuel > 0.05 (CTRL:2346).",
+   "how_to_use": "Bots view of the overlay = min(planner, player): climb = min(g_upx, player climb). Player view = measured apex - 1. The gap is proposal G4 on the bot-gaps page.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 2373
+    }
+   ],
+   "tags": [
+    "reach",
+    "jets",
+    "planner",
+    "bots"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "jet-ceiling-ground-relative-and-wall-ride",
+   "title": "Jets: the apex is ground-relative, fuel length only adds hover time, and W against a wall rides it up (66 m tested)",
+   "subject": {
+    "kind": "concept",
+    "id": "jet ceiling"
+   },
+   "addresses": [],
+   "related": [
+    "jet-mech-apex-m1-per-chassis"
+   ],
+   "fact": "M1 notes: the jet stops climbing at a ceiling (gain above the ground under the 'Mech) and then hovers/sinks; JumpjetDuration changes hover time, not the apex (Corvus 4.25 s 27.33 vs Kit Fox 5 s 27.29). On a 37.5 m mesa the Kit Fox rose to top + 27.4. With W held against a wall the jetting 'Mech is lifted up the face: a 66 m face was climbed in 2.3 s; free jumps landed on 24, 26 and 27.5 m ledges and over a 30 m gap onto a 24 m mesa. Mass matters at most 0.6 m inside identical jet stats; run error about 0.3 m. No 'over the limit' case was produced (a gap-pit test was not built).",
+   "how_to_use": "Overlay jet verdict: free-flight rise <= apex - 1; a wall under W is climbable while fuel lasts (not limited by the apex).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "jets",
+    "measured",
+    "m1"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "v4-171-block-not-reproduced",
+   "title": "CORRECTION: V4's 'Atlas blocked at 171/175%' (steep 140/170 = player cannot climb) is wrong",
+   "subject": {
+    "kind": "concept",
+    "id": "V4 slope claim"
+   },
+   "addresses": [],
+   "related": [
+    "mech-slope-atlas-148-vs-planner-55",
+    "mech-without-jets-climb-and-drop"
+   ],
+   "fact": "V4 s2 (and the editor tiers kSteepClimb 1.40-1.50 'too steep for the player' / kSteepWall 1.70) said the player's Atlas is blocked at 171/175% and climbs only up to 148%. V4's map was never saved; the likely cause is a frame-reading or setup artifact. Object faces (buildings) were not tested. Tanks do have a limit (blocked at 825%, climbs 625%).",
+   "how_to_use": "Do not use 148%/171% as the player's slope limit; the editor steep tiers are not a 'player cannot climb' verdict. Affected text: page t16_editor_to_game (Ramp slopes bullet) and facts t60.mech-slope-atlas-148-vs-planner-55, t60.mech-without-jets-climb-and-drop.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "correction",
+    "slope",
+    "v4"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "mech-without-jets-climb-and-drop",
+   "title": "'Mech without jets: climbs steep ground, walks off edges, never leaves the ground otherwise",
+   "subject": {
+    "kind": "concept",
+    "id": "jetless 'Mech"
+   },
+   "addresses": [],
+   "related": [
+    "t30.bankdive-first-pass-dive-legs",
+    "mech-slope-atlas-148-vs-planner-55"
+   ],
+   "fact": "16 chassis have no jets (Hackman, Owens, Raven, Loki, Mad Dog, Vulture, MadCat, Timber Wolf, NovaCat, Wendigo, Star Adder, Atlas, Blood Asp, Prometheus, Ragnarok, Ymir). Slope: the Atlas climbs 148-150% ramps and is blocked at 171-175% (measured, V4-verify); the final M2 run did NOT reproduce that block: the same Atlas climbed 169-825% faces. Slope result: no walker limit found in the final M2 run: the Atlas, Hackman, Mad Dog, pilot and BA climbed a 66 m single-cell face (825%) and the Atlas every lane up to 375%; the Rommel tank climbed up to a +50 m cell (625%) and was blocked at 825% (measured, MEASURED.md M2). Step-off: the Atlas walks off 6, 10, 20 and 30 m terrain edges and lands (M3, measured). The bot planner walls the heavy grid at 55% (1.1 m per 2 m cell, NAV:142) and uses drop links of 60 m on trips, 0 on tactical moves.",
+   "how_to_use": "Overlay rules mech_step 2.80 (est. except the Atlas) and drop_mech_nojet (raise to >= 30, measured, for the player view; Bots column keeps the planner values).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_nav.c",
+     "line": 142
+    }
+   ],
+   "tags": [
+    "reach",
+    "mech",
+    "slope",
+    "drop"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "mech-slope-atlas-148-vs-planner-55",
+   "title": "Slope: V4 saw the Atlas blocked at 171%, the M2 rerun found no limit (to 825%); the planner walls 'Mechs at 55%",
+   "subject": {
+    "kind": "concept",
+    "id": "'Mech slope limit"
+   },
+   "addresses": [],
+   "related": [
+    "jet-mech-climb-overlay-vs-planner",
+    "v4-171-block-not-reproduced"
+   ],
+   "fact": "ramps: 71, 79, 90, 109 and 148% climbed, 171 and 175% blocked (30 identical frames), Atlas only. CORRECTION from the final M2 run: that block did not reproduce (cause not found; not checked whether V4's ramp ends were off the 8 m terrain lattice). tan 60 deg = 173%, so the game probably accepts ground whose normal is within 60 deg of up (not proven in code). The planner's heavy grid blocks any cell whose surface differs more than 1.1 m from a 4-neighbour per 2 m cell = 55% (TG_STEP_HEAVY, NAV:142), so bots avoid terrain the player walks straight up. Other chassis: no walker limit found in the final M2 run: the Atlas, Hackman, Mad Dog, pilot and BA climbed a 66 m single-cell face (825%) and the Atlas every lane up to 375%; the Rommel tank climbed up to a +50 m cell (625%) and was blocked at 825% (measured, MEASURED.md M2).",
+   "how_to_use": "Editor constants kSteepClimb 1.40 and kSteepWall 1.70 (core/brush.h). Proposal G1 on the bot-gaps page.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_nav.c",
+     "line": 142
+    }
+   ],
+   "tags": [
+    "reach",
+    "slope",
+    "mech",
+    "bots"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "ba-apex-m1-vs-upstretch-median",
+   "title": "Battle Armor jet apex: 19.71 m measured standing, 16.9 m in-match median; the overlay keeps 16",
+   "subject": {
+    "kind": "concept",
+    "id": "Battle Armor jet climb"
+   },
+   "addresses": [],
+   "related": [
+    "t14.upstretch-canals-1102",
+    "mech-slope-atlas-148-vs-planner-55"
+   ],
+   "fact": "M1 (full tank, standing start, flat ground, Shift held): apex 19.71 m. UpStretch recordings (30-cell sweep): full-tank burn median 16.9, p90 18.5, best 34.5 m (the 18 m mode). The overlay's ba_climb rule stays 16 m: the spec says to err toward 'cannot', a median of real jumps is what a player gets in a match, and 19.71 is an ideal burn. Both numbers are cited in the overlay's source string. The planner leaves BA g_up at 8 until a measured burn (no prior), so Bots see less (gap G3).",
+   "how_to_use": "To raise the player verdict to ~18.7 (apex - 1) change ba_climb in reach_rules.h; keep 16 for the cautious reading.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "ba",
+    "jets",
+    "measured",
+    "m1"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "ba-claw-latch-and-vtol-ride",
+   "title": "Battle Armor: jets, claw latch-climb on objects, and the VTOL ride",
+   "subject": {
+    "kind": "concept",
+    "id": "Battle Armor movement"
+   },
+   "addresses": [],
+   "related": [
+    "t43.vtol-rider-dodge-towers",
+    "t18.ctfvtol-tall-areas"
+   ],
+   "fact": "BA (3 templates, one stat set; Elemental identical): jets (duration 2 s, apex 19.71 m, median 16.9 in match), hop 24.5 m/s horizontal, walk 11-15 m/s. The claw (Space) latches only MACorporeal objects, never raw terrain; a MABuilding can veto it (no-climb node flag 0x8); one hit of 110+ damage knocks it off (StopClimbDamageThreshold). Claw climb height and speed: not measured (M5 was tried twice on the Bogged Down power plant, the claw did not latch; no MACorporeal wall in the base archive). Slope: planner uses the light grid (wall 0.80 = 39 deg); real BA slope no walker limit found in the final M2 run: the Atlas, Hackman, Mad Dog, pilot and BA climbed a 66 m single-cell face (825%) and the Atlas every lane up to 375%; the Rommel tank climbed up to a +50 m cell (625%) and was blocked at 825% (measured, MEASURED.md M2). BA walks off 6-30 m edges and lands (M3). VTOL ride: the BA hangs about 4.7 m under the skids (newest measurement; 8-9 m in an older one) and a rider clears ground up to ceiling - 10.5 m.",
+   "how_to_use": "Overlay: latch rule is estimated (est.) until M5. The claw is not a planner link (gap G6).",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "ba",
+    "claw",
+    "vtol-rider"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "pilot-on-foot-reach",
+   "title": "Pilot on foot: no jets, slope bracket 39-50 deg blocks / 66 grid passes, walks off 30 m edges",
+   "subject": {
+    "kind": "concept",
+    "id": "pilot on foot"
+   },
+   "addresses": [],
+   "related": [
+    "t31.footslope-pilot-walk-precheck-slope-66",
+    "t32.mech-airborne-not-faster"
+   ],
+   "fact": "One movement body for all six pilot templates: speed 10 (measured p90 12.1 m/s), mass 5, no jets. Older bracket from bot runs (superseded by M2, which found no pilot limit): pilots stood against 30-43 deg faces for 40 s, the 39-50 deg faces of the No Man's Land mesas are unwalkable, a 52 m walk at planner slope 66 (33 deg) works; the overlay uses 1.32 m per 2 m (ESTIMATED from that bracket). M2 pilot slope: no walker limit found in the final M2 run: the Atlas, Hackman, Mad Dog, pilot and BA climbed a 66 m single-cell face (825%) and the Atlas every lane up to 375%; the Rommel tank climbed up to a +50 m cell (625%) and was blocked at 825% (measured, MEASURED.md M2). Step-off: the pilot walks off 6, 10, 20 and 30 m edges and lands (M3, measured); the planner's drop limit is 10 m. The planner applies slope 66 only in the pre-check before leaving a vehicle (BRAIN:546-555).",
+   "how_to_use": "Overlay foot_step 1.32 (est.), drop_foot raise to >= 30 for the player view. Gaps G8 and G16.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "pilot",
+    "slope",
+    "drop"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "tanks-rommel-and-ai-only-tracked",
+   "title": "Tanks: only the Rommel Mk2 is player-usable; Manticore, Partisan, Gator and APCs are AI-only tracked",
+   "subject": {
+    "kind": "concept",
+    "id": "MATank"
+   },
+   "addresses": [],
+   "related": [
+    "t22.objreach-tankslope-illwind",
+    "t40.tank-face-learned"
+   ],
+   "fact": "Player-usable tank = Rommel Mk2 (pad vehicle on every MP map; Kurita-player and WOB variants have identical movement): speed 20, mass 33 t. AI-only plain tracked MATank (not offered to players): Manticore, Partisan, VMil_THE_Gator (speed 25, mass 60), the VMil_APC_* set, VMil_Aircraft_Carrier turret. The bot planner plans tanks on the LIGHT grid plus slp > 55 impassable (CTRL:2337; 28.8 deg) with a drop limit of 6 m; floor_model.py wrongly uses the heavy grid (FM:110, gap G15). The real tank slope limit: no walker limit found in the final M2 run: the Atlas, Hackman, Mad Dog, pilot and BA climbed a 66 m single-cell face (825%) and the Atlas every lane up to 375%; the Rommel tank climbed up to a +50 m cell (625%) and was blocked at 825% (measured, MEASURED.md M2). Step-off: the Rommel drives off 6, 10, 20 and 30 m edges and lands (M3, measured). Tank faces that the grid leaves open at slp 43-53 stall tanks (learned TankFace).",
+   "how_to_use": "Overlay tank_step 1.1 (est.), drop_tank raise to >= 30 for the player view. Gaps G7, G15 and G16.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 2337
+    }
+   ],
+   "tags": [
+    "reach",
+    "tank",
+    "slope",
+    "drop"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "vtol-ceiling-and-landing",
+   "title": "VTOL: ceiling is terrain + 48.4 m (MaxVTOLHeight 55 - 6.6); landing slope unknown",
+   "subject": {
+    "kind": "property",
+    "id": "MaxVTOLHeight"
+   },
+   "addresses": [],
+   "related": [
+    "t18.ctfvtol-maxvtolheight",
+    "t01b.vtol-map-height-cap",
+    "t28.vtol-climb-demand-comp-90",
+    "t01a.bots-vtol-hold-y-lowers"
+   ],
+   "fact": "MaxVTOLHeight (flyer actor +0x4E0, default 55) is a property of the flyer, not of the map. A stick-flown VTOL levels off at the height-map terrain under it + (MaxVTOLHeight - about 6.6) = terrain + 48.4 m: measured 48.0-48.7 over New River City and 28.2-28.4 over the Bogged Down bog (terrain -19/-20). Climb demand 30 m/s with Shift, -30 with Ctrl; holding Y lowers the craft to ~2 m and the pilot gets out. Bot lane cells shut when building top + 7 m (13 with a rider) exceeds ceiling + 1 (CTRL:1956). Landing slope and pad radius: a VTOL settles on a 30% slope and slides off a 50% slope (bracket 30-50%, measured M4); the overlay uses 0.30, still estimated; the overlay uses 0.30 slope (was 0.25) and a 5 m radius, ESTIMATED (radius not measured). Ceiling note: M4 read ground + 49.55 m on a tracked node vs 48.4 earlier; use 48.4 for the cautious side.",
+   "how_to_use": "Overlay vtol_land_slope 0.30 (bracket 30-50%) and vtol_land_radius 5 are estimates.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "vtol",
+    "ceiling",
+    "landing"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "player-turrets-immobile",
+   "title": "Player turrets are immobile (speed 0): no reach, only a position",
+   "subject": {
+    "kind": "concept",
+    "id": "PlayerTurret"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The five PlayerTurret templates (Laser, Autocannon, LRM, Gauss, Guided Missile; MATank class) have CorporalMaxSpeed 0 and a 360 deg arc; only the Guided Missile one is placed on MP maps (1-4 per map). The overlay treats them as immobile: the only reachable point is the unit's own spot.",
+   "how_to_use": "Overlay group Turret: no step, no drop, no climb.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "turret"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "step-off-m3-all-bodies",
+   "title": "Step-off (M3): Atlas, Rommel, pilot and BA all walk or drive off 6-30 m edges and land",
+   "subject": {
+    "kind": "concept",
+    "id": "drop limit"
+   },
+   "addresses": [],
+   "related": [
+    "bankdive-correction-slope-band-not-edge"
+   ],
+   "fact": "Measured 2026-11-16 on built maps: the Atlas, the Rommel tank, the pilot on foot and the Battle Armor each leave a vertical terrain edge of 6, 10, 20 and 30 m under their own power and land on the ground below. So the overlay drop_mech_nojet, drop_tank and drop_foot (estimates 6, 6, 10) are too low for the player view and are set to >= 30 (measured). Fall damage was not measured; limits beyond 30 m were not tested. The bot planner keeps its own limits (tank 6, pilot 10, 'Mech/BA 60), so the Bots column keeps them (gap G16).",
+   "how_to_use": "Source string for those rules: MEASURED.md M3.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "drop",
+    "measured",
+    "m3"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "bankdive-correction-slope-band-not-edge",
+   "title": "CORRECTION: the BankDive 'did not come down' failure was a slope band, not a vertical edge",
+   "subject": {
+    "kind": "concept",
+    "id": "BankDive correction"
+   },
+   "addresses": [],
+   "related": [
+    "t30.bankdive-first-pass-dive-legs",
+    "step-off-m3-all-bodies"
+   ],
+   "fact": "The fact t30.bankdive-first-pass-dive-legs says a jetless 'Mech 'did not come down a long bank' at 6 rim spots. M3 shows the Atlas (and tank, pilot, BA) walk off vertical edges of 6-30 m and land, so that failure concerned a long steep SLOPE band (the planner's wall/stall on a bank face), not a vertical edge. Do not read it as 'jetless Mechs cannot drop 6 m+'. That fact itself is left unedited (this note corrects the reading, not the data).",
+   "how_to_use": "Use the M3 fact for drop limits; use the slope facts for banks.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "correction",
+    "bankdive"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "water-flags-reach-not-modelled",
+   "title": "Water in reach: per-map MAEnvironment flags (meaning unconfirmed); the planner ignores water for walking",
+   "subject": {
+    "kind": "concept",
+    "id": "MAEnvironment water"
+   },
+   "addresses": [],
+   "related": [
+    "t3.tree3-editor-water-wading-depth-type-map-bit-8-no-drown-code"
+   ],
+   "fact": "Water is the type-map bit (8 shallow, 16 deep, 32 waterway) plus per-level MAEnvironment keys Mech/Tank/BA/Pilot x Shallow/Deep/Waterway with Speed/Damage/Cooling. The 0/1 'may enter' reading is a guess; no code consumer of the deep fields was found. A pilot wades a 1.2 m basin and walks submerged in a 4 m lake. The planner keeps the bed as the walkable surface and only refuses landings in water unless carrying a flag (NAV:396, PATH:744+). Flag meaning: the Atlas, Rommel and pilot cross a 4.7 m deep and a 1.2 m shallow editor pond at full speed (Bogged Down flags all 1); BA, type-16 cells and flags 0 not tested (M6).",
+   "how_to_use": "Overlay v1 does not block water unless M6 proves the flags.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "water"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "no-hover-vehicles-in-ma2",
+   "title": "MechAssault 2 has no hover vehicles: only tracked MATank, one AI barge, and the VTOL",
+   "subject": {
+    "kind": "concept",
+    "id": "hover"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "No class, template, flag or model name in GlobalEntities mentions hover (3,449 templates scanned). Manticore, Partisan, Gator and the APCs are plain tracked MATank; the only boat is the AI Vciv_Barge01. 'Hover over water' applies to the VTOL only (it flies).",
+   "how_to_use": "No hover-tank entry in the reach picker.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "hover"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "mission-ai-not-covered-by-reach-v1",
+   "title": "Mission AI (20 m nav graph) is not covered by the reach overlay v1",
+   "subject": {
+    "kind": "concept",
+    "id": "mission AI nav"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The overlay answers 'can the player (or the MP bot planner) get here'. Campaign/mission AI units path on a separate 20 m node graph with their own rules; the overlay does not model it. Treat the Bots view as the MP bot planner of v35-edgame (2 m grid) only.",
+   "how_to_use": "Not in v1; revisit if mission-AI reach is needed.",
+   "status": "current",
+   "confidence": "documented",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "mission-ai",
+    "scope"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "start-in-is-an-editor-flag",
+   "title": "start-in <unit> is a developer flag of the editor exe, not of the game",
+   "subject": {
+    "kind": "tool",
+    "id": "start-in"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The game has no start-in or start-vehicle option (grep of the whole the game source tree tree). The editor's --start-in <uid or label> sets the document's player start container on every StartVehicles* key of MARoot. Labels: On foot (pilot), Battle Armor, the 30 'Mech names as in the catalog, VTOL, Rommel Mk2 tank; Avatar/Cinema/Lobby/NoBomb/NearClip/Kurita/WOB/Turret/Elemental names are skipped.",
+   "how_to_use": "Use it to place the reach tests' player in a given body.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "reach",
+    "editor",
+    "start-in"
+   ],
+   "date": "2026-11-16"
+  }
+ ]
+}

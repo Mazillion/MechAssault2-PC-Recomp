@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "cutscene.h"
 #include "gamedata.h"
 #include "scenario.h"
 
@@ -32,7 +33,7 @@ const std::vector<TriggerKind>& condition_kinds() {
         {"box", "Player is in a trigger box (volume)", {{"vol", "Trigger box", "shape", ""}}},
         {"destroyed", "Units are destroyed", {{"units", "Units", "units", ""}, {"all", "All of them (untick: any one)", "bool", "1"},
                                           {"jacking", "Stealing a unit counts too", "bool", "1"}}},
-        {"damaged", "A unit is damaged", {{"units", "Units", "units", ""}, {"percent", "Damage (%)", "int", "50"}}},
+        {"damaged", "A unit is damaged", {{"units", "Units", "units", ""}, {"percent", "Fires at health left (%)", "int", "50"}}},
         {"trigger", "Another trigger has fired", {{"trigger", "Trigger", "trigger", ""}}},
         {"not_trigger", "Another trigger has not fired", {{"trigger", "Trigger", "trigger", ""}}},
     };
@@ -41,7 +42,7 @@ const std::vector<TriggerKind>& condition_kinds() {
 
 const std::vector<TriggerKind>& effect_kinds() {
     static const std::vector<TriggerKind> v = {
-        {"message", "Show a message", {{"text", "Text", "text", ""}, {"caption", "Title (the game does not show it)", "text", ""},
+        {"message", "Show a message", {{"text", "Text", "text", ""}, {"caption", "Speaker (optional)", "text", ""},
                                         {"seconds", "Seconds on screen (0 = until closed)", "float", "6"}, {"pause", "Pause the game while it shows", "bool", "0"}}},
         {"voice", "Play a voice or sound from the game", {{"cue", "Sound", "cue", ""}}},
         {"audio", "Play your own sound clip", {{"clip", "Clip", "clip", "1"}}},
@@ -56,7 +57,7 @@ const std::vector<TriggerKind>& effect_kinds() {
                             {"point", "Defend point", "point", ""}, {"radius", "Radius (m)", "float", "60"},
                             {"target", "Attack or follow (none = the player)", "unit", ""}}},
         {"enable_unit", "Switch a unit on or off", {{"unit", "Unit", "unit", ""}, {"on", "Switch on (untick: off)", "bool", "1"}}},
-        {"cinema", "Play a camera sequence (cutscene)", {{"cinema", "Cutscene", "cinema", ""}}},
+        {"cinema", "Play a cutscene", {{"cinema", "Cutscene", "cinema", ""}}},
         {"teleport", "Move the player to a point", {{"point", "Destination", "point", ""}, {"heading", "Facing (degrees)", "float", "0"}}},
         {"nation", "Change a unit's side", {{"unit", "Unit", "unit", ""}, {"nation", "Side", "side", "5"}}},
         {"reinforce", "Bring in reinforcements", {{"units", "Units (placed on the map; hidden and asleep until this fires)", "units", ""},
@@ -103,13 +104,39 @@ static const char* kProtoClasses[] = {
     "MoeEntityReference", "MAActionBroadcast", "MAActionSound", "MAActionMusic", "MAActionShow", "MAActionRemoveEntity",
     "MAActionAI", "MAActionActivateCinema", "MAActionMissionVariableSet", "MAActionGameCondition", "MAActionCheckPointSave", "MAActionTeleport",
     "MAActionNation", "MAActionPlayVoice", "MAAIGroup", "MAEvent", "MAPatrol", "MADefend", "MAFollow", "MAAttack", "MAWaypointGroup",
-    "MAWaypoint", "MADummyObj", "MAObjectiveType"};
+    "MAWaypoint", "MADummyObj", "MAObjectiveType", "MoeEntitySet", "MATrigger"};
+
+// A subtitle for a label: whitespace squeezed, cut at 70 characters (on a word).
+static std::string trim_words(const std::string& in) {
+    std::string o;
+    for (unsigned char ch : in) {
+        if (ch == '\r' || ch == '\n' || ch == '\t') ch = ' ';
+        if (ch == ' ' && (o.empty() || o.back() == ' ')) continue;
+        o += char(ch);
+    }
+    while (!o.empty() && o.back() == ' ') o.pop_back();
+    if (o.size() > 70) {
+        o.resize(70);
+        const size_t sp = o.rfind(' ');
+        if (sp != std::string::npos && sp > 40) o.resize(sp);
+        o += "...";
+    }
+    return o;
+}
+
+// By mission, then the cues with words first, then by label.
+static bool cue_less(const CueInfo& a, const CueInfo& b) {
+    if (a.mission != b.mission) return a.mission < b.mission;
+    if (a.words.empty() != b.words.empty()) return !a.words.empty();
+    return a.label < b.label;
+}
 
 bool load_trigger_prototypes(GameData& gd, std::string* err) {
     if (g_ready) return true;
     const auto& names = gd.names();
     std::unordered_map<uint32_t, std::string> want;
     for (const char* c : kProtoClasses) want[key_of(c)] = c;
+    static const uint32_t K_BROADCAST = key_of("MAActionBroadcast");
     static const uint32_t K_CORP = key_of("MACorporeal"), K_SOUND = key_of("MAActionSound"), K_MUSIC = key_of("MAActionMusic"), K_VOICE = key_of("MAActionPlayVoice");
     std::set<uint32_t> seen_sound, seen_music, seen_voice;
     for (auto& m : gd.maps()) {
@@ -135,17 +162,24 @@ bool load_trigger_prototypes(GameData& gd, std::string* err) {
             if (o.cls == K_CORP && o.template_id() == 32093 && !g_proto.count("NULLMarker")) g_proto["NULLMarker"] = o;
             int p = t.parent_of[i];
             std::string ctx = m.name + ": " + (p >= 0 ? w.objs[size_t(p)].description() : std::string()) + " / " + o.description();
-            if (o.cls == K_SOUND) {
-                uint32_t c = o.u32("CueEvent");
-                if (c && seen_sound.insert(c).second) g_sound.push_back({c, ctx});
-            }
-            if (o.cls == K_MUSIC) {
-                uint32_t c = o.u32("MusicCue");
-                if (c && seen_music.insert(c).second) g_music.push_back({c, ctx});
-            }
-            if (o.cls == K_VOICE) {  // CueID (wiki action-cue-offsets)
-                uint32_t c = o.u32("CueID");
-                if (c && seen_voice.insert(c).second) g_voice.push_back({c, ctx});
+            if (o.cls == K_SOUND || o.cls == K_MUSIC || o.cls == K_VOICE) {
+                const bool snd = o.cls == K_SOUND, mus = o.cls == K_MUSIC;
+                const uint32_t c = o.u32(snd ? "CueEvent" : mus ? "MusicCue" : "CueID");  // voice: CueID (wiki action-cue-offsets)
+                auto& seen = snd ? seen_sound : mus ? seen_music : seen_voice;
+                auto& list = snd ? g_sound : mus ? g_music : g_voice;
+                if (c) {
+                    // The subtitle: a broadcast action under the same parent as the cue action.
+                    std::string words;
+                    if (p >= 0)
+                        for (int k : t.kids[size_t(p)])
+                            if (w.objs[size_t(k)].cls == K_BROADCAST)
+                                if (uint32_t tid = w.objs[size_t(k)].u32("BodyTextID")) { words = trim_words(gd.game_text(tid)); if (!words.empty()) break; }
+                    if (seen.insert(c).second) {
+                        list.push_back({c, ctx, m.name, words, ctx});
+                    } else if (!words.empty()) {
+                        for (auto& e : list) if (e.id == c && e.words.empty()) { e.words = words; e.mission = m.name; }
+                    }
+                }
             }
         }
     }
@@ -156,9 +190,15 @@ bool load_trigger_prototypes(GameData& gd, std::string* err) {
         if (o.find("NumberOfTimesActivated")) o.set_u32("NumberOfTimesActivated", 0);
         if (o.find("TriggerStarted")) o.set_i32("TriggerStarted", 0);
     }
-    std::sort(g_sound.begin(), g_sound.end(), [](const CueInfo& a, const CueInfo& b) { return a.label < b.label; });
-    std::sort(g_music.begin(), g_music.end(), [](const CueInfo& a, const CueInfo& b) { return a.label < b.label; });
-    std::sort(g_voice.begin(), g_voice.end(), [](const CueInfo& a, const CueInfo& b) { return a.label < b.label; });
+    for (auto* list : {&g_sound, &g_music, &g_voice})
+        for (auto& e : *list) {
+            std::string pretty = e.mission;
+            for (char& ch : pretty) if (ch == '_') ch = ' ';
+            if (!e.words.empty()) e.label = "\xE2\x80\x9C" + e.words + "\xE2\x80\x9D - " + pretty;
+        }
+    std::sort(g_sound.begin(), g_sound.end(), cue_less);
+    std::sort(g_music.begin(), g_music.end(), cue_less);
+    std::sort(g_voice.begin(), g_voice.end(), cue_less);
     std::vector<std::string> missing;
     for (const char* c : kProtoClasses) if (!g_proto.count(c)) missing.push_back(c);
     if (!missing.empty() && err) {
@@ -201,7 +241,7 @@ uint32_t add_trigger_shape(Scenario& s, const TriggerShape& sh) {
     } else {
         o.set_vec3("TriggerPoint", {sh.x, ground, sh.z});
         o.set_f32("EncounterRadius", sh.radius);
-        o.set_i32("InRadiusCheck", sh.inside ? 1 : 0);
+        o.set_i32("InRadiusCheck", sh.inside ? 1 : 2);  // the game tests inside = 1, outside = 2 (never 0)
         o.set_u32("PointCorporeal", 0);
         o.set_u32("RadiusSet", 0);
     }
@@ -492,14 +532,18 @@ static void compile_expanded(const Scenario& s, Wdf& w, std::vector<std::string>
 // Multiplayer objective slots name their targets by UID as well: Base War = slot 0 (ObjectiveType 9) -> the Red power
 // plant, slot 1 (10) -> the Blue one (retail BoggedDown ob0obj0 126031 / ob1obj0 124373). A kit copied from a retail
 // level gets new UIDs, so the slots kept pointing at nothing and the game ended the match at once ('Blue Team Wins!'
-// ~5 s in, bots F20). Every slot that has MAObjectiveType targets lists exactly those; other slots are left alone.
-static void sync_mp_objective_targets(WObj& r, const Wdf& w) {
+// ~5 s in). Every slot that has MAObjectiveType targets lists exactly those; other slots are left alone.
+static void sync_mp_objective_targets(WObj& r, const Wdf& w, const Scenario& s) {
+    // Base War: a building is only a Base War objective when the slot's type is 9 (Red) / 10 (Blue); a from-scratch base
+    // level has 0 there and the match ended after 5 s.
+    const bool base_war = std::find(s.types.begin(), s.types.end(), "BaseWar") != s.types.end();
     for (int i = 0; i < 30; i++) {
         auto targets = objective_targets(w, i);
         if (targets.empty()) continue;
         char k[64];
         snprintf(k, sizeof k, "NumObjectiveObjects%d", i);
         r.set_i32(k, int32_t(targets.size()));
+        if (base_war && i < 2) r.set_i32(i ? "ObjectiveType1" : "ObjectiveType0", i ? 10 : 9);
         for (size_t j = 0;; j++) {
             snprintf(k, sizeof k, "ob%dobj%zu", i, j);
             if (j < targets.size()) r.set_u32(k, targets[j]);
@@ -536,12 +580,40 @@ static void fill_set_members(Wdf& w) {
     }
 }
 
+int fix_outside_circles(Wdf& w) {
+    static const uint32_t K_RAD = key_of("MATriggerRadius");
+    int n = 0;
+    for (auto& o : w.objs)
+        if (o.cls == K_RAD && o.find("InRadiusCheck") && o.i32("InRadiusCheck") == 0) { o.set_i32("InRadiusCheck", 2); n++; }
+    return n;
+}
+
+bool win_all_idle(const Wdf& w) {
+    static const uint32_t K_LOGIC = key_of("MATriggerLogic");
+    for (auto& o : w.objs)
+        if (o.cls == K_LOGIC && o.description() == kWinAllTrigger && reference_children(w, o.uid()).empty()) return true;
+    return false;
+}
+
+int fix_win_all(Wdf& w) {
+    static const uint32_t K_LOGIC = key_of("MATriggerLogic");
+    int n = 0;
+    for (auto& o : w.objs) {
+        if (o.cls != K_LOGIC || o.description() != kWinAllTrigger || !o.find("TriggerEnabled")) continue;
+        const int want = reference_children(w, o.uid()).empty() ? 0 : 1;
+        if (o.i32("TriggerEnabled") != want) { o.set_i32("TriggerEnabled", want); n++; }
+    }
+    return n;
+}
+
 // "Bring in reinforcements" (Mission_05 "To the Rescue", wiki reinforcements-dormant-set-pattern):
 // the units are placed from the start with their AI off (m_bAIEnabled 0), a start-up trigger hides
 // them (MAActionShow Enable 0), and the trigger shows them (MAActionShow Enable 1, EnableTree 1),
 // switches their AI on (MAActionAI EnableAI 1) and sets their side (MAActionNation). Expanded here
 // into the ordinary show / hide / enable_unit / nation effects, one per unit.
 void compile_triggers(const Scenario& s, Wdf& w, std::vector<std::string>* warnings, std::map<int, std::string>* extra) {
+    fix_outside_circles(w);  // files from 1.0.9 wrote 0 for "outside", which the game never matches
+    fix_win_all(w);
     bool any = false;
     for (auto& t : s.triggers) for (auto& e : t.effects) any |= e.kind == "reinforce";
     if (!any) { compile_expanded(s, w, warnings, extra); return; }
@@ -605,7 +677,7 @@ static void compile_expanded(const Scenario& s, Wdf& w, std::vector<std::string>
     // Root: briefing and objectives (missions).
     int ri = find_class(w, K_ROOT);
     if (ri >= 0 && s.multiplayer) {
-        sync_mp_objective_targets(w.objs[size_t(ri)], w);
+        sync_mp_objective_targets(w.objs[size_t(ri)], w, s);
         fill_set_members(w);
     }
     if (ri >= 0 && !s.multiplayer) {
@@ -721,7 +793,7 @@ static void compile_expanded(const Scenario& s, Wdf& w, std::vector<std::string>
                 if (!c.proto("MATriggerRadius", o)) return false;
                 o.set_vec3("TriggerPoint", {x, c.ground(x, z), z});
                 o.set_f32("EncounterRadius", fnum(a, "radius", 30));
-                o.set_i32("InRadiusCheck", unum(a, "inside", 1) ? 1 : 0);
+                o.set_i32("InRadiusCheck", unum(a, "inside", 1) ? 1 : 2);
                 o.set_u32("PointCorporeal", 0);
                 o.set_u32("RadiusSet", 0);
             } else if (cd.kind == "box") {
@@ -1009,10 +1081,9 @@ const char* kTriggerGroup = "Triggers";
 WObj* object_by_uid(Wdf& w, uint32_t uid) { return find_obj(w, uid); }
 const WObj* object_by_uid(const Wdf& w, uint32_t uid) { return find_obj(const_cast<Wdf&>(w), uid); }
 
-uint32_t add_trigger_object(Scenario& s, const char* cls, const std::string& name, uint32_t parent) {
+uint32_t gen_add_trigger(Wdf& w, const char* cls, const std::string& name, uint32_t parent) {
     auto it = g_proto.find(cls);
     if (it == g_proto.end()) return 0;
-    Wdf& w = s.world;
     if (!parent) {
         uint32_t next = next_uid(w);
         parent = ensure_group(w, root_uid(w), kTriggerGroup, next);
@@ -1039,18 +1110,34 @@ uint32_t add_trigger_object(Scenario& s, const char* cls, const std::string& nam
     uint32_t uid = next_uid(w);
     o.set_u32("UID", uid);
     wedit::append_child(w, parent, std::move(o));
-    s.dirty = true;
     return uid;
 }
 
-uint32_t add_action_object(Scenario& s, uint32_t trigger_uid, const char* cls, const std::string& name) {
+uint32_t gen_add_proto(Wdf& w, const char* cls, const std::string& name, uint32_t parent) {
     auto it = g_proto.find(cls);
-    if (it == g_proto.end() || !find_obj(s.world, trigger_uid)) return 0;
+    if (it == g_proto.end() || !find_obj(w, parent)) return 0;
+    WObj o = it->second;
+    o.set_str("Description", ascii_name(name));
+    uint32_t uid = next_uid(w);
+    o.set_u32("UID", uid);
+    wedit::append_child(w, parent, std::move(o));
+    return uid;
+}
+
+uint32_t add_trigger_object(Scenario& s, const char* cls, const std::string& name, uint32_t parent) {
+    uint32_t uid = gen_add_trigger(s.world, cls, name, parent);
+    if (uid) s.dirty = true;
+    return uid;
+}
+
+uint32_t gen_add_action(Wdf& w, uint32_t trigger_uid, const char* cls, const std::string& name) {
+    auto it = g_proto.find(cls);
+    if (it == g_proto.end() || !find_obj(w, trigger_uid)) return 0;
     WObj o = it->second;
     o.set_str("Description", ascii_name(name));
     std::string c = cls;
     if (c == "MAActionBroadcast") {
-        o.set_u32("BodyTextID", add_text(s, "New message"));
+        o.set_u32("BodyTextID", 0);  // add_action_object / the caller gives it a text
         o.set_u32("CaptionTextID", 0);
         o.set_f32("TimeDisplayedFor", 6);
         o.set_i32("PauseGame", 0);
@@ -1086,9 +1173,17 @@ uint32_t add_action_object(Scenario& s, uint32_t trigger_uid, const char* cls, c
     } else if (c == "MAActionMusic") {
         o.set_u32("IntensityLevel", 3000);
     }
-    uint32_t uid = next_uid(s.world);
+    uint32_t uid = next_uid(w);
     o.set_u32("UID", uid);
-    wedit::append_child(s.world, trigger_uid, std::move(o));
+    wedit::append_child(w, trigger_uid, std::move(o));
+    return uid;
+}
+
+uint32_t add_action_object(Scenario& s, uint32_t trigger_uid, const char* cls, const std::string& name) {
+    uint32_t uid = gen_add_action(s.world, trigger_uid, cls, name);
+    if (!uid) return 0;
+    if (std::string(cls) == "MAActionBroadcast")
+        if (WObj* o = find_obj(s.world, uid)) o->set_u32("BodyTextID", add_text(s, "New message"));
     s.dirty = true;
     return uid;
 }
@@ -1290,17 +1385,22 @@ std::vector<uint32_t> objective_completers(const Wdf& w, int var, const std::fun
     return out;
 }
 
-uint32_t add_reference(Scenario& s, uint32_t parent, uint32_t target) {
+uint32_t gen_add_reference(Wdf& w, uint32_t parent, uint32_t target) {
     auto it = g_proto.find("MoeEntityReference");
-    if (it == g_proto.end() || !find_obj(s.world, parent)) return 0;
+    if (it == g_proto.end() || !find_obj(w, parent)) return 0;
     WObj r = it->second;
-    const WObj* t = find_obj(s.world, target);
+    const WObj* t = find_obj(w, target);
     r.set_str("Description", ascii_name(t ? t->description() : std::string("input")) + " (ref)");
     r.set_u32("ReferenceUID", target);
-    uint32_t uid = next_uid(s.world);
+    uint32_t uid = next_uid(w);
     r.set_u32("UID", uid);
-    wedit::append_child(s.world, parent, std::move(r));
-    s.dirty = true;
+    wedit::append_child(w, parent, std::move(r));
+    return uid;
+}
+
+uint32_t add_reference(Scenario& s, uint32_t parent, uint32_t target) {
+    uint32_t uid = gen_add_reference(s.world, parent, target);
+    if (uid) s.dirty = true;
     return uid;
 }
 
@@ -1313,7 +1413,10 @@ std::vector<uint32_t> reference_children(const Wdf& w, uint32_t uid) {
 
 uint32_t add_text(Scenario& s, const std::string& text) {
     int n = kStrMessage;
-    while (s.strings.count(n)) n++;
+    for (;; n++) {
+        if (n >= kStrGenerated && n < kStrGeneratedEnd) n = kStrGeneratedEnd;  // the export's own texts (mission_extras)
+        if (!s.strings.count(n)) break;
+    }
     s.strings[n] = text;
     s.dirty = true;
     return kTextBase + uint32_t(n);
@@ -1456,6 +1559,7 @@ void order_clear_path(Scenario& s, uint32_t event_uid) {
 
 bool camera_path_point(Scenario& s, uint32_t path_uid, float x, float z, bool restart) {
     static const uint32_t K_PATH = key_of("MAPath"), K_WPG = key_of("MAWaypointGroup");
+    detach_path_group(s.world, path_uid);  // The drawn points alone are the game's path
     const WObj* p = find_obj(s.world, path_uid);
     uint32_t g = p && p->cls == K_PATH ? p->u32("m_wptGroupUID") : 0;
     WTree t;

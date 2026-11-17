@@ -1,0 +1,86 @@
+{
+ "pack": "t40_arrival_parity_pass12_1111",
+ "title": "Arrival parity pass 12: ChokeAbreast, ChokeFileHyst, DeckNear, TankFace",
+ "facts": [
+  {
+   "id": "choke-file-in-wide-and-flicker",
+   "title": "Brain choke file-in: wide chokes queued bodies that could pass abreast, and the per-frame test flickered",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_brain.c ChokeAbreast / ChokeFileHyst"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "choke_flow filed a body in 18 m ('Mech/tank; BA 10 m) behind the nearest team-mate moving 0.5 m/s+ along any choke, whatever its width, and re-ran the test every frame. Base mouths are 40-44 m wide on On the Rocks (choke 1, T2 exit) and No Man's Land (choke 3): 3-4 'Mechs leaving together filed in and held (FollowHold) -- D11_84a T2 13.5 s of file-in frames (5.1 s stood), B11_84a1 15.1 / 7.1 s, D11_83b T1 16.4 / 8.8 s -- and the order flipped file-in <-> route 48-60 times per team in 5-40 s, each flip re-latching the goto (0.3-1.7 s stands). Leaders were often team-mates moving mostly across the choke (along 2-9 m/s at 25 m/s) or themselves filing.",
+   "how_to_use": "ChokeAbreast (RECOMP_BOT_CHOKE_ABREAST / [Bots] ChokeAbreast, default on): no file-in in a choke 30 m+ wide (the keep-right width). ChokeFileHyst (RECOMP_BOT_CHOKE_FILE_HYST / [Bots] ChokeFileHyst, default on): a leader must move 2 m/s+ along the choke and the file-in state changes only after the raw test held 0.4 s (per-bot statics, not Ma2Brain). [C7] chokes abreast / filehyst. Proof: filesim.py / filesim_all.txt.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 2114
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "chokes"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "deckskip-far-from-pile",
+   "title": "Snatch It DeckSkip zeroed a jetless 'Mech's grab whenever the cores were 18 m+ above it, even 300 m from the pile",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_brain_obj.c DeckNear"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "obj_snatch's DeckSkip (jetless 'Mech / tank, core 18 m+ above the body) was meant for a body under a deck; it compared heights at any distance. No Man's Land Snatch It: cores at y 36.7, low ground 300 m out at y 15 -- D11_83b T2 b7 (the side's fastest 'Mech, 31 m/s p50) stepped off a drop at 1375,30,985 at 20.9 s, the grab went to 0 at 27.9 (defender role: no DeckScreen) and it went hunt / support and never reached the pile (died 57 s); T2's first ground arrival fell to a 17 m/s chassis at 65.3 s (+28.7 excess). deckskip.py: 7-28 s of such far frames per jetless 'Mech, both teams. The same chassis on T1 arrived at 34.6 s.",
+   "how_to_use": "DeckNear (RECOMP_BOT_DECK_NEAR / [Bots] DeckNear, default on): the DeckSkip / DeckScreen height test applies only within 100 m (horizontal) of the core. [C7] snatchdeck far_kept (s).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain_obj.c",
+     "line": 515
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "snatchit",
+    "objectives"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "tank-face-learned",
+   "title": "A tank stalls at the top of slp 43-53 faces the planner lets it plan over (TankSlope 55): TankFace learns them",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_ctrl.c TankFace"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "TankSlope lets tanks plan over cells up to slp 55 but the height samples smooth the lip: On the Rocks T2 plateau edge (1505-1530,1465-1550, sf 63.8 -> 52.6 within ~15 m, cells slp 43-53) stops the game's tank dead at the top every time (speed 0, rays clear): A11_84a3 b5 milled 100 s there (stall, backtrack, the next face), D11_84a b5 7 stalls, no T2 tank left the plateau in B11/D11. The tank grid still reaches the pile with slp <= 25 everywhere (tankreach.py); the plateau is isolated only at slp <= 20.",
+   "how_to_use": "TankFace (RECOMP_BOT_TANK_FACE / [Bots] TankFace, default on): on a tank stall with the carrot over a drop (ground 3 m+ lower 4-20 m ahead) the drop point is added to the PilotFace list with mask 2; tank plans (ma2_path_set_tank_face) treat slope >= 20 cells within 35 m of it as blocked for 10 min (the game tank stops at the lip itself, cells of slp 21-32, F12_84a). The third face one tank learns sets status.trapped (TankFaceBail: the bail gets the pilot out) -- G12_84a b5 learned seven faces round that plateau in 37-141 s and never got off. [C7] tankface learned / bails; [BOT-TANKFACE] with RECOMP_BOT_DIAG. Proof: tankface_proof.py.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 4605
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "tanks",
+    "planner"
+   ],
+   "date": "2026-11-11"
+  }
+ ]
+}

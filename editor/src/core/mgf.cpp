@@ -259,7 +259,13 @@ Bytes MgfWriter::build() const {
     const uint32_t nf = uint32_t(file_order.size()), nd = uint32_t(seq.size());
     const uint32_t file_offset = 0x40, dir_offset = file_offset + nf * 32, str_offset = dir_offset + nd * 24;
     uint32_t data_offset = (str_offset + uint32_t(strings.size()) + 15) & ~15u;
-    Bytes out(data_offset, 0);
+    // One allocation for the whole archive: appending file after file let the buffer grow by 1.5x steps, copying a few MB each
+    // time and needing 2.5x the final size at the peak (F-V5R-1: that growth is where a low-memory machine threw std::bad_alloc).
+    size_t total = data_offset;
+    for (uint32_t k = 0; k < nf; k++) total += ((files_[size_t(file_order[k])].data.size() + 15) & ~size_t(15)) + 16;
+    Bytes out;
+    out.reserve(total + 16);
+    out.assign(data_offset, 0);
     // Header words as in retail archives (game/ma2map.py, verified by the maintainer).
     uint32_t h[16] = {0x2066676Du, 0x5A5A0104u, 0x10, nf, nf * 32, file_offset, nd, nd * 24, dir_offset,
                       uint32_t(strings.size()), str_offset, 1, 0x10000, 0, 0, 0};

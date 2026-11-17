@@ -55,7 +55,7 @@ echo [resources]
 rc /nologo /fo obj\editor.res res\editor.rc || exit /b 1
 
 echo [app]
-cl %CFLAGS% /c src\app\*.cpp /I"%IMGUI%" /I"%IMGUI%\backends" /I"%IMGUI%\misc\cpp" /I"%MODELS%" /Foobj\app\ || exit /b 1
+cl %CFLAGS% /FI"tooltip_wrap.h" /c src\app\*.cpp /I"%ROOT%src\app" /I"%IMGUI%" /I"%IMGUI%\backends" /I"%IMGUI%\misc\cpp" /I"%MODELS%" /Foobj\app\ || exit /b 1
 link /nologo /Brepro /DEBUG:FULL /PDBALTPATH:%%_PDB%% /OPT:REF /OPT:ICF /subsystem:windows /out:"%MA2SE_EXE%" obj\app\*.obj obj\editor.res obj\imgui\*.obj obj\ma2core.lib obj\ma2models.lib ^
   d3d11.lib dxgi.lib d3dcompiler.lib user32.lib gdi32.lib shell32.lib ole32.lib comdlg32.lib dbghelp.lib dwmapi.lib imm32.lib winmm.lib advapi32.lib || exit /b 1
 echo built "%MA2SE_EXE%"

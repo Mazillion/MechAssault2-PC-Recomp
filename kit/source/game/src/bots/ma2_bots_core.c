@@ -1426,7 +1426,7 @@ static void ensure_nav(void)
     if (!nav && map_archive && ma2_bot_map_nav()) {
         nav = nav_from_archive(map_base);
         if (nav) snprintf(g_rt.nav_source, sizeof(g_rt.nav_source), "shipped:%s", map_base);
-        /* F21 (batch 2): a scenario built on In Your Face, New River City, Rush Hour or Witch Cauldron
+        /* F21: a scenario built on In Your Face, New River City, Rush Hour or Witch Cauldron
          * plays on that base's archive but may have its own terrain; the retail graph then sends
          * roams and flanks to ground that is not there. On a scenario the shipped graph has to sit
          * on this terrain (9 nodes in 10 on the height fit, nav_terrain_score), else the graph is generated;

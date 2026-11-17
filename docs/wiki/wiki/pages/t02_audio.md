@@ -211,3 +211,8 @@ update, and XACT/DSound objects in reclaimed heap memory (memory note, xact-free
 - **Stale docs.** `kit/source/game/src/apu/README.md` (GP/EP stubbed, waveOut) and `kit/source/game/src/audio/README.md` (DirectSound over waveOut)
 describe older code (REPORT:9-10). Do not use them for the live pipeline.
 
+## Editor listening spike: retail cues cannot be heard in the editor yet
+- `MAActionSound.CueEvent` / `MAActionMusic.MusicCue` / `MAActionPlayVoice.CueID` hold a **hash of an XACT cue name** (1003 of 1117 retail Mechs share 0x736146F4), resolved at run time by the game's name -> index lookup (sub_BCD10, wiki "sub_BCDC0 = play-cue dispatcher"). No table maps those hashes to names, and the hash function is not identified.
+- Banks: `game_files\media\Sound.xsb` (684 bytes, SDBK v11) + `Wave.xwb` (190 KB), and streaming wave banks `Audio\Music.DVDxwb` (326 MB), `SFXStream.HDxwb`, `Voice_<lang>.DVDxwb` (all WBND v3, Xbox ADPCM). The per-category sound banks (Explosion / Voice / Weapon / FrontEnd / Music `.xsb`) are named inside `movies.mgf`, i.e. packed in game archives, not loose files.
+- Playing a retail cue in the editor therefore needs (1) the cue-name hash, (2) every `.xsb` out of the archives (cue -> sound -> wave bank entry), (3) an Xbox ADPCM decoder. None exists in the editor; the Play button beside a game cue stays greyed with "The game's own sounds play only in the game for now". Own clips play from memory (`PlaySoundW`).
+

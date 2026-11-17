@@ -36,6 +36,8 @@ extern const char* kTriggerShapeGroup;   // "Trigger Volumes": the trigger boxes
 
 // Text ids the compiler allocates for inline text (n in [Strings]).
 constexpr int kStrBriefingTitle = 60000, kStrBriefing = 60001, kStrObjective = 60100, kStrMessage = 61000;
+// Texts the export generates (mission_extras): never handed out by add_text, dropped when a file is opened.
+constexpr int kStrGenerated = 64000, kStrGeneratedEnd = 65000;
 constexpr uint32_t kTextBase = 0x00F00000u, kAudioBase = 0x5C000000u;
 
 bool load_trigger_prototypes(GameData& gd, std::string* err = nullptr);
@@ -103,9 +105,24 @@ const WObj* object_by_uid(const Wdf& w, uint32_t uid);
 uint32_t add_trigger_object(Scenario& s, const char* cls, const std::string& name, uint32_t parent = 0);
 // A new action (a prototype MAAction* class) as the last child of the trigger, with usable defaults.
 uint32_t add_action_object(Scenario& s, uint32_t trigger_uid, const char* cls, const std::string& name);
+// The same on a bare world (the export copy), for generated objects: no Scenario, no dirty flag, a Broadcast gets BodyTextID 0.
+uint32_t gen_add_trigger(Wdf& w, const char* cls, const std::string& name, uint32_t parent);
+uint32_t gen_add_action(Wdf& w, uint32_t trigger_uid, const char* cls, const std::string& name);
+uint32_t gen_add_reference(Wdf& w, uint32_t parent, uint32_t target);
+// A copy of the retail prototype of any loaded class (MoeEntitySet, MATrigger, ...) as the last child of `parent`; 0: no prototype.
+uint32_t gen_add_proto(Wdf& w, const char* cls, const std::string& name, uint32_t parent);
 // MoeEntityReference child of `parent` pointing at `target`: a MATriggerLogic input or a MATriggerDestroyed unit.
 uint32_t add_reference(Scenario& s, uint32_t parent, uint32_t target);
 std::vector<uint32_t> reference_children(const Wdf& w, uint32_t uid);
+// The objectives tab's "Win the mission when every objective is done" trigger (a MATriggerLogic of this name).
+inline constexpr const char* kWinAllTrigger = "Win: every objective done";
+// With no inputs the game counts that logic trigger as met at load (instant win), so it stays switched off until it has
+// inputs. Returns how many triggers changed.
+int fix_win_all(Wdf& w);
+// True when that trigger exists but has no inputs (nothing completes the objectives): the mission cannot be won by it.
+bool win_all_idle(const Wdf& w);
+// Circle triggers saved by 1.0.9 with InRadiusCheck 0 ("outside") never fired; the game's outside value is 2.
+int fix_outside_circles(Wdf& w);
 // Objective radar targets: an MAObjectiveType child (ObjectiveNumber = the objective's slot) under each
 // target unit, as in the retail missions; the save lists them on MARoot (NumObjectiveObjects%d, ob%dobj%d).
 std::vector<uint32_t> objective_targets(const Wdf& w, int objective);  // the target units, in world order
@@ -169,7 +186,10 @@ int convert_legacy_triggers(Scenario& s);
 
 // Retail sound and music cues seen in the shipped missions (CueEvent / MusicCue values), with
 // a label from the trigger that plays them.
-struct CueInfo { uint32_t id; std::string label; };
+// `mission` ("Mission_05") and `words` (the game's text of a broadcast action that sits beside the cue action, the
+// subtitle the player reads while it plays) are shown first in the pickers; `label` is "words - Mission 05" when there are
+// words, else the old "Mission_05: trigger / action" line; `detail` is always the old line (the filter matches both).
+struct CueInfo { uint32_t id; std::string label, mission, words, detail; };
 const std::vector<CueInfo>& retail_sound_cues();
 const std::vector<CueInfo>& retail_music_cues();
 const std::vector<CueInfo>& retail_voice_cues();  // MAActionPlayVoice CueID values

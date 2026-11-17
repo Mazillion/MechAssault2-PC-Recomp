@@ -1,0 +1,119 @@
+{
+ "pack": "t35_lightning_units_1110",
+ "title": "Lightning flash: whole-scene flicker root cause and N.L-lit-only fix (R27 tint3)",
+ "facts": [
+  {
+   "id": "lightning-boost-overreach-multishade-flicker",
+   "title": "Root cause of the storm 'multiple shades' flicker: the PC lightning boost (B2) matched the sun colour by value in every draw",
+   "subject": {
+    "kind": "file",
+    "id": "nv2a_pb_exec.c raster_batch_program"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_LIGHTNING_UNITS"
+   ],
+   "fact": "The B2 unit-lightning boost (10-26) added +0.9 to every vertex constant equal to the env sun colour (env+0x88) in every programmable draw while env+0x16C was on. The terrain shader (7-stage n738 program) passes that constant straight into V1 for its light map, billboards, bushes and stale constant slots (absolute c159 always holds it) matched too, so the whole 3D view pulsed 1.2-2.3x 3-6 times per strike. A/B with RECOMP_LIGHTNING_UNITS=0 removed every such step. It is PC-only and not an overlay, so the lens-flash fix 9896cc8 cannot cover it.",
+   "how_to_use": "Fixed in v27-tint2 0e4fd01; RECOMP_LIGHTNING_UNITS=2 reproduces the old behaviour.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "lightning",
+    "render",
+    "tint",
+    "storm"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "lightning-boost-nl-lit-only-fix",
+   "title": "Fix: the lightning flash now lights only N.L-lit model draws (units), not terrain/sky/billboards",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_LIGHTNING_UNITS"
+   },
+   "addresses": [],
+   "related": [
+    "t35.lightning-boost-overreach-multishade-flicker"
+   ],
+   "fact": "The boost now applies only to a sun-colour constant the current vertex program reads directly (no a0-relative read) and uses as a MAD operand, in a program that also has a DP3 against a constant (the N.L model lighting). 'Mechs, VTOLs, tanks and the skinned pilot (sun read at absolute c159) still flash; terrain (sun into V1 via ILU mov), bushes (no DP3), billboards and stale slots do not. Bogged Down 4 min same driver: uniform whole-screen probe steps during lightning 20 -> 0 (3 total, all fades), flash brightness median/p90 1.12/1.77 -> 1.07/1.42 (boost off: 1.03/1.34). Residual: static N.L-lit props (big swamp trees, landing pads) still brighten a little, because the sun constant is global (no per-object light set) and the shader cannot tell a prop from a unit.",
+   "how_to_use": "RECOMP_LIGHTNING_UNITS: 0 off, 2 old match-by-value, default N.L-lit only. Exe v13-tint3-fix1 sha256 0ada4c2db73245c847393f202bf70122975ba41ffa2a22fc3d9e526a06b616fd. Proof: int3 (traces, pair_b_45.png).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "lightning",
+    "render",
+    "fix"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "sun-light-global-list-flash-never-applied",
+   "title": "The sun is applied from a GLOBAL light list per draw; the flash light (env+0x358) is never applied on PC",
+   "subject": {
+    "kind": "function",
+    "id": "0006D660"
+   },
+   "addresses": [
+    "000511C0",
+    "00052C20",
+    "0006D660"
+   ],
+   "related": [],
+   "fact": "sub_000511C0 (per-draw shader constant setup) walks the global light vector [0x524ACC] via sub_00052C20, calling each light's vtable +0x30 = sub_0006D660 (directional light apply: c[base] = direction light+0x60, c[base+1] = colour light+0x14, base = [0x524ABC]+0x68 + 0x60). A probe saw only the sun light (and the menu light) in that list, flash on or off: the flash light at env+0x358 is never applied, so units cannot flash natively and the per-draw sun constant is the same for units and static props. Other sun-colour writers: 0x512A6 (8-dword block), 0x6FF62 (terrain), 0x5ADC2 / 0x55F13 / 0x608EA / 0x4F8FF.",
+   "how_to_use": "clue for a per-object fix: find who should add env+0x358 to the light list (or a per-object list) for dynamic objects only.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "lightning",
+    "lights",
+    "render"
+   ],
+   "date": "2026-11-10"
+  },
+  {
+   "id": "lt-paint-diagnostic",
+   "title": "RECOMP_LT_PAINT_FILE: paint the draws of chosen vertex programs to see what they are",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_LT_PAINT_FILE"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Diagnostic (default off) in nv2a_pb_exec.c: the file lists vertex-program hashes (FNV of the program words, as printed in overlay-trace B/V lines); the sun-colour register of each listed program gets a colour (red, green, blue, yellow, cyan, magenta, white in list order) so a screenshot shows what it draws. An entry '1' dumps every draw of one flip (B and K lines with the low constants). Found: EEB06244 = 'Mech, 2F421162/67E1ED8D = VTOL, 56E0CFFE = pilot (skinned), 428FCB07 = big trees, 9FE61736 = bushes, 82CD29E1 = terrain (Bogged Down).",
+   "how_to_use": "Needs RECOMP_OVERLAY_TRACE=1 and RECOMP_OVERLAY_TRACE_FILE; the file is re-read every 30 flips.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/kernel/nv2a_pb_exec.c",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "diagnostic",
+    "lightning",
+    "render"
+   ],
+   "date": "2026-11-10"
+  }
+ ]
+}

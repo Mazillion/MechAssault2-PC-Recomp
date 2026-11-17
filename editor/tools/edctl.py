@@ -8,9 +8,11 @@ ImGui queue, screenshots come from its back buffer, and OS dialogs are answered 
   edctl.py shot OUT.png
   edctl.py click X Y [--button right] [--double]  |  edctl.py click "Units and Props/Enemy" [--button right]
   edctl.py hover "Label path"  |  edctl.py find "Label path"  |  edctl.py items [FILTER] [--all]
-  edctl.py move X Y | down X Y | up X Y [--button B]
-  edctl.py drag X1 Y1 X2 Y2 [--button right] [--frames 20]
-  edctl.py wheel DELTA [--at X Y]
+  edctl.py move X Y | down X Y | up X Y [--button B] [--mods ctrl+shift]
+  edctl.py drag X1 Y1 X2 Y2 [--button right] [--frames 20] [--mods ctrl+shift]
+  edctl.py wheel DELTA [--at X Y] [--mods ctrl]
+  (--mods on any mouse command holds the modifiers for that action only; click / double / hover take it too)
+  edctl.py sel | objects [FILTER] [--near X Z R] [--limit N] | ground X Z | release_all
   edctl.py key NAME [--mods ctrl+shift] [--action press|down|up] [--hold FRAMES]
   edctl.py text "typed text"
   edctl.py wait FRAMES
@@ -113,6 +115,8 @@ def main(argv):
     ap.add_argument('--double', action='store_true')
     ap.add_argument('--frames', type=int, default=20)
     ap.add_argument('--at', nargs=2, type=float)
+    ap.add_argument('--near', nargs=3, type=float, metavar=('X', 'Z', 'R'))
+    ap.add_argument('--limit', type=int)
     ap.add_argument('--mods', default='')
     ap.add_argument('--action', default='press')
     ap.add_argument('--hold', type=int, default=0)
@@ -134,25 +138,47 @@ def main(argv):
         cmd = {'cmd': 'screenshot', 'path': os.path.abspath(p[0])}
     elif v == 'click' and len(p) >= 2 and _num(p[0]) and _num(p[1]):
         cmd = {'cmd': 'mouse', 'action': 'double' if a.double else 'click', 'x': float(p[0]), 'y': float(p[1]), 'button': a.button}
+        if a.mods:
+            cmd['mods'] = a.mods
     elif v == 'click':
         cmd = {'cmd': 'click_item', 'item': ' '.join(p), 'button': a.button, 'double': a.double}
+        if a.mods:
+            cmd['mods'] = a.mods
     elif v in ('hover', 'find'):
         cmd = {'cmd': v + '_item', 'item': ' '.join(p)}
     elif v == 'items':
         cmd = {'cmd': 'items', 'filter': ' '.join(p), 'all': a.all}
+        if a.limit is not None:
+            cmd['limit'] = a.limit
     elif v in ('move', 'down', 'up'):
         cmd = {'cmd': 'mouse', 'action': v, 'button': a.button}
         if len(p) >= 2:
             cmd.update(x=float(p[0]), y=float(p[1]))
+        if a.mods:
+            cmd['mods'] = a.mods
     elif v == 'drag':
         cmd = {'cmd': 'mouse', 'action': 'drag', 'x': float(p[0]), 'y': float(p[1]), 'x2': float(p[2]), 'y2': float(p[3]),
                'button': a.button, 'frames': a.frames}
+        if a.mods:
+            cmd['mods'] = a.mods
     elif v == 'wheel':
         cmd = {'cmd': 'mouse', 'action': 'wheel', 'delta': float(p[0])}
         if a.at:
             cmd.update(x=a.at[0], y=a.at[1])
+        if a.mods:
+            cmd['mods'] = a.mods
     elif v == 'key':
         cmd = {'cmd': 'key', 'key': p[0], 'mods': a.mods, 'action': a.action, 'hold_frames': a.hold}
+    elif v in ('sel', 'release_all'):
+        cmd = {'cmd': v}
+    elif v == 'ground':
+        cmd = {'cmd': 'ground', 'x': float(p[0]), 'z': float(p[1])}
+    elif v == 'objects':
+        cmd = {'cmd': 'objects', 'filter': ' '.join(p)}
+        if a.near:
+            cmd.update(cx=a.near[0], cz=a.near[1], r=a.near[2])
+        if a.limit is not None:
+            cmd['limit'] = a.limit
     elif v == 'text':
         cmd = {'cmd': 'text', 'text': ' '.join(p)}
     elif v == 'wait':

@@ -5,6 +5,7 @@
 
 #include <deque>
 #include <map>
+#include <set>
 #include <memory>
 #include <string>
 #include <vector>
@@ -50,36 +51,37 @@ struct GpuMesh {
     // material_env (cockpit / canopy glass): base x diffuse x light + reflectivity x the level's env cube.
     float reflectivity = 0;   // negative: envmaptype "masked" (lerp toward the cube instead of adding it)
     // DETAIL materials (second UV set): 1 = decal lerp(base, 2 x base x detail, 0.5) (KillingField
-    // paving, R2-9); 2 = alpha overlay rgb lerp(base, detail, 0.5), a = base.a x detail.a (swamp moss, R2-7);
-    // 3 = additive glow card lerp(base, detail, 0.835) (R2-11); 4 = COMPLEX + detail (KillingField
-    // trace line 10124, R2-9 #3): base' = lerp(env cube, base, base.a), lerp(base', 2 x base' x detail,
+    // paving); 2 = alpha overlay rgb lerp(base, detail, 0.5), a = base.a x detail.a (swamp moss);
+    // 3 = additive glow card lerp(base, detail, 0.835); 4 = COMPLEX + detail (KillingField
+    // trace line 10124): base' = lerp(env cube, base, base.a), lerp(base', 2 x base' x detail,
     // (1 - multi.a) x detail_level).
     ID3D11ShaderResourceView* detail = nullptr;
     int detail_mode = 0;
     // Mode 1 mix: the .mat's blend_level for blend="modulate" (Mission_13b cypress trunks, modulate
-    // 0.8 = the trace's lerp 0.8, R2-12 #3); 0.5 otherwise. Mode 4: detail_blend_level (default 1).
+    // 0.8 = the trace's lerp 0.8); 0.5 otherwise. Mode 4: detail_blend_level (default 1).
     float detail_level = 0.5f;
     int detail_kind = 0;       // detail_blend: 0 modulate2x, 1 alphablend, 2 additive2x (modes 1 and 4)
     // A ground decal drawn as dst x src x 2 over the lit terrain (pass 2). Nothing sets it yet: the
     // KillingField "paving" decal turned out to be the terrain micro-detail pass.
     bool decal = false;
-    bool tint1 = false;        // COMPLEX colorshift1_diffuse: light x lerp(1, colorshift1, mask.b) (R2-11)
-    float spec[3] = {};        // material_specular_mask: + base.a x cube.a x spec_color (mask inferred, R2-11)
+    bool tint1 = false;        // COMPLEX colorshift1_diffuse: light x lerp(1, colorshift1, mask.b)
+    float spec[3] = {};        // material_specular_mask: + base.a x cube.a x spec_color (mask inferred)
     bool complex_env = false;  // COMPLEX + own cube, no detail: base' = lerp(cube, base, base.a)
     // material_color_shift (the sky domes): + colorshift0_color x base.a, unlit (Ill Wind sky trace: out = T.rgb + C0 x T.a).
     float cshift[3] = {};
+    float ymax = 0;  // highest vertex (model space): a sky mesh reaching above the horizon is a dome
     float skycol[3] = {1, 1, 1};  // diffuse + selfillum unclamped (<= 2): the sky's V0 = (Kd + Ke) / 2 goes through the x2 (Dusk02 sky_main Ke 0.898 -> 1.9x, BD trace d0 0.949)
     float bloom[3] = {0, 0, 0};  // bloom mask weights: colorshift0_bloom, colorshift1_bloom, specular_bloom (the game writes them to the framebuffer alpha)
     bool translucent = false;    // material shading "translucent" (trees, bushes): lit with N.L = 1
     int bloom_kind = 0;          // 1 material_color_shift, 2 COMPLEX, 3 specular_mask; 0 none
     bool spec_detail = false;  // specular_mask: the mask is the material's detailtexture .r
-    bool spec_multi = false;   // COMPLEX: the specular mask is multi.r, not base.a (R2-15 #1)
+    bool spec_multi = false;   // COMPLEX: the specular mask is multi.r, not base.a
     bool spec_crystal = false; // COMPLEX + detail + cube + glow (M12 crystals, program 08C21): spec = detail.a x cube.rgb (research)
-    // normal_map slot: tangent-space normals for per-pixel sun N.L (owned by the texture cache, R2-12 #1).
+    // normal_map slot: tangent-space normals for per-pixel sun N.L (owned by the texture cache).
     ID3D11ShaderResourceView* normal = nullptr;
     // The material's own cubetexture (Hesperus crystals), used instead of the level env cube.
     ID3D11ShaderResourceView* cube = nullptr;
-    // Untextured additive mesh (turret blink lights, Mission_13b): out = 2 x V0, fog to black (R2-12 #2).
+    // Untextured additive mesh (turret blink lights, Mission_13b): out = 2 x V0, fog to black.
     // V0 = material colour x the vertex colour when the mesh has one.
     bool vcol_glow = false;
 };
@@ -139,7 +141,12 @@ public:
 
     // Model for a (Corporal3DObj, CorporalMTB) pair; queued when not loaded yet. crop: a cropped road piece or foundation
     // (crop.h format, "" = whole): its triangles are cut to that rectangle in model space, and its bounds with them.
-    GpuModel* get(const std::string& model, const std::string& mtb, const std::string& crop = std::string());
+    // standin (the view while a crop is dragged): a cut variant still queued shows the newest Ready cut of the same model instead of
+    // an empty frame.
+    GpuModel* get(const std::string& model, const std::string& mtb, const std::string& crop = std::string(), bool standin = false);
+    // Cut variants of one model (every crop key it has been asked for). Frees those whose crop key is not in `keep` (at the end of a size drag).
+    void drop_crop_variants(const std::string& model, const std::string& mtb, const std::set<std::string>& keep);
+    int crop_variants(const std::string& model, const std::string& mtb) const;
     // Loads queued models for up to budget_ms. Returns true if anything finished loading.
     bool pump(double budget_ms);
     size_t pending() const { return queue_.size(); }
@@ -161,6 +168,7 @@ public:
     // The game's rain particle for a rain level: the snow particle at `path` turned into rain by the same
     // weather::rain_particle_xml the save uses, so the view and the game draw the same file (cached per level).
     const ma2::ParticleFx* rain_particle(const std::string& path, int level);
+    const ma2::ParticleFx* dust_particle(const std::string& path, bool haze);  // Weather::dust_particle_xml
     void clear();
     // Releases what clear() retired (call after Present).
     void end_frame();
@@ -189,6 +197,7 @@ private:
     std::string base_;
     std::map<std::string, std::unique_ptr<GpuModel>> models_;
     std::deque<std::string> queue_;
+    std::map<std::string, std::string> last_ready_;  // model|mtb -> key of its newest Ready cut variant (the drag's stand-in)
     std::map<std::string, ID3D11ShaderResourceView*> srvs_;
     std::map<std::string, ID3D11ShaderResourceView*> thumbs_;
     std::map<std::string, WaterMaterial> water_;

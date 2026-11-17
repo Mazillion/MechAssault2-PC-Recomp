@@ -1,0 +1,124 @@
+{
+ "pack": "t56_f56_e2b_skies_dust_water_1116",
+ "title": "Skies, dust storm and resized water in the game vs the editor (2026-11-16)",
+ "facts": [
+  {
+   "id": "sky-dome-ignores-corporalheading",
+   "title": "The game does not turn the sky dome by MASky2 CorporalHeading: the dome matrix is 10000 x the MGMODEL node world",
+   "subject": {
+    "kind": "concept",
+    "id": "MASky2 CorporalHeading"
+   },
+   "addresses": [],
+   "related": [
+    "sky-dome-position-formula",
+    "sky-dome-fog-height-formula-and-fog-colour-fallback"
+   ],
+   "fact": "PC Release frame trace of Env_SkyNOR_02 (White cloudy sky, CorporalHeading -41, Under Cover MP base): the dome draw's model matrix (VS c4.c7) is rows (6545,0,11151),(0,11547,0),(-11151,0,6545): 12930 = 10000 x node scale 1.293, turned 59.6 deg = the env_skynor_01 node's own rot_angle 1.04 rad, nothing for the heading. At the same camera (solved from the terrain draw: eye 490.6,12.9,343.1, forward +X, vfov 37.5) the editor sky matched the game only without the heading: sky region 127 vs game 125 (with the heading 174, the G0 1.35x).",
+   "how_to_use": "Editor draws every sky with heading 0 (app.cpp sky setup, sky thumbnails). The old flag --sky-heading-add stays for probes.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "sky",
+    "render",
+    "editor"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "starry-space-mgmodel-not-shipped",
+   "title": "Starry space drew nothing on custom maps because the world named Env_SkySpace.MGMODEL while [Assets] shipped Env_SkySpace.NODE",
+   "subject": {
+    "kind": "concept",
+    "id": "Env_SkySpace"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Env_SkySpace exists as .MGMODEL only in cinema_2_4 and as .NODE in cinema_2_1 (and other cinemas); the editor's dependency collector resolves per archive in order and found the .NODE first, so [Assets] carried the NODE and its .mesh files but not the MGMODEL the world named. PC Release then drew no sky draw at all (trace: 0 sky draws, frame cleared black). With the world naming the shipped .NODE the game draws the opaque star dome (V0 1, x2, alpha test > 0.878), the 6 additive nebulas and the sky-fog band at the horizon. Planet seen from space (Env_Planet) is not a dome: its planet mesh sits at model y -140.-53, below the horizon, so the game shows a black sky (clear colour 0) with nothing in it from the ground.",
+   "how_to_use": "Editor save: a picked MASky2 names the file the resolver ships (resolve_model_paths). Sky meshes with selfillum > 0.9 stay opaque (not the additive self-lit rule). A sky without an opaque mesh above the horizon clears the view black.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "sky",
+    "assets",
+    "editor"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "dust-storm-template-files-missing",
+   "title": "Dust storm (PrecipEffectID 31516 Env_DustStorm_Wst) names Env_DustStorm_Wst.node / .mtb that no archive holds; shipping files at those paths makes it build",
+   "subject": {
+    "kind": "concept",
+    "id": "MAPrecipitation 31516"
+   },
+   "addresses": [],
+   "related": [
+    "unknown-precipeffectid-spawns-nothing-and-breaks-lighting",
+    "scenario-embedded-retail-path-files-are-used-by-the-game"
+   ],
+   "fact": "Template 31516 (GlobalEntities): Corporal3DObj \\SpecialEffects\\Environment\\Env_DustStorm_Wst\\Env_DustStorm_Wst.node, CorporalMTB .\\Env_DustStorm_Wst.mtb; no .mgf on the disc has either (the wasteland level was cut). Without them the game cannot build the precipitation object and the world lighting breaks (dark violet ground, magenta band; G0 L4). A scenario that ships a .node (MAXPort ini, type NODE, child = Env_DustStorm_Wst.MGMODEL), a copy of Env_Precip_Snow_01.MGMODEL, the snow .mtb with its two particle paths renamed at the same length (Env_Dust_01 / Env_DustHaze_01) and two brown particles plays in PC Release 1.0.9 with normal lighting and drifting dust puffs.",
+   "how_to_use": "Editor weather:dust_files / add_dust (save) and the same particles in the view.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "weather",
+    "precipitation",
+    "editor"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "mawater-draws-template-model",
+   "title": "MAWater draws its TEMPLATE's model in PC Release, not the instance's Corporal3DObj: resized waters are 1000 m sheets",
+   "subject": {
+    "kind": "concept",
+    "id": "MAWater Corporal3DObj"
+   },
+   "addresses": [
+    "000D6EC6",
+    "000D9C64",
+    "000D75C7",
+    "000D7584"
+   ],
+   "related": [
+    "bs-mawater-size",
+    "custom-water-model-indexedlist-oval-loads-in-pc-release-no-s"
+   ],
+   "fact": "Three resized Env_Water1000x1000 waters (generated MA2SE_._176x24 / 176x32 / 80x60 models shipped in the scenario, 10 vertices each) are drawn by PC Release with the retail mesh: every water pass (ground-light pre-pass and the 5 water passes, 15 draws) has 878 strip vertices with model extents -500.500 (RECOMP_FRAME_TRACE_VERTICES). OverrideTemplate 1 on the instance changes nothing. The model getter sub_000D6EC6 returns the object's own string at +0x198 when set, else the template's (+0x60 template id via sub_000B5B30); the MACorporeal loader sub_000D9C64 reads Corporal3DObj into the block at +0x178 only when that block exists. Custom water size therefore does not reach the game; this is the near-ground darkening of E3 / G0 (the sheet covers flat ground at the water's height).",
+   "how_to_use": "Open: a custom-level hook so a scenario MAWater builds its own model (e.g. the slot-113 build sub_000D75C7, reached through [obj+0x1C4], with +0x198 pointing at the instance path). Until then the editor cannot make a resized water the size it shows.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "water",
+    "render",
+    "game"
+   ],
+   "date": "2026-11-16"
+  }
+ ]
+}

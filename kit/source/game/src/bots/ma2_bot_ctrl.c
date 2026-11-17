@@ -98,7 +98,7 @@ static void tank_orbit_pivot(BotCtrl *c, const Ma2World *w, const Ma2PlayerView 
 }
 /* Nearest a steering point may be while under way: MoveTo brakes for a point closer than this,
  * and a body that brakes at every corner walks in little steps instead of a steady stride. */
-/* F35 (batch 2): BattleArmor's 8 m sat inside MoveTo's 5-10 m halt band, so a BA braked at every
+/* BattleArmor's 8 m sat inside MoveTo's 5-10 m halt band, so a BA braked at every
  * corner and stood still long enough for the progress watchdog (76 of 80 stalls on Killing Field,
  * nearly all single stalls in open ground), and each stall then sent it 4 s backwards. Now 14 m,
  * and a BA's first stall where the map shows open ground ahead replans without the backtrack.
@@ -6456,7 +6456,7 @@ static int jet_show(int index, Bot *b, BotCtrl *c, const Ma2World *w, const Ma2P
     return 1;
 }
 
-/* Pilot bombs (batch 3, playtest 2026-10-27: on foot the pilot's weapon is a bomb, left mouse = place, press
+/* Pilot bombs (playtest 2026-10-27: on foot the pilot's weapon is a bomb, left mouse = place, press
  * again = set it off; wiki pilot-bomb-*). The human path: fire (command 21, behaviour +0x268) -> behaviour
  * slot 50 sub_1B0682 (avatar +0x26C bit 17 set, bit 25 clear) -> sub_1041FB -> DropPackManager at avatar
  * +0x254 (state +0x80, pack +0x84, out +0x7C = a byte). The pack goes off when an enemy stays inside 15 m for 5 s:
@@ -6467,7 +6467,7 @@ static int jet_show(int index, Bot *b, BotCtrl *c, const Ma2World *w, const Ma2P
  * [C7] pbomb: tries_ambush / tries_trap / placed / gone / skip_team. */
 static int pbomb_on(void) { return c7_on("pbomb", "RECOMP_BOT_PILOT_BOMB", "PilotBomb", 1); }
 static const char *const k_bomb_why[6] = { "tries_none", "tries_ambush", "tries_trap", "tries_guard", "tries_checkpoint", "tries_core" };   /* +6 = the name */
-/* Pilot bombs (batch 4): a pack goes off 5 s after a unit that sets it off (FFA: anyone but its owner; teams:
+/* Pilot bombs: a pack goes off 5 s after a unit that sets it off (FFA: anyone but its owner; teams:
  * another nation) comes inside 15 m -- 1000 damage over 25 m, owner and teammates included -- and a blast sets
  * off the packs around it. So a bomb with its fuse running (or within 25 m of one that has) is left AT ONCE to
  * past 25 m plus our hull, whatever the bot was doing; one we would set off ourselves is left before we reach
@@ -7443,7 +7443,7 @@ static void ctrl_tick(int index, Bot *b, const Ma2World *w, int self)
         if (nf_fired) { c->tgt = o->target; ctrl_engaged(c, b, w); }
         else if (o->structure && hdist2(me->pos, o->structure_pos) < 260.f && !ctrl_fire_structure(c, w, me, o->structure, o->structure_pos)) {
             /* At the building with no clear shot (scenery, a hull or a teammate in between): after 3 s, close in.
-             * Base War side step (batch 2, [Bots] ObjSideStep): closing in straight wedged attackers against the
+             * Base War side step ([Bots] ObjSideStep): closing in straight wedged attackers against the
              * base for the rest of the match (F20 run: frozen 25 s at 69 m); instead walk to a firing spot 70 deg
              * round the building, the other side each time, re-picked every 8 s or when we stop moving. */
             if (c->obj_nolos_t <= 0.0 || w->time < c->obj_nolos_t) { c->obj_nolos_t = w->time; c->obj_side_t = 0.0; }

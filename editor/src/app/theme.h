@@ -1,4 +1,4 @@
-// The editor's one look: MechAssault 2 front-end colours, shapes and fonts (ux/style-guide.md).
+// The editor's one look: MechAssault 2 front-end colours, shapes and fonts.
 // Every panel reads colours from here; nothing else sets its own colours, fonts or frame styles.
 #pragma once
 #include "imgui.h"
@@ -21,6 +21,7 @@ void apply(ImGuiStyle& s);
 // Fonts: body (Segoe UI) and heading (Impact, Segoe UI Bold when missing). Call once after the context exists.
 void load_fonts(ImGuiIO& io, const wchar_t* windir);
 ImFont* heading_font();
+ImFont* tab_font();  // the tab strip's labels (Segoe UI Bold; falls back to the heading face)
 // ImGui::Begin / End with the title bar in the heading face (the window's contents stay in the body face).
 // Always pair begin_window with end_window, also when it returns false.
 bool begin_window(const char* name, bool* open = nullptr, int flags = 0);
@@ -47,6 +48,12 @@ void bracket_window();
 // A fold-out section header (ImGui::CollapsingHeader) in the plain button fill, so a closed section never wears
 // the selected-row fill that chosen list rows and toggles use.
 bool section(const char* label, int flags = 0);
+// A slider whose value is written as text in a fixed column to the right of the bar (never inside the bar,
+// where a narrow bar cut it off). The width is the pending SetNextItemWidth / the default item width, shared by the bar and the
+// column. `fmt` is the display and typing format as for ImGui::SliderFloat; Ctrl+click and double-click still type. The last item
+// stays the slider (hover, IsItemDeactivatedAfterEdit and tooltips read the bar).
+bool slider_float(const char* id, float* v, float lo, float hi, const char* fmt = "%.2f", ImGuiSliderFlags flags = 0);
+bool slider_int(const char* id, int* v, int lo, int hi, const char* fmt = "%d", ImGuiSliderFlags flags = 0);
 // A heading in the condensed face with the game's dark drop shadow.
 void heading(const char* text);
 // The game's white L-shaped corner brackets around a rectangle (modals, start page cards only).

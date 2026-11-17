@@ -8,6 +8,7 @@
 
 #include "crop.h"
 #include "ma2models.h"
+#include "placement.h"
 #include "scenario.h"
 
 namespace ma2 {
@@ -50,16 +51,13 @@ float ScenarioIO::road_rest_height(const Scenario& s, const std::string& road_pa
             z0 = std::min(p[0][2], p[1][2]); z1 = std::max(p[0][2], p[1][2]);
         }
     }
-    // Sample the turned rectangle about every 2 m (the terrain grid is coarser).
-    float ch = std::cos(yaw), sh = std::sin(yaw), top = s.terrain.height_at(at.x, at.z);
-    int nx = std::max(2, int((x1 - x0) / 2) + 1), nz = std::max(2, int((z1 - z0) / 2) + 1);
-    for (int i = 0; i < nx; i++)
-        for (int j = 0; j < nz; j++) {
-            float lx = x0 + (x1 - x0) * float(i) / float(nx - 1), lz = z0 + (z1 - z0) * float(j) / float(nz - 1);
-            float x = at.x + ch * lx + sh * lz, z = at.z - sh * lx + ch * lz;
-            if (s.terrain.inside(x, z)) top = std::max(top, s.terrain.height_at(x, z));
-        }
-    return top + 0.15f;
+    // The road rests kSheetLift above the highest ground under its footprint (placement.h); the stack of sheets over it is the
+    // app's (App::reseat_sheets), this is the height on bare ground.
+    place::Sheet sh;
+    sh.pos = at;
+    sh.yaw = yaw;
+    sh.fp = {x0, x1, z0, z1};
+    return place::ground_max(s.terrain, sh) + place::kSheetLift;
 }
 
 uint32_t ScenarioIO::place_road(Scenario& s, const std::string& road_path, Vec3 at, float yaw) {
@@ -69,6 +67,7 @@ uint32_t ScenarioIO::place_road(Scenario& s, const std::string& road_path, Vec3 
     WObj road = *rp;
     WObj group = *gp;
     road.erase(key_of(crop::kProp));  // the prototype can be a cropped piece of this world: a new piece is whole
+    road.erase(key_of(place::kLayerProp));  // ...and a layered one: a new piece gets its own layer
     uint32_t next = next_uid(s.world);
     uint32_t placed = ensure_group(s.world, terrain_uid(s.world), "Placed Roads", next);
     // One road group for all the pieces placed here.

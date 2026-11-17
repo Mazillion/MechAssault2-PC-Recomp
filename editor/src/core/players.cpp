@@ -75,7 +75,7 @@ void ScenarioIO::fixup_clone(Scenario& s, std::vector<WObj>& clone, const Wdf& s
     for (auto& o : src.objs) if (o.cls == K_SET) src_sets[o.uid()] = o.description();
     // A new set takes an id above the clone's own: the clone was numbered from the world's next id, and a set
     // sharing one of those ids had its links renumbered with the clone (Grinder kit: every wave 'Mech's
-    // SetMember pointed at the kit's group or its path data, bots F47).
+    // SetMember pointed at the kit's group or its path data).
     uint32_t clone_top = 0;
     for (auto& o : clone) clone_top = std::max(clone_top, o.uid());
     auto our_set = [&](const std::string& name) -> uint32_t {
@@ -417,6 +417,19 @@ void ScenarioIO::apply_unit_side(Scenario& s, uint32_t uid, int nation) {
     }
     if (o.find("m_bAIEnabled")) o.set_i32("m_bAIEnabled", 0);
     set_boardable(s, uid, true);
+}
+
+bool ScenarioIO::crew_for_side_change(Scenario& s, uint32_t uid) {
+    WObj* o = nullptr;
+    for (auto& x : s.world.objs) if (x.uid() == uid) { o = &x; break; }
+    if (!o || !o->find("StartAbandoned") || o->i32("StartAbandoned") == 0) return false;
+    o->set_i32("StartAbandoned", 0);
+    if (o->find("AttackPilot")) o->set_i32("AttackPilot", 1);
+    if (o->find("InitiallyCollidable")) o->set_i32("InitiallyCollidable", 1);
+    if (o->find("ForceUseLowDetail")) o->set_i32("ForceUseLowDetail", 0);
+    if (o->find("m_bAIEnabled")) o->set_i32("m_bAIEnabled", 0);
+    set_boardable(s, uid, false);  // may remove a child: `o` is not used after this
+    return true;
 }
 
 bool ScenarioIO::can_board(uint32_t tpl) {

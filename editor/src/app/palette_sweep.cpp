@@ -105,7 +105,7 @@ void App::dump_search(const std::string& words, const std::string& path) {
         std::string shown = palette_name(t);
         bool in_group_word = false;
         for (auto& g : palette_extra_groups()) if (lower(g.first) == w) in_group_word = palette_group_has(t, g.first);
-        bool hit = in_group_word || palette_search_match(w, t, shown);
+        bool hit = in_group_word || palette_rank_of(w, t, palette_plain_name(t)) >= 0;
         if (!hit) continue;
         std::string gs;
         for (auto& g : palette_extra_groups()) if (palette_group_has(t, g.first)) gs += std::string(g.first) + "; ";

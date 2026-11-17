@@ -147,13 +147,24 @@ static int ctf_stage(Ma2Brain *b, const Ma2World *w, const Ma2PlayerView *me, co
         if (c7_on("stagelatch", "RECOMP_BOT_STAGE_LATCH", "StageLatch", 1)) { b->ctf_go_until = b->now + 45.0; c7_add("ctf", "past_latched", 1); }
         return 0;
     }   /* already past it */
+    /* StageComing (default on, RECOMP_BOT_STAGE_COMING / [Bots] StageComing; design 11-14): only a teammate who can get here inside the wait
+     * counts (there already, or a ground unit within 300 m of the stage point or of me, not carrying their flag). The idle player at our spawn,
+     * a pilot respawning 700 m back and our gunship fighting 250 m off all counted, so a 2v2 attacker stood the whole 12 s at the stage point
+     * waiting for nobody (c34bd_a1 bot 1, t=122-134 and 210-222). Nobody coming: go now, latched like the staged go. [C7] ctf: stage_nobody. */
+    int scoming = c7_on("stagecoming", "RECOMP_BOT_STAGE_COMING", "StageComing", 1);
     for (i = 0; i < w->nplayers && i < MA2_WORLD_MAX_PLAYERS; i++) {
         const Ma2PlayerView *q = &w->players[i];
         if (q->player == me->player || q->nation != me->nation || !q->alive || !q->actor) continue;
+        int qnear = hdist(q->pos, st) < 70.0f || hdist(q->pos, me->pos) < 50.0f;
+        if (scoming && !qnear && ((hdist(q->pos, st) > 300.0f && hdist(q->pos, me->pos) > 300.0f) || (theirs->carrier && theirs->carrier == q->player) ||
+                                  kind_ok(q->kind) == MA2_KIND_VTOL)) continue;
         nteam++;
-        if (hdist(q->pos, st) < 70.0f || hdist(q->pos, me->pos) < 50.0f) near++;   /* there, or coming with me */
+        if (qnear) near++;   /* there, or coming with me */
     }
-    if (nteam == 0) return 0;
+    if (nteam == 0) {
+        if (scoming && hdist(me->pos, st) < 50.0f) { c7_add("ctf", "stage_nobody", 1); b->ctf_go_until = b->now + 45.0; }
+        b->ctf_stage_t = 0.0; return 0;
+    }
     need = 1;
     /* StageUnderFire (default on, RECOMP_BOT_STAGE_FIRE / [Bots] StageUnderFire): the stage hold (1.02-1.15) out-scored cover and attack,
      * so a bot waiting there stood and died: r1_62 (CTF Going Commando) b2 in the pit at 524,7,735, 850 -> 0 hp twice (24.5-32.8,
@@ -206,6 +217,8 @@ static int ctf_lead(const Ma2World *w, const Ma2PlayerView *me, const Ma2Objecti
 #define CTF_GRAB_R 20.0f
 static int ctf_capc_on(void) { return c7_on("ctfcap", "RECOMP_BOT_CTF_CAP_COMMIT", "CtfCapCommit", 1); }
 static int ctf_grabc_on(void) { return c7_on("ctfgrab", "RECOMP_BOT_CTF_GRAB_COMMIT", "CtfGrabCommit", 1); }
+/* CapAnyway (see obj_ctf): MechAssault 2 scores a capture with the carrier's own flag away; also lifts RunNeedsHome (frun_consider) */
+static int cap_anyway_on(void) { return c7_on("capanyway", "RECOMP_BOT_CTF_CAP_ANYWAY", "CapAnyway", 1); }
 
 static void ctf_capz_close(Ma2Brain *b, int how)   /* 1 captured, 2 left the zone / lost the flag, 3 died */
 {
@@ -274,8 +287,18 @@ static void obj_ctf(Ma2Brain *b, const Ma2World *w, const Ma2PlayerView *me, flo
     ctf_zone_tick(b, w, me, mine, theirs);
     if (theirs->carrier == me->player) {                      /* run it home */
         /* A capture needs our own flag on its stand. If it is gone, wait at
-         * home -- or go take it back from a carrier close by. */
-        if (mine->state != MA2_OBJS_HOME && hdist(me->pos, mine->home) < 60.0f) {
+         * home -- or go take it back from a carrier close by.
+         * CapAnyway (default on, RECOMP_BOT_CTF_CAP_ANYWAY / [Bots] CapAnyway; design 11-14): NOT in MechAssault 2. A carrier that comes within
+         * ~10 m of its own stand scores whether or not its own flag is there (player stat 18 +1 and the team's 10 points: c34bd_b1 t=57.5,
+         * c34bd_a1 t=54.6, c34de1 t=143.8, own flag carried by the enemy each time; 11 of 11 'carried -> home' events in 6 recordings came
+         * with the carrier 9.4-10.9 m from its own stand). The hold below kept carriers 10-20 m off their stand (the guard patrol), so a
+         * capture happened only when the patrol strayed onto it. Now the stand is walked onto as when our flag is home (our flag lying
+         * dropped within 120 m is still touched home first: it is on the way). [C7] capanyway: carrier_s (seconds near home with ours away). */
+        int wait_home = mine->state != MA2_OBJS_HOME && hdist(me->pos, mine->home) < 60.0f;
+        if (wait_home && cap_anyway_on() && !(mine->state == MA2_OBJS_DROPPED && hdist(me->pos, mine->pos) < 120.0f)) {
+            wait_home = 0; c7_add("capanyway", "carrier_s", b->zone_dt);
+        }
+        if (wait_home) {
             if (mine->state == MA2_OBJS_DROPPED && hdist(me->pos, mine->pos) < 120.0f)
                 obj_set(b, OP_CARRY, mine->pos, 0.0f, 2.5f, s, theirs->entity);          /* touch = return it */
             else if (mine->carrier && hdist(me->pos, mine->pos) < 150.0f)
@@ -673,7 +696,7 @@ static void obj_basewar(Ma2Brain *b, const Ma2World *w, const Ma2PlayerView *me,
     const Ma2ObjectiveView *tgt = NULL, *own = NULL;
     float td = 1e9f, od = 1e9f, z = b->obj_zeal, top = 0.0f;
     int i, nt = 0;
-    /* batch 4 (4D): the plant first. A base's other team buildings (Bogged Down: a 2000-hp VTOL bay beside the
+    /* the plant first. A base's other team buildings (Bogged Down: a 2000-hp VTOL bay beside the
      * 24000-hp power plant) drew a share of the attackers' rank spread; the biggest enemy building is the one
      * worth the trip, a smaller one only when it is 150 m+ nearer. Switch RECOMP_BOT_BW_PLANT / [Bots] BaseWarPlant. */
     int plant = c7_on("bwplant", "RECOMP_BOT_BW_PLANT", "BaseWarPlant", 1);

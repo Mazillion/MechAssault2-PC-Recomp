@@ -84,7 +84,7 @@ bool App::object_joints(const WObj& o, std::vector<Joint>& js) {
     // Walls, gates, fences, bridge pieces: the two ends of the long footprint axis, at the base.
     const TemplateInfo* t = cat_ ? cat_->find(o.template_id()) : nullptr;
     SnapFoot f;
-    if (!t || !snap_foot(*t, f)) return false;
+    if (!t || !object_foot(o, f)) return false;  // a cut piece's joints are its cut ends
     GpuModel* gm = models_.get(t->model, t->mtb);
     const float base = gm && gm->state == GpuModel::Ready ? gm->bmin[1] : 0.f;
     for (float s : {1.f, -1.f}) {
@@ -159,6 +159,14 @@ void App::glue_set(uint32_t a, int ja, uint32_t b, int jb, bool on) {
     };
     edit(*oa, ja, b, jb);
     edit(*ob, jb, a, ja);
+    if (on)  // glued flat pieces keep the height they have
+        for (WObj* po : {oa, ob})
+            if (sheet_kind(*po)) {
+                int ly = 0;
+                bool fx = true;
+                const bool has = place::layer_of(*po, ly, fx);
+                write_layer(*po, has ? ly : 0, true);
+            }
     doc_->dirty = true;
     objects_dirty_ = true;
 }
@@ -478,7 +486,7 @@ bool App::glue_click(bool lclick) {
 // The Glue tool (Properties > Glue objects together): click one object, then each object to glue to it.
 bool App::glue_pick(bool lclick) {
     if (!glue_mode_ || tool_ != Tool::Select || !editable()) return false;
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape) || (vp_hover_ && ImGui::IsMouseClicked(ImGuiMouseButton_Right))) {
+    if (vp_hover_ && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {  // Esc ends Glue in dispatch_keys (A_CANCEL)
         glue_mode_ = false;
         glue_first_ = 0;
         status_ = "Glue tool off.";
@@ -488,7 +496,7 @@ bool App::glue_pick(bool lclick) {
     if (!lclick) return false;
     if (glue_click(lclick)) return true;  // a lock on a glue line: unglue
     if (!hover_uid_) {
-        status_ = "Glue: click an object (a foundation, a building...). Esc or right-click: done.";
+        status_ = "Glue: click an object (a foundation, a building...). " + kt(A_CANCEL) + " or right-click: done.";
         status_time_ = 5;
         return true;
     }
@@ -497,7 +505,7 @@ bool App::glue_pick(bool lclick) {
     if (!glue_first_ || !object_by_uid(doc_->world, glue_first_)) {
         glue_first_ = hover_uid_;
         selection_ = {hover_uid_};
-        status_ = "Glue: now click each object to glue to " + name + ". Esc or right-click: done.";
+        status_ = "Glue: now click each object to glue to " + name + ". " + kt(A_CANCEL) + " or right-click: done.";
         status_time_ = 30;
         return true;
     }
@@ -509,7 +517,7 @@ bool App::glue_pick(bool lclick) {
     push_undo(already ? "unglue" : "glue");
     glue_set(glue_first_, -1, hover_uid_, -1, !already);
     status_ = (already ? "Unglued " : "Glued ") + name + (already ? " from " : " to ") + fname +
-              ". Click more objects to glue them too, or Esc / right-click when done.";
+              ". Click more objects to glue them too, or " + kt(A_CANCEL) + " / right-click when done.";
     status_time_ = 30;
     return true;
 }
@@ -559,14 +567,15 @@ namespace ed {
 // Properties: the Glue tool's button, and for one selected object what it is glued to (Unglue all).
 void App::glue_tool_ui() {
     if (!doc_ || tool_ != Tool::Select || !editable()) return;
+    if (selection_.empty() && !glue_mode_) return;  // nothing to glue yet (the button stood alone under "Nothing selected")
     const float w = ImGui::GetContentRegionAvail().x;
-    if (theme::toggle_button(glue_mode_ ? "Gluing: click objects (Esc: done)" : "Glue objects together", glue_mode_, ImVec2(w, 0))) {
+    if (theme::toggle_button(glue_mode_ ? ("Gluing: click objects (" + kt(A_CANCEL) + ": done)").c_str() : "Glue objects together", glue_mode_, ImVec2(w, 0))) {
         glue_mode_ = !glue_mode_;
         glue_first_ = 0;
         if (glue_mode_) {
             if (selection_.size() == 1) glue_first_ = *selection_.begin();
-            status_ = glue_first_ ? "Glue: click each object to glue to the selected one. Esc or right-click: done."
-                                  : "Glue: click an object (a foundation...), then each object to glue to it (the buildings on it). Esc or right-click: done.";
+            status_ = glue_first_ ? "Glue: click each object to glue to the selected one. " + kt(A_CANCEL) + " or right-click: done."
+                                  : "Glue: click an object (a foundation...), then each object to glue to it (the buildings on it). " + kt(A_CANCEL) + " or right-click: done.";
             status_time_ = 30;
         }
     }
@@ -578,7 +587,7 @@ void App::glue_tool_ui() {
     const auto ls = glue_links(*o);
     if (ls.empty()) return;
     const size_t group = glue_group(selection_).size() - 1;
-    ImGui::TextColored(ImVec4(0.98f, 0.78f, 0.16f, 1), "Glued: %zu other object%s move with it", group, group == 1 ? "" : "s");
+    ImGui::TextColored(ImVec4(0.98f, 0.78f, 0.16f, 1), "Glued: %s with it", n_things(group, "object").c_str());
     if (ImGui::Button("Unglue it", ImVec2(w, 0))) {
         push_undo("unglue");
         for (auto& l : ls) glue_set(o->uid(), l.mine, l.uid, l.theirs, false);
@@ -593,9 +602,7 @@ void App::glue_tool_ui() {
 namespace ed {
 
 // A road piece's drawn surface: its four corners on the map and the plane through them (playtest 11-04: tilted roads).
-namespace {
-struct RoadSurf { Vec3 c[4]; Vec3 p, n; };
-}  // namespace
+using RoadSurf = App::GroundSurf;
 
 static bool road_surface(const WObj& o, const GpuModel* gm, float w, float l, RoadSurf& s) {
     Vec3 p;
@@ -652,7 +659,7 @@ float App::road_float_gap(const WObj& o) {
             const float x = (s.c[0].x * (1 - a) + s.c[1].x * a) * (1 - b) + (s.c[3].x * (1 - a) + s.c[2].x * a) * b;
             const float z = (s.c[0].z * (1 - a) + s.c[1].z * a) * (1 - b) + (s.c[3].z * (1 - a) + s.c[2].z * a) * b;
             if (!doc_->terrain.inside(x, z)) continue;
-            gap = std::max(gap, plane_y(s, x, z) - 0.15f - doc_->terrain.height_at(x, z));
+            gap = std::max(gap, plane_y(s, x, z) - place::kSheetLift - doc_->terrain.height_at(x, z));
         }
     return gap;
 }
@@ -660,6 +667,21 @@ float App::road_float_gap(const WObj& o) {
 void App::road_tilt_notice() {
     status_ = "Road pieces have no collision: 'Mechs and vehicles walk on the ground under them. Properties > Fit ground to road shapes the ground to match, or leave it floating.";
     status_time_ = 10;
+}
+
+// The Fit ground button: hovering it draws what it will change and says it in one line under the button.
+void App::fit_button() {
+    if (ImGui::Button("Fit ground to road", ImVec2(ImGui::GetContentRegionAvail().x, 0))) fit_ground_to_roads();
+    ImGui::SetItemTooltip("Shapes the ground under this road piece (and the ones selected with it or glued to it) to its surface, blending into the ground "
+                          "around it, so 'Mechs and vehicles can drive on it. Other buildings and flat pieces keep their ground. %s undoes it.", kt(A_UNDO).c_str());
+    if (ImGui::IsItemHovered()) {
+        ground_preview_ = fit_plan_selection(nullptr, nullptr);
+        ground_preview_frame_ = ImGui::GetFrameCount();
+        ground_preview_text_ = ground_edit_note(ground_preview_);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.86f, 0.3f, 1.f));
+        ImGui::TextWrapped("%s", ground_preview_text_.c_str());
+        ImGui::PopStyleColor();
+    }
 }
 
 void App::road_ground_ui(WObj& o) {
@@ -670,9 +692,7 @@ void App::road_ground_ui(WObj& o) {
     const float gap = road_float_gap(o);
     if (!tilted && gap < 0.75f) {
         // Resting on the ground: no warning, but the ground can still be refitted (after moving or tilting a glued neighbour).
-        if (ImGui::Button("Fit ground to road", ImVec2(ImGui::GetContentRegionAvail().x, 0))) fit_ground_to_roads();
-        ImGui::SetItemTooltip("Raise or lower the ground under this road piece (and the road pieces selected with it or glued to it) to the road's surface, "
-                              "blending into the ground around it. Ctrl+Z undoes it.");
+        fit_button();
         return;
     }
     ImGui::Spacing();
@@ -682,35 +702,43 @@ void App::road_ground_ui(WObj& o) {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.98f, 0.78f, 0.16f, 1));
     ImGui::TextWrapped("%s", t);
     ImGui::PopStyleColor();
-    if (ImGui::Button("Fit ground to road", ImVec2(ImGui::GetContentRegionAvail().x, 0))) fit_ground_to_roads();
-    ImGui::SetItemTooltip("Raise or lower the ground under this road piece (and the road pieces selected with it or glued to it) to the road's surface, "
-                          "blending into the ground around it, so 'Mechs and vehicles can drive on it. Ctrl+Z undoes it.");
+    fit_button();
     ImGui::TextDisabled("Or leave it floating: it shows, but nothing can drive on it.");
 }
 
-void App::fit_ground_to_roads() {
-    if (!doc_ || !editable()) return;
+// The plan for Fit ground to road: the grid points under the pieces (+ shoulder, + blend) and what they should become. Writes nothing.
+App::GroundEdit App::plan_fit_ground(const std::vector<uint32_t>& roads) {
+    GroundEdit e;
+    if (!doc_) return e;
     std::vector<RoadSurf> surfs;
-    for (uint32_t u : glue_group(selection_)) {
+    for (uint32_t u : roads) {
         const WObj* o = object_by_uid(doc_->world, u);
         RoadSurf s;
         if (o && road_surf_of(*o, &s)) surfs.push_back(s);
     }
-    if (surfs.empty()) return;
-    push_undo("fit ground to road");
-    Terrain& t = doc_->terrain;
+    if (surfs.empty()) return e;
     // Full height out to a shoulder half a terrain cell (+0.5 m) past the road on every side, then a blend into the ground
     // around it over 14 m: with full height only under the road, its sides and ends hung over the slope between the 8 m
     // grid points (playtest 11-04); a whole cell + 20 m made a mound ~30 m past the road (far too much).
-    const float shoulder = 0.5f * t.scale + 0.5f, margin = 14.f, reach = shoulder + margin, step = (t.max_h - t.min_h) / 255.f;
+    return plan_surfaces(surfs, 0.5f * doc_->terrain.scale + 0.5f);
+}
+
+// The ground that fits a set of surfaces: full height out to `shoulder` past each, then a 14 m blend. Writes nothing.
+App::GroundEdit App::plan_surfaces(const std::vector<GroundSurf>& surfs, float shoulder) {
+    GroundEdit e;
+    if (!doc_ || surfs.empty()) return e;
+    Terrain& t = doc_->terrain;
+    const float margin = 14.f, reach = shoulder + margin, step = (t.max_h - t.min_h) / 255.f;
     float x0 = 1e30f, z0 = 1e30f, x1 = -1e30f, z1 = -1e30f;
     for (auto& s : surfs)
         for (auto& c : s.c) { x0 = std::min(x0, c.x); x1 = std::max(x1, c.x); z0 = std::min(z0, c.z); z1 = std::max(z1, c.z); }
-    const int gx0 = std::clamp(int((x0 - reach) / t.scale), 0, t.w - 1), gx1 = std::clamp(int((x1 + reach) / t.scale) + 1, 0, t.w - 1);
-    const int gz0 = std::clamp(int((z0 - reach) / t.scale), 0, t.h - 1), gz1 = std::clamp(int((z1 + reach) / t.scale) + 1, 0, t.h - 1);
-    bool clamped = false;
-    for (int gz = gz0; gz <= gz1; gz++)
-        for (int gx = gx0; gx <= gx1; gx++) {
+    e.gx0 = std::clamp(int((x0 - reach) / t.scale), 0, t.w - 1); e.gx1 = std::clamp(int((x1 + reach) / t.scale) + 1, 0, t.w - 1);
+    e.gz0 = std::clamp(int((z0 - reach) / t.scale), 0, t.h - 1); e.gz1 = std::clamp(int((z1 + reach) / t.scale) + 1, 0, t.h - 1);
+    const int nx = e.gx1 - e.gx0 + 1;
+    e.want.assign(size_t(nx) * size_t(e.gz1 - e.gz0 + 1), std::numeric_limits<float>::quiet_NaN());
+    e.core.assign(e.want.size(), 0);
+    for (int gz = e.gz0; gz <= e.gz1; gz++)
+        for (int gx = e.gx0; gx <= e.gx1; gx++) {
             const float x = gx * t.scale, z = gz * t.scale;
             // The nearest road wins (a point under a road takes that road's height): with the highest one winning, the
             // top piece's shoulder covered the top of the ramp joined to it (playtest 11-04 game check).
@@ -722,31 +750,103 @@ void App::fit_ground_to_roads() {
                 float wgt = 1.f;
                 if (d > shoulder) { const float k = (d - shoulder) / margin; wgt = 1.f - k * k * (3 - 2 * k); }
                 // Outside the footprint: the height of the nearest point of its outline (the plane is not carried on).
-                const float y = (d > 0 ? plane_y(s, bx, bz) : plane_y(s, x, z)) - 0.15f;  // the road sits 0.15 m above its ground
+                const float y = (d > 0 ? plane_y(s, bx, bz) : plane_y(s, x, z)) - place::kSheetLift;  // the road sits kSheetLift above its ground
                 if (d < best_d - 0.01f || (std::fabs(d - best_d) <= 0.01f && y > target)) { best_d = d; best_w = wgt; target = y; }
             }
             if (best_w <= 0) continue;
-            if (target < t.min_h || target > t.max_h) clamped = true;
+            if (target < t.min_h || target > t.max_h) e.clamped = true;
             target = std::clamp(target, t.min_h, t.max_h);
-            float& h = t.ref(gx, gz);
+            float h = t.at(gx, gz);
             if (best_w >= 1.f) {
                 float q = t.stored(target);
                 if (q > target + 1e-4f) q -= step;  // the stored step at or below the road: the ground never pokes through it
                 h = std::max(q, t.min_h);
+                e.core[size_t(gz - e.gz0) * size_t(nx) + size_t(gx - e.gx0)] = 1;
             } else {
                 h += (target - h) * best_w;
             }
+            e.want[size_t(gz - e.gz0) * size_t(nx) + size_t(gx - e.gx0)] = h;
         }
-    r_.update_terrain_rect(t, gx0, gz0, gx1, gz1);
-    doc_->dirty = true;
-    lightmap_stale_ = true;
-    stale_sun_only_ = false;
-    objects_dirty_ = true;
-    char msg[260];
-    snprintf(msg, sizeof msg, "Shaped the ground under %zu road piece%s: 'Mechs and vehicles can drive on %s now. Ctrl+Z undoes it.%s", surfs.size(),
-             surfs.size() == 1 ? "" : "s", surfs.size() == 1 ? "it" : "them",
-             clamped ? " Part of it is past the map's height limit (Terrain tab): the ground stops there." : "");
-    status_ = msg;
+    return e;
+}
+
+float App::GroundEdit::core_change(const Terrain& t) const {
+    float m = 0;
+    const int nx = gx1 - gx0 + 1;
+    for (int gz = gz0; gz <= gz1; gz++)
+        for (int gx = gx0; gx <= gx1; gx++) {
+            const size_t i = size_t(gz - gz0) * size_t(nx) + size_t(gx - gx0);
+            if (i < want.size() && i < core.size() && core[i] && !std::isnan(want[i])) m = std::max(m, std::fabs(std::clamp(want[i], t.min_h, t.max_h) - t.at(gx, gz)));
+        }
+    return m;
+}
+
+// The selected road pieces (and the ones glued to them), planned, protected and forecast.
+App::GroundEdit App::fit_plan_selection(std::set<uint32_t>* own, int* road_count) {
+    std::vector<uint32_t> roads;
+    for (uint32_t u : glue_group(selection_)) {
+        const WObj* o = object_by_uid(doc_->world, u);
+        RoadSurf s;
+        if (o && road_surf_of(*o, &s)) roads.push_back(u);
+    }
+    if (road_count) *road_count = int(roads.size());
+    GroundEdit e = plan_fit_ground(roads);
+    const std::set<uint32_t> mine(roads.begin(), roads.end());
+    if (own) *own = mine;
+    protect_ground(e, mine, Protect::OthersOnly);
+    ground_still_ = mine;  // the pieces themselves stay where they are
+    forecast_ground(e);
+    ground_still_.clear();
+    return e;
+}
+
+// Tilt at the click: the road just placed is the fixed thing, the ground is shaped to meet it inside the placing's undo step.
+bool App::fit_ground_under_placed(uint32_t u, SlopePlan& sp) {
+    if (!doc_ || !editable()) return false;
+    GroundEdit e = plan_fit_ground({u});
+    if (e.empty()) return false;
+    const std::set<uint32_t> mine{u};
+    protect_ground(e, mine, Protect::OthersOnly);
+    ground_still_ = mine;
+    for (uint32_t j : e.joined) ground_still_.insert(j);  // The road it joins keeps its place, so the joint has no step
+    forecast_ground(e);
+    sp.fit_moved = apply_ground_edit(e, "fit ground to road", false);
+    ground_still_.clear();
+    sp.fit_up = e.up;
+    sp.fit_down = e.down;
+    if (const WObj* o = object_by_uid(doc_->world, u)) sp.fit_left = road_float_gap(*o);
+    return true;
+}
+
+void App::fit_ground_to_roads() {
+    if (!doc_ || !editable()) return;
+    int n = 0;
+    std::set<uint32_t> mine;
+    GroundEdit e = fit_plan_selection(&mine, &n);
+    if (n == 0 || e.empty()) return;
+    // A second press changes nothing: the blend into the ground round the piece is made once, with the full-height points.
+    if (e.core_change(doc_->terrain) < 0.005f) {
+        status_ = std::string("The ground under ") + (n == 1 ? "this road piece" : "these road pieces") + " already fits it.";
+        status_time_ = 5;
+        return;
+    }
+    const bool follow = settings_.objects_follow_terrain;
+    ground_still_ = mine;
+    for (uint32_t j : e.joined) ground_still_.insert(j);  // A road joined to the selection but not in it keeps its place too
+    const int moved = apply_ground_edit(e, "fit ground to road");
+    ground_still_.clear();
+    char msg[420];
+    std::string s;
+    snprintf(msg, sizeof msg, "Shaped the ground under %d road piece%s (up to +%.1f / -%.1f m).", n, n == 1 ? "" : "s", e.up, e.down);
+    s = msg;
+    if (follow) {
+        if (moved > 0) { snprintf(msg, sizeof msg, " %d object%s moved with it.", moved, moved == 1 ? "" : "s"); s += msg; }
+    } else s += " Objects stayed where they were (\"Objects follow the ground\" is off).";
+    if (!e.kept.empty()) s += " The ground under " + fit_summary_names(e) + " was left alone.";
+    else s += n == 1 ? " 'Mechs and vehicles can drive on it now." : " 'Mechs and vehicles can drive on them now.";
+    s += " " + kt(A_UNDO) + " undoes it.";
+    if (e.clamped) s += " Part of it is past the map's height limit (Sculpt and Paint tools): the ground stops there.";
+    status_ = s;
     status_time_ = 8;
 }
 

@@ -239,7 +239,7 @@ static void spc_tick(Ma2Brain *b, const Ma2World *w, const Ma2PlayerView *me, in
     SpcBrain *s = &b->spc;
     (void)self;
     if (!sp_master_on()) { s->act = SPC_NONE; return; }
-    { static int tuned;                                                                     /* lead 10-30: the package shares a ~5 % time budget, task A already uses ~4 %: halve the spec's p */
+    { static int tuned;                                                                     /* design 10-30: the package shares a ~5 % time budget, task A already uses ~4 %: halve the spec's p */
       if (!tuned) { tuned = 1;
         sp_set_params(SP_LEVEL, 4.0f, 0.0f, 0.0f, 0.0f, 0.25f);
         sp_set_params(SP_STOMP, 2.0f, 0.0f, 0.0f, 0.0f, 0.30f);

@@ -560,6 +560,12 @@ typedef struct Scn {
     int saved_with;                    /* [Scenario] SavedWith: editor save revision, 0 = missing = older editor (W-13a) */
     wchar_t desc_shown[400];           /* Description plus the "saved with an older editor" note */
     int ready;                         /* [Scenario] Ready (editor's Check passed); 0 = unfinished, not listed (W-15a) */
+    wchar_t win_text[256], lose_text[256]; /* [Mission] WinText / LoseText: the result screen's line ("" = default) */
+    uint32_t noskip[32]; int nnoskip;  /* [Cutscenes] NoSkip=<uid>,<uid>: MACinema uids the player cannot skip */
+    FILETIME stamp; uint64_t bytes;    /* the file as loaded (a changed file is loaded again while the game runs) */
+    int deleted;                       /* The file is gone (or no longer listable): out of the campaign */
+    int remapped;                      /* remap_world done on `world` (it rewrites the ids in place) */
+    int in_map_list;                   /* multiplayer: in the game's map list (boot map set or add_map_ini) */
 } Scn;
 
 static Scn *g_scn[SCN_MAX];
@@ -649,7 +655,8 @@ static int parse_ini(Scn *s, const char *text, size_t len)
         char val[512]; int cut = vlen < (int)sizeof(val) - 1 ? vlen : (int)sizeof(val) - 1;
         memcpy(val, v0, (size_t)cut); val[cut] = 0;
         int free_text = !_stricmp(section, "Strings") || !_stricmp(key, "Name") || !_stricmp(key, "Description") ||
-                        !_stricmp(key, "Author") || !_stricmp(key, "Briefing") || !_stricmp(key, "BriefingTitle");
+                        !_stricmp(key, "Author") || !_stricmp(key, "Briefing") || !_stricmp(key, "BriefingTitle") ||
+                        !_stricmp(key, "WinText") || !_stricmp(key, "LoseText");
         if (!free_text) { char *sc = strchr(val, ';'); if (sc) { *sc = 0; for (int i = (int)strlen(val); i > 0 && (val[i-1] == ' ' || val[i-1] == '\t'); i--) val[i-1] = 0; } }
         if (!_stricmp(section, "Scenario")) {
             if (!_stricmp(key, "FormatVersion")) version = atoi(val);
@@ -671,6 +678,17 @@ static int parse_ini(Scn *s, const char *text, size_t len)
                 if (s->strings[s->nstrings].text) unescape(s->strings[s->nstrings].text);
                 s->nstrings++;
             }
+        } else if (!_stricmp(section, "Mission")) {
+            wchar_t *dst = !_stricmp(key, "WinText") ? s->win_text : !_stricmp(key, "LoseText") ? s->lose_text : NULL;
+            if (dst) { wchar_t *w = utf8_to_wide(v0, vlen); if (w) { unescape(w); wcsncpy(dst, w, 255); dst[255] = 0; free(w); } }
+        } else if (!_stricmp(section, "Cutscenes")) {
+            if (!_stricmp(key, "NoSkip"))
+                for (char *c = val; *c && s->nnoskip < 32; ) {
+                    char *e; unsigned long u = strtoul(c, &e, 10);
+                    if (e == c) { c++; continue; }
+                    if (u) s->noskip[s->nnoskip++] = (uint32_t)u;
+                    c = e;
+                }
         } else if (!_stricmp(section, "Audio")) {
             int n = atoi(key);
             if (n >= 1 && n < 64) snprintf(s->audio[n], sizeof(s->audio[n]), "%s", val);
@@ -805,6 +823,7 @@ static Scn *load_scenario(const wchar_t *path)
         mgf_free(&s->mgf); free(s); return NULL;
     }
     if (s->type == 0 && !s->ngt) snprintf(s->gametypes[s->ngt++], 32, "TeamDestruction");
+    s->stamp = file_time(path); s->bytes = size;
     s->world_size = world->size;
     s->world = (uint8_t *)malloc(world->size);
     memcpy(s->world, s->mgf.raw + world->offset, world->size);
@@ -904,6 +923,7 @@ static int g_focus_mission = -1;   /* campaign entry of the --scenario mission *
 static Scn *g_mission_scn[SCN_MAX];   /* Custom Scenarios entry -> scenario (the picker's barrel values) */
 
 static char g_camp_name[64] = "scncamp";   /* campaign file stem; changes when a rescan adds missions */
+static int g_index_live;   /* J4 live rebuild: every scenario, its own index and campaign names (live_rebuild) */
 
 /* Index archive for slots from..g_nscn-1 (rev 0 = boot: everything, plus the MP map set). The
  * custom campaign always lists every mission, so a rescan that adds missions writes a new one
@@ -918,8 +938,12 @@ static int build_index(int from, int rev)
     int mp = 0, new_missions = 0;
     for (int i = from; i < g_nscn; i++) {
         Scn *s = g_scn[i];
+        if (s->deleted && (s->type == 1 || !s->built)) continue;   /* A deleted map stays playable until the game restarts (it is in the map list) */
         if (!build_resource(s)) continue;
-        if (remap_world(s, s->world, s->world_size) < 0) { skipped(s->file, L"has more than 3,000 objects"); continue; }
+        if (!s->remapped) {
+            if (remap_world(s, s->world, s->world_size) < 0) { skipped(s->file, L"has more than 3,000 objects"); continue; }
+            s->remapped = 1;
+        }
         s->built = 1;
         char path[160];
         if (s->type == 0) {
@@ -952,14 +976,14 @@ static int build_index(int from, int rev)
         }
         logf_("%s '%ls' (%s, base %s, %d strings) slot %d", s->id, s->name, s->type ? "mission" : "multiplayer", s->resource, s->nstrings, s->slot);
     }
-    if (mp && rev == 0) w_add(&w, "Multiplay/MissionSet63.ini", set.p, (uint32_t)set.n);
-    if (new_missions) {
+    if (mp && (rev == 0 || g_index_live)) w_add(&w, "Multiplay/MissionSet63.ini", set.p, (uint32_t)set.n);
+    if (new_missions || g_index_live) {
         /* Custom missions form one campaign in the retail format (Missions\campaign0.ini). Custom
          * Scenarios mode points the campaign path format at it (ma2_scn_custom_enter). */
         int n = 0;
         g_focus_mission = -1;
         for (int i = 0; i < g_nscn; i++)
-            if (g_scn[i]->type == 1 && g_scn[i]->built) { if (i == g_focus) g_focus_mission = n; missions[n++] = g_scn[i]; }
+            if (g_scn[i]->type == 1 && g_scn[i]->built && !g_scn[i]->deleted) { if (i == g_focus) g_focus_mission = n; missions[n++] = g_scn[i]; }
         g_nmission = n;
         for (int m = 0; m < n; m++) g_mission_scn[m] = missions[m];
         buf_str(&camp, "[fileinfo]\r\nfile_version = 1\r\n\r\n[StartCampaign]\r\ntype = INIT\r\nnext = SCN000\r\n\r\n");
@@ -973,7 +997,9 @@ static int build_index(int from, int rev)
             buf_str(&camp, line);
         }
         buf_str(&camp, "[EndCampaign]\r\ntype = END\r\n\r\n\r\n\r\n");
-        if (rev) snprintf(g_camp_name, sizeof(g_camp_name), "scnr%02d_", rev);
+        if (g_index_live) {}   /* the old index archives are unmounted first: the campaign keeps its name (a game in Custom
+                                  * Scenarios mode holds it in the campaign path format) */
+        else if (rev) snprintf(g_camp_name, sizeof(g_camp_name), "scnr%02d_", rev);
         char path[96]; snprintf(path, sizeof(path), "Missions/%s0.ini", g_camp_name);
         w_add(&w, path, camp.p, (uint32_t)camp.n);
     }
@@ -996,7 +1022,8 @@ static int build_index(int from, int rev)
                 }
                 stamp = (unsigned)(GetTickCount() ^ GetCurrentProcessId()) & 0xFFFFFF;
             }
-            if (rev == 0) snprintf(g_index_xbox, sizeof(g_index_xbox), "T:\\scenarios\\index_%06X.mgf", stamp);
+            if (g_index_live) snprintf(g_index_xbox, sizeof(g_index_xbox), "T:\\scenarios\\index_%06X_L%03d.mgf", stamp, rev);
+            else if (rev == 0) snprintf(g_index_xbox, sizeof(g_index_xbox), "T:\\scenarios\\index_%06X.mgf", stamp);
             else snprintf(g_index_xbox, sizeof(g_index_xbox), "T:\\scenarios\\index_%06X_%02d.mgf", stamp, rev);
             if (!xbox_translate_path(g_index_xbox, host, MAX_PATH) || !w_write(&w, host)) {
                 logf_("could not write %s", g_index_xbox); g_index_xbox[0] = 0;
@@ -1024,7 +1051,7 @@ static void add_scenario(const wchar_t *path, int focus)
         return;
     }
     for (int i = 0; i < g_nscn; i++)
-        if (!strcmp(g_scn[i]->id, s->id)) {
+        if (!g_scn[i]->deleted && !strcmp(g_scn[i]->id, s->id)) {
             if (!focus) {
                 logf_("%ls: duplicate Id %s, skipped", path, s->id);
                 const wchar_t *other = wcsrchr(g_scn[i]->file, L'\\'); other = other ? other + 1 : g_scn[i]->file;
@@ -1124,6 +1151,7 @@ static void test_args(void)
     if (argv) LocalFree(argv);
 }
 
+static void auto_arm_body(const Scn *s);
 /* After scan(): arm the walk for the loaded Test file. */
 static void auto_arm(void)
 {
@@ -1132,6 +1160,21 @@ static void auto_arm(void)
     const Scn *s = g_scn[g_focus];
     if (!s->built) { auto_log("off (%s was not built)", s->id); return; }
     test_args();
+    auto_arm_body(s);
+}
+/* The editor's Test in a running game (g_focus / g_focus_mission already point at `s`). */
+static void auto_arm_scn(const Scn *s, const char *mode, int red, int blue, int skill)
+{
+    g_auto.state = AUTO_OFF; g_auto.gametype = -1; g_auto.vt = 0; g_auto.object = 0; g_auto.frames = 0;
+    g_auto.ng_phase = 0; g_auto.ng_wait = 0; g_auto.acted = 0; g_auto.acted_at = 0; g_auto.tries = 0; g_auto.acted_frames = 0;
+    g_auto.browse = 0;
+    snprintf(g_auto.mode, sizeof g_auto.mode, "%s", mode ? mode : "");
+    g_auto.red = red; g_auto.blue = blue; g_auto.skill = skill;
+    ma2_bots_test_release(1);
+    auto_arm_body(s);
+}
+static void auto_arm_body(const Scn *s)
+{
     if (s->type == 0) {
         /* --mode, if the map has it; otherwise the map's first mode */
         int pick = -1;
@@ -1283,23 +1326,57 @@ static uint32_t unmount_archive(const char *xbox_path, uint32_t fs)
 static char g_level_assets[96];
 static uint32_t g_level_fs;
 
-static const Scn *level_scenario(void)
+/* The file name of the level's world (level descriptor +4), "" when there is none. */
+static const char *level_world(char *path, size_t cap)
 {
     uint32_t desc = MEM32(VA_LEVEL_DESC), world = desc ? MEM32(desc + 4) : 0;
-    if (!world) return NULL;
-    char path[0x104]; int n = 0;
-    for (; n < 0x103; n++) { path[n] = (char)MEM8(world + n); if (!path[n]) break; }
+    path[0] = 0;
+    if (!world) return path;
+    size_t n = 0;
+    for (; n + 1 < cap; n++) { path[n] = (char)MEM8(world + (uint32_t)n); if (!path[n]) break; }
     path[n] = 0;
     const char *name = strrchr(path, '\\'), *fwd = strrchr(path, '/');
     if (fwd && (!name || fwd > name)) name = fwd;
-    name = name ? name + 1 : path;
+    return name ? name + 1 : path;
+}
+
+static const Scn *level_scenario(void)
+{
+    char path[0x104];
+    const char *name = level_world(path, sizeof path);
     if (!istarts(name, "scn") || strlen(name) < 11) return NULL;
     for (int i = 0; i < g_nscn; i++) if (!_strnicmp(name + 3, g_scn[i]->id, 8)) return g_scn[i];
     return NULL;
 }
 
+/* A restart from a checkpoint loads the checkpoint file's world (Z:\Missions\MASaveGame.wdf, or
+ * MAScnsGame.wdf in Custom Scenarios mode), not Scn<ID>.wdf: the level is still the scenario that was
+ * loaded before it (traced G2: the custom mission's lose after a checkpoint restart came back as a
+ * retail-looking level). */
+static const Scn *g_level_last;   /* the scenario of the last level loaded from its own world */
+static int level_checkpoint(void)
+{
+    char path[0x104];
+    const char *name = level_world(path, sizeof path);
+    return !_stricmp(name, "MASaveGame.wdf") || !_stricmp(name, "MAScnsGame.wdf");
+}
+static const Scn *level_scenario_or_checkpoint(void)
+{
+    const Scn *s = level_scenario();
+    return s ? s : level_checkpoint() ? g_level_last : NULL;
+}
+
 static void quick_level_loaded(int scenario);   /* --quick-test, below */
+static void live_level_loading(const Scn *s);   /* J4 live editor session, below */
+static void live_level_unloading(void);
+static void idx_mounted(const char *xbox_path, uint32_t fs);
 static void quick_level_unloaded(void);
+static void msg_level_changed(void);   /* mission message queue, end of file */
+static void msg_pump(void);
+static void end_level_changed(void);   /* mission result screen, end of file */
+static int msg_trace(void);
+static void end_frame(void);
+static void end_menu_frame(uint32_t object, uint32_t vtable);
 
 static void drop_level_assets(void)
 {
@@ -1310,15 +1387,26 @@ static void drop_level_assets(void)
 
 void ma2_scn_level_unload(void)
 {
+    msg_level_changed();
+    end_level_changed();
     quick_level_unloaded();
+    live_level_unloading();
     drop_level_assets();
 }
 
 void ma2_scn_level_load(void)
 {
+    msg_level_changed();
+    end_level_changed();
     if (!g_ready) return;
     const Scn *s = level_scenario();
+    if (s || !level_checkpoint()) g_level_last = s;
+    if (msg_trace()) { char path[0x104]; logf_("level load: world %s -> %s", level_world(path, sizeof path), s ? s->id : g_level_last ? "checkpoint of the scenario before" : "retail"); }
     quick_level_loaded(s != NULL);
+    live_level_loading(s);
+    /* A checkpoint restart's world is the checkpoint file: the level is still the scenario before
+     * (level_scenario_or_checkpoint), and the unload just dropped its assets archive, so mount it again. */
+    s = level_scenario_or_checkpoint();
     const char *want = s && s->assets_xbox[0] ? s->assets_xbox : "";
     uint32_t fs = MEM32(VA_FS);
     if (g_level_assets[0] && (_stricmp(g_level_assets, want) || g_level_fs != fs)) drop_level_assets();
@@ -1335,7 +1423,8 @@ void ma2_scn_mount(uint32_t fs)
     scan();
     if (!g_index_xbox[0]) return;
     if (!fs) { logf_("mount skipped: no file system object"); return; }
-    mount_archive(g_index_xbox, fs);
+    if (mount_archive(g_index_xbox, fs)) idx_mounted(g_index_xbox, fs);
+    for (int i = 0; i < g_nscn; i++) if (g_scn[i]->type == 0 && g_scn[i]->built) g_scn[i]->in_map_list = 1;   /* MissionSet63 */
 }
 
 /* ------------------------------------------------------------------ */
@@ -1353,7 +1442,7 @@ static int g_rev;
 
 static int loaded_path(const wchar_t *path)
 {
-    for (int i = 0; i < g_nscn; i++) if (!_wcsicmp(g_scn[i]->file, path)) return 1;
+    for (int i = 0; i < g_nscn; i++) if (!g_scn[i]->deleted && !_wcsicmp(g_scn[i]->file, path)) return 1;
     return 0;
 }
 
@@ -1393,10 +1482,12 @@ static void rescan(void)
     int rev = ++g_rev;
     if (!build_index(from, rev)) return;
     if (!mount_archive(g_index_xbox, fs)) return;
+    idx_mounted(g_index_xbox, fs);
     for (int i = from; i < g_nscn; i++)
         if (g_scn[i]->type == 0 && g_scn[i]->built) {
             char ini[64]; snprintf(ini, sizeof(ini), "Multiplay/Scn%s.ini", g_scn[i]->id);
             add_map_ini(game, ini);
+            g_scn[i]->in_map_list = 1;
         }
     logf_("rescan: %d new scenario(s)", g_nscn - from);
 }
@@ -1484,7 +1575,7 @@ static uint32_t profiles(void)
 int ma2_scn_mission_count(void) { return g_nmission; }
 int ma2_scn_custom_active(void) { return g_custom; }
 /* The level being played is a scenario (.ma2map: an editor-made map or a copy of a retail one). */
-int ma2_scn_level_custom(void) { return g_ready && level_scenario() != NULL; }
+int ma2_scn_level_custom(void) { return g_ready && level_scenario_or_checkpoint() != NULL; }
 
 static int g_empty_prompt;             /* Custom Scenarios with no missions: ask about the editor (editor_frame) */
 
@@ -1649,6 +1740,8 @@ static int item_named(uint32_t b, uint32_t i, const wchar_t *name)
 
 extern void *xbox_FramebufferWindowHandle(void);
 void pc_input_menu_click(void);   /* platform/pc_frontend.c: the menu's select button, as a mouse click gives it */
+int pc_input_menu_clicked(int acknowledge);   /* ... and whether one is still pending (acknowledge = drop it) */
+int pc_input_menu_button_pending(unsigned button, int acknowledge);   /* the same for each menu button */
 static int g_drop_press;   /* RECOMP_SCENARIO_AUTOSTART_DROP=1 (test): each screen's first press is lost */
 static void post_key(unsigned vk)
 {
@@ -1913,6 +2006,12 @@ static DWORD WINAPI quick_movies(LPVOID unused)
 /* WinMain (main.c), before the guest starts. */
 void ma2_scn_startup(void)
 {
+    {   /* The editor started from Custom Scenarios sets the same id, so Windows shows one taskbar button */
+        typedef HRESULT (WINAPI *AumidFn)(PCWSTR);
+        HMODULE sh = LoadLibraryW(L"shell32.dll");
+        AumidFn set = sh ? (AumidFn)(void *)GetProcAddress(sh, "SetCurrentProcessExplicitAppUserModelID") : NULL;
+        if (set) set(L"MechAssault2.Recomp");
+    }
     const char *env = getenv("RECOMP_QUICK_TEST");
     if (env && *env) g_quick = strcmp(env, "0") != 0;
     int argc = 0;
@@ -1922,6 +2021,10 @@ void ma2_scn_startup(void)
         if (!_wcsicmp(argv[i], L"--skip-intro")) g_skip_intro = 1;
     }
     if (argv) LocalFree(argv);
+    {   /* A Test launch (--scenario, the standalone editor) skips the startup movies with or without --quick-test */
+        wchar_t test[MAX_PATH];
+        if (!g_quick && !g_skip_intro && test_file(test, MAX_PATH)) g_skip_intro = 1;
+    }
     if (!g_quick && !g_skip_intro) return;
     if (g_quick) logf_("quick test: movies skipped, the game closes when the match or mission is left");
     else logf_("skip intro: startup movies skipped (restarted from the in-game editor)");
@@ -2112,6 +2215,742 @@ static const Scn *picker_scenario(uint32_t object)
     return NULL;
 }
 
+/* ------------------------------------------------------------------ */
+/* The game and the editor as one app (live session)                */
+/* ------------------------------------------------------------------ */
+/* The editor started from Custom Scenarios gets --from-game-live <name>: a small shared block (Ma2seLive, the
+ * same layout in the editor's src/app/from_game_live.h; ux\spec-ingame-editor.md section 6b). The game process
+ * is never restarted on this path:
+ *   - Back to the game / closing the editor (request 1): the game loads every changed, new or deleted scenario
+ *     file in place (live_resync: a new full index archive replaces the mounted ones, a new campaign file), walks
+ *     back to Custom Scenarios while hidden (through the hub when the list changed) with the scenario selected,
+ *     then shows itself and the editor ends.
+ *   - Test (request 2): the same reload, then the Test autostart (g_auto) walks from Custom Scenarios into the
+ *     mission or match while the game is hidden; the game window comes up when the level loads (behind the
+ *     game's own loading screen). Leaving it (pause > Quit, Continue / Quit on the result screen, the match's
+ *     results) shows the editor again, which stayed alive and hidden; the game walks home hidden and idles.
+ * Switching (live_thread, a thread of its own so a level load on the game thread never holds it up): the
+ * incoming window is shown at the same place just below the outgoing one without activation, draws two frames,
+ * says ready; the outgoing one then hides itself (the incoming one becomes the active window) . Exactly one
+ * window shows except for those two frames. The hidden game is muted and idles (about one menu frame a second).
+ * Both processes carry one AppUserModelID (ma2_scn_startup) and the game's icon: one taskbar button.
+ * A hidden harness game (RECOMP_FB_HIDDEN) runs the same switching "quiet": both windows off screen, tool
+ * windows, never activated. RECOMP_EDITOR_LIVE=0: the old protocol (exit code, restart). */
+#define LIVE_MAGIC   0x4C32414Du   /* "MA2L" */
+#define LIVE_VERSION 1u
+enum { LIVE_NONE, LIVE_GAME, LIVE_EDITOR };
+enum { LREQ_NONE, LREQ_RETURN, LREQ_TEST };
+enum { LGS_IDLE, LGS_STARTING, LGS_TESTING, LGS_FAILED, LGS_GONE };
+typedef struct Ma2seLive Ma2seLive;
+struct Ma2seLive {
+    uint32_t magic, version, size, game_pid, editor_pid, quiet;
+    uint64_t game_hwnd, editor_hwnd;
+    int32_t game_fullscreen, rect[4];
+    volatile LONG on_screen, want, ready;          /* LIVE_GAME / LIVE_EDITOR */
+    volatile LONG request, request_seq, done_seq;  /* editor -> game */
+    volatile LONG game_state, game_seq;            /* game -> editor: LGS_*, bumped with each change */
+    int32_t red, blue, skill, reserved;
+    char mode[32];
+    wchar_t file[520];                             /* Test: the file; Return: the editor's open file */
+    wchar_t note[256];                             /* game -> editor */
+};
+typedef char ma2se_live_layout[sizeof(Ma2seLive) == 1696 ? 1 : -1];   /* = the editor's from_game_live.h */
+
+enum { LT_NONE, LT_RETURN, LT_TEST, LT_HOME };
+static HANDLE g_live_map, g_live_thread, g_live_hook_thread;
+static DWORD g_live_hook_tid;
+static Ma2seLive *g_live;
+static volatile LONG g_live_stop;
+static volatile LONG g_live_after_load;   /* the switch waits until the loading screen stands (live_thread) */
+static volatile LONG g_live_idle;         /* the game thread idles hidden behind the editor (live_frame) */
+static int g_live_idle_hit;               /* this live_frame call took the idle branch */
+void mcpx_apu_hold(int hold);             /* apu_core.c: park / restart the audio emulation */
+static int g_live_task, g_live_testing, g_live_quitconfirm, g_live_reenter, g_live_home_frames, g_live_test_type;
+static int g_live_was_on;                      /* the game thread's last view of on_screen */
+static DWORD g_live_press_at, g_live_req_at, g_live_test_at;
+static const Scn *g_live_test_scn;
+static wchar_t g_live_select[MAX_PATH];        /* the scenario Custom Scenarios selects when the game comes back */
+static uint32_t g_live_picked;                 /* picker object the selection was made on */
+static int g_live_rev;
+static char g_idx_mounted[64][96]; static uint32_t g_idx_fs[64]; static int g_nidx;
+extern LONG xbox_FramebufferFlipCount(void);
+
+static void idx_mounted(const char *xbox_path, uint32_t fs)
+{
+    if (g_nidx < 64) { snprintf(g_idx_mounted[g_nidx], 96, "%s", xbox_path); g_idx_fs[g_nidx++] = fs; }
+}
+static int live_on(void) { return g_live && g_live->editor_pid; }   /* an editor that speaks the live protocol */
+static int live_quiet(void) { return g_live && g_live->quiet; }
+static void live_log(const char *fmt, ...)
+{
+    char line[1024]; va_list ap; va_start(ap, fmt); vsnprintf(line, sizeof line, fmt, ap); va_end(ap);
+    xbox_log_redact(line, sizeof line);
+    fprintf(stderr, "[SCN-LIVE] %lu %s\n", GetTickCount(), line); fflush(stderr);
+}
+static void live_tell(LONG state, const wchar_t *note)
+{
+    if (!g_live) return;
+    if (note) { wcsncpy(g_live->note, note, 255); g_live->note[255] = 0; }
+    g_live->game_state = state;
+    InterlockedIncrement(&g_live->game_seq);
+}
+
+/* ---- scenario files changed while the game runs ---- */
+static void scn_free(Scn *s)
+{
+    for (int i = 0; i < s->nstrings; i++) free(s->strings[i].text);
+    free(s->strings); free(s->assets); free(s->world);
+    mgf_free(&s->mgf);
+    free(s);
+}
+static int same_file_now(const Scn *s, int *gone)
+{
+    WIN32_FILE_ATTRIBUTE_DATA a;
+    *gone = 0;
+    if (!GetFileAttributesExW(s->file, GetFileExInfoStandard, &a)) { *gone = 1; return 0; }
+    uint64_t bytes = ((uint64_t)a.nFileSizeHigh << 32) | a.nFileSizeLow;
+    return !CompareFileTime(&a.ftLastWriteTime, &s->stamp) && bytes == s->bytes;
+}
+static void live_end_screens_swap(const Scn *old, const Scn *now);   /* g_end pointers, end of file */
+/* Returns 1 when the list of scenarios (or one of them) changed and a new index is mounted. */
+static int live_rebuild(void);
+static int live_resync(const wchar_t *also)
+{
+    int changed = 0;
+    wchar_t folder[MAX_PATH]; scenario_folder(folder, MAX_PATH);
+    for (int i = 0; i < g_nscn; i++) {
+        Scn *s = g_scn[i];
+        if (s->deleted) continue;
+        int gone;
+        if (same_file_now(s, &gone)) continue;
+        Scn *n = gone ? NULL : load_scenario(s->file);
+        if (n && (!n->ready || strcmp(n->id, s->id))) {
+            if (!n->ready) { skipped(s->file, L"is not finished (the editor's Check scenario lists what is missing)"); scn_free(n); n = NULL; }
+        }
+        if (n && !strcmp(n->id, s->id)) {   /* the same scenario, saved again: replaces it in its slot */
+            n->slot = s->slot;
+            n->text_base = g_text_next; g_text_next += (uint32_t)n->nstrings;
+            n->in_map_list = s->in_map_list;
+            g_scn[i] = n;
+            if (g_level_last == s) g_level_last = n;
+            live_end_screens_swap(s, n);
+            for (int m = 0; m < g_nmission; m++) if (g_mission_scn[m] == s) g_mission_scn[m] = n;
+            live_log("reloaded %s (slot %d)", n->id, i);
+            scn_free(s);
+        } else {   /* gone, unreadable or a new Id: out of the list; a new Id is added below as a new scenario */
+            s->deleted = 1;
+            live_log("%s %s (slot %d)", s->id, gone ? "deleted" : "no longer listed", i);
+            if (n) scn_free(n);
+        }
+        changed = 1;
+    }
+    if (folder[0]) {
+        WIN32_FIND_DATAW fd; wchar_t pattern[MAX_PATH];
+        swprintf(pattern, MAX_PATH, L"%ls\\*.ma2map", folder);
+        HANDLE h = FindFirstFileW(pattern, &fd);
+        if (h != INVALID_HANDLE_VALUE) {
+            do {
+                wchar_t path[MAX_PATH]; swprintf(path, MAX_PATH, L"%ls\\%ls", folder, fd.cFileName);
+                int known = 0;
+                for (int i = 0; i < g_nscn && !known; i++) known = !g_scn[i]->deleted && !_wcsicmp(g_scn[i]->file, path);
+                if (known || skipped_known(path)) continue;
+                int before = g_nscn;
+                add_scenario(path, 0);
+                if (g_nscn > before) { changed = 1; live_log("added %s", g_scn[g_nscn - 1]->id); }
+            } while (FindNextFileW(h, &fd));
+            FindClose(h);
+        }
+    }
+    if (also && also[0]) {   /* a Test file outside the folder */
+        int known = 0;
+        for (int i = 0; i < g_nscn && !known; i++) known = !g_scn[i]->deleted && !_wcsicmp(g_scn[i]->file, also);
+        if (!known) { int before = g_nscn; add_scenario(also, 1); if (g_nscn > before) { changed = 1; live_log("added the test file"); } }
+    }
+    if (!changed) return 0;
+    return live_rebuild();
+}
+static int live_rebuild(void)
+{
+    uint32_t game = MEM32(VA_GAME_OBJECT), fs = game ? MEM32(game + 0x28) : 0;
+    if (!fs) { live_log("rebuild: no file system object"); return 0; }
+    name_shown();
+    /* the old index archives go first: the new one has every path they had */
+    for (int i = 0; i < g_nidx; i++) {
+        unmount_archive(g_idx_mounted[i], g_idx_fs[i]);
+        WCHAR host[MAX_PATH];
+        if (xbox_translate_path(g_idx_mounted[i], host, MAX_PATH)) DeleteFileW(host);
+    }
+    g_nidx = 0;
+    g_index_live = 1;
+    int ok = build_index(0, ++g_live_rev);
+    g_index_live = 0;
+    if (!ok || !mount_archive(g_index_xbox, fs)) { live_log("rebuild: the new index did not mount"); return 0; }
+    idx_mounted(g_index_xbox, fs);
+    for (int i = 0; i < g_nscn; i++)
+        if (g_scn[i]->type == 0 && g_scn[i]->built && !g_scn[i]->deleted && !g_scn[i]->in_map_list) {
+            char ini[64]; snprintf(ini, sizeof(ini), "Multiplay/Scn%s.ini", g_scn[i]->id);
+            add_map_ini(game, ini);
+            g_scn[i]->in_map_list = 1;
+        }
+    live_log("rebuild %d: %s, %d missions (%s)", g_live_rev, g_index_xbox, g_nmission, g_camp_name);
+    return 1;
+}
+
+/* ---- windows ---- */
+#define LIVE_QUIET_X (-24000)
+#define LIVE_QUIET_Y (-24000)
+static HWND live_game_hwnd(void) { return (HWND)xbox_FramebufferWindowHandle(); }
+static HWND live_editor_hwnd(void) { HWND e = g_live ? (HWND)(uintptr_t)g_live->editor_hwnd : NULL; return e && IsWindow(e) ? e : NULL; }
+/* the game window shown just below the editor's, at the editor's place when both are windows */
+static void live_show_game_under(void)
+{
+    HWND game = live_game_hwnd(), ed = live_editor_hwnd();
+    if (!game) return;
+    UINT flags = SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER;
+    if (live_quiet()) { live_log("quiet: game window would show below the editor"); return; }   /* fb_present keeps a harness window hidden */
+    const int game_full = (GetWindowLongPtrW(game, GWL_STYLE) & WS_POPUP) != 0;
+    RECT er;
+    if (ed && !game_full && !(GetWindowLongPtrW(ed, GWL_STYLE) & WS_POPUP) && !IsZoomed(game) && GetWindowRect(ed, &er))
+        SetWindowPos(game, ed, er.left, er.top, er.right - er.left, er.bottom - er.top, flags);
+    else SetWindowPos(game, ed ? ed : HWND_TOP, 0, 0, 0, 0, flags | SWP_NOMOVE | SWP_NOSIZE);
+}
+static void live_hide_game(void)
+{
+    HWND game = live_game_hwnd(), ed = live_editor_hwnd();
+    if (!game) return;
+    if (live_quiet()) { live_log("quiet: game window would hide"); return; }
+    ShowWindow(game, SW_HIDE);   /* hidden first: it is not "losing focus while visible" (no pause tap); the editor below takes over */
+    if (ed && !live_quiet()) SetForegroundWindow(ed);
+}
+static void live_record_rect(void)
+{
+    HWND game = live_game_hwnd();
+    RECT r;
+    if (!g_live || !game || !GetWindowRect(game, &r)) return;
+    g_live->rect[0] = r.left; g_live->rect[1] = r.top; g_live->rect[2] = r.right; g_live->rect[3] = r.bottom;
+    g_live->game_fullscreen = (GetWindowLongPtrW(game, GWL_STYLE) & WS_POPUP) != 0;
+}
+
+/* The switching thread: window work only (the game thread may be inside a level load). */
+static DWORD WINAPI live_thread(LPVOID unused)
+{
+    (void)unused;
+    CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    int shown = 0; LONG flips0 = 0; DWORD t0 = 0; LONG seen_on = LIVE_GAME;
+    LONG last_flip = 0; DWORD flip_at = 0, since = 0;   /* waiting for the loading screen */
+    HANDLE editor = NULL; DWORD editor_pid = 0; int held = 0;   /* the audio hold */
+    while (!g_live_stop) {
+        Ma2seLive *L = g_live;
+        if (!L) break;
+        if (L->editor_pid) {
+            /* the game comes in: below the editor, two frames, then "ready" (the editor hides itself) */
+            if (L->want == LIVE_GAME && L->on_screen != LIVE_GAME) {
+                if (!shown && g_live_after_load) {
+                    /* the level loader starts while Custom Scenarios still fades out: wait for the loading screen, which
+                     * stands still (no new frame for 150 ms) once the loading itself runs */
+                    LONG f = xbox_FramebufferFlipCount();
+                    if (!since) { since = GetTickCount(); last_flip = f; flip_at = since; }
+                    if (f != last_flip) { last_flip = f; flip_at = GetTickCount(); }
+                    if (GetTickCount() - flip_at >= 150 || GetTickCount() - since > 2500) {
+                        live_log("loading screen standing (%lu ms after the level load)", GetTickCount() - since);
+                        since = 0; InterlockedExchange(&g_live_after_load, 0);
+                    }
+                }
+                if (!shown && !g_live_after_load) { live_show_game_under(); shown = 1; flips0 = xbox_FramebufferFlipCount(); t0 = GetTickCount(); live_log("game shown below the editor"); }
+                else if (shown && L->ready != LIVE_GAME) {
+                    /* two new frames; during a level load one fresh frame after 400 ms; never more than 1.5 s */
+                    LONG drawn = xbox_FramebufferFlipCount() - flips0; DWORD waited = GetTickCount() - t0;
+                    if (!(drawn >= 2 || (drawn >= 1 && waited > 400) || waited > 1500)) goto not_ready;
+                    InterlockedExchange(&L->ready, LIVE_GAME);
+                    live_log("game ready (%ld frames, %lu ms)", xbox_FramebufferFlipCount() - flips0, GetTickCount() - t0);
+                }
+                not_ready:;
+            } else shown = 0;
+            if (!g_live_after_load) since = 0;
+            /* the editor comes in: it says ready once it has drawn below the game, then the game hides */
+            if (L->want == LIVE_EDITOR && L->ready == LIVE_EDITOR && L->on_screen == LIVE_GAME) {
+                live_hide_game();
+                InterlockedExchange(&L->on_screen, LIVE_EDITOR);
+                InterlockedExchange(&L->ready, LIVE_NONE);
+                InterlockedExchange(&L->want, LIVE_NONE);
+                live_log("game hidden, editor on screen");
+            }
+            if (L->on_screen != seen_on) {   /* sound follows the window */
+                seen_on = L->on_screen;
+                ma2_scn_audio_mute_process(seen_on == LIVE_EDITOR);
+                live_log("game sound %s", seen_on == LIVE_EDITOR ? "muted" : "on");
+            }
+            /* The audio emulation (~55% of a core) runs whatever the game does; it is held only while the editor is on
+             * screen and the game idles hidden, and released here (this thread never waits on the game thread) the
+             * moment a request comes, a switch starts or the editor ends, before the game thread sees any of it. */
+            if (L->editor_pid != editor_pid) {
+                if (editor) CloseHandle(editor);
+                editor_pid = L->editor_pid;
+                editor = OpenProcess(SYNCHRONIZE, FALSE, editor_pid);
+            }
+            const int hold = g_live_idle && L->on_screen == LIVE_EDITOR && L->want == LIVE_NONE &&
+                             L->request_seq == L->done_seq && editor && WaitForSingleObject(editor, 0) == WAIT_TIMEOUT;
+            if (hold != held) {
+                held = hold;
+                mcpx_apu_hold(hold);
+                live_log("audio emulation %s", hold ? "held (editor on screen, game idle)" : "running");
+            }
+        }
+        Sleep(held ? 15 : 4);   /* held: nothing to switch until a request; the game thread looks every 20 ms anyway */
+    }
+    if (held) { mcpx_apu_hold(0); live_log("audio emulation running (live session over)"); }
+    if (editor) CloseHandle(editor);
+    CoUninitialize();
+    return 0;
+}
+
+/* A second "MechAssault 2.exe" while a hidden one runs: main.c's single-instance check shows "MechAssault 2 is
+ * already running." and exits; this closes that box at once and brings the current side forward instead. */
+static void live_forward(void)
+{
+    HWND w = g_live && g_live->on_screen == LIVE_EDITOR ? live_editor_hwnd() : live_game_hwnd();
+    if (!w || live_quiet()) return;
+    typedef void (WINAPI *SwitchFn)(HWND, BOOL);
+    static SwitchFn sw;
+    if (!sw) sw = (SwitchFn)(void *)GetProcAddress(GetModuleHandleW(L"user32.dll"), "SwitchToThisWindow");
+    if (IsIconic(w)) ShowWindow(w, SW_RESTORE);
+    if (sw) sw(w, TRUE); else SetForegroundWindow(w);
+}
+static void CALLBACK live_win_event(HWINEVENTHOOK hook, DWORD event, HWND hwnd, LONG obj, LONG child, DWORD thread, DWORD time)
+{
+    (void)hook; (void)event; (void)child; (void)thread; (void)time;
+    if (obj != OBJID_WINDOW || !hwnd || !g_live) return;
+    char cls[16] = ""; wchar_t title[64] = L"";
+    GetClassNameA(hwnd, cls, sizeof cls);
+    if (strcmp(cls, "#32770")) return;
+    GetWindowTextW(hwnd, title, 64);
+    if (wcscmp(title, L"MechAssault 2")) return;
+    DWORD pid = 0; GetWindowThreadProcessId(hwnd, &pid);
+    if (!pid || pid == GetCurrentProcessId()) return;
+    static int any = -1;
+    if (any < 0) { const char *v = getenv("RECOMP_LIVE_SECOND_ANY"); any = v && *v && strcmp(v, "0"); }   /* tests: any process */
+    if (!any) {
+        wchar_t mine[MAX_PATH], theirs[MAX_PATH]; DWORD n = MAX_PATH;
+        GetModuleFileNameW(NULL, mine, MAX_PATH);
+        HANDLE p = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        int same = p && QueryFullProcessImageNameW(p, 0, theirs, &n) && !_wcsicmp(mine, theirs);
+        if (p) CloseHandle(p);
+        if (!same) return;
+    }
+    ShowWindow(hwnd, SW_HIDE);
+    PostMessageW(hwnd, WM_CLOSE, 0, 0);
+    live_log("second launch (pid %lu): its 'already running' box closed, %s brought forward", pid,
+             g_live->on_screen == LIVE_EDITOR ? "the editor" : "the game");
+    live_forward();
+}
+static DWORD WINAPI live_hook_thread(LPVOID unused)
+{
+    (void)unused;
+    HWINEVENTHOOK h = SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW, NULL, live_win_event, 0, 0,
+                                      WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+    MSG m;
+    while (GetMessageW(&m, NULL, 0, 0) > 0) { TranslateMessage(&m); DispatchMessageW(&m); }
+    if (h) UnhookWinEvent(h);
+    return 0;
+}
+
+static int live_enabled(void)
+{
+    const char *v = getenv("RECOMP_EDITOR_LIVE");
+    return !(v && !strcmp(v, "0"));
+}
+/* Before the editor starts: the shared block. Returns its name for --from-game-live, or "" (old protocol). */
+static const char *live_open(DWORD *name_out_len)
+{
+    static char name[64];
+    static unsigned serial;
+    (void)name_out_len;
+    name[0] = 0;
+    if (!live_enabled()) return name;
+    snprintf(name, sizeof name, "Local\\MA2SE-live-%lu-%u", GetCurrentProcessId(), ++serial);
+    g_live_map = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, sizeof(Ma2seLive), name);
+    g_live = g_live_map ? (Ma2seLive *)MapViewOfFile(g_live_map, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(Ma2seLive)) : NULL;
+    if (!g_live) { if (g_live_map) CloseHandle(g_live_map); g_live_map = NULL; name[0] = 0; return name; }
+    memset(g_live, 0, sizeof *g_live);
+    g_live->magic = LIVE_MAGIC; g_live->version = LIVE_VERSION; g_live->size = sizeof(Ma2seLive);
+    g_live->game_pid = GetCurrentProcessId();
+    g_live->game_hwnd = (uint64_t)(uintptr_t)live_game_hwnd();
+    g_live->quiet = game_hidden() ? 1 : 0;
+    g_live->on_screen = LIVE_GAME;
+    live_record_rect();
+    if (g_live->quiet) {   /* a harness game stays hidden (fb_present); the editor goes off screen as a tool window */
+        g_live->rect[2] = LIVE_QUIET_X + (g_live->rect[2] - g_live->rect[0]); g_live->rect[0] = LIVE_QUIET_X;
+        g_live->rect[3] = LIVE_QUIET_Y + (g_live->rect[3] - g_live->rect[1]); g_live->rect[1] = LIVE_QUIET_Y;
+    }
+    g_live_stop = 0;
+    g_live_task = LT_NONE; g_live_testing = 0; g_live_quitconfirm = 0; g_live_reenter = 0; g_live_was_on = LIVE_GAME;
+    g_live_thread = CreateThread(NULL, 0, live_thread, NULL, 0, NULL);
+    g_live_hook_thread = CreateThread(NULL, 0, live_hook_thread, NULL, 0, &g_live_hook_tid);
+    return name;
+}
+static void live_close(void)
+{
+    if (!g_live) return;
+    InterlockedExchange(&g_live_stop, 1);
+    if (g_live_thread) { WaitForSingleObject(g_live_thread, 2000); CloseHandle(g_live_thread); g_live_thread = NULL; }
+    if (g_live_hook_thread) { PostThreadMessageW(g_live_hook_tid, WM_QUIT, 0, 0); WaitForSingleObject(g_live_hook_thread, 2000); CloseHandle(g_live_hook_thread); g_live_hook_thread = NULL; }
+    UnmapViewOfFile(g_live); g_live = NULL;
+    CloseHandle(g_live_map); g_live_map = NULL;
+    g_live_task = LT_NONE; g_live_testing = 0;
+    InterlockedExchange(&g_live_idle, 0);
+    mcpx_apu_hold(0);   /* live_thread released it already; this covers a thread that did not end in time */
+}
+
+/* ---- the game thread's part ---- */
+static void auto_arm_scn(const Scn *s, const char *mode, int red, int blue, int skill);   /* the Test autostart, above */
+static void live_select_in_picker(uint32_t object)
+{
+    if (!g_live_select[0] || g_live_picked == object) return;
+    int want = -1;
+    for (int m = 0; m < g_nmission; m++) if (!_wcsicmp(g_mission_scn[m]->file, g_live_select)) want = m;
+    if (want < 0) { g_live_picked = object; return; }
+    uint32_t begin = MEM32(object + 4), end = MEM32(object + 8);
+    if (end < begin || end - begin > 1024) return;
+    for (uint32_t e = begin; e < end; e += 4) {
+        int budget = 2000;
+        uint32_t barrel = valid_widget(MEM32(e)) ? find_barrel(MEM32(MEM32(e) + 0x38), 0, &budget) : 0;
+        if (!barrel) continue;
+        if (barrel_selected(barrel) != want) barrel_pick(barrel, (uint32_t)want, 1);
+        g_focus_mission = want;
+        g_live_picked = object;
+        live_log("Custom Scenarios: entry %d selected", want);
+        return;
+    }
+}
+static int live_may_press(void) { return GetTickCount() - g_live_press_at > 700; }
+static uint32_t g_live_esc_obj; static DWORD g_live_esc_at;
+/* Esc on a menu once (again only if the same screen is still up 1.2 s later: a screen's first press can be lost) */
+static int live_esc_once(uint32_t object)
+{
+    if (object == g_live_esc_obj && GetTickCount() - g_live_esc_at < 1200) return 0;
+    g_live_esc_obj = object; g_live_esc_at = GetTickCount();
+    return 1;
+}
+static void live_press(unsigned vk, const char *what) { post_key(vk); g_live_press_at = GetTickCount(); live_log("home: %s", what); }
+static int end_going_to_picker(void);   /* the result screen's Quit is on its way to Custom Scenarios (end of file) */
+/* One step back to Custom Scenarios (the hub when there are no missions) while the game is hidden. 1 = there. */
+static int live_home(uint32_t object, uint32_t vtable)
+{
+    uint32_t form = valid_widget(object) ? ready_form(object) : 0;
+    if (vtable == MISSION_PICKER_VT && g_custom) {
+        if (g_live_reenter) {   /* the list changed: out to the hub and in again (a new campaign file) */
+            if (form && live_may_press() && live_esc_once(object)) live_press(VK_ESCAPE, "Custom Scenarios: Esc (the list changed)");
+            return 0;
+        }
+        /* A hidden walk home never starts a mission: a select press left over from the hub (ours or the game's) is
+         * dropped here, before the picker can take it as Start Mission. */
+        if (pc_input_menu_clicked(1)) live_log("home: a pending select on Custom Scenarios dropped");
+        if (!form) return 0;
+        live_select_in_picker(object);
+        return ++g_live_home_frames > 6;
+    }
+    g_live_home_frames = 0;
+    if (vtable == HUB_MENU_VT) {
+        g_live_reenter = 0;
+        if (!g_nmission) return form != 0;
+        if (end_going_to_picker()) return 0;
+        /* Each arrival at the hub waits 1 s first: leaving a custom mission passes the hub and the game goes on into
+         * Custom Scenarios by itself. The wait was once per hub OBJECT, and the hub object lives on: from the second
+         * test on, the press came at once, the game entered Custom Scenarios on its own, and the click left pending
+         * started the selected mission there, hidden. The next Test then "started" in that level: the old map
+         * (playtest 11-17). A gap in the hub frames (another menu or a level between) is a new arrival. */
+        static uint32_t hub_seen; static DWORD hub_at, hub_last;
+        const DWORD now = GetTickCount();
+        if (object != hub_seen || now - hub_last > 250) { hub_seen = object; hub_at = now; }
+        hub_last = now;
+        if (now - hub_at < 1000) return 0;
+        if (form && live_may_press() && choose_item(object, form, 8)) { g_live_press_at = GetTickCount(); live_log("home: hub: Custom Scenarios"); }
+        return 0;
+    }
+    if (!form || !live_may_press()) return 0;
+    if (vtable == RESULTS_VT || vtable == HUB_START_VT) live_press(VK_RETURN, "Enter");
+    else if (!live_esc_once(object)) return 0;
+    else if (vtable == MULTI_MENU_VT || vtable == NEWGAME_VT || vtable == LOBBY_VT || vtable == DIFFICULTY_VT || vtable == MISSION_PICKER_VT)
+        live_press(VK_ESCAPE, "Esc");
+    else if (vtable != INGAME_VT && vtable != PAUSE_VT) {
+        static uint32_t told;
+        if (told != vtable) { told = vtable; live_log("home: menu %08X: Esc", vtable); }
+        live_press(VK_ESCAPE, "Esc (other menu)");
+    }
+    return 0;
+}
+static void live_want(LONG side)
+{
+    if (!g_live || g_live->on_screen == side || g_live->want == side) return;
+    if (side == LIVE_GAME) live_record_rect();
+    InterlockedExchange(&g_live->ready, LIVE_NONE);
+    InterlockedExchange(&g_live->want, side);
+    live_log("switch to the %s requested", side == LIVE_GAME ? "game" : "editor");
+}
+/* The player left the tested mission or match: the editor comes back (the game walks home hidden). */
+static void live_left(const char *why)
+{
+    if (!live_on() || !g_live_testing) return;
+    g_live_testing = 0; g_live_quitconfirm = 0;
+    g_live_task = LT_HOME;
+    ma2_bots_test_release(1);
+    live_log("test left (%s) after %lu ms", why, GetTickCount() - g_live_test_at);
+    live_tell(LGS_IDLE, NULL);
+    live_want(LIVE_EDITOR);
+}
+/* ma2_scn_level_load: the tested level is loading (the game's loading screen is up): the game comes in now. */
+static int g_live_phantom;   /* a level loaded while the editor is up and no Test asked for it */
+static int g_live_retest, g_live_retries;   /* the level a Test reached was not the Test's: left, then the Test again */
+static char g_live_req_mode[32];             /* the last Test request, for that second walk */
+static int g_live_req_red, g_live_req_blue, g_live_req_skill;
+static void live_level_loading(const Scn *s)
+{
+    if (s && live_on() && g_live->on_screen != LIVE_GAME && g_live_task != LT_TEST && !g_live_testing) {
+        /* While the editor is on screen nothing but Test starts a scenario level; one that starts anyway (a stray
+         * select on Custom Scenarios) would be what the next Test shows instead of the map asked for. It is left at
+         * once. (The front end's own world, loaded on the way back to the menus, is no scenario: s is NULL; a level
+         * the player starts with the game on screen is theirs.) */
+        g_live_phantom = 1;
+        live_log("scenario %s loads but no Test asked for it: leaving it", s->id);
+        return;
+    }
+    if (!live_on() || g_live_task != LT_TEST || !s || s != g_live_test_scn) return;
+    live_log("test level loading %lu ms after Test", GetTickCount() - g_live_test_at);
+    InterlockedExchange(&g_live_after_load, 1);
+    live_want(LIVE_GAME);
+}
+static void live_level_unloading(void)
+{
+    if (g_live_phantom) {
+        g_live_phantom = 0;
+        live_log("the level no Test asked for is gone");
+        /* hidden: back to Custom Scenarios first (before the next request, or before the Test walks in again) */
+        if (g_live_task == LT_NONE || g_live_task == LT_TEST) g_live_task = LT_HOME;
+    }
+    if (live_on() && g_live_testing && g_live_quitconfirm) live_left("pause > Quit");
+}
+/* pc_prompts.cpp: the pause menu's way out says where it goes. Leaving a mission or match started by the editor's Test
+ * brings the editor back (live session: the editor comes on screen; --quick-test from the standalone editor: the game
+ * closes), not the hub. 0 everywhere else (retail, Custom Scenarios played from the picker). */
+int ma2_scn_editor_test_level(void)
+{
+    if (live_on() && (g_live_testing || g_live_task == LT_TEST)) return 1;
+    return g_quick && g_focus >= 0 && level_scenario_or_checkpoint() != NULL;
+}
+/* The phantom level's way out: what the pause menu's Quit leaves in the level descriptor (end_decide, result 4). */
+static void live_leave_phantom(void)
+{
+    static DWORD at;
+    if (GetTickCount() - at < 2000) return;
+    at = GetTickCount();
+    uint32_t d = MEM32(0x00524A60u);   /* VA_LEVEL_STATE */
+    if (!d) return;
+    MEM32(d + 0x10C) = 4;
+    MEM32(d + 0x118) = 1;
+    live_log("phantom level: quit to the front end");
+}
+
+/* What Custom Scenarios lists (its rows are built when it opens): a change means entering it again. */
+static uint32_t live_list_sig(void)
+{
+    uint32_t h = 2166136261u;
+    for (int m = 0; m < g_nmission; m++) {
+        const Scn *s = g_mission_scn[m];
+        h = (h ^ crc32_of(s->id, 8)) * 16777619u;
+        h = (h ^ crc32_of(s->shown, wcslen(s->shown) * sizeof(wchar_t))) * 16777619u;
+        h = (h ^ crc32_of(s->desc_shown, wcslen(s->desc_shown) * sizeof(wchar_t))) * 16777619u;
+    }
+    return h ^ (uint32_t)g_nmission;
+}
+static void live_request(void)
+{
+    Ma2seLive *L = g_live;
+    LONG seq = L->request_seq;
+    if (seq == L->done_seq) return;
+    LONG req = L->request;
+    wchar_t file[MAX_PATH]; wcsncpy(file, L->file, MAX_PATH - 1); file[MAX_PATH - 1] = 0;
+    InterlockedExchange(&g_live_idle, 0);   /* before done_seq: live_thread must not hold the audio for this request */
+    InterlockedExchange(&L->done_seq, seq);
+    g_live_req_at = GetTickCount();
+    if (g_live_task == LT_TEST || g_live_testing) { live_log("request %ld while a test runs: ignored", req); return; }
+    if (req == LREQ_RETURN) {
+        live_log("request: back to the game (%ls)", file[0] ? L"with a file" : L"no file");
+        uint32_t sig = live_list_sig();
+        if (live_resync(NULL) && live_list_sig() != sig) g_live_reenter = g_custom;
+        for (int m = 0; m < g_nmission; m++) if (file[0] && !_wcsicmp(g_mission_scn[m]->file, file)) wcscpy(g_live_select, file);
+        g_live_picked = 0;
+        g_live_task = LT_RETURN;
+    } else if (req == LREQ_TEST) {
+        char mode[32]; memcpy(mode, L->mode, sizeof mode); mode[31] = 0;
+        live_log("request: test (%s, bots %d v %d, skill %d)", mode[0] ? mode : "mission", L->red, L->blue, L->skill);
+        g_live_test_at = GetTickCount();
+        /* The editor is on screen: a menu press still pending in the hidden game is stale, and on Custom Scenarios it
+         * would start whatever entry is selected (playtest 11-17: Test played an older map). */
+        for (unsigned b = 0; b < 8; b++)
+            if (pc_input_menu_button_pending(b, 1)) live_log("test: a pending menu button %u dropped", b);
+        memcpy(g_live_req_mode, mode, sizeof mode);
+        g_live_req_red = L->red; g_live_req_blue = L->blue; g_live_req_skill = L->skill;
+        g_live_retries = 0;
+        uint32_t sig = live_list_sig();
+        if (live_resync(file) && live_list_sig() != sig) g_live_reenter = g_custom;
+        const Scn *s = NULL;
+        for (int i = 0; i < g_nscn; i++) if (!g_scn[i]->deleted && !_wcsicmp(g_scn[i]->file, file)) { s = g_scn[i]; g_focus = i; }
+        if (!s || !s->built) { live_tell(LGS_FAILED, L"The game could not load this scenario."); g_live_task = LT_HOME; return; }
+        g_focus_mission = -1;
+        for (int m = 0; m < g_nmission; m++) if (g_mission_scn[m] == s) g_focus_mission = m;
+        if (s->type == 1) { wcsncpy(g_live_select, s->file, MAX_PATH - 1); g_live_picked = 0; }
+        g_live_test_scn = s; g_live_test_type = s->type;
+        auto_arm_scn(s, mode, L->red, L->blue, L->skill);
+        if (g_auto.state != AUTO_RUN) { live_tell(LGS_FAILED, L"The test could not start."); g_live_task = LT_HOME; return; }
+        g_live_task = LT_TEST;
+        live_tell(LGS_STARTING, NULL);
+    }
+}
+
+/* Every menu / HUD frame while a live editor session runs. Returns 1 when the menu frame should do nothing
+ * else (the game is hidden and idle). */
+static int live_frame_body(uint32_t object, uint32_t vtable);
+static int live_frame(uint32_t object, uint32_t vtable)
+{
+    /* g_live_idle stays 1 across the idle menu frames (the audio stays held); anything else clears it */
+    if (g_live->request_seq != g_live->done_seq) InterlockedExchange(&g_live_idle, 0);
+    g_live_idle_hit = 0;
+    const int r = live_frame_body(object, vtable);
+    InterlockedExchange(&g_live_idle, g_live_idle_hit);
+    return r;
+}
+static int live_frame_body(uint32_t object, uint32_t vtable)
+{
+    Ma2seLive *L = g_live;
+    {   /* trace: the menus a live task walks through */
+        static uint32_t last_vt; static int last_task;
+        if ((vtable != last_vt || g_live_task != last_task) && (g_live_task != LT_NONE || g_live_testing) && vtable != INGAME_VT)
+            live_log("task %d testing %d: menu %08X", g_live_task, g_live_testing, vtable);
+        last_vt = vtable; last_task = g_live_task;
+    }
+    if (L->on_screen != g_live_was_on) { g_live_was_on = L->on_screen; if (g_live_was_on == LIVE_GAME && g_live_task == LT_RETURN) g_live_task = LT_NONE; }
+    if (g_live_phantom) {   /* a level no Test asked for: it is left first; the editor's request waits until it is gone */
+        if (vtable == INGAME_VT) live_leave_phantom();
+        return 0;
+    }
+    live_request();
+    if (vtable == HUB_MENU_VT && valid_widget(object)) MEM32(object + 0x88) = MEM32(0x004E2430u);   /* no Attract Screen while hidden */
+    switch (g_live_task) {
+    case LT_TEST:
+        if (vtable == INGAME_VT) {
+            /* Only the Test's own scenario counts: another level up now (a stray select started the entry the
+             * picker had, playtest 11-17) is left at once and the Test walks in again (twice at most). */
+            const Scn *up = level_scenario_or_checkpoint();
+            if (!g_live_testing && up != g_live_test_scn) {
+                g_live_phantom = 1;
+                g_live_retest = g_live_retries++ < 2;
+                live_log("test: the level up is %s, not %s: leaving it%s", up ? up->id : "not a scenario",
+                         g_live_test_scn ? g_live_test_scn->id : "?", g_live_retest ? " and walking in again" : "");
+                if (!g_live_retest) { g_live_task = LT_HOME; live_tell(LGS_FAILED, L"The game started another map. Press Test again."); }
+                InterlockedExchange(&g_live_after_load, 0);
+                return 0;
+            }
+            if (!g_live_testing) {
+                g_live_testing = 1;
+                live_log("in the %s %lu ms after Test", g_live_test_type ? "mission" : "match", GetTickCount() - g_live_test_at);
+                live_tell(LGS_TESTING, NULL);
+                InterlockedExchange(&g_live_after_load, 0);
+                live_want(LIVE_GAME);   /* the load gave no level-load call (or it was missed): now at the latest */
+            }
+            g_live_task = LT_NONE;
+            return 0;
+        }
+        if (g_auto.state == AUTO_OFF) {   /* gave up (auto_give_up wrote a note) */
+            live_tell(LGS_FAILED, L"The test could not start by itself.");
+            g_live_task = LT_HOME;
+            return 0;
+        }
+        /* from Custom Scenarios: a changed list is entered again, a multiplayer map goes by the hub */
+        if (vtable == MISSION_PICKER_VT && valid_widget(object) && ready_form(object)) {
+            {   /* RECOMP_LIVE_TEST_STRAY=1 (tests): the first Test leaves a stray select on Custom Scenarios, as the user's
+                 * game did (11-17); the picker then starts the entry it had and the wrong-level guard above must catch it */
+                static int stray = -1;
+                if (stray < 0) { const char *v = getenv("RECOMP_LIVE_TEST_STRAY"); stray = v && *v && strcmp(v, "0") ? 1 : 0; }
+                if (stray == 1 && !g_live_retries) {   /* before the Test's own entry is selected: the old one starts */
+                    stray = 2; g_live_picked = object; pc_input_menu_click();
+                    live_log("test hook: a stray select on Custom Scenarios");
+                    return 1;
+                }
+            }
+            if (g_live_reenter || g_live_test_type == 0) {
+                if (live_may_press() && live_esc_once(object)) live_press(VK_ESCAPE, "test: Custom Scenarios: Esc");
+                return 1;
+            }
+            live_select_in_picker(object);
+        }
+        if (vtable == HUB_MENU_VT) g_live_reenter = 0;
+        return 0;
+    case LT_NONE:
+        if (g_live_testing) {
+            if (vtable == QUIT_CONFIRM_VT) g_live_quitconfirm = 1;
+            else if (vtable == INGAME_VT) g_live_quitconfirm = 0;
+            else if (vtable == RESULTS_VT && g_live_quitconfirm) live_left("pause > Quit (results)");
+            else if (front_end(vtable)) live_left("back in the menus");
+            return 0;
+        }
+        break;
+    }
+    if (L->on_screen != LIVE_EDITOR) {
+        if (g_live_task == LT_RETURN && L->want != LIVE_GAME && live_home(object, vtable)) live_want(LIVE_GAME);
+        return 0;
+    }
+    /* hidden */
+    if (g_live_task == LT_HOME || g_live_task == LT_RETURN) {
+        if (live_home(object, vtable)) {
+            if (g_live_task == LT_RETURN) live_want(LIVE_GAME);
+            else if (g_live_retest && g_live_test_scn) {   /* the Test walks in again, to its own scenario */
+                g_live_retest = 0;
+                g_live_picked = 0;
+                if (g_live_test_scn->type == 1) wcsncpy(g_live_select, g_live_test_scn->file, MAX_PATH - 1);
+                for (int i = 0; i < g_nscn; i++) if (g_scn[i] == g_live_test_scn) g_focus = i;
+                for (int m = 0; m < g_nmission; m++) if (g_mission_scn[m] == g_live_test_scn) g_focus_mission = m;
+                auto_arm_scn(g_live_test_scn, g_live_req_mode, g_live_req_red, g_live_req_blue, g_live_req_skill);
+                g_live_task = g_auto.state == AUTO_RUN ? LT_TEST : LT_NONE;
+                live_log("home: the Test walks in again (%s)", g_live_task == LT_TEST ? "armed" : "could not arm");
+                if (g_live_task != LT_TEST) live_tell(LGS_FAILED, L"The test could not start.");
+            } else { g_live_task = LT_NONE; live_log("home: Custom Scenarios reached while hidden"); }
+        }
+        return 0;
+    }
+    /* idle: about one menu frame a second, waking at once for a request or the editor closing; the audio
+     * emulation is held meanwhile (live_thread) */
+    g_live_idle_hit = 1;
+    InterlockedExchange(&g_live_idle, 1);
+    for (int i = 0; i < 50 && L->request_seq == L->done_seq && WaitForSingleObject(g_editor_proc, 0) == WAIT_TIMEOUT; i++) Sleep(20);
+    return 1;
+}
+
+/* The editor process ended during a live session. */
+static void editor_back_live(DWORD code)
+{
+    const LONG on = g_live->on_screen;
+    const int quiet = g_live->quiet, testing = g_live_testing || g_live_task == LT_TEST;
+    fprintf(stderr, "[SCN] editor returned code %lu after %lu s (live: %s)\n", code, (GetTickCount() - g_editor_started) / 1000,
+            on == LIVE_EDITOR ? "it was on screen" : testing ? "during a test" : "back in the game"); fflush(stderr);
+    DeleteFileW(g_editor_result);   /* the live block already said everything (the file stays for older games) */
+    live_close();
+    ma2_pc_editor_focus_clear();
+    if (on == LIVE_EDITOR) {   /* it ended while it was the one on screen (crash, killed): the game comes back */
+        HWND game = live_game_hwnd();
+        if (game && !quiet) { ShowWindowAsync(game, SW_SHOW); SetForegroundWindow(game); }
+        ma2_scn_audio_mute_process(0);
+        if (live_resync(NULL) && g_custom) { wcscpy(g_editor_select, g_live_select); g_editor_reenter = 1; post_key(VK_ESCAPE); }
+    }
+    if (code != 0) {
+        wchar_t note[200];
+        if (on == LIVE_EDITOR || !testing)
+            swprintf(note, 200, L"The editor closed unexpectedly (code 0x%08lX).\nIt offers your last autosave next time you open it.", code);
+        else swprintf(note, 200, L"The Scenario Editor closed unexpectedly (code 0x%08lX). This test goes on; leaving it returns to the menus.", code);
+        editor_note(note);
+    }
+    g_editor_from_hub = 0;
+}
+
 static void editor_start(uint32_t object)
 {
     wchar_t exe[MAX_PATH];
@@ -2127,6 +2966,10 @@ static void editor_start(uint32_t object)
     int len = swprintf(cmd, cap, L"\"%ls\" --from-game %llu --from-game-result \"%ls\"", exe,
                        (unsigned long long)(uintptr_t)game, g_editor_result);
     if (s && len > 0) len += swprintf(cmd + len, cap - (size_t)len, L" --file \"%ls\"", s->file);
+    const char *live = live_open(NULL);
+    if (live[0] && len > 0) len += swprintf(cmd + len, cap - (size_t)len, L" --from-game-live %hs", live);
+    g_live_select[0] = 0; g_live_picked = 0;
+    if (s) wcsncpy(g_live_select, s->file, MAX_PATH - 1);
     if (game_hidden() && len > 0) {
         char pipe[64]; const char *v = getenv("RECOMP_EDITOR_PIPE");
         snprintf(pipe, sizeof pipe, "%s", v && *v ? v : "ma2se-ingame");
@@ -2139,13 +2982,15 @@ static void editor_start(uint32_t object)
     if (!CreateProcessW(exe, cmd, NULL, NULL, FALSE, 0, NULL, dir, &si, &pi)) {
         logf_("editor: could not start %ls (error %lu)", exe, GetLastError());
         editor_note(L"The Scenario Editor could not be started.");
+        live_close();
         return;
     }
     CloseHandle(pi.hThread);
     g_editor_proc = pi.hProcess; g_editor_pid = pi.dwProcessId; g_editor_started = GetTickCount();
     g_editor_hid_game = 0;
     if (!game_hidden()) AllowSetForegroundWindow(pi.dwProcessId);
-    ma2_scn_audio_mute_process(1);
+    if (!g_live) ma2_scn_audio_mute_process(1);   /* live: the sound goes with the window (live_thread) */
+    else editor_note_for(L"Opening the Scenario Editor...", 4000u);
     { static char shown[4 * MAX_PATH * 2]; fprintf(stderr, "[SCN] editor pid %lu: %s\n", pi.dwProcessId, xbox_log_pathw(cmd, shown, sizeof shown)); fflush(stderr); }
     logf_("editor: started pid %lu on %ls", pi.dwProcessId, s ? s->file : L"(start page)");
 }
@@ -2180,11 +3025,15 @@ static void restart_game(const wchar_t *file, int browse)
     TerminateProcess(GetCurrentProcess(), 0);
 }
 
+
+static void editor_back_live(DWORD code);
 static void editor_back(void)
 {
     DWORD code = 0;
     GetExitCodeProcess(g_editor_proc, &code);
     CloseHandle(g_editor_proc); g_editor_proc = NULL;
+    if (live_on()) { editor_back_live(code); return; }
+    live_close();   /* an editor without the live protocol: the old way below */
     ma2_pc_editor_focus_clear();   /* before any key is posted below (Esc to the hub) */
     ma2_scn_audio_mute_process(0);
     HWND game = (HWND)xbox_FramebufferWindowHandle();
@@ -2243,6 +3092,13 @@ static int editor_frame(uint32_t object, uint32_t vtable)
          * where no menu frame runs to notice the editor closing) */
         if (vtable == HUB_MENU_VT && valid_widget(object)) MEM32(object + 0x88) = MEM32(0x004E2430u);
         if (WaitForSingleObject(g_editor_proc, 0) == WAIT_OBJECT_0) { editor_back(); return 0; }
+        if (live_on()) return live_frame(object, vtable);
+        if (g_live) {   /* not attached yet: an older editor never does, then the old protocol */
+            if (GetTickCount() - g_editor_started < 15000u) { Sleep(20); return 1; }
+            logf_("editor: no live session after 15 s, old protocol");
+            live_close();
+            ma2_scn_audio_mute_process(1);
+        }
         if (!g_editor_hid_game && !game_hidden()) {   /* hide the game once the editor's window is up */
             WinFind f = { g_editor_pid, 0 };
             EnumWindows(find_visible, (LPARAM)&f);
@@ -2299,10 +3155,16 @@ static int editor_frame(uint32_t object, uint32_t vtable)
     return 0;
 }
 
+static void cine_frame(void);   /* cutscene NoSkip (custom levels), end of file */
+
+static uint32_t g_picker_done;   /* the picker the Test file was selected on */
 void ma2_scn_menu_frame(uint32_t object, uint32_t vtable)
 {
-    static uint32_t done, last_menu;
+    static uint32_t last_menu;
+    uint32_t done = g_picker_done;
+    if (vtable == INGAME_VT) { msg_pump(); end_frame(); cine_frame(); }   /* waiting mission messages, the result screen, NoSkip cutscenes (custom levels) */
     if (editor_frame(object, vtable)) return;
+    end_menu_frame(object, vtable);          /* after the result screen's Quit: the hub -> Custom Scenarios */
     if (g_custom) MEM8(VA_INTRO_SEEN) = 1;   /* no campaign intro before a custom mission */
     auto_frame(object, vtable);
     if (g_skip_intro && !g_quick && g_auto.state == AUTO_OFF) InterlockedExchange(&g_intro_done, 1);
@@ -2313,6 +3175,7 @@ void ma2_scn_menu_frame(uint32_t object, uint32_t vtable)
         return;
     }
     last_menu = 0;
+    if (g_live) return;   /* a live editor session selects in Custom Scenarios itself (live_select_in_picker) */
     if (vtable != MISSION_PICKER_VT || !g_custom || g_focus_mission < 0 || !valid_widget(object) || object == done) return;
     uint32_t begin = MEM32(object + 4), end = MEM32(object + 8);
     if (end < begin || end - begin > 1024) return;
@@ -2326,7 +3189,7 @@ void ma2_scn_menu_frame(uint32_t object, uint32_t vtable)
         PUSH32(esp, 0x002265D0u); RECOMP_ABI_CALL(0x00208BF9u, sub_00208BF9);
         uint32_t ok = eax & 0xFF;
         regs_restore(&r);
-        done = object;
+        done = object; g_picker_done = done;
         logf_("mission picker: test scenario selected (entry %d of %d) -> %u", g_focus_mission, g_nmission, ok);
         return;
     }
@@ -2408,4 +3271,408 @@ void ma2_scn_action_cue(uint32_t cue)
     if (trace < 0) { const char *t = getenv("RECOMP_SCENARIO_TRACE"); trace = t && *t && strcmp(t, "0"); }
     if (trace) logf_("action cue %08X", cue);
     if (cue > SCN_CUE_GLOBAL && cue < SCN_CUE_GLOBAL + SCN_MAX * 0x1000u) ma2_scn_audio_play(cue);
+}
+
+/* ------------------------------------------------------------------ */
+/* Mission message queue (custom levels only)                           */
+/* ------------------------------------------------------------------ */
+/* MAActionBroadcast / MAActionPopupMenu Execute (vtable slot 22, sub_001A0991) hands the message to the
+ * game's single message box, and the later message replaces the earlier one in the same frame (
+ * "A1" and "A2" fired together showed only "A2"). On a scenario level the lookup override
+ * (recomp_manual.c, 0x001A0991 -> ma2_scn_msg_execute) therefore lets a message show only when none is on
+ * screen; the others wait in a FIFO (16, the oldest waiting one is dropped when it is full) and each shows
+ * 0.25 s of game time after the one before ran out its TimeDisplayedFor. Retail levels call the original.
+ *
+ * Action layout read by the original: +0x68 body text id, +0x6C TimeDisplayedFor (float), +0x70 caption,
+ * +0x74 destination, +0x78 PauseGame, +0x79 flag. One stack argument (ret 4) that the original ignores
+ * but is passed on. TimeDisplayedFor <= 0 draws nothing at all, so such a message is never
+ * queued and is dropped while another one is on screen (it must not wipe it). The clock is the game
+ * clock (double 0x4E2440), which stands still while the game is paused.
+ * RECOMP_SCENARIO_TRACE=1 logs every message: shown / queued / retail. */
+#define VA_GAME_CLOCK  0x004E2440u
+#define MSG_QUEUE_MAX  16
+#define MSG_GAP        0.25
+typedef struct MsgQ { uint32_t action, arg, vtbl; float seconds; } MsgQ;
+static MsgQ g_msgq[MSG_QUEUE_MAX];
+static int g_msgq_n;
+static double g_msg_until = -1.0e30, g_msg_stamp;
+static unsigned g_msg_serial;
+
+static int msg_trace(void)
+{
+    static int trace = -1;
+    if (trace < 0) { const char *t = getenv("RECOMP_SCENARIO_TRACE"); trace = t && *t && strcmp(t, "0"); }
+    return trace;
+}
+static double msg_clock(void) { return MEMD(VA_GAME_CLOCK); }
+static void msg_reset(void)
+{
+    g_msgq_n = 0; g_msg_until = -1.0e30; g_msg_stamp = 0.0;
+}
+/* The level is changing (load, unload, checkpoint reload): queued actions belong to the old world. */
+static void msg_level_changed(void) { if (g_msgq_n && msg_trace()) logf_("message queue cleared (%d waiting)", g_msgq_n); msg_reset(); }
+
+static void msg_shown(uint32_t action, float seconds, const char *how)
+{
+    double now = msg_clock();
+    g_msg_stamp = now;
+    if (seconds > 0.0f) g_msg_until = now + seconds + MSG_GAP;
+    if (msg_trace()) logf_("message %s #%u (action %08X, %.1f s) at clock %.2f, %d waiting", how, ++g_msg_serial, action, seconds, now, g_msgq_n);
+}
+
+/* 0x001A0991 replacement: ecx = the action, [esp] return address, [esp+4] the argument. */
+void ma2_scn_msg_execute(void)
+{
+    if (!ma2_scn_level_custom()) {
+        if (msg_trace()) logf_("message retail (action %08X, %.1f s)", ecx, MEMF(ecx + 0x6C));
+        sub_001A0991();
+        return;
+    }
+    uint32_t action = ecx, arg = MEM32(esp + 4);
+    float seconds = MEMF(action + 0x6C);
+    double now = msg_clock();
+    if (g_msg_stamp > now + 1.0) msg_reset();             /* the clock restarted (new world) */
+    int busy = now < g_msg_until || g_msgq_n > 0;
+    if (!busy || seconds <= 0.0f) {
+        if (busy) {
+            if (msg_trace()) logf_("message dropped while another shows (action %08X: 0 seconds draws nothing)", action);
+            esp += 8; return;
+        }
+        sub_001A0991();                                   /* pops its argument itself */
+        msg_shown(action, seconds, "shown");
+        return;
+    }
+    if (g_msgq_n >= MSG_QUEUE_MAX) {
+        logf_("message queue full: the oldest waiting message (action %08X) is dropped", g_msgq[0].action);
+        memmove(&g_msgq[0], &g_msgq[1], sizeof g_msgq[0] * (MSG_QUEUE_MAX - 1));
+        g_msgq_n--;
+    }
+    MsgQ *q = &g_msgq[g_msgq_n++];
+    q->action = action; q->arg = arg; q->vtbl = MEM32(action); q->seconds = seconds;
+    if (msg_trace()) logf_("message queued (action %08X, %.1f s), %d waiting, free at clock %.2f (now %.2f)", action, seconds, g_msgq_n, g_msg_until, now);
+    esp += 8;                                             /* ret 4 */
+}
+
+/* Every in-mission HUD frame: show the next waiting message once the one on screen has run out. */
+static void msg_pump(void)
+{
+    if (!g_msgq_n) return;
+    double now = msg_clock();
+    if (g_msg_stamp > now + 1.0) { msg_reset(); return; }
+    if (now < g_msg_until) return;
+    MsgQ m = g_msgq[0];
+    memmove(&g_msgq[0], &g_msgq[1], sizeof g_msgq[0] * (MSG_QUEUE_MAX - 1));
+    g_msgq_n--;
+    if (MEM32(m.action) != m.vtbl) { logf_("queued message (action %08X) is gone, skipped", m.action); return; }
+    FullRegs f; full_save(&f);
+    ecx = m.action;
+    PUSH32(esp, m.arg); PUSH32(esp, 0x001A09F4u);         /* a return address inside the caller's neighbourhood; never executed */
+    RECOMP_ABI_CALL(0x001A0991u, sub_001A0991);
+    full_restore(&f);
+    msg_shown(m.action, m.seconds, "shown from the queue");
+}
+
+/* ------------------------------------------------------------------ */
+/* Mission result screen (custom missions only)                         */
+/* ------------------------------------------------------------------ */
+/* A level ends when its result, level descriptor [0x524A60] +0x10C, turns nonzero (the frame step
+ * sub_00015AF0 reads it; no HUD frame runs after that). Values (traced in game):
+ *   1 lose: reload the last checkpoint (custom LEVEL entries: the mission again, silently, for ever)
+ *   2 win: next campaign entry; custom entries have returntolobby, so the hub and Custom Scenarios
+ *   3 restart (pause menu Restart Mission, p_restart.ggf handler sub_0022409B)
+ *   4 quit to the hub (pause menu Quit: the frame step writes it when the menu stack says so)
+ * Writers on a mission: MAActionGameCondition Execute sub_0014E259 (slot 22, value = action +0x64) and
+ * the player's death, sub_0015E6F5 (lose = 1) reached from the player entity's update sub_000C80DB
+ * (vtable 0x4654CC, called through the world walker sub_0015D2E9) via sub_000C9F32.
+ * On a custom mission (Type = Mission) both are held: lookup overrides (recomp_manual.c) on
+ * 0x0014E259 (the action is not executed yet) and on 0x000C80DB (a result the player's update wrote
+ * is put back to 0 at once, so the level goes on). The next HUD frame freezes the world (the pause
+ * request 0x50C9E8 = 1, as the pause menu does) and opens the game's own message box (ma2_gui_dialog):
+ *   lost (GameCondition 1, or the player destroyed): "MISSION FAILED" + LoseText, Retry (1) / Quit (4)
+ *   won (GameCondition 2): "MISSION COMPLETE" + WinText, Continue (2) / Replay (3)
+ * The choice releases the world (0x50C9E8 = 2) and writes that result, so the game's own path runs.
+ * Quit and Continue land on the hub, which then opens Custom Scenarios again. --quick-test takes
+ * Quit / Continue after 3 s so the harness still closes. Retail levels call the originals unchanged.
+ * RECOMP_SCENARIO_TRACE=1 logs each step. */
+#define VA_LEVEL_STATE  0x00524A60u   /* sub_00018F10: the level descriptor; +0x10C the level result */
+#define VA_PAUSE_REQ    0x0050C9E8u   /* 1 = freeze the world, 2 = release (sub_00015AF0) */
+#define END_QUICK_MS    3000u
+enum { END_IDLE, END_HELD, END_SHOWN, END_DECIDED };
+static struct {
+    int state;
+    const Scn *scn, *left;             /* scn: the mission held; left: the one Quit left (selected in Custom Scenarios) */
+    uint32_t held, dialog;             /* the held result; the open dialog */
+    int death, back_to_picker;
+    DWORD shown_at;
+} g_end;
+
+static uint32_t end_result(void) { uint32_t d = MEM32(VA_LEVEL_STATE); return d ? MEM32(d + 0x10C) : 0; }
+
+/* Level load and unload (a checkpoint restart loads the checkpoint file as the world). */
+static void end_level_changed(void)
+{
+    if (g_end.state == END_SHOWN && msg_trace()) logf_("result screen: level changed while it was up");
+    g_end.state = END_IDLE; g_end.dialog = 0; g_end.held = 0; g_end.death = 0; g_end.scn = NULL;
+}
+
+/* The level being played, when it is a custom mission (asked only when a result turns up). */
+static const Scn *end_mission(void)
+{
+    const Scn *s = g_ready ? level_scenario_or_checkpoint() : NULL;
+    return s && s->type == 1 ? s : NULL;
+}
+
+/* Returns 1 when the result is held for the screen. */
+static int end_hold(uint32_t result, int death)
+{
+    if (g_end.state != END_IDLE) return 0;
+    const Scn *s = end_mission();
+    if (!s) return 0;
+    g_end.scn = s;
+    g_end.state = END_HELD; g_end.held = result; g_end.death = death;
+    logf_("result screen: %s (result %u) held at clock %.2f", result == 2 ? "mission won" : death ? "player destroyed" : "mission lost",
+          result, MEMD(VA_GAME_CLOCK));
+    return 1;
+}
+
+/* 0x0014E259 replacement (MAActionGameCondition Execute): ecx = the action, [esp+4] one argument (ret 4). */
+void ma2_scn_gamecond_execute(void)
+{
+    uint32_t value = MEM32(ecx + 0x64);
+    if (g_end.state == END_DECIDED || (value != 1 && value != 2)) { sub_0014E259(); return; }
+    if (g_end.state == END_IDLE && !end_hold(value, 0)) {   /* retail, or not a mission: the original */
+        if (msg_trace()) logf_("level result: game condition %u, original path (not a custom mission)", value);
+        sub_0014E259(); return;
+    }
+    if (g_end.state == END_SHOWN && msg_trace()) logf_("result screen: game condition %u while the screen is up, ignored", value);
+    esp += 8;                                             /* ret 4: held (or a second one while it is up) */
+}
+
+/* 0x000C80DB replacement (the player entity's update, which runs the death -> lose path). */
+void ma2_scn_player_update(void)
+{
+    if (g_end.state == END_DECIDED) { sub_000C80DB(); return; }
+    uint32_t before = end_result();
+    sub_000C80DB();
+    uint32_t after = end_result();
+    if (before || !after) return;                         /* the usual case: no result */
+    if (g_end.state == END_IDLE && ((after != 1 && after != 2) || !end_hold(after, after == 1))) {
+        if (msg_trace()) logf_("level result: %u from the player's update, original path (not a custom mission)", after);
+        return;
+    }
+    MEM32(MEM32(VA_LEVEL_STATE) + 0x10C) = 0;            /* held: the level goes on under the screen */
+}
+
+static uint32_t end_modal_form(void)   /* the newest modal dialog's form (pc_gui_bridge.c dialog_form(0)) */
+{
+    uint32_t begin = MEM32(0x5240D0u), end = MEM32(0x5240D4u);
+    return end > begin && end - begin <= 4096 ? MEM32(MEM32(end - 4) + 4) : 0;
+}
+
+static void end_decide(uint32_t result, const char *why)
+{
+    uint32_t d = MEM32(VA_LEVEL_STATE);
+    g_end.state = END_DECIDED; g_end.dialog = 0;
+    g_end.back_to_picker = result == 4;   /* Continue (2) reaches Custom Scenarios by itself (returntolobby) */
+    g_end.left = g_end.scn;
+    MEM32(VA_PAUSE_REQ) = 2;
+    if (d) {
+        MEM32(d + 0x10C) = result;
+        if (result == 4) MEM32(d + 0x118) = 1;   /* what the pause menu's Quit leaves there: back to the front end */
+    }
+    logf_("result screen: %s -> level result %u", why, result);
+    if (result == 2 || result == 4) live_left(why);   /* Back to the editor */
+}
+
+/* Every in-mission HUD frame (also while the dialog is up: the modal pulse runs the menu under it). */
+static void end_frame(void)
+{
+    if (g_end.state == END_HELD) {
+        const int won = g_end.held == 2;
+        const wchar_t *own = won ? g_end.scn->win_text : g_end.scn->lose_text;
+        const wchar_t *line = own[0] ? own : won ? L"All objectives complete." :
+                              g_end.death ? L"Your 'Mech was destroyed." : L"The mission was lost.";
+        MEM32(VA_PAUSE_REQ) = 1;
+        g_end.dialog = ma2_gui_dialog(ma2_pc_wide(won ? L"MISSION COMPLETE" : L"MISSION FAILED"), ma2_pc_wide(line));
+        uint32_t form = end_modal_form();
+        ma2_gui_text(ma2_gui_find(form, 0x466), ma2_pc_wide(won ? L"Continue" : L"Retry"));
+        ma2_gui_text(ma2_gui_find(form, 0x465), ma2_pc_wide(won ? L"Replay" : L"Quit"));   /* the Esc button */
+        g_end.shown_at = GetTickCount();
+        g_end.state = END_SHOWN;
+        logf_("result screen: %s shown (dialog %08X, form %08X)", won ? "MISSION COMPLETE" : "MISSION FAILED", g_end.dialog, form);
+        if (msg_trace()) { void ma2_gui_inspect(uint32_t form); ma2_gui_inspect(form); }
+        return;
+    }
+    if (g_end.state != END_SHOWN) return;
+    const int won = g_end.held == 2;
+    uint32_t r = g_end.dialog ? ma2_gui_dialog_result(g_end.dialog) : 0;
+    if (r) {
+        logf_("result screen: dialog result %u", r);
+        if (r == 1 || r == 3) end_decide(won ? 2 : 1, won ? "Continue" : "Retry");
+        else end_decide(won ? 3 : 4, won ? "Replay" : "Quit");
+        return;
+    }
+    if (g_quick && GetTickCount() - g_end.shown_at > END_QUICK_MS) {
+        logf_("quick test: result screen up for 3 s: %s", won ? "Continue" : "Quit");
+        post_key(VK_ESCAPE);   /* closes the dialog; the result below wins either way */
+        end_decide(won ? 2 : 4, won ? "Continue (quick test)" : "Quit (quick test)");
+    }
+}
+
+/* Quit lands on the hub (result 4 is the pause menu's way out); a win's Continue goes on to Custom
+ * Scenarios by itself, so Quit does the same from here: the hub's Custom Scenarios item once its form is
+ * up, with the mission just left selected. */
+static void end_menu_frame(uint32_t object, uint32_t vtable)
+{
+    static int frames;
+    if (!g_end.back_to_picker || vtable == INGAME_VT) { frames = 0; return; }
+    if (vtable == MISSION_PICKER_VT) { g_end.back_to_picker = 0; frames = 0; return; }
+    if (vtable != HUB_MENU_VT || !g_custom) return;
+    uint32_t form = ready_form(object);
+    if (!form || ++frames < 10) return;
+    for (int m = 0; m < g_nmission; m++) if (g_mission_scn[m] == g_end.left) g_focus_mission = m;
+    if (choose_item(object, form, 8)) logf_("result screen: Quit -> Custom Scenarios (entry %d)", g_focus_mission);
+    g_end.back_to_picker = 0; frames = 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Cutscene skip (custom levels)                                       */
+/* ------------------------------------------------------------------ */
+/* How the retail skip works (traced in game): Space (pad A) does not stop the cinema. The frame
+ * step sub_00015AF0 asks sub_00017B20 for the fast flag, game singleton ([0x50C958]) byte +0x42, and while
+ * it is set it steps the world with a fixed 0.2 s (sub_0001DD80(0.2)) every frame instead of the real
+ * frame time. The cinema, its shots, their "starts" / "ends" triggers, timers and every other game-time
+ * event run as if played, about 25 times faster, until the last shot's Stop (sub_00155B53) clears the
+ * cinema (and the flag stops being set). So a skip already runs every remaining shot's triggerInit and
+ * triggerExit once, in order, plus timed events due in the skipped time: nothing to add for "end actions
+ * on skip". MACinema: uid at +0x2C, shot index +0x8C, controllers vector +0x80/+0x84; controller
+ * (MAFreeCameraController) triggerInit uid +0x9C, triggerExit uid +0xA0.
+ * [Cutscenes] NoSkip=<uid>,... (editor "The player can skip it" unticked): while that cinema is the
+ * active one ([0x4EB198], byte 0x4EB19C), the fast flag is put back to 0 every HUD frame. Retail levels
+ * and skippable cinemas are not touched. RECOMP_SCENARIO_TRACE=1 logs cinema start / end and each
+ * ignored skip. */
+#define VA_CINEMA       0x004EB198u   /* the active MACinema */
+#define VA_CINEMA_ON    0x004EB19Cu   /* byte: a cinema plays */
+#define VA_GAME_SINGLE  0x0050C958u   /* game singleton (sub_00161B4B); +0x42 the fast (skip) flag */
+static void cine_frame(void)
+{
+    static uint32_t last_cin, ignored;
+    uint32_t cin = MEM8(VA_CINEMA_ON) ? MEM32(VA_CINEMA) : 0;
+    const Scn *s = cin || last_cin ? level_scenario_or_checkpoint() : NULL;
+    if (cin != last_cin) {
+        if (msg_trace() && s) {
+            if (cin) logf_("cutscene %u started at clock %.2f", MEM32(cin + 0x2C), msg_clock());
+            else logf_("cutscene ended at clock %.2f (skip flag cleared on %u frames)", msg_clock(), ignored);
+        }
+        last_cin = cin; ignored = 0;
+    }
+    if (!cin || !s || !s->nnoskip) return;
+    uint32_t uid = MEM32(cin + 0x2C), game = MEM32(VA_GAME_SINGLE);
+    int i;
+    for (i = 0; i < s->nnoskip && s->noskip[i] != uid; i++) {}
+    if (i == s->nnoskip || !game || !MEM8(game + 0x42)) return;
+    MEM8(game + 0x42) = 0;
+    ignored++;
+    if (msg_trace()) logf_("cutscene %u is not skippable: skip ignored at clock %.2f", uid, msg_clock());
+}
+
+/* J4 helpers that need the result screen's state */
+static void live_end_screens_swap(const Scn *old, const Scn *now)
+{
+    if (g_end.scn == old) g_end.scn = now;
+    if (g_end.left == old) g_end.left = now;
+}
+static int end_going_to_picker(void) { return g_end.back_to_picker; }
+
+/* ------------------------------------------------------------------ */
+/* Generated models of resized water and cut walls (custom levels only) */
+/* ------------------------------------------------------------------ */
+/* A MACorporeal builds its model in the slot-113 build (sub_000D75C7, reached through [obj+0x1C4]) from the
+ * path the model getter sub_000D6EC6 returns: the object's own Corporal3DObj block, [obj+0x198] (two std::string
+ * at +0 Corporal3DObj and +0xC CorporalMTB), else the object template's. On a placed object [obj+0x198] already
+ * points at a block holding the TEMPLATE's path (traced E2c; the instance's own Corporal3DObj is not read),
+ * so a world entry naming a model of its own (the editor's resized water, MA2SE_<model>_<W>x<L>.MGMODEL, and
+ * cut walls, bases, parking lots) was drawn with the template's standard model: a resized 60 x 20 lake was
+ * the 1000 m sheet (trace: 878 strip vertices, extents -500..500). On a scenario level the lookup override (recomp_manual.c, 0x000D75C7 -> ma2_scn_corporeal_build)
+ * gives such an object an own block for the build alone: Corporal3DObj = the world entry's path, CorporalMTB =
+ * the one the getter found, and puts [obj+0x198] back as it was after the build (the object's destructor frees what
+ * it finds there). Only entries whose path holds "MA2SE_" are touched, found by the UID the object keeps at
+ * +0x2C. Retail levels call the original. RECOMP_SCENARIO_TRACE=1 logs each object that gets a model. */
+typedef struct WModel { uint32_t uid; const char *path; uint32_t len; uint32_t block; } WModel;
+static struct { const Scn *scn; WModel *m; int n; } g_wm;
+#define KEY_UID    0x3AC3BB73u   /* world-file key hashes: crc32 (not complemented) of the name */
+#define KEY_C3DOBJ 0xB6C8CF81u   /* Corporal3DObj */
+
+static void wmodel_index(const Scn *s)
+{
+    if (g_wm.scn == s) return;
+    free(g_wm.m); g_wm.m = NULL; g_wm.n = 0; g_wm.scn = s;
+    const uint8_t *w = s->world; uint32_t size = s->world_size, pos = 20;
+    if (!w || size < 20 || *(const uint32_t *)w != 0xFF002F00u) return;
+    int cap = 0;
+    while (pos + 12 <= size) {
+        uint32_t marker = *(const uint32_t *)(w + pos), count = *(const uint32_t *)(w + pos + 4);
+        if (marker != 0xFF012F01u) break;
+        pos += 12;
+        uint32_t uid = 0, len = 0; const char *path = NULL;
+        for (uint32_t i = 0; i < count; i++) {
+            if (pos + 16 > size) return;
+            uint32_t type = *(const uint32_t *)(w + pos + 4), key = *(const uint32_t *)(w + pos + 8), psize = *(const uint32_t *)(w + pos + 12);
+            if (*(const uint32_t *)(w + pos) != 0xFF022F02u || pos + 16ull + psize > size) return;
+            if (key == KEY_UID && psize == 4) uid = *(const uint32_t *)(w + pos + 16);
+            else if (key == KEY_C3DOBJ && type == 9 && psize > 1) { path = (const char *)(w + pos + 16); len = (uint32_t)strnlen(path, psize); }
+            pos += 16 + psize;
+        }
+        if (!uid || !path || !len || len > 400) continue;
+        char text[401]; memcpy(text, path, len); text[len] = 0;
+        if (!strstr(text, "MA2SE_")) continue;
+        if (g_wm.n == cap) { cap = cap ? cap * 2 : 16; g_wm.m = (WModel *)realloc(g_wm.m, (size_t)cap * sizeof(WModel)); if (!g_wm.m) { g_wm.n = 0; return; } }
+        g_wm.m[g_wm.n++] = (WModel){ uid, path, len, 0 };
+    }
+}
+
+/* The own block for `obj` (a guest address), or 0 when the world entry names no generated model. Preserves the guest registers. */
+static uint32_t wmodel_block(uint32_t obj)
+{
+    const Scn *s = level_scenario_or_checkpoint();
+    if (!s || !s->world) return 0;
+    wmodel_index(s);
+    uint32_t uid = MEM32(obj + 0x2C);
+    WModel *m = NULL;
+    for (int i = 0; i < g_wm.n; i++) if (g_wm.m[i].uid == uid) { m = &g_wm.m[i]; break; }
+    if (!m) return 0;
+    if (!m->block) {
+        FullRegs f; full_save(&f);
+        eax = obj;
+        PUSH32(esp, 0x000D75D0u); RECOMP_ABI_CALL(0x000D6E33u, sub_000D6E33);   /* the CorporalMTB string the getter finds */
+        uint32_t mtb = eax;
+        full_restore(&f);
+        uint32_t b = xbox_HeapAlloc(0x20 + m->len + 1, 16);
+        if (!b) return 0;
+        uint32_t chars = b + 0x20;
+        for (uint32_t i = 0; i < m->len; i++) MEM8(chars + i) = (uint8_t)m->path[i];
+        MEM8(chars + m->len) = 0;
+        MEM32(b) = chars; MEM32(b + 4) = chars + m->len; MEM32(b + 8) = chars + m->len + 1;
+        for (uint32_t i = 0; i < 12; i += 4) MEM32(b + 0xC + i) = mtb ? MEM32(mtb + i) : 0;
+        m->block = b;
+        if (msg_trace()) {
+            char text[401]; memcpy(text, m->path, m->len); text[m->len] = 0;
+            char was[401]; was[0] = 0;
+            uint32_t ob = MEM32(obj + 0x198), b0 = ob ? MEM32(ob) : 0, e0 = ob ? MEM32(ob + 4) : 0;
+            if (b0 && e0 > b0 && e0 - b0 < 400) { for (uint32_t i = 0; i < e0 - b0; i++) was[i] = (char)MEM8(b0 + i); was[e0 - b0] = 0; }
+            logf_("model of object %u: %s (the game would build: %s)", uid, text, was[0] ? was : "the template's");
+        }
+    }
+    return m->block;
+}
+
+/* 0x000D75C7 replacement: ecx = the object, [esp] the return address. */
+void ma2_scn_corporeal_build(void)
+{
+    uint32_t obj = ecx, block = ma2_scn_level_custom() ? wmodel_block(obj) : 0;
+    ecx = obj;
+    uint32_t own = block ? MEM32(obj + 0x198) : 0;
+    if (block) MEM32(obj + 0x198) = block;
+    sub_000D75C7();                                       /* pops its own return address */
+    if (block) MEM32(obj + 0x198) = own;
 }

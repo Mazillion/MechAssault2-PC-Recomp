@@ -379,6 +379,8 @@ void mcpx_apu_set_background(int background)
     if (InterlockedExchange(&g_apu_background, background ? 1 : 0) != (background ? 1 : 0))
         fprintf(stderr, "[AUDIO] %s\n", background ? "window in background: muted" : "window has focus: sound on");
 }
+/* 1 while mcpx_apu_hold holds the frame thread (the hidden game while its in-game editor is on screen). */
+static volatile LONG g_apu_hold;
 /* On Linux, waveOut* are inert stubs from win32_compat.h: the APU's
  * waveOut fallback path stays inactive and never produces audio. */
 
@@ -790,6 +792,16 @@ static void *mcpx_apu_frame_thread(void *arg)
     qemu_mutex_lock(&d->lock);
 
     while (!qatomic_read(&d->exiting)) {
+        /* mcpx_apu_hold: parked between two frames (never inside the ISR or an output wait), so the guest
+         * finds the APU where it left it when the hold ends. A GP/EP frame still running on the DSP thread
+         * finishes on its own and is joined by the next frame as usual. */
+        if (InterlockedCompareExchange(&g_apu_hold, 0, 0)) {
+            d->is_idle = true;
+            qemu_cond_signal(&d->idle_cond);
+            qemu_cond_wait(&d->cond, &d->lock);
+            d->is_idle = false;
+            continue;
+        }
         if (d->pause_requested && !g_test_tone.active && !g_mixer_active_count) {
             d->is_idle = true;
             qemu_cond_signal(&d->idle_cond);
@@ -902,6 +914,27 @@ static void mcpx_apu_resume(MCPXAPUState *d)
 {
     d->pause_requested = false;
     qemu_cond_signal(&d->cond);
+}
+
+/* Hold (1) or release (0) the whole audio emulation: the frame thread parks at the top of its loop, so the
+ * voice processor, the GP/EP DSP frames (their thread only runs when the frame thread hands it one), the
+ * doorbell ack, the output and the interrupt delivery all stop; nothing is reset or dropped. Used by the
+ * scenario code only while the game is hidden and idle behind its in-game editor (ma2_scenario.c live
+ * session), where it cut the hidden game from ~55% of a core to almost nothing. Not the title's own
+ * pause_requested (FECTL/SECTL and the mixer clear that one). Any thread; returns at once. */
+void mcpx_apu_hold(int hold)
+{
+    MCPXAPUState *d = g_state;
+    const LONG want = hold ? 1 : 0;
+    if (InterlockedExchange(&g_apu_hold, want) == want || !d) return;
+    if (!want) {
+        /* under the lock: the frame thread checks the flag and waits under it, so this wake cannot be lost */
+        qemu_mutex_lock(&d->lock);
+        qemu_cond_broadcast(&d->cond);
+        qemu_mutex_unlock(&d->lock);
+    }
+    fprintf(stderr, "[APU] audio emulation %s\n", want ? "held (hidden game behind the editor)" : "running again");
+    fflush(stderr);
 }
 
 /* ============================================================

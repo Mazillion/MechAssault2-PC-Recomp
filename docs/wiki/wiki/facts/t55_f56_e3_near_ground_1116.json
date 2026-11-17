@@ -1,0 +1,64 @@
+{
+ "pack": "t55_f56_e3_near_ground_1116",
+ "title": "Near ground in the game vs the editor: DXT colour-map rounding and resized water drawn as a 1000 m sheet (2026-11-16)",
+ "facts": [
+  {
+   "id": "colormap-argb8888-accepted",
+   "title": "The PC game draws a scenario colour map saved as swizzled A8R8G8B8 (fmt 06) exactly; DXT colour maps shift dark ground colours by up to 8 levels per channel",
+   "subject": {
+    "kind": "concept",
+    "id": "TerrainBaseMap colour map format"
+   },
+   "addresses": [],
+   "related": [
+    "terrain-alpha-selects-detail-verified",
+    "terrain-detail-combine"
+   ],
+   "fact": "Retail and older editor saves write the colour map as DXT5. Its 5:6:5 endpoints round a dark ground colour (Under Cover greens about 24-48) by up to 8 levels per channel: a faint tint gradient (R 28-31 against G 29) came back as bands of (24,28,16) olive and (33,28,16) brown, 202 of 32,768 texels off, up to 14 levels, 19 with red / green order flipped. A colour map saved as swizzled A8R8G8B8 with the level's size and mips (128 x 256, Under Cover base) loads in PC Release 1.0.9: the lit terrain draw binds it as t0 fmt 06 and RECOMP_FRAME_TRACE_TEXDUMP of t0 equals the editor's colour map byte for byte (131,072 bytes, 0 different).",
+   "how_to_use": "Editor saves the colour map as A8R8G8B8 (core/scenario.cpp colormap_game_layout). A few hundred KB of graphics memory more per map.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "terrain",
+    "colour map",
+    "render",
+    "editor"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "resized-water-drawn-as-1000m-sheet",
+   "title": "A resized Env_Water1000x1000 water (MA2SE_._WxL model) is drawn by the PC game with vertices hundreds of metres away: a sheet at the water height over flat banks, darkening the near ground about 2x",
+   "subject": {
+    "kind": "class",
+    "id": "MAWater"
+   },
+   "addresses": [],
+   "related": [
+    "water-custom-size"
+   ],
+   "fact": "P8 copy (Under Cover base, flat ground 10.12, three resized waters of Env_Water1000x1000 at height 10.12 / 6: 176 x 24 at (432, 300), 80 x 60 at (620, 300), 176 x 32 at (610, 420)). Player at (380, 262), 26 m from the nearest water edge. Frame trace (PC Release, pixel 486,384 of 640x480, flat ground about 11 m ahead): terrain base (72,70,30), micro pass (98,90,34), then the water passes (prog 01022 normal write, prog 64621, prog 00421 with t0 = frame copy, t2 = ground light map) cover the pixel and leave (49,45,15); the water draw's vertex 0 is 541-544 m from the eye (w). With the three waters deleted the same spot shows the ground as the editor does (no water draws on the pixel; region luma ratio editor / game 0.87 vs 1.8 with water). Renaming the generated mesh / vertex / index entries (so they cannot collide with the shipped template model's 'water_1000x1000' names) did NOT change it (vertex 0 still 541 m). Cause open: the game seems to draw the template's 1000 x 1000 grid (or a plane from another source) at the instance's height.",
+   "how_to_use": "Open for the game tree: dump the water draw's vertices (RECOMP_FRAME_TRACE_VERTICES) and check which model the MAWater instance draws. Until then a resized water on ground at its own height darkens the banks in the game only.",
+   "status": "open-question",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "water",
+    "render",
+    "game"
+   ],
+   "date": "2026-11-16"
+  }
+ ]
+}

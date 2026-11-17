@@ -1,0 +1,230 @@
+{
+ "pack": "t50_f1_t1_trigger_kinds_1115",
+ "title": "Remaining trigger kinds tested in the game (2026-11-15)",
+ "facts": [
+  {
+   "id": "damage-percent-is-health-left",
+   "title": "MATriggerDestroyed Damage % fires when the unit's health is down to N% (health left, not damage dealt)",
+   "subject": {
+    "kind": "class",
+    "id": "MATriggerDestroyed"
+   },
+   "addresses": [],
+   "related": [
+    "MATriggerDestroyed"
+   ],
+   "fact": "An editor 'Units are destroyed' trigger with Damage % N fires when the watched unit has N% health or less. Five triggers on one enemy Mad Dog attacked by a friendly Atlas (order Attack a unit) fired 80, 60, 40, 20 and 0 (destroyed) in that order at about 8, 20, 27, 34 and 45 s of mission time; a first run fired 70 before 50. The editor label 'Damage % (0 = destroyed)' reads as damage dealt, which is the wrong way round.",
+   "how_to_use": "Use a high number for 'early damage' (80) and a low one for 'nearly dead' (20). Test: shots\f1t1/maps/mapA3.ma2map.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "trigger",
+    "destroyed",
+    "damage"
+   ],
+   "date": "2026-11-15"
+  },
+  {
+   "id": "overlapping-message-dropped",
+   "title": "A message broadcast while another message is on screen is dropped (rc33 PC Release, before the G1 queue)",
+   "subject": {
+    "kind": "class",
+    "id": "MAActionBroadcast"
+   },
+   "addresses": [],
+   "related": [
+    "MAActionBroadcast"
+   ],
+   "fact": "Three damage-trigger messages that fired 0.5 to 2 s after a 6 s message had started were never shown, during or after it; with 1 s messages spaced 7 to 11 s apart all five showed. So a later message neither replaces the one on screen nor waits for it (D0 Q1 saw the later one win only when both arrive in the same frame).",
+   "how_to_use": "Keep messages short or spaced; the G1 queue (v35-edgame) shows them in turn on custom levels.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "message",
+    "broadcast"
+   ],
+   "date": "2026-11-15"
+  },
+  {
+   "id": "variable-completes-objective",
+   "title": "Complete an objective with Variable (advanced) = N completes the objective whose variable is N and wins the mission",
+   "subject": {
+    "kind": "class",
+    "id": "MAActionMissionVariableSet"
+   },
+   "addresses": [],
+   "related": [
+    "MAActionMissionVariableSet"
+   ],
+   "fact": "In the editor the Objective drop-down and the Variable field of 'Complete an objective' mirror each other (typing 1 reads '2. OBJ-TWO'). Objective 1 completed by variable 0 at 28 s and showed the next objective's banner; variable 1 at 38 s completed objective 2 and the mission ended (blue LOADING frame 2 s later) with 'Win the mission when every objective is done' ticked.",
+   "how_to_use": "Frames: row 3 of the test notes",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "objective",
+    "variable"
+   ],
+   "date": "2026-11-15"
+  },
+  {
+   "id": "keepalive-objective-restarts-mission",
+   "title": "A mission with a Keep these alive objective restarts (or ends) in the first second",
+   "subject": {
+    "kind": "concept",
+    "id": "keep-alive objective"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Built through the editor: friendly 'Mech, Objectives > Keep these alive (trigger 'Objective 1: lose if destroyed' = Units are destroyed, Damage 0, Then Win or lose the mission: Lose). In every variant tried (win box on or off, extra Other objective, unit AI on or off, 'Any one' or 'All of the units') the mission dropped before its first frame or reloaded every 6-12 s; a Remove-units trigger at 12 s never mattered. Cause not isolated; retail lose patterns use scripted triggers, not a Destroyed trigger on a friendly. SUPERSEDED by t51.editor-win-all-trigger-saved-enabled-with-zero-inputs and t51.removing-a-watched-unit-counts-as-destroyed: B/B2 = the editor win trigger left on with 0 inputs; B3/B5/B6 = the test Remove at 12 s (a loss, as designed).",
+   "how_to_use": "Maps: shots\f1t1/maps/mapB6.ma2map (reloads). Needs a game-tree bisect.",
+   "status": "superseded",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "objective",
+    "lose",
+    "editor-bug"
+   ],
+   "date": "2026-11-15"
+  },
+  {
+   "id": "ai-orders-trigger-results",
+   "title": "AI orders by trigger: Attack (enemy to the player, friendly to a unit) and Follow work; Defend never moved a 'Mech; Attack the player by a friendly does not hurt",
+   "subject": {
+    "kind": "class",
+    "id": "MAEvent"
+   },
+   "addresses": [],
+   "related": [
+    "MADefend",
+    "MAFollow",
+    "MAAttack"
+   ],
+   "fact": "Units placed with AI off and given an order by a timer trigger (the order adds a Switch on action): an enemy Hackman with Attack-the-player walked in and hit the player 12 s after the order; enemy and friendly Follow walked to the player and stayed beside it; a friendly Atlas / Mad Dog with Attack-a-unit killed the target. A MADefend order (UI 'Pick on map' or the --add-order dev flag, Radius 60 or 8, AI off or on from the start) left the unit standing still for 30 to 55 s in five set-ups. A friendly Attack-the-player order fired no visible shot at the player.",
+   "how_to_use": "Maps: shots\f1t1/maps/mapC3.ma2map (Follow, Defend), mapC7.ma2map (Defend with AI on). The WIKI claim that Defend drives to its marker is not reproduced for 'Mechs.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "ai",
+    "orders",
+    "defend",
+    "follow"
+   ],
+   "date": "2026-11-15"
+  },
+  {
+   "id": "side-change-radar-only",
+   "title": "Change which side units are on: a neutral unit turns red on the radar within a second but stays idle",
+   "subject": {
+    "kind": "class",
+    "id": "MAActionNation"
+   },
+   "addresses": [],
+   "related": [
+    "MAActionNation"
+   ],
+   "fact": "Neutral Hackman (AI off) alone in view, trigger at 8 s: Change which side units are on = Enemy plus Switch units on. The radar showed an enemy blip blinking from the next second; the unit stood in one identical pose for 60 s, fired nothing and the player's armour did not change. Same wake action starts Follow / Attack orders on placed enemy units, so a neutral unit probably lacks an AI group.",
+   "how_to_use": "Map: shots\f1t1/maps/mapD.ma2map.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "side",
+    "nation",
+    "ai"
+   ],
+   "date": "2026-11-15"
+  },
+  {
+   "id": "other-kinds-trigger-results",
+   "title": "Other kinds: player-in-vehicle-type works; match clock and counter have no editable field and never fire",
+   "subject": {
+    "kind": "class",
+    "id": "MATriggerPlayerVehicleType"
+   },
+   "addresses": [],
+   "related": [
+    "MATriggerGameTime",
+    "MATriggerCounter"
+   ],
+   "fact": "'When the player is in a vehicle type' with Counts 'Mechs fired at the first mission frame; the same trigger with only Counts VTOLs never fired. 'When the match clock reaches a time' (no time field, Percent of time left is read-only) and 'When something has happened N times' (Count needed 1, nothing to count) never fired in 55 s of a mission.",
+   "how_to_use": "Map: shots\f1t1/maps/mapD.ma2map.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "trigger",
+    "other-kinds"
+   ],
+   "date": "2026-11-15"
+  },
+  {
+   "id": "raw-actions-results",
+   "title": "Raw Other actions: Make a unit fire at a target works; Play a visual effect (id 125706) and Put the player in another vehicle (Atlas template) show nothing",
+   "subject": {
+    "kind": "class",
+    "id": "MAActionAIFire"
+   },
+   "addresses": [],
+   "related": [
+    "MAActionAIFire",
+    "MAActionMoeEFX",
+    "MAActionChangePlayerVehicle"
+   ],
+   "fact": "Fire time 3 s, Unit = friendly Atlas (AI off), Target = enemy Mad Dog (AI off): beam and hit sparks on the target from the trigger on, target destroyed about 45 s later. 'Play a visual effect' with the default id 125706: no visible effect. 'Put the player in another vehicle' with Player configuration = Atlas (a plain unit template; the picker lists every object, the only player configuration is Mad Dog Player Configuration): the player's 'Mech stayed unchanged for 40 s.",
+   "how_to_use": "Map: shots\f1t1/maps/mapE.ma2map.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "actions",
+    "raw"
+   ],
+   "date": "2026-11-15"
+  }
+ ]
+}

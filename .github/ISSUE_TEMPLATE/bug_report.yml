@@ -18,7 +18,7 @@ body:
     attributes:
       label: Version
       description: Shown on the installer's first page, in the game's title screen, or in recomp-install.json in the install folder.
-      placeholder: "1.0.9"
+      placeholder: "1.1.0"
     validations: { required: true }
   - type: textarea
     id: what

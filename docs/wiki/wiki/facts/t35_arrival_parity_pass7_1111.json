@@ -1,0 +1,90 @@
+{
+ "pack": "t35_arrival_parity_pass7_1111",
+ "title": "Arrival parity pass 7: GotoWindow (goto stutter), Ill Wind Check It T1 variance, NavCache key ignores switches",
+ "facts": [
+  {
+   "id": "gotowindow-2s-headway",
+   "title": "GotoWalk also fires on poor headway over 2 s (GotoWindow), not only after 1 s stood still",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_ctrl.c GotoWalk / GotoWindow"
+   },
+   "addresses": [],
+   "related": [
+    "t34.mechai-goto-stutter-defeats-gotowalk"
+   ],
+   "fact": "The campaign MechAI goto can stutter: 0.3-1 s bursts of more than 0.7 m, then 0.5-1 s turning to the next carrot. Each burst restarted GotoWalk's 1 s still-timer. GotoWindow (commit deb9b44) keeps ground positions every 0.25 s in a 12-slot ring (BotCtrl gw_hp/gw_ht). A 'Mech or BattleArmor whose navigator gives no forward speed, has stood 0.3 s or more, has its carrot 8 m or more away, and has moved less than 0.5 x kind_cruise metres since the sample 2-3 s old (8 m for a 'Mech, 6 m for BattleArmor) walks direct. When the carrot is off the nose it uses the slow turning step. A fire or a failed walk clears the ring. Live H_81a1 (v13-v27p15): 18 fires in 180 s, and 49 of 50 GotoWalk walks moved.",
+   "how_to_use": "RECOMP_BOT_GOTO_WINDOW=0 / [Bots] GotoWindow=0 = old behaviour. [C7] gotowin: n. RECOMP_BOT_DIAG lines read [BOT-GOTOWALK] . kind=2 (2 s window) still .",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 3476
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "follower"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "navcache-key-ignores-grid-switches",
+   "title": "The NavCache key does not include grid switches such as TallSolid",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bots_core.c NavCache key (NAVC|cv.)"
+   },
+   "addresses": [],
+   "related": [
+    "t34.grid-probe-blind-inside-tall-buildings"
+   ],
+   "fact": "The key is made of NAV_CACHE_VERSION, the trav params, the build stamp (__DATE__ __TIME__), the map archive and size, the mode, the extents, the terrain and prop fingerprints, and RECOMP_BOT_UNDERWATER. A run with RECOMP_BOT_TALL_SOLID=0 on an exe that already cached a map therefore READS THE TALLSOLID GRID from the cache. If that run misses the cache, it writes the old grid under the same key, and later default runs of that exe then use the old grid. To A/B any grid switch, add RECOMP_BOT_NAV_CACHE=0. The log then shows [BOT-NAV-CACHE] ready via=off.",
+   "how_to_use": "Always pair a grid-switch A/B with RECOMP_BOT_NAV_CACHE=0.",
+   "status": "current",
+   "confidence": "code-confirmed",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1800
+    }
+   ],
+   "tags": [
+    "bots",
+    "navgrid",
+    "testing"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "illwind-checkit-t1-loss-variance",
+   "title": "Ill Wind Check It (side-swapped) team 1 loss: route and claim variance, not TallSolid",
+   "subject": {
+    "kind": "concept",
+    "id": "Ill Wind Check It team 1 first terminal arrival"
+   },
+   "addresses": [],
+   "related": [
+    "t34.grid-probe-blind-inside-tall-buildings"
+   ],
+   "fact": "Team 1 first-arrival loss against the floor (21.7 s) on v13-v27p13: 37.7, 16.6 and 26.3 s. With TallSolid off (fresh grid, NavCache off) it was 29.9 s; on p10 it was 16.6 s and on p8 15.8 s (one run each). The floor on the TallSolid grid is unchanged: a tank reaches terminal 378,1371 in 26.8 s against 27.3 s before. The losses differ in kind from run to run. In RC_71b a T1 tank claimer stood 2.6 s at 267,1261, got no_path and was banned from 378,1371 for 25 s (ObjGiveUp), so the first T1 arrivals came at far terminals near 1050,1000. In S_71bT two T1 'Mechs held each other 7 s at choke 4 in the canyon at 295-300,1460-1480 (BOT-WAIT, waits at choke 4 (1 oncoming)).",
+   "how_to_use": "Rerun several times before calling an Ill Wind Check It cell a regression. Open items: a tank's transient no_path (267,1261) and mutual waits between teammates at a choke.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_brain.c",
+     "line": 6485
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "checkit"
+   ],
+   "date": "2026-11-11"
+  }
+ ]
+}

@@ -485,7 +485,7 @@
     "colorshift1_color"
    ],
    "fact": "No world object or decal places road markings. Each .road file names RWmodel (*.NODE, not shipped) and model (*_rw.node, the only road model on the disc, with no LODs). The markings are the COMPLEX material's multi mask (e.g. Road_014_cmplx.tif): mask.g*colorshift0 (47,47,255) = blue dashed centre line, mask.b*colorshift1 (255,246,80) = yellow kerb dots, added unlit after lighting (trace line 2545). Correction: the markings sit inside the final x2, out = 2*(lit + mask.g*C0 + mask.b*C1), so they are doubled (complex-glow-doubled).",
-   "how_to_use": "The editor must sample the multi mask and add the colorshift glow (spec R2-2), together with mirror addressing (R2-1).",
+   "how_to_use": "The editor must sample the multi mask and add the colorshift glow (spec R2-2), together with mirror addressing.",
    "status": "current",
    "confidence": "verified-in-game",
    "source": [],

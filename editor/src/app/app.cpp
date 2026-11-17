@@ -11,11 +11,15 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstring>
 #include <set>
+#include <unordered_set>
 #include <cstdio>
 
 #include "../core/crop.h"
+#include "../core/cutscene.h"
 #include "../core/triggers.h"
+#include "../core/weather.h"
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "imgui_stdlib.h"
@@ -83,6 +87,7 @@ bool App::init(HWND hwnd, ID3D11Device* dev, ID3D11DeviceContext* ctx, float dpi
     show_helpers_ = settings_.helpers_on;
     show_legend_ = settings_.legend_on;
     r_.params.scene_lights = settings_.scene_lights;
+    r_.params.lift_dark = settings_.lift_dark;
     r_.params.fast_terrain_detail = settings_.fast_terrain_detail;
     // The MA2 dictionary: the snapshot embedded as resource 201; MA2SE_CATALOG=<catalog.json>
     // loads another one (developers refreshing the dictionary).
@@ -123,11 +128,15 @@ bool App::load_game(std::string* err) {
     fs::path install = settings_.install.empty() ? GameData::find_install(exe_dir) : settings_.install;
     io_.reset();
     cat_.reset();
+    foundation_cache_.clear();
     water_types_.clear();  // point into the old catalog
     water_names_.clear();
     if (!gd_.open(install, err)) {
-        if (err) *err = "Could not read the game data in " + path_utf8(install) + ".\n" + *err +
-                        "\nSet the install folder (the folder with MechAssault 2.exe and game_files) in File > Settings > General.";
+        // One short line; Settings is where this is shown, so no pointer back to Settings here.
+        std::error_code fec;
+        const bool there = fs::exists(install / L"game_files" / L"common.mgf", fec);
+        if (err) *err = there ? "Could not read the game data in " + path_utf8(install) + ": " + *err
+                              : "No game found in " + path_utf8(install) + ". Use Choose... to pick the folder with MechAssault 2.exe and game_files.";
         return false;
     }
     // The PC build scales fog by the player's draw distance (pc_draw_distance.c ma2_draw_distance_fog). The game reads
@@ -174,15 +183,25 @@ void App::set_document(std::unique_ptr<Scenario> s) {
     selection_.clear();
     undo_.clear();
     redo_.clear();
+    cur_state_id_ = 0;  // a freshly opened document is the saved state
+    saved_state_id_ = 0;
+    next_state_id_ = 1;
+    merge_state_ = -1;
+    snap_hgt_.reset();
+    snap_cm_.reset();
+    snap_lm_.reset();
+    snap_tm_.reset();
+    snap_audio_.reset();
     validation_.clear();
     last_report_ = SaveReport();
+    gfx_reset();  // the graphics figures belong to the old map's Base
     lightmap_stale_ = false;
     stale_sun_only_ = false;
     preview_on_ = false;
     trig_uid_ = 0;
     pick_ = PickTarget();
     tool_ = Tool::Select;
-    // Review row 22: the old map's message ('Looking at <level> (read-only)') stayed on an editable copy made
+    // The old map's message ('Looking at <level> (read-only)') stayed on an editable copy made
     // within its 6 s; each caller sets its own message after this.
     status_.clear();
     status_time_ = 0;
@@ -191,6 +210,7 @@ void App::set_document(std::unique_ptr<Scenario> s) {
     // indices and models (freed when the level archives change), and the input, gizmo and panel code that
     // reads it before the frame's rebuild crashed on a second retail level (C0000005, Mission_14 -> Mission_03).
     rebuild_objects();
+    adopt_sheets();  // flat pieces of a map made before layers existed keep their heights, in the order they are drawn
     reset_view();
 }
 
@@ -203,7 +223,7 @@ void App::reset_view() {
     cam_.yaw = 0;
     cam_.pitch = 0.95f;
     // Missions open on the player start; multiplayer maps on the whole map (their level-start objects
-    // can be copied spawns in a far corner, dogfood MP P3 'reopen').
+    // can be copied spawns in a far corner, 'reopen').
     for (auto& o : doc_->world.objs)
         if (!doc_->multiplayer && o.cls == K_LEVELSTART) {
             Vec3 p;
@@ -216,7 +236,7 @@ void App::reset_view() {
                 cam_.ty = doc_->terrain.height_at(p.x, p.z);
                 cam_.dist = 350.f;
                 // Lower than the whole-map angle: at 54 deg down, 350 m away, a new 'Random hills' mission read as flat
-                // ground (campaign dogfood M2-1); 40 deg shows the hills and some horizon around the start.
+                // ground; 40 deg shows the hills and some horizon around the start.
                 cam_.pitch = 0.7f;
                 return;
             }
@@ -431,7 +451,7 @@ void App::offer_recovery() {
     if (autosave(true)) drop_slot();  // moved into this editor's own slot first, so a crash right now still has a copy
     show_getting_started_ = false;
     tab_ = Tab::Map;
-    status_ = "Restored unsaved work. Save it (Ctrl+S) to keep it.";
+    status_ = "Restored unsaved work. Save it (" + kt(A_SAVE) + ") to keep it.";
     status_time_ = 10;
 }
 
@@ -571,7 +591,7 @@ std::wstring pick_wav(HWND owner) {
 }
 
 void App::cmd_new() {
-    if (!io_) { message("No game data", game_error_); return; }
+    if (!io_) { message("No game data", game_error_ + "\nSet the game folder in File > Settings > General."); return; }
     if (!confirm_close()) return;
     // A name the player did not type: the first "New Mission" / "New Mission 2" / ... that no saved scenario has yet.
     if (is_default_name(new_params_.name)) new_params_.name = default_new_name(new_params_.multiplayer);
@@ -626,13 +646,66 @@ std::string App::name_clash(const std::string& name, const fs::path& self, bool 
     return {};
 }
 
+static std::string fx5_stem(const std::string& path) {
+    size_t s = path.find_last_of("/\\"), d = path.rfind('.');
+    std::string n = path.substr(s == std::string::npos ? 0 : s + 1);
+    d = n.rfind('.');
+    return d == std::string::npos ? n : n.substr(0, d);
+}
+
 std::vector<ValidationItem> App::check_now() {
     std::vector<ValidationItem> v = io_->validate(*doc_);
     if (!doc_->read_only) {
+        placement_checks(v);  // heights: floating, same height, under / deep in / over the ground (app_checks.cpp)
+        if (!doc_->old_cut_roads.empty()) {   // The file on disk holds cut road files an older editor wrote; the next save rewrites them
+            ValidationItem it{1, "", doc_->old_cut_roads[0]};
+            it.uids = doc_->old_cut_roads;
+            const size_t n = it.uids.size();
+            it.text = (n == 1 ? std::string("1 cut road piece was") : std::to_string(n) + " cut road pieces were") +
+                      " saved by an older editor in a form the game cannot read: the game can run out of memory while loading this map. "
+                      "Save the map (Ctrl+S) before you play it; saving writes the road pieces again (Test saves it for you).";
+            v.push_back(it);
+        }
         const std::string other = name_clash(doc_->name, doc_->file, doc_->multiplayer);
         if (!other.empty())
             v.push_back({1, "Another scenario, " + other + ", has the same name (\"" + doc_->name + "\"). The game lists them as \"" + doc_->name +
                                 " (<file name>)\". Rename one of them on the Map tab.", 0});
+    }
+    // "No problems found" is only for a clean list: never above warnings.
+    if (v.size() > 1) v.erase(std::remove_if(v.begin(), v.end(), [](const ValidationItem& i) { return i.level == 0; }), v.end());
+    {   // The graphics figure is always listed (an info row), and the live figure takes this exact one
+        const ScenarioIO::GraphicsEstimate g = io_->graphics_estimate(*doc_);
+        gfx_calibrate(g.total_mb);
+        char n[16];
+        snprintf(n, sizeof n, "%.0f", g.total_mb);
+        std::string t = "Graphics memory: about " + std::string(n) + " of the game's 64 MB (the game's own maps use about 25).";
+        if (!g.biggest.empty()) {
+            t += " Biggest from other levels: ";
+            auto friendly = [&](const std::string& owner) {   // The palette's name for a model file name ("BldCom_Office07_WS_CS" -> Dante office 07)
+                std::string o = lower(owner);
+                if (o.size() > 3 && o.compare(o.size() - 3, 3, "_cs") == 0) o.resize(o.size() - 3);
+                if (cat_)
+                    for (auto& tp : cat_->all()) {
+                        if (!tp.placeable || tp.model.empty()) continue;
+                        if (lower(fx5_stem(tp.model)) == o) return palette_plain_name(tp);
+                    }
+                return owner;
+            };
+            std::vector<std::pair<std::string, double>> merged;   // a model and its collision model are one name
+            for (auto& b : g.biggest) {
+                const std::string nm = friendly(b.first);
+                auto it = std::find_if(merged.begin(), merged.end(), [&](const auto& m) { return m.first == nm; });
+                if (it != merged.end()) it->second += b.second; else merged.push_back({nm, b.second});
+            }
+            std::stable_sort(merged.begin(), merged.end(), [](const auto& x, const auto& y) { return x.second > y.second; });
+            for (size_t i = 0; i < merged.size() && i < 3; i++) {
+                char mb[16];
+                snprintf(mb, sizeof mb, "%.1f", merged[i].second);
+                t += (i ? ", " : "") + merged[i].first + " (" + mb + " MB)";
+            }
+            t += ".";
+        }
+        v.push_back({0, t, 0});
     }
     return v;
 }
@@ -694,7 +767,7 @@ void App::offer_update_old_scenarios(bool from_menu) {
 }
 
 void App::cmd_open() {
-    if (!io_) { message("No game data", game_error_); return; }
+    if (!io_) { message("No game data", game_error_ + "\nSet the game folder in File > Settings > General."); return; }
     if (!confirm_close()) return;
     std::error_code ec;
     fs::create_directories(settings_.scenarios(), ec);
@@ -713,11 +786,29 @@ void App::start_from_game(const fs::path& file) {
     status_time_ = 10;
 }
 
+fs::path App::doc_path() const {
+    std::error_code ec;
+    return doc_ && !doc_->file.empty() ? fs::absolute(doc_->file, ec) : fs::path();
+}
+
+void App::live_game_event(int state, const std::wstring& note) {
+    if (state == 1) { status_ = "Starting the test in the game..."; status_time_ = 10; }
+    else if (state == 2 || state == 0) { status_.clear(); status_time_ = 0; }
+    else if (state == 3) message("Test", note.empty() ? std::string("The test could not start.") : narrow(note));
+}
+
+void App::game_ended() {
+    from_game = false;
+    from_game_live = false;
+    message("MechAssault 2 closed", "The game has closed. The Scenario Editor carries on on its own: Test starts the game again, "
+                                    "File > Exit closes the editor.");
+}
+
 void App::write_saved_list(const fs::path& list) const {
     std::error_code ec;
     std::string t = "opened=" + (from_game_opened.empty() ? std::string() : path_utf8(fs::absolute(from_game_opened, ec))) + "\r\n";
     for (auto& f : saved_files_) t += "saved=" + path_utf8(f) + "\r\n";
-    if (exit_code_ == 2) t += "test=" + path_utf8(fs::absolute(test_file_, ec)) + "\r\n";  // spec 6: the file the game plays
+    if (exit_code_ == 2) t += "test=" + path_utf8(fs::absolute(test_file_, ec)) + "\r\n";  //the file the game plays
     // Written whole or not at all (the game reads it as soon as this process ends): a .tmp file, then replaced in one step.
     fs::create_directories(list.parent_path(), ec);
     fs::path tmp = list;
@@ -797,7 +888,7 @@ void App::script(const std::wstring& cmd, const std::wstring& arg) {
             show_new_ = false;
             set_document(std::move(s));
             ns_start();
-            doc_->dirty = false;  // untouched, as the New dialog's Create (BB-G3)
+            doc_->dirty = false;  // untouched, as the New dialog's Create
             status_ = "Made " + doc_->name + ", an editable copy of " + pretty_name(p.copy_map) + ".";
             status_time_ = 6;
         }
@@ -811,6 +902,9 @@ void App::script(const std::wstring& cmd, const std::wstring& arg) {
         sscanf(a.c_str(), "%f,%f", &r, &k);
         brush_radius_ = std::clamp(r, 4.f, 300.f);
         brush_strength_ = std::clamp(k, 0.02f, 1.f);
+        if (strength_slot(tool_) >= 0) settings_.tool_strength[strength_slot(tool_)] = brush_strength_;
+    } else if (cmd == L"--full-upload") {  // developer: 1 = brush strokes upload the whole colour map / layer weights every frame (the old way), 0 = the touched rectangle
+        paint_full_upload_ = atoi(a.c_str()) != 0;
     } else if (cmd == L"--list-ground-textures" && doc_) {  // developer: FILE gets every ground texture the picker offers ("archive|path")
         ensure_detail_textures();
         if (FILE* f = fopen(path_utf8(fs::path(arg)).c_str(), "w")) {
@@ -862,8 +956,18 @@ void App::script(const std::wstring& cmd, const std::wstring& arg) {
             doc_->dirty = true;
             minimap_dirty_ = true;
         }
-    } else if (cmd == L"--place-tool" && doc_ && cat_) {  // developer proof: pick a palette entry (name substring) and switch to the Place tool
+    } else if (cmd == L"--place-tool" && doc_ && cat_) {  // developer proof: pick a palette entry (name substring) and switch to the Place tool; "road:<name>" arms a road piece
         std::string nm = lower(a);
+        if (nm.rfind("road:", 0) == 0) {
+            const std::string rn = nm.substr(5);
+            for (auto& r : road_pieces())
+                if (r.search.find(rn) != std::string::npos || lower(r.friendly).find(rn) != std::string::npos) {
+                    place_road_ = r.path;
+                    tool_ = Tool::PlaceObject;
+                    fprintf(stderr, "place-tool: road %s\n", r.path.c_str());
+                    break;
+                }
+        } else
         for (auto& t : cat_->all())
             if (t.placeable && !t.model.empty() && lower(t.name).find(nm) != std::string::npos) {
                 place_template_ = t.uid;
@@ -872,12 +976,56 @@ void App::script(const std::wstring& cmd, const std::wstring& arg) {
                 fprintf(stderr, "place-tool: %s (%u)\n", t.name.c_str(), t.uid);
                 break;
             }
+    } else if (cmd == L"--crop-census" && doc_ && io_ && cat_) {  // developer: every wall / bridge / plate template and road piece model through the save's cut test -> a tab-separated file
+        FILE* f = fopen(a.c_str(), "wb");
+        if (f) {
+            std::map<int, std::pair<int, int>> count;  // family -> ok, refused
+            std::map<std::string, int> reasons;
+            auto row = [&](int fam, const std::string& name, const std::string& model, bool ok, const std::string& why) {
+                fprintf(f, "%d\t%s\t%s\t%d\t%s\n", fam, name.c_str(), model.c_str(), ok ? 1 : 0, ok ? "" : why.c_str());
+                (ok ? count[fam].first : count[fam].second)++;
+                if (!ok) reasons[why]++;
+            };
+            std::set<std::string> seen;
+            for (auto& t : cat_->all()) {
+                if (!t.placeable || t.model.empty() || (t.cls_name != "MACorporeal" && t.cls_name != "MABuilding")) continue;
+                const int fam = snap_family(t);
+                if (fam < 1 || fam > 3) continue;
+                if (!seen.insert(lower(t.name) + "|" + lower(t.model)).second) continue;
+                std::string why;
+                const bool ok = io_->model_cuttable(*doc_, t.model, &why);
+                row(fam, t.name, t.model, ok, why);
+            }
+            for (auto& rp : road_pieces()) {
+                if (rp.model.empty()) continue;
+                std::string why;
+                const bool ok = io_->model_cuttable(*doc_, rp.model, &why);
+                row(4, rp.path, rp.model, ok, why);
+            }
+            for (auto& [fam, c] : count) fprintf(f, "# family %d: %d cuttable, %d refused\n", fam, c.first, c.second);
+            for (auto& [w, n] : reasons) fprintf(f, "# refused %d x: %s\n", n, w.c_str());
+            fclose(f);
+        }
+    } else if (cmd == L"--road-tool" && doc_) {  // developer proof: arm a road piece (substring of its search words) and the Place tool, like picking it in the palette
+        const std::string nm = lower(a);
+        for (auto& r : road_pieces())
+            if (r.search.find(nm) != std::string::npos) {
+                place_road_ = r.path;
+                tool_ = Tool::PlaceObject;
+                fprintf(stderr, "road-tool: %s\n", r.path.c_str());
+                break;
+            }
     } else if (cmd == L"--place-named" && doc_ && io_ && cat_) {  // developer proof: "palette name=metres ahead of the start" placed like a click (model bottom on the ground)
         std::string nm = lower(a.substr(0, a.find('=')));
         float d = 15;
         if (size_t eq = a.find('='); eq != std::string::npos) d = float(atof(a.c_str() + eq + 1));
         for (auto& t : cat_->all()) {
             if (!t.placeable || t.model.empty() || lower(t.name).find(nm) == std::string::npos) continue;
+            {   // not the cinema-only geometry sets: the palette does not offer them and the game draws the failed-build pillar for them
+                const std::string tn = lower(t.name), tm = lower(t.model);
+                if (tn.find("cinemas only") != std::string::npos || tn.find("(geo)") != std::string::npos || tn.find("set only") != std::string::npos ||
+                    tm.find("geo_only") != std::string::npos) continue;
+            }
             for (auto& st : doc_->world.objs)
                 if (st.uid() == player_start_uid(doc_->world)) {  // the "Player Spawner" the game uses
                     Vec3 p;
@@ -886,14 +1034,17 @@ void App::script(const std::wstring& cmd, const std::wstring& arg) {
                     Vec3 at{p.x + std::sin(h) * d, 0, p.z + std::cos(h) * d};
                     at.y = doc_->terrain.height_at(at.x, at.z);
                     uint32_t u = io_->place_template(*doc_, t.uid, at, h + 3.14159f);
-                    if (u) { lift_to_foot(u); world_changed(); }
+                    if (u) { lift_to_foot(u); world_changed(); dev_placed_.push_back(u); }
                     fprintf(stderr, "place-named: %s uid %u at %.1f %.1f %.1f\n", t.name.c_str(), u, at.x, at.y, at.z);
                     break;
                 }
             break;
         }
     } else if (cmd == L"--tab") {
-        tab_ = Tab(std::clamp(atoi(a.c_str()), 0, 8));
+        tab_ = Tab(std::clamp(atoi(a.c_str()), 0, 9));
+    } else if (cmd == L"--ui-scale") {  // developer / automation: this run only, never saved
+        settings_.ui_scale_run = std::clamp(float(atof(a.c_str())), 0.5f, 3.f);
+        ui_scale_dirty_ = true;
     } else if (cmd == L"--place-foreign" && doc_ && io_ && cat_) {  // developer stress: N distinct objects from other levels
         int n = atoi(a.c_str());
         const auto& base = cat_->culled_set(doc_->base_level());
@@ -917,6 +1068,11 @@ void App::script(const std::wstring& cmd, const std::wstring& arg) {
         show_validation_ = true;
     } else if (cmd == L"--prefs") {
         open_prefs_ = true;
+    } else if (cmd == L"--dump-help") {  // developer check: the Help text with the current bindings, one topic after another, to FILE
+        if (FILE* f = fopen(path_utf8(fs::path(arg)).c_str(), "wb")) {
+            for (const HelpPage& p : help_topics(help_keys())) fprintf(f, "== %s\n%s\n\n", p.title.c_str(), p.body.c_str());
+            fclose(f);
+        }
     } else if (cmd == L"--topdown") {
         cam_.pitch = 1.5533f;
         cam_.yaw = 0;
@@ -1100,6 +1256,8 @@ void App::script(const std::wstring& cmd, const std::wstring& arg) {
         dump_lights_ = path_utf8(fs::path(arg));
     } else if (cmd == L"--fog") {  // developer shots: View > Fog on
         r_.params.fog = true;
+    } else if (cmd == L"--lightning-hold") {  // developer pairs: hold the lightning flash on (1 models, 2 sky, 3 both, 0 off) while lightning is on
+        lightning_hold_ = _wtoi(arg.c_str());
     } else if (cmd == L"--weather") {  // developer shots: View > Weather on (1, default) or off (0)
         show_weather_ = arg != L"0";
     } else if (cmd == L"--culture") {  // developer shots: View > Ground scatter on (1, default) or off (0)
@@ -1199,13 +1357,16 @@ void App::script(const std::wstring& cmd, const std::wstring& arg) {
                     uint32_t ev = trig ? add_order(*doc_, trig, unit, "MAPatrol") : 0;
                     if (ev) add_action_object(*doc_, trig, "MAActionBroadcast", "Patrol proof message");  // on screen when the trigger fires
                     int n = 0;
-                    for (auto& pt : split(a, ';')) {
+                    bool once = a.compare(0, 5, "once;") == 0;  // "once;d,x;..." = walk the route once (TraverseType 1)
+                    for (auto& pt : split(once ? a.substr(5) : a, ';')) {
                         float d = 0, x = 0;
                         if (ev && sscanf(pt.c_str(), "%f,%f", &d, &x) == 2) {
                             order_add_point(*doc_, ev, p.x + std::sin(h) * d + std::cos(h) * x, p.z + std::cos(h) * d - std::sin(h) * x);
                             n++;
                         }
                     }
+                    if (once && ev)
+                        if (WObj* go = object_by_uid(doc_->world, order_path(doc_->world, ev))) go->set_i32("TraverseType", 1);
                     fprintf(stderr, "add-patrol: unit %u trigger %u order %u points %d\n", unit, trig, ev, n);
                     world_changed();
                     doc_->dirty = true;
@@ -1225,9 +1386,21 @@ void App::script(const std::wstring& cmd, const std::wstring& arg) {
                     uint32_t ev = trig ? add_order(*doc_, trig, unit, cls) : 0;
                     if (ev) add_action_object(*doc_, trig, "MAActionBroadcast", "Order proof message");  // on screen when the trigger fires
                     uint32_t beh = ev ? order_behaviour(doc_->world, ev) : 0;
-                    float d = 0, x = 0;
-                    if (beh && kind == "defend" && sscanf(arg.c_str(), "%f,%f", &d, &x) == 2)
-                        set_marker_link(*doc_, beh, "DefendUID", p.x + std::sin(h) * d + std::cos(h) * x, p.z + std::cos(h) * d - std::sin(h) * x, true, "Order proof - defend point");
+                    float d = 0, x = 0, r = 0;
+                    if (beh && kind == "defend" && sscanf(arg.c_str(), "%f,%f,%f", &d, &x, &r) >= 2) {  // "defend:d,x[,radius]"; a trailing w = the chooser's walk-and-guard
+                        const float wx = p.x + std::sin(h) * d + std::cos(h) * x, wz = p.z + std::cos(h) * d - std::sin(h) * x;
+                        if (r > 0)
+                            for (auto& o : doc_->world.objs) if (o.uid() == beh) o.set_f32("Radius", r);
+                        if (arg.find('w') != std::string::npos) {
+                            make_defend_walk(beh, wx, wz, "Order proof - defend point");
+                            uint32_t circ = 0;
+                            for (auto& o : doc_->world.objs)
+                                if (o.description().find("reaches its defend point") != std::string::npos) circ = o.uid();
+                            if (circ) add_action_object(*doc_, circ, "MAActionBroadcast", "Arrived proof message");  // on screen when the unit gets there
+                        } else {
+                            set_marker_link(*doc_, beh, "DefendUID", wx, wz, true, "Order proof - defend point");
+                        }
+                    }
                     for (auto& o : doc_->world.objs)
                         if (beh && kind == "attack" && o.uid() == beh) {
                             if (arg.compare(0, 4, "prev") == 0 && dev_placed_.size() > 1) {
@@ -1242,6 +1415,25 @@ void App::script(const std::wstring& cmd, const std::wstring& arg) {
                     doc_->dirty = true;
                     break;
                 }
+    } else if (cmd == L"--add-swap" && doc_) {  // developer proof: "secs,configUid": after secs the player becomes that player configuration (a timer + a Put the player in a vehicle action + a message)
+        float sec = 10;
+        unsigned cfg = 0;
+        sscanf(a.c_str(), "%f,%u", &sec, &cfg);
+        uint32_t trig = add_trigger_object(*doc_, "MATriggerTimer", "Swap proof");
+        if (WObj* t = trig ? object_by_uid(doc_->world, trig) : nullptr) {
+            t->set_f32("TrgTimerDurationSeconds", sec);
+            t->set_f32("TrgTimerDuration", sec / 60.f);
+        }
+        uint32_t ac = trig && io_ ? io_->add_part(*doc_, key_of("MAActionChangePlayerVehicle"), trig, nullptr) : 0;
+        if (WObj* o = ac ? object_by_uid(doc_->world, ac) : nullptr) {
+            o->set_u32("ConfigTemplateUID", cfg);
+            o->set_i32("PlayerNum", 0);
+            o->set_i32("UseHeading", 1);
+            o->set_i32("SetAsDefaultConfig", 0);
+        }
+        if (trig) add_action_object(*doc_, trig, "MAActionBroadcast", "Swap proof message");
+        world_changed();
+        doc_->dirty = true;
     } else if (cmd == L"--add-box-msg" && doc_) {  // developer checks: name|dist|base|height|width|length|text: a message when the player is in a box at dist m ahead of the start
         auto f = split(a, '|');
         if (f.size() >= 7)
@@ -1363,8 +1555,9 @@ void App::script(const std::wstring& cmd, const std::wstring& arg) {
                 Vec3 p;
                 if (o.uid() != uid || !get_pos(o, p)) continue;
                 float nx = float(atof(xz[0].c_str())), nz = float(atof(xz[1].c_str()));
-                float above = p.y - doc_->terrain.height_at(p.x, p.z);
-                set_pos(o, {nx, doc_->terrain.height_at(nx, nz) + above, nz});
+                const float above = above_surface(o);
+                set_pos(o, {nx, p.y, nz});
+                put_on_surface(uid, above);
                 objects_dirty_ = true;
                 break;
             }
@@ -1422,7 +1615,7 @@ void App::script(const std::wstring& cmd, const std::wstring& arg) {
                     int u = std::clamp(int(x / t.size_x() * im.w), 0, im.w - 1), v = std::clamp(int((1 - z / t.size_z()) * im.h), 0, im.h - 1);
                     return im.at(u, v);
                 };
-                fprintf(f, "at %.1f %.1f h %.2f n %.3f %.3f %.3f N.L %.3f colormap %08X lightmap %08X\n", x, z, t.height_at(x, z), n[0], n[1], n[2], ndl,
+                fprintf(f, "at %.1f %.1f h %.2f fine=%.3f n %.3f %.3f %.3f N.L %.3f colormap %08X lightmap %08X\n", x, z, t.height_at(x, z), t.fine_at(x, z), n[0], n[1], n[2], ndl,
                         texel(doc_->colormap), texel(doc_->lightmap));
                 fclose(f);
             }
@@ -1442,10 +1635,17 @@ void App::script(const std::wstring& cmd, const std::wstring& arg) {
         sscanf(a.c_str(), "%f,%f,%f", &x, &z, &r);
         if (sc != std::string::npos)
             if (FILE* f = fopen(a.substr(sc + 1).c_str(), "w")) {
+                const SheetSet nss = sheets(false);
+                const place::SurfaceIndex nidx(nss.s);
                 for (auto& o : doc_->world.objs) {
                     Vec3 p;
                     if (!get_pos(o, p) || std::hypot(p.x - x, p.z - z) > r) continue;
-                    fprintf(f, "%08X uid %u %.1f %.1f %.1f hd %.1f model %s desc %s\n", o.cls, o.uid(), p.x, p.y, p.z, o.f32("CorporalHeading"), o.str("Corporal3DObj").c_str(), o.str("Description").c_str());
+                    const float foot = p.y - stand_foot(o), sf = nidx.at(doc_->terrain, p.x, p.z, foot + place::kStandTol);
+                    int ly = 0;
+                    bool fx = false;
+                    const bool has_ly = place::layer_of(o, ly, fx);
+                    fprintf(f, "%08X uid %u %.1f %.1f %.1f hd %.1f model %s desc %s ground %.3f gap %.3f layer %d%s\n", o.cls, o.uid(), p.x, p.y, p.z, o.f32("CorporalHeading"),
+                            o.str("Corporal3DObj").c_str(), o.str("Description").c_str(), doc_->terrain.height_at(p.x, p.z), foot - sf, has_ly ? ly : -1, has_ly && fx ? " fixed" : "");
                 }
                 fclose(f);
             }
@@ -1659,16 +1859,36 @@ void App::script(const std::wstring& cmd, const std::wstring& arg) {
                     get_pos(o, lp);
                     if (const WProp* r = o.find("RoadRotation")) if (r->data.size() >= 4) memcpy(&ly, r->data.data(), 4);
                 }
-            Vec3 cur{lp.x - std::sin(ly) * 28.f, lp.y, lp.z - std::cos(ly) * 28.f}, sp;  // a piece runs along its local -z
-            float sy = 0;
+            // The solver with no camera (pixels = metres x 8, so only the cap acts): the free ghost's entry on the last piece's open end.
             place_road_ = rp->path;
-            bool ok = road_snap(cur, sp, sy);
+            const ma2::snap::Mover mv = mover_for_place();
             place_road_.clear();
-            if (!ok) fprintf(stderr, "place-road: nothing to snap to near %.1f %.1f\n", cur.x, cur.z);
-            else if (uint32_t u = io_->place_road(*doc_, rp->path, sp, sy)) {
-                fprintf(stderr, "place-road: %s snapped uid %u at %.1f %.1f heading %.1f\n", rp->path.c_str(), u, sp.x, sp.z, sy * 57.2958f);
-                dev_placed_.push_back(u);
+            if (objects_dirty_) rebuild_objects();
+            std::vector<ma2::snap::Socket> all;
+            std::vector<char> opn;
+            snap_sockets(lp.x, lp.z, 300.f, 4, {}, all, opn);
+            const ma2::snap::Socket* tgt = nullptr;
+            for (size_t i = 0; i < all.size(); i++)
+                if (opn[i] && all[i].uid == dev_placed_.back() && (!tgt || all[i].index != 0)) tgt = &all[i];
+            bool ok = false;
+            if (tgt && !mv.own.empty()) {
+                const float hc = std::cos(ly), hs = std::sin(ly), lx = mv.cx - mv.own[0].x, lz = mv.cz - mv.own[0].z;
+                Vec3 cen{tgt->x + hc * lx + hs * lz, 0, tgt->z - hs * lx + hc * lz};
+                float yaw = ly;
+                const ma2::snap::ToPx px8 = [](float x, float, float z, float& sx, float& sy) { sx = x * 8.f; sy = z * 8.f; return true; };
+                snap_px_override_ = &px8;
+                ok = solve_snap(mv, cen, yaw);
+                snap_px_override_ = nullptr;
             }
+            if (!ok) fprintf(stderr, "place-road: nothing to snap to near %.1f %.1f\n", lp.x, lp.z);
+            else {
+                const Vec3 sp{snap_.c.ox, doc_->terrain.height_at(snap_.c.ox, snap_.c.oz), snap_.c.oz};
+                if (uint32_t u = io_->place_road(*doc_, rp->path, sp, snap_.c.yaw)) {
+                    fprintf(stderr, "place-road: %s snapped uid %u at %.1f %.1f heading %.1f\n", rp->path.c_str(), u, sp.x, sp.z, snap_.c.yaw * 57.2958f);
+                    dev_placed_.push_back(u);
+                }
+            }
+            snap_clear();
         } else
         if (size_t ab = a.find('@'); rp && ab != std::string::npos) {  // "name@x,z,headingDeg[,y]": absolute coordinates instead of a level start
             float ax = 0, az = 0, hd = 0, ay = -1e9f;
@@ -1693,10 +1913,35 @@ void App::script(const std::wstring& cmd, const std::wstring& arg) {
                 if (u) dev_placed_.push_back(u);
             }
         objects_dirty_ = true;
+    } else if (cmd == L"--set-sky" && doc_ && io_) {  // developer pairs: sky name (Env_SkySpace...), like picking it under Advanced > Sky
+        std::string err;
+        if (!io_->set_sky(*doc_, a, false, &err)) ma2::log_stderr("set-sky failed: " + err + "\n");
+        objects_dirty_ = true;
+    } else if (cmd == L"--sky-mtb" && doc_) {  // developer probes: the MASky2's CorporalMTB ("-" removes the property)
+        int si = find_class(doc_->world, K_SKY);
+        if (si >= 0) {
+            WObj& sky = doc_->world.objs[size_t(si)];
+            if (a == "-") sky.erase(key_of("CorporalMTB"));
+            else sky.set_str("CorporalMTB", a);
+            doc_->dirty = true;
+        }
+    } else if (cmd == L"--set-look" && doc_ && io_) {  // developer pairs: a look's label ("Warm sun"), like picking it in the Look list
+        std::string err;
+        for (auto& l : weather::looks())
+            if (iequals(l.label, a) && !weather::apply_look(*io_, *doc_, l, l.night, &err)) ma2::log_stderr("set-look failed: " + err + "\n");
+        objects_dirty_ = true;
+    } else if (cmd == L"--set-weather" && doc_) {  // developer pairs: none | light | heavy | snow | dust
+        int ei = find_class(doc_->world, K_ENV);
+        if (ei >= 0) {
+            WObj& env = doc_->world.objs[size_t(ei)];
+            if (a == "light" || a == "heavy") weather::set_rain_level(env, a == "light" ? weather::RainLevel::Light : weather::RainLevel::Heavy);
+            else weather::set_precip(env, a == "snow" ? weather::Precip::Snow : a == "dust" ? weather::Precip::Dust : weather::Precip::None);
+            doc_->dirty = true;
+        }
     } else if (cmd == L"--save-to" && doc_ && io_) {  // developer bisects: save the (scripted) document elsewhere
         std::string err;
         if (!io_->save(*doc_, fs::path(arg), nullptr, &err)) ma2::log_stderr("save failed: " + err + "\n");
-    } else if (cmd == L"--place-sweep" && doc_ && io_ && cat_) {  // developer check (U2): every palette entry placed on flat ground rests on its model's lowest point
+    } else if (cmd == L"--place-sweep" && doc_ && io_ && cat_) {  // developer check: every palette entry placed on flat ground rests on its model's lowest point
         models_.set_archives(gd_.game_files(), doc_->base, gd_.level_archives());
         std::string rep;
         int n = 0, bad = 0, nomodel = 0;
@@ -1797,6 +2042,7 @@ void App::open_retail(const MapInfo& m) {
 }
 
 void App::cmd_save(bool save_as) {
+    save_failed_ = false;
     if (!doc_ || !io_) return;
     if (doc_->read_only) { message("Read-only", "Real levels cannot be changed. Press \"Make an editable copy\" on the Map tab to work on your own copy."); return; }
     fs::path target = doc_->file;
@@ -1808,7 +2054,7 @@ void App::cmd_save(bool save_as) {
         base = safe_file_stem(base);  // also reserved names (CON, NUL, COM1) and trailing dots / spaces
         std::wstring f = file_dialog(hwnd_, true, settings_.scenarios(), widen(base + ".ma2map"));
         // Under --automation with no path queued (dialogs next_file), a UI-only run still saves: a new
-        // name in the scenario folder, as Test does, and the status bar says where (dogfood D10).
+        // name in the scenario folder, as Test does, and the status bar says where.
         if (f.empty() && automation_dialogs().active) {
             fs::path p = settings_.scenarios() / widen(base + ".ma2map");
             for (int n = 2; fs::exists(p, ec) && n < 1000; n++) p = settings_.scenarios() / widen(base + " (" + std::to_string(n) + ").ma2map");
@@ -1834,14 +2080,14 @@ void App::cmd_save(bool save_as) {
                 }
             }
         }
-        // The game lists the scenario by its Name. A map still called "New Map" takes the name
-        // the player just typed for the file.
-        if (doc_->name.empty() || is_default_name(doc_->name))
-            doc_->name = path_utf8(target.stem());
-        // A new file never takes a Name another saved scenario already has (the game would list both as "Name (file)"):
-        // it is named after its own file instead.
-        else if (!name_clash(doc_->name, target, doc_->multiplayer).empty() && name_clash(path_utf8(target.stem()), target, doc_->multiplayer).empty())
-            doc_->name = path_utf8(target.stem());
+        // The game lists the scenario by its Name. A map that still has a placeholder name ("New Map", empty) takes the name
+        // the player just typed for the file, and the status says so. A name the user typed is never replaced, not even when
+        // another saved scenario has it: the clash note below says how the game lists the two.
+        if (doc_->name.empty() || is_default_name(doc_->name)) {
+            const std::string stem = path_utf8(target.stem());
+            if (stem != doc_->name) placeholder_named_ = stem;  // the status line only speaks when the name changed
+            doc_->name = stem;
+        }
     }
     if (doc_->author.empty()) doc_->author = settings_.author;
     // Save as to another file makes a second scenario: it needs its own Id, or the game lists only one of the two
@@ -1853,6 +2099,16 @@ void App::cmd_save(bool save_as) {
     }
     std::string err;
     SaveReport rep;
+    // The hill shadows follow the ground and the sun by themselves at save, so there is no button to press and no second save.
+    bool shadows_refreshed = false;
+    if (lightmap_stale_ && !doc_->read_only) {
+        io_->bake_lightmap(*doc_);
+        r_.set_lightmap(doc_->lightmap);
+        lightmap_stale_ = false;
+        stale_sun_only_ = false;
+        minimap_dirty_ = true;
+        shadows_refreshed = true;
+    }
     bool saved = io_->save(*doc_, target, &rep, &err);
     if (!saved && rep.over_limit) {
         // The game has no guard of its own: a map over its limits crashes the player's game at load. Saving it anyway is
@@ -1865,6 +2121,7 @@ void App::cmd_save(bool save_as) {
             saved = io_->save(*doc_, target, &rep, &err, true);
         } else {
             doc_->id = old_id;
+            placeholder_named_.clear();
             status_ = "Not saved: the scenario is over the game's limits (" + rep.limit_text + ")";
             status_time_ = 10;
             return;
@@ -1872,12 +2129,18 @@ void App::cmd_save(bool save_as) {
     }
     if (!saved) {
         doc_->id = old_id;
+        placeholder_named_.clear();
+        save_failed_ = true;
+        const bool memory = err.find("map is still open and unchanged") != std::string::npos;  // F-V5R-1: the build failed, not the disk
         message("Save failed", "The scenario could not be saved to\n" + path_utf8(target) + "\n\n" + err +
-                                   "\n\nCheck that the folder exists and is not read-only, or use File > Save as... to pick another place.");
+                                   (memory ? std::string() : std::string("\n\nCheck that the folder exists and is not read-only, or use File > Save as... to pick another place.")));
         return;
     }
     clear_autosave();
+    note_saved();
+    const double gfx_prev_save = last_report_.graphics_mb;
     last_report_ = rep;
+    gfx_calibrate(rep.graphics_mb);  // the exact figure replaces the live one
     {
         std::error_code ec;
         bool seen = false;
@@ -1890,12 +2153,21 @@ void App::cmd_save(bool save_as) {
     snprintf(b, sizeof b, "Saved %s (%.1f MB)", path_utf8(auto_path ? target : target.filename()).c_str(), rep.file_bytes / 1048576.0);
     status_ = b;
     status_time_ = 6;
+    if (gfx_prev_save > 0 && std::fabs(rep.graphics_mb - gfx_prev_save) >= 0.1) {  // The save line carries the graphics figure when it moved since the last save
+        snprintf(b, sizeof b, ". Graphics memory: about %.1f of 64 MB (%+.1f since the last save).", rep.graphics_mb, rep.graphics_mb - gfx_prev_save);
+        status_ += b;
+    }
+    if (!placeholder_named_.empty()) {
+        status_ += ". Its name in the game is now \"" + placeholder_named_ + "\" (it had no name of its own); change it on the Map tab.";
+        status_time_ = 10;
+        placeholder_named_.clear();
+    }
     // The saved light map is the last one made: after a sun or ground change without Update shadows, the game shows the
     // old shadows (and the reopened map has no way to tell).
-    if (lightmap_stale_) {
+    if (lightmap_stale_) {   // only a real level (read-only, never re-baked) can still be stale here
         status_ += ". The shadows still follow the old sun or ground: press Update shadows (Environment tab), then save again.";
         status_time_ = 12;
-    }
+    } else if (shadows_refreshed) status_ += ". The hill shadows were updated for the ground and the sun.";
     if (const std::string other = name_clash(doc_->name, target, doc_->multiplayer); !other.empty()) {
         status_ += ". \"" + doc_->name + "\" is also the name of " + other + "; the game lists them as \"" + doc_->name +
                    " (<file name>)\". Rename it on the Map tab.";
@@ -1921,6 +2193,9 @@ void App::cmd_save(bool save_as) {
 }
 
 void App::cmd_test() {
+    test_launch_skipped_ = false;  // automation: set again below when this Test got as far as the command line
+    test_command_.clear();
+    test_dir_.clear();
     if (!doc_) { message("Test", "Open or create a scenario first."); return; }
     if (doc_->read_only) { message("Test", "You are looking at a real level, which cannot be changed. Press \"Make an editable copy\" on the Map tab, then test your copy."); return; }
     validation_ = check_now();
@@ -1949,11 +2224,34 @@ void App::cmd_test() {
         // The file got a number because "<name>.ma2map" exists: the game would list two scenarios with one Name, so the
         // Name takes the file's ("New Mission (2)") as Save does.
         name_before = doc_->name;
-        if (doc_->name.empty() || is_default_name(doc_->name)) doc_->name = path_utf8(f.stem());
+        if (doc_->name.empty() || is_default_name(doc_->name)) {
+            const std::string stem = path_utf8(f.stem());
+            if (stem != doc_->name) placeholder_named_ = stem;
+            doc_->name = stem;
+        }
     }
     cmd_save(false);
+    placeholder_named_.clear();
+    if (save_failed_) {  // nothing was written: do not run the file that is on disk
+        if (auto_named) { doc_->file.clear(); doc_->name = name_before; }
+        return;
+    }
     if (auto_named && doc_->dirty) { doc_->file.clear(); doc_->name = name_before; }  // the save failed: keep it untitled
     if (doc_->dirty || doc_->file.empty()) return;
+    if (from_game && from_game_live) {
+        // Opened from the running game (live): it plays the file now; the editor stays as it is, out of sight, until the
+        // test is left.
+        live_test_ = LiveTest{fs::absolute(doc_->file), {}, -1, -1, -1};
+        if (doc_->multiplayer && !doc_->types.empty()) {
+            live_test_.mode = doc_->types[size_t(std::clamp(test_mode_, 0, int(doc_->types.size()) - 1))];
+            live_test_.red = test_red_; live_test_.blue = test_blue_; live_test_.skill = test_skill_;
+        }
+        live_test_pending_ = true;
+        ns_tested_ = true;
+        status_ = "Saved. Starting the test in the game...";
+        status_time_ = 10;
+        return;
+    }
     if (from_game) {
         // Opened from the game: no second game. Saved; the game plays it when the editor closes with exit code 2.
         exit_code_ = 2;
@@ -1976,6 +2274,18 @@ void App::cmd_test() {
     }
     bool quick = settings_.quick_test;
     if (quick) cmd += L" --quick-test";
+    else cmd += L" --skip-intro";  // no startup movies either way; the game stays open after the test
+    if (automation) {
+        // Automation: Check, save and the command line above ran as usual, but a test run never opens a game (not even a hidden
+        // one). The command line and working folder are kept for `state` (test_command / test_dir / test_launch_skipped).
+        test_command_ = cmd;
+        test_dir_ = gd_.install().native();
+        test_launch_skipped_ = true;
+        ns_tested_ = true;
+        status_ = "Test: the game was not started (automation run). The command line is in the state reply (test_command).";
+        status_time_ = 10;
+        return;
+    }
     STARTUPINFOW si{sizeof(si)};
     PROCESS_INFORMATION pi{};
     std::wstring dir = gd_.install().native();
@@ -2037,6 +2347,8 @@ void App::capture_meta(Snapshot& s) const {
     s.author = doc_->author;
     s.briefing_title = doc_->briefing_title;
     s.briefing = doc_->briefing;
+    s.win_text = doc_->win_text;
+    s.lose_text = doc_->lose_text;
     s.types = doc_->types;
     s.objectives = doc_->objectives;
     s.strings = doc_->strings;
@@ -2048,29 +2360,121 @@ void App::apply_meta(const Snapshot& s) {
     doc_->author = s.author;
     doc_->briefing_title = s.briefing_title;
     doc_->briefing = s.briefing;
+    doc_->win_text = s.win_text;
+    doc_->lose_text = s.lose_text;
     doc_->types = s.types;
     doc_->objectives = s.objectives;
     doc_->strings = s.strings;
-    doc_->audio = s.audio;
+    if (s.audio) doc_->audio = *s.audio;
     pick_ = PickTarget();
+}
+
+template <class T>
+static bool same_vec(const std::vector<T>& a, const std::vector<T>& b) {
+    return a.size() == b.size() && (a.empty() || std::memcmp(a.data(), b.data(), a.size() * sizeof(T)) == 0);
+}
+static bool same_image(const Image& a, const Image& b) { return a.w == b.w && a.h == b.h && same_vec(a.px, b.px); }
+static bool same_audio(const std::map<int, AudioClip>& a, const std::map<int, AudioClip>& b) {
+    if (a.size() != b.size()) return false;
+    for (auto i = a.begin(), j = b.begin(); i != a.end(); ++i, ++j)
+        if (i->first != j->first || i->second.source != j->second.source || !same_vec(i->second.wav, j->second.wav)) return false;
+    return true;
+}
+// A rough size of the world's heap use (objects, properties and their payloads), computed once per snapshot.
+static size_t world_bytes_of(const Wdf& w) {
+    size_t b = w.objs.capacity() * sizeof(WObj);
+    for (const WObj& o : w.objs) {
+        b += o.props.capacity() * sizeof(WProp);
+        for (const WProp& p : o.props) b += p.data.capacity() + 16;
+    }
+    return b;
 }
 
 Snapshot App::snapshot(const std::string& label) const {
     Snapshot s;
     s.world = doc_->world;
     s.selection = selection_;
-    s.hgt = doc_->terrain.hgt;
+    // The big buffers: reuse the last snapshot's when the bytes are equal (memcmp), so a step that did not touch the ground
+    // or the colours shares them with its neighbours.
+    if (!snap_hgt_ || !same_vec(*snap_hgt_, doc_->terrain.hgt)) snap_hgt_ = std::make_shared<const std::vector<float>>(doc_->terrain.hgt);
+    s.hgt = snap_hgt_;
     s.min_h = doc_->terrain.min_h;
     s.max_h = doc_->terrain.max_h;
-    s.colormap = doc_->colormap;
+    if (!snap_cm_ || !same_image(*snap_cm_, doc_->colormap)) snap_cm_ = std::make_shared<const Image>(doc_->colormap);
+    s.colormap = snap_cm_;
     s.colormap_custom = doc_->colormap_custom;
+    if (!snap_lm_ || !same_image(*snap_lm_, doc_->lightmap)) snap_lm_ = std::make_shared<const Image>(doc_->lightmap);
+    s.lightmap = snap_lm_;
+    s.lightmap_custom = doc_->lightmap_custom;
+    s.lightmap_stale = lightmap_stale_;
+    s.stale_sun_only = stale_sun_only_;
+    s.lightmap_sun = lightmap_sun_;
     s.ground = doc_->ground;
-    s.typemap = doc_->typemap;
+    if (!snap_tm_ || !same_vec(*snap_tm_, doc_->typemap)) snap_tm_ = std::make_shared<const std::vector<uint16_t>>(doc_->typemap);
+    s.typemap = snap_tm_;
     s.shaped = ns_shaped_;
     capture_meta(s);
-    s.audio = doc_->audio;
+    if (!snap_audio_ || !same_audio(*snap_audio_, doc_->audio)) snap_audio_ = std::make_shared<const std::map<int, AudioClip>>(doc_->audio);
+    s.audio = snap_audio_;
     s.label = label;
+    s.state_id = cur_state_id_;
+    s.small_bytes = world_bytes_of(s.world) + s.name.size() + s.description.size() + s.author.size() + s.briefing_title.size() + s.briefing.size() +
+                    sizeof(Snapshot);
+    for (const auto& t : s.types) s.small_bytes += t.size() + 32;
+    for (const auto& t : s.objectives) s.small_bytes += t.size() + 32;
+    for (const auto& kv : s.strings) s.small_bytes += kv.second.size() + 48;
     return s;
+}
+
+// Snapshot memory: every shared buffer counted once however many steps hold it.
+uint64_t App::undo_bytes(uint64_t* parts) const {
+    std::unordered_set<const void*> seen;
+    uint64_t b = 0, pw = 0, ph = 0, pc = 0, pt = 0, pg = 0, pl = 0, pa = 0;
+    auto add = [&](const Snapshot& s) {
+        pw += s.small_bytes;
+        if (s.hgt && seen.insert(s.hgt.get()).second) ph += uint64_t(s.hgt->capacity()) * sizeof(float);
+        if (s.colormap && seen.insert(s.colormap.get()).second) pc += uint64_t(s.colormap->px.capacity()) * 4;
+        if (s.lightmap && seen.insert(s.lightmap.get()).second) pc += uint64_t(s.lightmap->px.capacity()) * 4;
+        if (s.typemap && seen.insert(s.typemap.get()).second) pt += uint64_t(s.typemap->capacity()) * 2;
+        if (s.ground.weights && seen.insert(s.ground.weights.get()).second) pg += uint64_t(s.ground.weights->capacity());
+        for (const auto& L : s.ground.layers) pl += uint64_t(L.image.px.capacity()) * 4 + L.path.size() + L.archive.size();
+        if (s.audio && seen.insert(s.audio.get()).second)
+            for (const auto& kv : *s.audio) pa += uint64_t(kv.second.wav.capacity()) + kv.second.source.size() + 64;
+    };
+    for (const Snapshot& s : undo_) add(s);
+    for (const Snapshot& s : redo_) add(s);
+    b = pw + ph + pc + pt + pg + pl + pa;
+    if (parts) { parts[0] = pw; parts[1] = ph; parts[2] = pc; parts[3] = pt; parts[4] = pg; parts[5] = pl; parts[6] = pa; }
+    return b;
+}
+
+// The history stays inside 200 steps and 1 GiB (the oldest go first); the first drop says so, then at most every 30 s.
+void App::trim_undo() {
+    std::string first;
+    int dropped = 0;
+    while (!undo_.empty() && (undo_.size() > kUndoSteps || (undo_.size() > 1 && undo_bytes() > kUndoBudget))) {
+        if (!dropped) first = undo_.front().label;
+        undo_.pop_front();
+        dropped++;
+    }
+    const double now = ImGui::GetTime();
+    if (dropped && now - undo_note_time_ >= kUndoDropNoteEvery) {
+        undo_note_ = "Undo history is full: the oldest step (" + first + ") was dropped.";
+        undo_note_time_ = now;
+    }
+}
+
+// The document now differs from the saved file by something no undo step covers: the clean mark can never come back.
+void App::mark_untracked_change() { saved_state_id_ = -1; }
+
+// Any change that set the dirty flag without pushing a step shows as "dirty while still on the saved state".
+void App::check_untracked_change() {
+    if (doc_ && doc_->dirty && cur_state_id_ == saved_state_id_) mark_untracked_change();
+}
+
+void App::note_saved() {
+    check_untracked_change();
+    saved_state_id_ = cur_state_id_;
 }
 
 // One undo step for a widget that edits scenario data: the state before the widget became active
@@ -2079,51 +2483,67 @@ void App::push_undo_once(const std::string& label) {
     if (!editable()) return;
     // One step per edit: while the same widget stays active (typing, dragging) nothing more is pushed.
     check_stale_ = true;
-    if (last_undo_id_ && ImGui::IsAnyItemActive()) { doc_->dirty = true; return; }
+    // (A number typed into a field applies once more on Enter, the frame the widget goes inactive: still the same edit.)
+    if (last_undo_id_ && (ImGui::IsAnyItemActive() || ImGui::GetCurrentContext()->ActiveIdPreviousFrame != 0)) { doc_->dirty = true; return; }
     last_undo_id_ = 1;
+    check_untracked_change();
     Snapshot s = snapshot(label);
-    Snapshot keep_audio;
-    keep_audio.audio = std::move(s.audio);
     s.name = meta_pre_.name;
     s.description = meta_pre_.description;
     s.author = meta_pre_.author;
     s.briefing_title = meta_pre_.briefing_title;
     s.briefing = meta_pre_.briefing;
+    s.win_text = meta_pre_.win_text;
+    s.lose_text = meta_pre_.lose_text;
     s.types = meta_pre_.types;
     s.objectives = meta_pre_.objectives;
     s.strings = meta_pre_.strings;
-    s.audio = std::move(keep_audio.audio);
     undo_.push_back(std::move(s));
-    if (undo_.size() > 40) undo_.pop_front();
     redo_.clear();
+    cur_state_id_ = next_state_id_++;
+    trim_undo();
     doc_->dirty = true;
 }
 
 void App::restore(const Snapshot& s) {
     apply_meta(s);
-    // Review E3: undoing a sun change after 'Update shadows' kept hill shadows baked for the undone sun.
+    // Undoing a sun change after 'Update shadows' kept hill shadows baked for the undone sun.
     auto sun_of = [](const Wdf& w) { const int i = find_class(w, K_ENV); return i < 0 ? Vec3{} : w.objs[size_t(i)].vec3("DirectionalLightDirection"); };
     const Vec3 sun0 = sun_of(doc_->world), sun1 = sun_of(s.world);
     const bool sun_change = sun0.x != sun1.x || sun0.y != sun1.y || sun0.z != sun1.z;
     doc_->world = s.world;
-    bool hchange = doc_->terrain.hgt != s.hgt;
-    doc_->terrain.hgt = s.hgt;
+    bool hchange = doc_->terrain.hgt != *s.hgt;
+    doc_->terrain.hgt = *s.hgt;
     doc_->terrain.min_h = s.min_h;
     doc_->terrain.max_h = s.max_h;
-    bool cchange = doc_->colormap.px != s.colormap.px || doc_->ground.weights != s.ground.weights || doc_->ground.count() != s.ground.count() ||
+    bool cchange = doc_->colormap.px != s.colormap->px || doc_->ground.weights != s.ground.weights || doc_->ground.count() != s.ground.count() ||
                    doc_->ground.enabled != s.ground.enabled;
     for (int k = 0; !cchange && k < doc_->ground.count(); k++)  // a changed texture or pattern size of an extra layer
         cchange = doc_->ground.layers[size_t(k)].path != s.ground.layers[size_t(k)].path || doc_->ground.layers[size_t(k)].repeats != s.ground.layers[size_t(k)].repeats;
-    doc_->colormap = s.colormap;
+    doc_->colormap = *s.colormap;
     doc_->ground = s.ground;
     doc_->colormap_custom = s.colormap_custom;
-    doc_->typemap = s.typemap;
+    doc_->typemap = *s.typemap;
+    snap_hgt_ = s.hgt;  // the document equals these buffers now: the next snapshot shares them
+    snap_cm_ = s.colormap;
+    snap_tm_ = s.typemap;
+    snap_audio_ = s.audio;
     doc_->typemap_dirty = true;
     ns_shaped_ = s.shaped;
     doc_->dirty = true;
     document_changed(hchange, cchange);
-    if (hchange || sun_change) {
-        // Re-light the restored shape (or sun) so shadows match it.
+    if (s.lightmap && !s.lightmap->px.empty()) {
+        // The light map of that state, exactly (never a fresh bake: the same ground gave a different picture).
+        doc_->lightmap = *s.lightmap;
+        doc_->lightmap_custom = s.lightmap_custom;
+        snap_lm_ = s.lightmap;
+        r_.set_lightmap(doc_->lightmap);
+        if (hchange || sun_change) r_.params.lighting = true;
+        lightmap_stale_ = s.lightmap_stale;
+        stale_sun_only_ = s.stale_sun_only;
+        lightmap_sun_ = s.lightmap_sun;
+    } else if (hchange || sun_change) {
+        // A snapshot without a light map: re-light the restored shape (or sun) so shadows match it.
         io_->bake_lightmap(*doc_);
         r_.set_lightmap(doc_->lightmap);
         r_.params.lighting = true;
@@ -2136,19 +2556,54 @@ void App::restore(const Snapshot& s) {
 void App::push_undo(const std::string& label) {
     if (!editable()) return;
     check_stale_ = true;
+    check_untracked_change();
     undo_.push_back(snapshot(label));
-    if (undo_.size() > 40) undo_.pop_front();
     redo_.clear();
+    cur_state_id_ = next_state_id_++;
+    trim_undo();
+}
+
+void App::push_undo_merge(const std::string& label, const std::string& tag) {
+    if (!editable()) return;
+    const double t = ImGui::GetTime();
+    const uint64_t sh = undo_sel_hash(selection_);
+    // Only while nothing else happened since the merging push (any other step, undo or save moves the state id).
+    if (!undo_.empty() && cur_state_id_ == merge_state_ && cur_state_id_ != saved_state_id_ &&
+        undo_should_merge(merge_tag_, merge_sel_, merge_time_, tag, sh, t, redo_.empty())) {
+        merge_time_ = t;
+        check_stale_ = true;
+        return;
+    }
+    push_undo(label);
+    merge_tag_ = tag;
+    merge_sel_ = sh;
+    merge_time_ = t;
+    merge_state_ = cur_state_id_;
+}
+
+Snapshot App::drop_last_undo() {
+    Snapshot s = std::move(undo_.back());
+    undo_.pop_back();
+    cur_state_id_ = s.state_id;
+    merge_state_ = -1;
+    return s;
 }
 
 void App::undo() {
     if (!editable() || undo_.empty()) return;
-    if (stroke_active_ || dragging_ || gizmo_drag_ || place_drag_) return;  // mid-gesture: the key press is dropped
+    if (stroke_active_ || dragging_ || gizmo_drag_ || place_drag_ || water_drag_) {  // mid-gesture: the key press is dropped
+        status_ = "Finish the drag first.";
+        status_time_ = 3;
+        return;
+    }
+    check_untracked_change();
     redo_.push_back(snapshot(undo_.back().label));
     restore(undo_.back());
     culture_.doc = nullptr;  // the culture map lives in the world: read it again
     selection_ = undo_.back().selection;
     world_changed();
+    cur_state_id_ = undo_.back().state_id;
+    doc_->dirty = cur_state_id_ != saved_state_id_;
     status_ = "Undo: " + undo_.back().label;
     status_time_ = 3;
     undo_.pop_back();
@@ -2156,15 +2611,23 @@ void App::undo() {
 
 void App::redo() {
     if (!editable() || redo_.empty()) return;
-    if (stroke_active_ || dragging_ || gizmo_drag_ || place_drag_) return;
+    if (stroke_active_ || dragging_ || gizmo_drag_ || place_drag_ || water_drag_) {
+        status_ = "Finish the drag first.";
+        status_time_ = 3;
+        return;
+    }
+    check_untracked_change();
     undo_.push_back(snapshot(redo_.back().label));
     restore(redo_.back());
     culture_.doc = nullptr;
     selection_ = redo_.back().selection;
     world_changed();
+    cur_state_id_ = redo_.back().state_id;
+    doc_->dirty = cur_state_id_ != saved_state_id_;
     status_ = "Redo: " + redo_.back().label;
     status_time_ = 3;
     redo_.pop_back();
+    trim_undo();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2229,7 +2692,7 @@ void App::ui_legend() {
 // the mode pieces players see (spawns, pads, flags, Snatch It, crates, effects). Classes the
 // dictionary draws as "model"/"plane" are game objects; any other positioned class is a helper.
 // Side only means something for things that fight or can be fought: not for the player start, helpers, roads,
-// effects or water (UX R4). Plain scenery keeps the control only when the level already gave it a side.
+// effects or water. Plain scenery keeps the control only when the level already gave it a side.
 bool App::has_side(const ma2::WObj& o) const {
     static const uint32_t K_ROAD_ = key_of("MARoad"), K_ROADGROUP_ = key_of("MARoadGroup"), K_EFFECT_ = key_of("MAEffect"),
                           K_SCENERY_ = key_of("MACorporeal");
@@ -2295,11 +2758,12 @@ void App::road_view(const WObj& o, ObjView& v) {
     v.road_l = d.l;
     v.size = {2 * d.w, 0.3f, d.l};
     v.color = 0xFF505050u;
-    if (show_models_ && !d.model.empty()) v.model = models_.get(d.model, "", crop_key(o));  // cut to its crop (app_crop.cpp)
+    if (show_models_ && !d.model.empty()) v.model = models_.get(d.model, "", crop_key(o), true);  // cut to its crop (app_crop.cpp); a cut still loading shows the last one
 }
 
 void App::rebuild_objects() {
     objects_dirty_ = false;
+    gfx_scan_ = true;  // the live graphics figure recounts the templates on the map
     views_.clear();
     placed_n_ = 0;
     if (!doc_) return;
@@ -2334,8 +2798,31 @@ void App::rebuild_objects() {
     later_hidden_ = 0;
     start_state_.clear();
     std::vector<char> start(w.objs.size(), START_SHOWN);
-    if (!show_later_) {
+    // A cutscene preview shows what the game shows when the cutscene plays: a reinforcement that arrives later
+    // is not there yet (whatever View > Show later objects says). A unit whose arrival delay timer has run out by the time
+    // the cutscene starts (the earliest timer that plays it) is there.
+    const bool cut_preview = cpv_.on && cpv_.cin && !cpv_.still;
+    float cut_start = -1;
+    if (cut_preview) {
+        static const uint32_t K_ACT_CIN = key_of("MAActionActivateCinema"), K_TIMER_ = key_of("MATriggerTimer");
+        for (auto& a : w.objs)
+            if (a.cls == K_ACT_CIN && a.u32("cinemaID") == cpv_.cin)
+                if (const WObj* tr = object_by_uid(w, a.parent()); tr && tr->cls == K_TIMER_) {
+                    float at = tr->f32("TrgTimerDurationSeconds");
+                    if (cut_start < 0 || at < cut_start) cut_start = at;
+                }
+    }
+    if (!show_later_ || cut_preview) {
         start = objects_at_start(w, t);
+        if (cut_preview)
+            for (size_t i = 0; i < w.objs.size(); i++)
+                if (start[i] == START_CUTSCENE) start[i] = START_SHOWN;  // only used in a cutscene: the preview shows it
+        if (cut_preview && cut_start >= 0)
+            for (size_t i = 0; i < w.objs.size(); i++)
+                if (start[i] == START_SPAWNED)
+                    if (uint32_t at = unit_arrival_trigger(w.objs[i].uid()))
+                        if (const WObj* tr = object_by_uid(w, at); tr && tr->cls == key_of("MATriggerTimer") && tr->f32("TrgTimerDurationSeconds") <= cut_start)
+                            start[i] = START_SHOWN;
         for (size_t i = 0; i < w.objs.size(); i++)
             if (start[i] != START_SHOWN && start[i] != START_DESTROYED && !hidden[i] && position(w.objs[i])) {
                 hidden[i] = 1;
@@ -2416,7 +2903,7 @@ void App::rebuild_objects() {
                 v.size = {5, 4, 5}; v.color = rgb(190, 160, 110);
             }
         } else { v.size = {3, 3, 3}; v.color = rgb(170, 170, 170); }
-        // Vehicle pads (MACorporeal > MASpawner > vehicle) and power-ups are a few pixels at map zoom (MP dogfood P2):
+        // Vehicle pads (MACorporeal > MASpawner > vehicle) and power-ups are a few pixels at map zoom:
         // they get a ring and a label like the spawn markers.
         auto plain = [&](const WObj& x) {
             const TemplateInfo* xt = cat_ ? cat_->find(x.template_id()) : nullptr;
@@ -2459,7 +2946,7 @@ void App::rebuild_objects() {
             if (start[i] == START_DESTROYED && cat_)  // wrecked at the start: the game shows its destroyed version
                 if (const TemplateInfo* dt = cat_->find(o.u32("DestroyedBuilding")); dt && !dt->model.empty()) { mp = dt->model; mtb = dt->mtb; }
             if (!mp.empty()) {
-                GpuModel* gm = models_.get(mp, mtb, crop_key(o));  // a cropped foundation draws cut (app_crop.cpp)
+                GpuModel* gm = models_.get(mp, mtb, crop_key(o), true);  // a cropped foundation draws cut (app_crop.cpp); a cut still loading shows the last one
                 v.fx_model = mp;
                 v.fx_mtb = mtb;
                 if (v.kind == 0 || v.kind == 2) v.model = gm;  // water: the plane below plus the model's other layers (oily sheets)
@@ -2549,7 +3036,7 @@ static void add_selection_box(std::vector<LineVertex>& L, const ObjView& v, uint
     }
     // A unit or building with its model: corner brackets (RTS style) so the model shows through. The full wire box hid a
     // 'Mech seen from the default camera: two selected Lokis read as "yellow wireframe boxes, the model did not load"
-    // (dogfood M2-3).
+    //.
     auto lerp = [](const XMFLOAT3& a, const XMFLOAT3& b, float t) { return XMFLOAT3{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t}; };
     for (auto& ed_ : e) {
         const XMFLOAT3 &a = c[ed_[0]], &b = c[ed_[1]];
@@ -2559,7 +3046,7 @@ static void add_selection_box(std::vector<LineVertex>& L, const ObjView& v, uint
 }
 
 
-// Side colours (UX S6, the same as the Units tab "Placing for" picker): missions 5 enemy red, 6 player's
+// Side colours (the same as the Units tab "Placing for" picker): missions 5 enemy red, 6 player's
 // side blue; multiplayer 1 Red team, 2 Blue team; neutral / other grey. Line colours are ABGR.
 static uint32_t side_color(int nation, bool mp) {
     bool red = mp ? nation == 1 : nation == 5, blue = mp ? nation == 2 : nation == 6;
@@ -2568,6 +3055,54 @@ static uint32_t side_color(int nation, bool mp) {
 
 static bool side_unit(uint32_t cls) {
     return cls == K_MECH || cls == K_TANK || cls == K_VEHICLE || cls == K_FLYER || cls == K_TURRET || cls == K_PERSON;
+}
+
+// The shot glyphs: while a cutscene is picked, each shot draws a small frustum (4 m) at its start and its end eye point,
+// pointing at what it looks at, labelled "2a" / "2b" ("2" for a still shot). The labels are drawn by shot_glyph_labels.
+void App::shot_glyph_lines() {
+    shot_glyphs_.clear();
+    if (!doc_ || tab_ != Tab::Cameras || !cine_uid_ || cpv_.on || !show_helpers_ || !show_helper_group_[HG_CAMERAS]) return;
+    const std::vector<ShotInfo> shots = cutscene_shots(doc_->world, cine_uid_);
+    for (size_t k = 0; k < shots.size(); k++) {
+        const ShotInfo& sh = shots[k];
+        if (sh.eye.empty() || !sh.has_look) continue;
+        const bool sel = int(k) == tl_.shot;
+        for (int end = 0; end < (sh.still ? 1 : 2); end++) {
+            const Vec3 e = end ? sh.eye.back() : sh.eye.front();
+            float fx = sh.look.x - e.x, fy = sh.look.y - e.y, fz = sh.look.z - e.z;
+            const float d = std::sqrt(fx * fx + fy * fy + fz * fz);
+            if (d < 0.05f) continue;
+            fx /= d; fy /= d; fz /= d;
+            float rx = fz, rz = -fx;  // to the right of the view direction, level
+            float rl = std::sqrt(rx * rx + rz * rz);
+            if (rl < 1e-3f) { rx = 1; rz = 0; rl = 1; }
+            rx /= rl; rz /= rl;
+            const float ux = fy * rz, uy = fz * rx - fx * rz, uz = -fy * rx;  // up = forward x right
+            const float hw = 4.f * std::tan(std::clamp(sh.fov, 5.f, 120.f) * 0.5f * 0.0174532925f), hh = hw / kGameBandAspect;
+            const XMFLOAT3 c{e.x + fx * 4.f, e.y + fy * 4.f, e.z + fz * 4.f};
+            XMFLOAT3 q[4];
+            for (int i = 0; i < 4; i++) {
+                const float sx = (i & 1) ? hw : -hw, sy = (i & 2) ? hh : -hh;
+                q[i] = {c.x + rx * sx + ux * sy, c.y + uy * sy, c.z + rz * sx + uz * sy};
+            }
+            const uint32_t col = sel ? kCamPathColor : (kCamPathColor & 0x00FFFFFFu) | 0xB0000000u;
+            const XMFLOAT3 eye{e.x, e.y, e.z};
+            for (int i = 0; i < 4; i++) add_line(r_.lines, eye, q[i], col);
+            add_line(r_.lines, q[0], q[1], col);
+            add_line(r_.lines, q[1], q[3], col);
+            add_line(r_.lines, q[3], q[2], col);
+            add_line(r_.lines, q[2], q[0], col);
+            float sx, sy;
+            if (cam_.project(eye, vp_w, vp_h, sx, sy)) {
+                ShotGlyph g;
+                g.label = std::to_string(k + 1) + (sh.still ? "" : end ? "b" : "a");
+                g.sx = sx;
+                g.sy = sy;
+                g.uid = sh.ctrl;
+                shot_glyphs_.push_back(std::move(g));
+            }
+        }
+    }
 }
 
 void App::build_frame_geometry() {
@@ -2630,10 +3165,11 @@ void App::build_frame_geometry() {
                 r_.sky.model = g;
                 r_.sky.scale = {sc.x, sc.y, sc.z};
                 r_.sky.offset = {off.x, off.y, off.z};
-                // CorporalHeading in degrees like every object (retail skies store -1 / -41). M16 at the pitch-corrected pose: the game's sky top rows match
-                // with NO extra turn (heading 0: 227,207,143 vs game 218,199,146 and the light rays show); the +1 rad rule (ca39ac3) was a pitch artifact.
-                r_.sky.heading = heading(o);
-                // Ill Wind's sky has no SkyFogOn / SkyFogColor and the game still fogs it in the world's FogColor (g3 trace).
+                // The game does NOT turn the dome by the MASky2's CorporalHeading. NOR_02 trace (heading -41, PC Release, p10 spot A): the
+                // dome's model matrix is 10000 x the MGMODEL node world exactly (env_skynor_01 turned 1.04 rad by its own node, nothing more), and at the
+                // traced camera the editor matches the game only without the heading (sky region 127 vs game 125; with the heading 174, the 1.35x).
+                r_.sky.heading = 0;
+                // Ill Wind's sky has no SkyFogOn / SkyFogColor and the game still fogs it in the world's FogColor.
                 // WC trace (Env_Sky_Stormy): the game frame draws only the 3 alpha-blended groups (sky, clouds, mountains); the two additive duplicate domes sky_main01/02 (colour 1.9) never reach the screen, and drawing them made the sky ~5x too bright.
                 r_.sky.hide_additive = mp.find("Env_Sky_Stormy") != std::string::npos;
                 r_.sky.fog_on = o.i32("SkyFogOn", 1) != 0 && o.find("SkyFogTop") && o.find("SkyFogBottom");
@@ -2699,6 +3235,7 @@ void App::build_frame_geometry() {
         }
     } dump_lights{dump_lights_, r_.lights};
     for (auto& v : views_) if (selection_.count(doc_->world.objs[size_t(v.root)].uid())) sel_roots.insert(v.root);
+    helpers_faded_ = 0;
     for (auto& v : views_) {
         bool sel = sel_roots.count(v.root) != 0;
         bool hov = hover_uid_ && doc_->world.objs[size_t(v.root)].uid() == hover_uid_;
@@ -2713,7 +3250,7 @@ void App::build_frame_geometry() {
                 float r = std::max(2.f, 0.6f * std::max(v.size.x, v.size.z)), mk = marker_scale();
                 r = std::max(r, 2.5f * mk);  // stays readable when zoomed out (like the U7 markers)
                 const int N = 32;
-                // On a roof or bridge deck (UX G10) the ring lies flat at the unit's feet, not on the ground below.
+                // On a roof or bridge deck the ring lies flat at the unit's feet, not on the ground below.
                 float foot = v.pos.y + std::min(0.f, v.lo[1]);
                 bool raised = foot - doc_->terrain.height_at(v.pos.x, v.pos.z) > 1.f;
                 for (int rep_ = 0; rep_ < 2; rep_++)
@@ -2745,7 +3282,7 @@ void App::build_frame_geometry() {
             BoxInstance mi;
             orient_instance(mi, v.heading, v.pitch, v.roll, v.pos);
             mi.color = sel ? XMFLOAT4{1.5f, 1.4f, 0.8f, 1} : hov ? XMFLOAT4{1.25f, 1.25f, 1.25f, 1} : XMFLOAT4{1, 1, 1, 1};
-            // ShadowReceiverType 1 (every MARoad, the ground slabs): the game pre-passes the ground light map onto it (R2-13 #1).
+            // ShadowReceiverType 1 (every MARoad, the ground slabs): the game pre-passes the ground light map onto it.
             bool recv = v.kind == 5 || (v.index >= 0 && doc_->world.objs[size_t(v.index)].i32("ShadowReceiverType") == 1);
             // Entity colour set (M11b player turret Tur_Player_01, game olive 49682B, not the template red CC0000 nor the material's grey 0.35):
             // a tank / turret with SupportsColorShift + UseCustomColors paints its COMPLEX colorshift1_diffuse tint with
@@ -2799,7 +3336,7 @@ void App::build_frame_geometry() {
                     q.color = (wm.deep & 0x00FFFFFFu) | 0xEB000000u;
                     q.shallow = wm.shallow;
                     q.wave = wm.wave;
-                    q.refl = wm.refl ? wm.refl : r_.env_cube;  // no reflectiontexture: the level's env cube (R2-7)
+                    q.refl = wm.refl ? wm.refl : r_.env_cube;  // no reflectiontexture: the level's env cube
                     water_dbg_[doc_->world.objs[size_t(v.root)].str("Corporal3DObj")] =
                         (wm.refl ? wm.refl_path : std::string("(env cube)")) + " wave=" + wm.wave_path;
                     q.fresnel_min = wm.fresnel_min;
@@ -2807,8 +3344,8 @@ void App::build_frame_geometry() {
                 }
                 r_.quads.push_back(q);
             }
-            {
-                // Outline of the tile so water can be seen, hovered and picked at any zoom.
+            if (show_helpers_ || sel) {
+                // Outline of the tile so water can be seen, hovered and picked at any zoom (H hides it unless this water is selected).
                 bool wh = hov || sel;
                 uint32_t oc = sel ? 0xFF30FFFFu : hov ? 0xFFFFFFA0u : 0x70E0B070u;
                 float hx = v.size.x * 0.5f, hz = v.size.z * 0.5f;
@@ -2840,7 +3377,7 @@ void App::build_frame_geometry() {
                 b.color = color4(sel ? 0xFF60A0A0u : v.color, hov ? 1.3f : 1.f);
                 r_.boxes.push_back(b);
             }
-            if (sel && v.index == v.root) { add_selection_box(r_.lines, v, 0xFF30FFFFu); crop_draw_full(v); }  // R9: the outline is on the piece itself
+            if (sel && v.index == v.root) { add_selection_box(r_.lines, v, 0xFF30FFFFu); crop_draw_full(v); }  // The outline is on the piece itself
             continue;
         }
         // Spawn and path markers grow with the camera distance so they stay visible and clickable.
@@ -2851,12 +3388,19 @@ void App::build_frame_geometry() {
         b.r2 = {-sh * v.size.x * mk, 0, ch * v.size.z * mk, v.pos.z};
         b.color = color4(v.color, sel ? 1.6f : hov ? 1.3f : 1.f);
         if (v.kind == 3 && v.radius <= 0) b.color.w = 0.35f;
+        if (v.kind == 1 && !sel) {  // A start-point slab fades to 35 % while the camera is within 20 m of it (the player's view with helpers on)
+            const ma2::Vec3 ce = cam_eye_now();
+            if ((ce.x - v.pos.x) * (ce.x - v.pos.x) + (ce.y - v.pos.y) * (ce.y - v.pos.y) + (ce.z - v.pos.z) * (ce.z - v.pos.z) < 20.f * 20.f) {
+                b.color.w = 0.35f;
+                helpers_faded_++;
+            }
+        }
         // Effects draw as flame cards; their box only while selected or hovered.
         bool effect = v.index >= 0 && doc_->world.objs[size_t(v.index)].cls == K_EFFECT;
         // With View > Effects on, the object's own particle effects replace the card (once its model has loaded).
         bool has_fx = show_effects_ && !v.fx_model.empty() && models_.effects(v.fx_model, v.fx_mtb) && !models_.effects(v.fx_model, v.fx_mtb)->empty();
         if (effect && !drawn_model && !has_fx) r_.flames.push_back({v.pos.x, v.pos.y, v.pos.z});
-        // Objects whose model is \tmpdev\NULL\NULL.NODE are invisible in the game (R2-12): box only
+        // Objects whose model is \tmpdev\NULL\NULL.NODE are invisible in the game: box only
         // while selected or hovered, like effects.
         bool null_model = v.index >= 0 && lower(doc_->world.objs[size_t(v.index)].str("Corporal3DObj")).find("null.node") != std::string::npos;
         if (!drawn_model && (v.kind != 3 || v.radius <= 0) && (!(effect || null_model) || sel || hov)) r_.boxes.push_back(b);
@@ -2911,7 +3455,7 @@ void App::build_frame_geometry() {
             bool cam = camera_path_group(w, t, i, cam_groups);
             if (!show_helper_group_[cam ? HG_CAMERAS : HG_PATHS]) continue;
             Vec3 prev;
-            bool have = false;
+            bool have = cam && path_owner_point(w, t, int(i), prev);  // The game's camera path starts at the group's owner
             for (int k : t.kids[i]) {
                 Vec3 p;
                 if (!get_pos(w.objs[size_t(k)], p)) continue;
@@ -2936,6 +3480,7 @@ void App::build_frame_geometry() {
             if (w.objs[size_t(k)].cls == K_MAPATH) k = t.find(w.objs[size_t(k)].u32("m_wptGroupUID"));
             if (k < 0) return v;
             if (w.objs[size_t(k)].cls == K_WPGROUP) {
+                if (Vec3 o; path_owner_point(w, t, k, o)) v.push_back(o);
                 for (int c : t.kids[size_t(k)]) { Vec3 p; if (get_pos(w.objs[size_t(c)], p)) v.push_back(p); }
             } else if (Vec3 p; get_pos(w.objs[size_t(k)], p)) {
                 v.push_back(p);
@@ -2962,10 +3507,11 @@ void App::build_frame_geometry() {
             }
         }
     }
+    shot_glyph_lines();
     if (tab_ == Tab::Triggers || (show_helpers_ && show_helper_group_[HG_TRIGGERS])) draw_trigger_overlay();
     if (tab_ == Tab::Environment) draw_sun_arrow();
     // Placing a road piece: every open road end gets a ring and an arrow pointing the way the road would continue, so it
-    // is clear before the click where the piece can join (MP dogfood P2); the end the ghost is joined to is yellow.
+    // is clear before the click where the piece can join; the end the ghost is joined to is yellow.
     if (preview_on_ && doc_)
         for (const RoadOpenEnd& e : road_open_ends_) {
             float y = doc_->terrain.height_at(e.x, e.z) + 0.6f, r = e.joined ? 6.f : 4.f;
@@ -2985,7 +3531,7 @@ void App::build_frame_geometry() {
         }
     // Placement preview (the object about to be placed), tinted green, or red where it cannot go.
     if (preview_on_) {
-        float ch = std::cos(place_heading_), sh = std::sin(place_heading_);
+        float ch = std::cos(ghost_yaw()), sh = std::sin(ghost_yaw());
         const Vec3& p = preview_pos_;
         bool drawn = false;
         if (tool_ == Tool::PlaceObject && show_models_) {
@@ -2998,20 +3544,30 @@ void App::build_frame_geometry() {
                 // A road piece rests at the height the click will give it; on flat ground the ghost sat exactly in the terrain and was hidden, so it floats a hair above.
                 float py = p.y;
                 const Vec3 po = place_origin_offset();
-                if (!place_road_.empty() && io_) py = io_->road_rest_height(*doc_, place_road_, {p.x + po.x, p.y, p.z + po.z}, place_heading_) + 0.15f;
-                if (!place_road_.empty() && road_snapped_ && !std::isnan(road_snap_y_)) py = road_snap_y_;  // after a tilted piece
                 // The click puts the model's lowest point on the ground under its origin (lift_to_foot); the ghost sits there too, else
                 // models whose origin is high above their base (Wide bridge 01, ~35 m) showed only their top poking out of the ground.
-                if (place_road_.empty() && doc_) py = (place_on_top_ ? p.y : doc_->terrain.height_at(p.x + po.x, p.z + po.z)) - gm->bmin[1];
+                if (place_road_.empty() && doc_) py = (place_on_top_ ? p.y : surface_at(p.x, p.z)) - gm->bmin[1];  // the surface under the cursor spot (the middle of its base)
                 // A foundation: just above the highest ground under it (app_crop.cpp plate_rest_y), as the click will place it.
                 const bool plate = place_road_.empty() && t && is_foundation(*t) && !place_on_top_ && gm->bmax[1] - gm->bmin[1] <= 3.f;
-                if (plate) py = plate_rest_y(gm, p.x + po.x, p.z + po.z, place_heading_);
-                if (place_road_.empty() && piece_snapped_) py = plate ? std::max(py, snap_origin_y_) : snap_origin_y_;  // a joined wall / bridge piece: at its neighbour's height
+                // Roads and thin plates are sheets (app_sheets.cpp): the click's height comes from the same functions.
+                bool sheet_y = false;
+                if (!place_road_.empty() || plate) {
+                    float sy = 0;
+                    if (sheet_ghost_y({p.x + po.x, p.y, p.z + po.z}, sy)) { py = sy; sheet_y = true; }
+                }
+                if (plate && !sheet_y) py = plate_rest_y(gm, p.x + po.x, p.z + po.z, ghost_yaw());
+                const bool slope_ghost = slope_plan_.active && sheet_y && (slope_plan_.mode == SlopeMode::Tilt || slope_plan_.mode == SlopeMode::Level ||
+                                                                   (slope_plan_.mode == SlopeMode::Float && !slope_plan_.plate && slope_plan_.joined && road_joint_ok_));
+                if (slope_ghost) py = slope_plan_.y;  // the height the plan will give (Level: on the levelled ground)
+                if (place_road_.empty() && piece_snapped_) py = sheet_y ? py : plate ? std::max(py, snap_origin_y_) : snap_origin_y_;  // a joined wall / bridge piece: at its neighbour's height
                 else if (float by; place_road_.empty() && bridge_foot_height(p, by)) py = by;  // a bridge: pillar bases on the spot under the cursor
+                preview_y_ = py;
+                py += place_lift_;  // PgUp / PgDn: the piece lands this far above the click
                 mi.r0 = {ch, 0, sh, p.x + po.x};
                 mi.r1 = {0, 1, 0, py};
                 mi.r2 = {-sh, 0, ch, p.z + po.z};
-                mi.color = preview_valid_ ? XMFLOAT4{0.7f, 1.5f, 0.7f, 1} : XMFLOAT4{1.9f, 0.35f, 0.35f, 1};
+                if (slope_ghost && slope_plan_.mode == SlopeMode::Tilt) orient_instance(mi, ghost_yaw(), slope_plan_.pitch, slope_plan_.roll, slope_plan_.pos);  // tilted onto the slope
+                mi.color = !preview_valid_ ? XMFLOAT4{1.9f, 0.35f, 0.35f, 1} : snap_.on ? XMFLOAT4{0.55f, 1.45f, 1.6f, 1} : XMFLOAT4{0.7f, 1.5f, 0.7f, 1};
                 r_.models.push_back({gm, {mi}});
                 drawn = true;
             }
@@ -3026,17 +3582,33 @@ void App::build_frame_geometry() {
                     auto at = [&](float lx, float lz) { return XMFLOAT3{p.x + ch * lx + sh * lz, y, p.z - sh * lx + ch * lz}; };
                     XMFLOAT3 c4[4] = {at(-hw, -hl), at(hw, -hl), at(hw, hl), at(-hw, hl)};
                     for (int k = 0; k < 4; k++) add_line(r_.lines, c4[k], c4[(k + 1) % 4], oc);
+                    if (water_new_dig_ && preview_valid_ && editable()) {  // its basin
+                        BasinFoot bf{p.x, p.z, fw, fl, ghost_yaw(), p.y - kShoreDrop, false};
+                        ground_preview_ = basin_preview_edit(bf);
+                        ground_preview_frame_ = ImGui::GetFrameCount();
+                        ground_preview_text_ = ground_edit_note(ground_preview_);
+                    }
                 }
             }
         }
         if (tool_ == Tool::PlaceWater) {
             // The water about to be placed: the rectangle at its real size, at the ground under the mouse (1 m above it without a basin).
-            float hw = water_new_w_ * 0.5f, hl = water_new_l_ * 0.5f, y = water_new_dig_ ? p.y : p.y + 1.f;
+            const bool wdrag = water_drag_ && water_drag_moved_;   // dragging out its size
+            const float gw = wdrag ? water_drag_w_ : water_new_w_, gl = wdrag ? water_drag_l_ : water_new_l_;
+            float hw = gw * 0.5f, hl = gl * 0.5f, y = water_new_dig_ ? p.y : p.y + 1.f;
             uint32_t wtpl = water_place_tpl();
             if (!wtpl || !water_can_resize(wtpl)) hw = hl = 8.f;
+            // The basin the click will dig, outlined on the ground with the buildings and flat pieces it leaves alone.
+            if (water_new_dig_ && wtpl && water_can_resize(wtpl) && preview_valid_ && editable()) {
+                BasinFoot bf{p.x, p.z, gw, gl, ghost_yaw(), p.y - kShoreDrop, water_new_oval_};
+                ground_preview_ = basin_preview_edit(bf);
+                ground_preview_frame_ = ImGui::GetFrameCount();
+                ground_preview_text_ = ground_edit_note(ground_preview_);
+                if (!ground_preview_.kept.empty()) ground_preview_text_ += " The basin stops short of " + fit_summary_names(ground_preview_) + ".";
+            }
             // With a basin the surface is the clicked ground itself; lift the ghost a little so the ground does not hide it.
             Renderer::Quad q{{p.x, water_new_dig_ ? y + 0.3f : y, p.z}, hw, hl, preview_valid_ ? 0x90FFA040u : 0x904040FFu};
-            q.heading = place_heading_;  // Q / E turn it like a unit
+            q.heading = ghost_yaw();  // Q / E turn it like a unit
             q.oval = water_new_oval_;
             // The ghost wears the real water of the chosen type (deep colour, waves, sky reflection), so the preview is what you will get.
             if (const TemplateInfo* wti = wtpl ? cat_->find(wtpl) : nullptr) {
@@ -3077,7 +3649,7 @@ void App::build_frame_geometry() {
         }
         if (tool_ != Tool::PlaceWater) {
             uint32_t c = preview_valid_ ? 0xFF40FF40u : 0xFF3030FFu;
-            // The ring and arrow wear the side the click will give (UX P3): the "Placing for" side for units, the team for spawn points.
+            // The ring and arrow wear the side the click will give: the "Placing for" side for units, the team for spawn points.
             if (preview_valid_ && tool_ == Tool::PlaceObject && place_road_.empty() && cat_)
                 if (const TemplateInfo* pt = cat_->find(place_template_); pt && side_unit(pt->cls)) {
                     bool mp = doc_->multiplayer, team = pt->cls == K_TURRET || pt->cls == K_PERSON;
@@ -3086,11 +3658,11 @@ void App::build_frame_geometry() {
             if (preview_valid_ && tool_ == Tool::PlaceSpawn) c = spawn_team_ == 1 ? 0xFF5A5AFFu : spawn_team_ == 2 ? 0xFFFFA06Eu : 0xFFF0F0F0u;
             // Facing arrow and a ground ring so the spot reads at any zoom. For an object the ring goes round its footprint
             // (the click is the footprint centre; the model origin sits place_origin_offset() away) and the arrow reaches past
-            // it, so a big building's facing still shows (UX G4).
+            // it, so a big building's facing still shows.
             float R = 6.f * mk;
             const Vec3 pc = p;
             if (tool_ == Tool::PlaceObject && place_road_.empty())
-                if (float fw, fl; place_footprint(fw, fl)) R = std::max(R, 0.5f * std::sqrt(fw * fw + fl * fl) + 1.f * mk);
+                if (float fw, fl; place_footprint(fw, fl)) R = std::max(2.f * mk, 0.5f * std::sqrt(fw * fw + fl * fl) + 1.f * mk);  // round the object, not a 12 m ring round a 4 m barricade
             float L = std::max(10 * mk, R + 4 * mk), A = 3 * mk, B = 2 * mk;
             // A road piece runs along its local -z, so its arrow points the way it runs: opposite to the object facing.
             float asn = tool_ == Tool::PlaceObject && !place_road_.empty() ? -1.f : 1.f, ash = sh * asn, ach = ch * asn;
@@ -3154,7 +3726,41 @@ void App::rebuild_overlay() {
         r_.params.overlay = true;
         return;
     }
-    if (!doc_ || doc_->typemap.empty() || !show_typemap_) { r_.clear_overlay(); r_.params.overlay = false; return; }
+    const bool tm_on = doc_ && !doc_->typemap.empty() && show_typemap_;
+    if (!doc_ || (!tm_on && !show_steep_)) { r_.clear_overlay(); r_.params.overlay = false; return; }
+    if (show_steep_) {
+        // Steep ground: one texel per height cell, yellow over kSteepBot (bots' 'Mechs will not route), orange over kSteepLight (no bot body routes); over the Boundaries colours when both are on.
+        const Terrain& t = doc_->terrain;
+        Image si;
+        si.w = std::max(1, t.w - 1);
+        si.h = std::max(1, t.h - 1);
+        si.px.assign(size_t(si.w) * size_t(si.h), 0u);
+        for (int cz = 0; cz < si.h; cz++)
+            for (int cx = 0; cx < si.w; cx++) {
+                const float s = cell_slope(t, cx, cz);
+                uint32_t c = 0;
+                if (s > kSteepLight) c = (120u << 24) | 0x000080FFu;
+                else if (s > kSteepBot) c = (85u << 24) | 0x003CE6FFu;
+                if (tm_on) {
+                    const int tx = std::min(doc_->typemap_w - 1, (cx * 2 + 1) * doc_->typemap_w / (si.w * 2));
+                    const int tz = std::min(doc_->typemap_h - 1, (cz * 2 + 1) * doc_->typemap_h / (si.h * 2));
+                    const uint32_t b = type_overlay_color(doc_->typemap[size_t(tz) * doc_->typemap_w + tx]);
+                    const float ab = float(b >> 24) / 255.f, as = float(c >> 24) / 255.f, ao = as + ab * (1.f - as);
+                    if (ao > 0.f) {
+                        uint32_t o = uint32_t(ao * 255.f + 0.5f) << 24;
+                        for (int k = 0; k < 3; k++) {
+                            const float cs = float((c >> (8 * k)) & 255), cb = float((b >> (8 * k)) & 255);
+                            o |= uint32_t(std::clamp((cs * as + cb * ab * (1.f - as)) / ao, 0.f, 255.f)) << (8 * k);
+                        }
+                        c = o;
+                    }
+                }
+                si.px[size_t(si.h - 1 - cz) * size_t(si.w) + size_t(cx)] = c;
+            }
+        r_.set_overlay(si);
+        r_.params.overlay = true;
+        return;
+    }
     Image img;
     img.w = doc_->typemap_w;
     img.h = doc_->typemap_h;
@@ -3178,10 +3784,38 @@ void App::rebuild_minimap() {
     img.w = img.h = N;
     img.px.resize(size_t(N) * N);
     const Terrain& t = doc_->terrain;
+    // The colour tint alone shows ground painted with another texture (Sand ...) as neutral grey. The game shows ground = texture x tint
+    // (tint / neutral), so the overview does the same with each texture's average colour (blended by the layer weights, or by the colour map's alpha).
+    const GroundLayers& gl = doc_->ground;
+    const bool layered = gl.enabled && gl.weights && gl.w > 0 && gl.h > 0 && gl.count() >= 2;
+    const int nslots = layered ? std::min(gl.count(), kGroundMaxLayers) : 2;
+    float avg[kGroundMaxLayers][3] = {};
+    bool have_avg = true;
+    for (int k = 0; k < nslots; k++) have_avg = have_avg && ground_texture_average(k, avg[k]);
+    const float neutral = std::clamp(1.f / (4.f * std::max(0.05f, r_.detail.blend)), 0.f, 1.f) * 255.f;
     for (int y = 0; y < N; y++)
         for (int x = 0; x < N; x++) {
             uint32_t c = 0xFF507050u;
             if (!doc_->colormap.px.empty()) c = doc_->colormap.at(x * doc_->colormap.w / N, y * doc_->colormap.h / N);
+            if (have_avg && neutral > 1.f) {
+                float w[kGroundMaxLayers] = {}, sum = 0;
+                if (layered) {
+                    const uint8_t* wt = gl.texel(std::min(gl.w - 1, x * gl.w / N), std::min(gl.h - 1, y * gl.h / N));
+                    for (int k = 0; k < nslots; k++) { w[k] = float(wt[k]); sum += w[k]; }
+                }
+                if (sum <= 0.f) { const float a = float(c >> 24) / 255.f; w[0] = a; w[1] = 1.f - a; sum = 1.f; for (int k = 2; k < nslots; k++) w[k] = 0.f; }
+                uint32_t o = c & 0xFF000000u;
+                for (int ch = 0; ch < 3; ch++) {
+                    float tex = 0;
+                    for (int k = 0; k < nslots; k++) tex += w[k] * avg[k][ch];
+                    tex /= sum;
+                    const float tint = float((c >> (8 * ch)) & 255);
+                    float v = tex * tint / neutral;
+                    if (r_.params.lift_dark) v = std::max(v, 0.75f * tint);   // View > Brighten dark maps: the overview is not murkier than the tint it used to show
+                    o |= uint32_t(std::clamp(v, 0.f, 255.f)) << (8 * ch);
+                }
+                c = o;
+            }
             float wx = (x + 0.5f) / N * t.size_x(), wz = (1 - (y + 0.5f) / N) * t.size_z();
             Vec3 n = t.normal_at(wx, wz);
             float l = 0.55f + 0.6f * std::max(0.f, n.x * 0.5f + n.y * 0.7f - n.z * 0.4f);
@@ -3207,15 +3841,36 @@ void App::frame(float dt, int fb_w, int fb_h) {
         for (auto& c : id_conflicts_) seen |= c.compare(0, strlen(key), key) == 0;
         if (!seen && id_conflicts_.size() < 200) id_conflicts_.push_back(t);
     }
+    {   // The window title carries the map name and the unsaved mark, so they are readable even when the top strip has no room.
+        const std::wstring t = doc_ ? widen(doc_->name) + (doc_->dirty || doc_->file.empty() ? L" *" : L"") + L" - MA2 Scenario Editor" : L"MA2 Scenario Editor";
+        if (hwnd_ && t != window_title_) { window_title_ = t; SetWindowTextW(hwnd_, t.c_str()); }
+    }
+    // First run on a big window (a 3840 x 1600 ultrawide at 100% scaling): start with a larger UI instead of tiny text in narrow
+    // strips. Once, only when there was no settings file; Settings > General > UI scale changes it later.
+    // Now whenever the window changes size, until the user picks a size (View > Text and button size, Settings).
+    {
+        auto_fb_w_ = float(fb_w);
+        auto_fb_h_ = float(fb_h);
+        if (settings_.ui_scale_auto && settings_.ui_scale_run <= 0 && std::fabs(auto_ui_scale() - auto_scale_cur_) > 0.01f) ui_scale_dirty_ = true;
+        auto_scale_done_ = true;
+    }
     float s = dpi_;
     float menu_h = ImGui::GetFrameHeight();
     float tab_h = ImGui::GetFrameHeight() + 10 * s;
-    float status_h = ImGui::GetFrameHeight() + 4 * s;
-    float left_w = 370 * s, right_w = 330 * s;
+    // A window narrower than 1800 UI pixels gets a two-line status bar: the hint (what a click does) wraps instead of being cut
+    // with "...". Fixed by width, not by the text, so the map view never jumps when a message appears.
+    status_two_ = float(fb_w) / s < 1800.f;
+    // Two lines = both text lines, the space between them and the bar's own padding (it was 2 px short, cutting the second line)
+    float status_h = status_two_ ? ImGui::GetTextLineHeight() * 2.f + 7 * s : ImGui::GetFrameHeight() + 4 * s;   // the two lines are 2 s apart (ui_status)
+    // The tool strip is at the far left whenever a map is open; the left panel's width is the user's (a splitter drags it).
+    const float strip_w = doc_ ? 76 * s : 0.f;
+    // A wide window gets a wider left panel by default (the palette then shows more columns): 370 up to 1920 UI pixels, +0.3 per pixel after.
+    const float left_default = 370.f + std::clamp((float(fb_w) / s - 1920.f) * 0.3f, 0.f, 260.f);
+    float left_w = (settings_.left_panel > 0 ? std::clamp(settings_.left_panel, 300.f, 720.f) : left_default) * s, right_w = 330 * s;
     // A big UI size on a small window must not squeeze the map away: the side panels give up to
-    // 30% of their width so the map keeps at least 45% of the window.
-    if (left_w + right_w > 0.55f * float(fb_w)) {
-        float f = std::max(0.7f, 0.55f * float(fb_w) / (left_w + right_w));
+    // 30% of their width so the map keeps at least 45% of the window (the strip counts, it does not shrink).
+    if (strip_w + left_w + right_w > 0.55f * float(fb_w)) {
+        float f = std::max(0.7f, (0.55f * float(fb_w) - strip_w) / (left_w + right_w));
         left_w *= f;
         right_w *= f;
     }
@@ -3229,19 +3884,46 @@ void App::frame(float dt, int fb_w, int fb_h) {
         autosave_timer_ += dt;
         // A widget in use (a long briefing typed into one text box) delays the autosave, but not beyond twice the interval.
         const float due = 60.f * float(settings_.autosave_minutes);
-        if (autosave_timer_ > due && (!ImGui::IsAnyItemActive() || autosave_timer_ > 2.f * due) && !stroke_active_ && !dragging_ && !gizmo_drag_ && !place_drag_) autosave(false);
+        if (autosave_timer_ > due && (!ImGui::IsAnyItemActive() || autosave_timer_ > 2.f * due) && !stroke_active_ && !dragging_ && !gizmo_drag_ && !place_drag_ && !water_drag_) autosave(false);
     }
     ui_menu();
     ImGui::SetNextWindowPos(ImVec2(0, menu_h));
     ImGui::SetNextWindowSize(ImVec2(float(fb_w), tab_h));
     ui_tabs();
     float top = menu_h + tab_h;
-    ImGui::SetNextWindowPos(ImVec2(0, top));
-    ImGui::SetNextWindowSize(ImVec2(left_w, float(fb_h) - top - status_h));
-    ui_left_panel();
+    const float panel_h = float(fb_h) - top - status_h;
+    normalise_tab();
+    panels_.strip[0] = 0; panels_.strip[1] = top; panels_.strip[2] = strip_w; panels_.strip[3] = panel_h;
+    panels_.left[0] = strip_w; panels_.left[1] = top; panels_.left[2] = left_w; panels_.left[3] = panel_h;
+    panels_.right[0] = float(fb_w) - right_w; panels_.right[1] = top; panels_.right[2] = right_w; panels_.right[3] = panel_h;
+    ImGui::g_tooltip_zones = doc_ ? ImGui::TooltipZones{strip_w + left_w, float(fb_w) - right_w} : ImGui::TooltipZones{};
+    if (doc_) ui_strip(0, top, strip_w, panel_h);
+    ImGui::SetNextWindowPos(ImVec2(strip_w, top));
+    ImGui::SetNextWindowSize(ImVec2(left_w, panel_h));
+    {
+        LARGE_INTEGER t0, t1, fq;
+        QueryPerformanceCounter(&t0);
+        ui_left_panel();
+        QueryPerformanceCounter(&t1);
+        QueryPerformanceFrequency(&fq);
+        const float ms = float(double(t1.QuadPart - t0.QuadPart) * 1000.0 / double(fq.QuadPart));
+        frame_ms_ = frame_ms_ <= 0 ? io.DeltaTime * 1000.f : frame_ms_ * 0.9f + io.DeltaTime * 100.f;
+        if (stroke_active_) {   // the frames of the stroke in progress (kept after it ends: the numbers of the last stroke)
+            if (!perf_in_stroke_) { perf_in_stroke_ = true; perf_stroke_n_ = 0; perf_stroke_frame_ = perf_stroke_brush_ = 0; }
+            perf_stroke_n_++;
+            perf_stroke_frame_ += io.DeltaTime * 1000.f;
+            perf_stroke_brush_ += brush_frame_ms_;
+        } else perf_in_stroke_ = false;
+        frame_ring_[ring_n_ % 30] = io.DeltaTime * 1000.f;
+        brush_ring_[ring_n_ % 30] = brush_frame_ms_;
+        brush_frame_ms_ = 0;
+        ring_n_++;
+        left_panel_ms_ = left_panel_ms_ <= 0 ? ms : left_panel_ms_ * 0.9f + ms * 0.1f;  // What the left panel costs a frame (smoothed)
+    }
     ImGui::SetNextWindowPos(ImVec2(float(fb_w) - right_w, top));
-    ImGui::SetNextWindowSize(ImVec2(right_w, float(fb_h) - top - status_h));
+    ImGui::SetNextWindowSize(ImVec2(right_w, panel_h));
     ui_right_panel();
+    if (doc_) ui_splitter(strip_w + left_w, top, panel_h);
     ImGui::SetNextWindowPos(ImVec2(0, float(fb_h) - status_h));
     ImGui::SetNextWindowSize(ImVec2(float(fb_w), status_h));
     ui_status();
@@ -3254,31 +3936,62 @@ void App::frame(float dt, int fb_w, int fb_h) {
     if (show_about_) ui_about();
     if (show_getting_started_) ui_getting_started();
     ui_confirm();
+    ui_neutral_orders();
     ui_preferences();
     ui_message_box();
     poll_test_process();
 
-    vp_x = left_w;
+    vp_x = strip_w + left_w;
     vp_y = top;
-    vp_w = std::max(1.f, float(fb_w) - left_w - right_w);
+    vp_w = std::max(1.f, float(fb_w) - strip_w - left_w - right_w);
     vp_h = std::max(1.f, float(fb_h) - top - status_h);
-    vp_hover_ = !io.WantCaptureMouse && io.MousePos.x >= vp_x && io.MousePos.y >= vp_y && io.MousePos.x < vp_x + vp_w &&
-                io.MousePos.y < vp_y + vp_h;
+    // The cutscene strip takes the bottom of the map view (the map, picking and the gizmo all see the smaller vp_h).
+    tl_h_ = timeline_height();
+    if (tl_h_ > 0) {
+        vp_h = std::max(1.f, vp_h - tl_h_);
+        timeline_draw();
+    } else {
+        tl_.rect[2] = tl_.rect[3] = 0;
+    }
+    // A palette cell dragged onto the map. Its drag source sets pal_drag_live_ every frame it runs; the first frame without
+    // it, with the mouse up, is the drop. While it is dragged (and on the drop frame) the map counts as hovered when no window is
+    // under the mouse, so the ghost follows the mouse and the release places one there.
+    pal_drop_ = false;
+    if (pal_drag_live_ && pal_drag_frame_ != ImGui::GetFrameCount()) {
+        pal_drop_ = !ImGui::IsMouseDown(ImGuiMouseButton_Left);
+        pal_drag_live_ = false;
+    }
+    const bool over_nothing = ImGui::GetCurrentContext()->HoveredWindow == nullptr;
+    vp_hover_ = (!io.WantCaptureMouse || ((pal_drag_live_ || pal_drop_) && over_nothing)) && io.MousePos.x >= vp_x && io.MousePos.y >= vp_y &&
+                io.MousePos.x < vp_x + vp_w && io.MousePos.y < vp_y + vp_h;
+    dispatch_keys(dt);
     if (doc_) {
         handle_viewport_input(dt);
         if (models_.pump(12.0)) objects_dirty_ = true;
         if (objects_dirty_) rebuild_objects();
+        gfx_live_update();
         if (water_fixed_pending_) finish_fixed_water();
         track_water_ground();
+        refit_moved_basins();
         if (minimap_dirty_) rebuild_minimap();
         // The Plants tool shows where its plant grows (they draw only near the camera); other tools the type map.
         const int plants_shown = tool_ == Tool::PaintCulture ? plant_pick_ : -1;
         if (plants_shown != overlay_plants_) overlay_dirty_ = true;
         // The Boundaries overlay that came on with the tool goes with it (it hid the ground under Texture / Plants).
         if (typemap_auto_ && tool_ != Tool::PaintType) { show_typemap_ = typemap_auto_ = false; overlay_dirty_ = true; }
+        // Steep ground: on while Ramp is armed (and off again with it), else as the View menu / Sculpt page box says.
+        if (tool_ != Tool::Ramp) ramp_stage_ = 0;
+        if (tool_ == Tool::Ramp && !show_steep_) { show_steep_ = steep_auto_ = true; overlay_dirty_ = true; }
+        else if (steep_auto_ && tool_ != Tool::Ramp) { show_steep_ = steep_auto_ = false; overlay_dirty_ = true; }
+        else if (!steep_auto_ && show_steep_ != settings_.show_steep) { show_steep_ = settings_.show_steep; overlay_dirty_ = true; }
+        if (show_steep_ && stroke_active_ && sculpt_tool(stroke_tool_)) {   // during a stroke: at most four times a second
+            steep_acc_ += dt;
+            if (steep_acc_ >= 0.25f) { steep_acc_ = 0; overlay_dirty_ = true; }
+        } else steep_acc_ = 0;
         if (overlay_dirty_) rebuild_overlay();
         if (cpv_.on) cutscene_preview_step(dt);
-        const bool hold = g_cam_hold || cpv_.on;
+        else if (frame_.on) frame_step();
+        const bool hold = g_cam_hold || cpv_.on || frame_.on;  // framing a shot keeps the target height too
         if (!hold) cam_.ty += (doc_->terrain.height_at(cam_.tx, cam_.tz) - cam_.ty) * std::min(1.f, dt * 6);
         cam_.update(vp_w / vp_h);
         // Keep the eye above the ground (2 m): tilt up rather than look out from inside a hill.
@@ -3288,15 +4001,18 @@ void App::frame(float dt, int fb_w, int fb_h) {
             cam_.update(vp_w / vp_h);
         }
         build_frame_geometry();
+        shot_glyph_labels();
         ui_viewport_hint();
         if (!cpv_.on) {
             gizmo_draw();
             trig_gizmo_draw();
+            size_gizmo_draw();
         }
+        ui_object_menu();
     } else {
         if (!show_getting_started_ && !show_new_ && !show_retail_) ui_start_page();  // the welcome box / dialogs say the same
     }
-    // A greyed control on a real level says how to change it (UX-SPEC W10, one shell rule): the line is added under
+    // A greyed control on a real level says how to change it (one shell rule): the line is added under
     // the control's own tip (a second BeginTooltip in a frame appends to the same tooltip), or shown alone.
     if (doc_ && doc_->read_only && GImGui->HoveredIdIsDisabled && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
         ImGuiWindow* tw = ImGui::FindWindowByName("##Tooltip_00");
@@ -3312,7 +4028,22 @@ void App::frame(float dt, int fb_w, int fb_h) {
             ImGui::SetTooltip("%s", kReadOnlyReason);
         }
     }
+    // The "Click each unit ... when done" line goes away with the pick (Esc, right-click, another tool).
+    {
+        // A walk / patrol route and a camera path (placing points with the waypoint tool) clear their line the same way.
+        const bool armed = (pick_.kind == PickTarget::ObjTargets && tool_ == Tool::PickPoint) ||
+                           ((pick_.kind == PickTarget::OrderPath || pick_.kind == PickTarget::CamPath) && tool_ == Tool::PlaceWaypoint);
+        if (pick_obj_was_ && !armed && status_.find("when done") != std::string::npos) status_time_ = 0;
+        pick_obj_was_ = armed;
+    }
     if (status_time_ > 0) status_time_ -= dt;
+    if (status_time_ <= 0 && !sheet_note_.empty()) { status_ = sheet_note_; status_time_ = 10; sheet_note_.clear(); }
+    check_untracked_change();  // a change that set dirty with no undo step: the saved mark can no longer come back
+    if (!undo_note_.empty()) {  // "Undo history is full...": says so once, ahead of whatever the action itself reported
+        status_ = status_time_ > 0 && !status_.empty() ? undo_note_ + " " + status_ : undo_note_;
+        status_time_ = 6;
+        undo_note_.clear();
+    }
     // A new UI scale takes effect from the next frame (style and fonts are set before it starts).
     if (ui_scale_dirty_) apply_ui_scale();
 }
@@ -3337,7 +4068,7 @@ bool App::cursor_ground(Vec3& out) {
     return true;
 }
 
-// Placing (UX G10): the top of an object under the cursor (a roof, a bridge deck, a platform) when the
+// Placing: the top of an object under the cursor (a roof, a bridge deck, a platform) when the
 // ray comes down onto it before it reaches the ground, so props can stand on buildings. The ray is tested against the
 // model's opaque triangles (a waterfall's see-through sheets or a glass canopy hold nothing up; a box is not enough:
 // the Over Falls lake rock's box reaches 24 m over the water and floated bridges there); only a face that looks up
@@ -3413,6 +4144,15 @@ int App::pick_object(float mx, float my, std::vector<int>* all) {
     std::vector<std::pair<float, int>> hits;  // (distance, root) of every box the ray crosses, for Alt+click cycling
     std::vector<int> firsts;                  // rings / water diamonds: drawn over everything, so they come first
     if (int wm = pick_water(mx, my, 0, true); wm >= 0) { if (!all) return wm; firsts.push_back(wm); }  // a water tile's centre diamond
+    // A helper label drawn on the map (Pad: Raptor, a power-up's name) is on top of everything: a click on it picks what it names, not the
+    // building behind it. gizmo_draw stores the rectangles it drew last frame.
+    if (show_helpers_)
+        for (auto& l : label_hits_)
+            if (mx >= l.x0 && mx <= l.x1 && my >= l.y0 && my <= l.y1 && l.root >= 0 && size_t(l.root) < doc_->world.objs.size() && doc_->world.objs[size_t(l.root)].uid() == l.uid) {
+                if (!all) return l.root;
+                firsts.push_back(l.root);
+                break;
+            }
     // Trigger circles are picked on their ring too, not only on the centre box: where the ray meets the
     // ground, within about 8 pixels of the ring. The ring is drawn over everything, so it wins over
     // buildings in front (the closest ring line when several are near).
@@ -3427,6 +4167,27 @@ int App::pick_object(float mx, float my, std::vector<int>* all) {
                 if (e < near_d) { near_d = e; ring = v.root; }
             }
         if (ring >= 0) { if (!all) return ring; firsts.push_back(ring); }
+        // The pad / power-up ring (drawn over everything, app.cpp build_frame_geometry) and the spawn point's facing arrow are helpers on top too.
+        if (show_helpers_) {
+            const float mk = marker_scale(), ptol = std::max(1.5f, tg * 8.f / std::max(1.f, vp_h));
+            int hit = -1;
+            float hd = 1e30f;
+            for (auto& v : views_) {
+                if (v.index != v.root) continue;
+                float e = 1e30f;
+                if (!v.tag.empty()) {
+                    const bool pad = v.tag.rfind("Pad: ", 0) == 0;
+                    const float rr = std::max(pad ? 6.f : 2.5f, (pad ? 3.f : 2.f) * mk) + 0.125f * mk;
+                    e = std::fabs(std::hypot(gx - v.pos.x, gz - v.pos.z) - rr) - 0.125f * mk;
+                } else if (v.kind == 1) {  // the arrow: from the marker along the heading, 8 m (times the marker scale)
+                    const float ax = std::sin(v.heading), az = std::cos(v.heading), L = 8.f * mk;
+                    const float t = std::clamp(((gx - v.pos.x) * ax + (gz - v.pos.z) * az) / L, 0.f, 1.f) * L;
+                    e = std::hypot(gx - (v.pos.x + ax * t), gz - (v.pos.z + az * t));
+                }
+                if (e < ptol && e < hd) { hd = e; hit = v.root; }
+            }
+            if (hit >= 0) { if (!all) return hit; firsts.push_back(hit); }
+        }
     }
     for (auto& v : views_) {
         if (v.kind == 2) continue;  // water: the diamond above, or its visible surface below
@@ -3467,6 +4228,9 @@ int App::pick_object(float mx, float my, std::vector<int>* all) {
         // comes first; the box is picked only when nothing else is there (Alt+click still reaches it).
         bool inside = lox >= x0 && lox <= x1 && loy >= y0 && loy <= y1 && loz >= z0 && loz <= z1;
         if (inside) tm += 1e6f;
+        // A shot's own camera object sits on its still shot's eye point, but the game flies the eye path:
+        // the eye waypoint wins over a camera within a few metres of it on the ray (Alt+click still reaches the camera).
+        if (doc_->world.objs[size_t(v.root)].cls == K_FREECAM) tm += 4.f;
         if (all) hits.push_back({tm, v.root});
         if (tm < best) { best = tm; best_root = v.root; }
     }
@@ -3490,9 +4254,13 @@ std::vector<int> App::selected_roots() const {
     return out;
 }
 
-// UX G7 (AoE grammar): Space picks up the last placing tool again after Esc; I arms the Place tool with the
+// (AoE grammar): Space picks up the last placing tool again after Esc; I arms the Place tool with the
 // selected object's own type, so "one more of these" never needs a trip back to the palette.
 void App::place_again() {
+    if (last_place_was_paste_ && !paste_src_.empty() && tool_ != Tool::PasteGhost) {  // the last thing put down was a paste: its ghost again
+        arm_paste(paste_src_, paste_dup_);
+        return;
+    }
     if (last_place_tool_ == Tool::Select || tool_ == last_place_tool_) return;
     if (last_place_tool_ == Tool::PlaceObject && !place_template_ && place_road_.empty()) return;
     tool_ = last_place_tool_;
@@ -3504,7 +4272,7 @@ void App::pick_selected_type() {
     const TemplateInfo* t = nullptr;
     if (roots.size() == 1 && cat_) t = cat_->find(doc_->world.objs[size_t(roots[0])].u32("TemplateID"));
     if (!t || !t->placeable || t->model.empty() || t->cls_name == "MASky2") {
-        status_ = roots.size() == 1 ? "This object is not in the palette: pick something in Units and Props to place it."
+        status_ = roots.size() == 1 ? "This object is not in the palette: pick something in the Place tool to place it."
                                     : "Select one placed object first; I then places more of the same.";
         status_time_ = 5;
         return;
@@ -3519,81 +4287,18 @@ void App::pick_selected_type() {
     place_road_.clear();
     place_drag_ = false;
     last_place_tool_ = tool_;
+    if (doc_->world.objs[size_t(roots[0])].find("CorporalHeading")) place_heading_ = world::heading(doc_->world.objs[size_t(roots[0])]);  // faces the way the picked one does
 }
 
 void App::handle_viewport_input(float dt) {
     ImGuiIO& io = ImGui::GetIO();
-    if (tool_ == Tool::PlaceObject || tool_ == Tool::PlaceSpawn || tool_ == Tool::PlacePad || tool_ == Tool::PlaceWater)
+    if (tool_ == Tool::PlaceObject || tool_ == Tool::PlaceSpawn || tool_ == Tool::PlacePad || tool_ == Tool::PlaceWater) {
         last_place_tool_ = tool_;
-    // Map shortcuts work unless the player is typing or a dialog is open.
-    bool keys = !io.WantTextInput && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId) && capture_act_ < 0 && !esc_closed_popup_;
-    esc_closed_popup_ = false;
-    float fx = std::sin(cam_.yaw), fz = std::cos(cam_.yaw), rx = std::cos(cam_.yaw), rz = -std::sin(cam_.yaw);
-    // Camera keys (Shift = faster).
-    if (keys) {
-        float speed = cam_.dist * 1.2f * dt * settings_.pan_speed * (io.KeyShift ? 2.5f : 1.f);
-        if (held(A_PAN_FWD)) { cam_.tx += fx * speed; cam_.tz += fz * speed; }
-        if (held(A_PAN_BACK)) { cam_.tx -= fx * speed; cam_.tz -= fz * speed; }
-        if (held(A_PAN_RIGHT)) { cam_.tx += rx * speed; cam_.tz += rz * speed; }
-        if (held(A_PAN_LEFT)) { cam_.tx -= rx * speed; cam_.tz -= rz * speed; }
-        if (pressed(A_TOP_DOWN)) {
-            static float saved = 0.95f;
-            if (cam_.pitch < 1.5f) { saved = cam_.pitch; cam_.pitch = 1.5533f; cam_.yaw = 0; }
-            else cam_.pitch = saved;
-        }
-        // Esc steps back one level like a right-click: out of a placing / painting tool first (what was just placed stays selected), then the selection.
-        if (pressed(A_CANCEL)) { place_drag_ = false; if (tool_ != Tool::Select) tool_ = Tool::Select; else selection_.clear(); }
-        if (pressed(A_RESET_VIEW)) reset_view();
-        if (pressed(A_ZOOM_SEL)) zoom_to_selection();
-        if (pressed(A_HELPERS)) { show_helpers_ = !show_helpers_; objects_dirty_ = true; }
-        if (pressed(A_COPY)) copy_selection();
-        if (pressed(A_SELECT_ALL)) select_all();
-        if (editable()) {
-            if (pressed(A_PLACE_AGAIN)) place_again();
-            if (pressed(A_PICK_TYPE)) pick_selected_type();
-            if (pressed(A_DUPLICATE)) duplicate_selected();
-            if (pressed(A_CUT)) cut_selection();
-            if (pressed(A_DELETE)) delete_selection();
-            bool placing_tool = tool_ == Tool::PlaceObject || tool_ == Tool::PlaceSpawn || tool_ == Tool::PlacePad || tool_ == Tool::PlaceStart || tool_ == Tool::PlaceWater;
-            // A road piece snapped onto an open end: Q / E choose which of its own ends joins there (a turn goes left or
-            // right, a T-junction joins by its side) instead of turning it.
-            bool road_cycle = road_snapped_ && tool_ == Tool::PlaceObject && !place_road_.empty();
-            const bool piece_turn = piece_snapped_ && tool_ == Tool::PlaceObject && place_road_.empty();  // a joined wall piece: Q / E turn the corner
-            if (pressed(A_TURN_LEFT, true)) {
-                if (piece_turn) snap_turn_--;
-                else if (road_cycle) road_attach_--;
-                else if (placing_tool) place_heading_ -= 0.2618f;
-                else rotate_selection(-0.2618f);
-            }
-            if (pressed(A_TURN_RIGHT, true)) {
-                if (piece_turn) snap_turn_++;
-                else if (road_cycle) road_attach_++;
-                else if (placing_tool) place_heading_ += 0.2618f;
-                else rotate_selection(0.2618f);
-            }
-            // Quarter-turn key (Ctrl) + Q / E: a quarter turn (not while a snapped road piece uses Q / E to pick its end).
-            if (!road_cycle && pressed_quarter(A_TURN_LEFT)) {
-                if (placing_tool) place_heading_ -= 1.5708f;
-                else rotate_selection(-1.5708f);
-            }
-            if (!road_cycle && pressed_quarter(A_TURN_RIGHT)) {
-                if (placing_tool) place_heading_ += 1.5708f;
-                else rotate_selection(1.5708f);
-            }
-            // [ / ] resize the brush (painting, sculpting, scatter).
-            bool sized = (tool_ >= Tool::Raise && tool_ <= Tool::PaintCulture) || tool_ == Tool::ScatterTrees;
-            if (sized && !io.KeyCtrl && !io.KeyShift && !io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_LeftBracket)) brush_radius_ = std::max(4.f, std::round(brush_radius_ / 1.25f));
-            if (sized && !io.KeyCtrl && !io.KeyShift && !io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_RightBracket)) brush_radius_ = std::min(300.f, std::round(brush_radius_ * 1.25f));
-            if (pressed(A_SNAP)) snap_selection_to_ground();
-            // [ / ] resize the brush of every terrain tool (the circle follows at once).
-            if (((tool_ >= Tool::Raise && tool_ <= Tool::PaintType) || tool_ == Tool::ScatterTrees) && (pressed(A_BRUSH_SMALLER, true) || pressed(A_BRUSH_BIGGER, true))) {
-                brush_radius_ = std::clamp(brush_radius_ * (pressed(A_BRUSH_BIGGER, true) ? 1.15f : 1.f / 1.15f), 4.f, 300.f);
-            }
-            if (pressed(A_UNDO)) undo();
-            if (pressed(A_REDO)) redo();
-            if (pressed(A_PASTE)) { Vec3 g; if (cursor_ground(g)) paste(g); }
-        }
+        last_place_was_paste_ = false;
     }
+    // Keys are read once a frame by dispatch_keys (app_input.cpp); the edge scroll below only needs to know they are free.
+    bool keys = !io.WantTextInput && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId) && capture_act_ < 0;
+    float fx = std::sin(cam_.yaw), fz = std::cos(cam_.yaw), rx = std::cos(cam_.yaw), rz = -std::sin(cam_.yaw);
     // Edge scrolling while the window is focused. The zones are the client area's edges whatever
     // is drawn there (menu bar, status bar, panels), plus a band just outside the window, so a
     // maximized window scrolls with the mouse on the title bar or the taskbar. Deeper = faster.
@@ -3643,71 +4348,63 @@ void App::handle_viewport_input(float dt) {
 
     Vec3 g;
     bool have_ground = vp_hover_ && cursor_ground(g);
-    // A road piece near the open end of another one snaps onto it (entry on the exit, turned to continue).
-    {
-        bool snapped = false;
-        road_open_ends_.clear();
-        // The Place freely key (Shift) turns off every placement snap: roads, walls / bridges, roofs and the grid.
-        if (have_ground && tool_ == Tool::PlaceObject && !place_road_.empty() && editable() && !holding(settings_.hold_free)) {
-            Vec3 sp;
-            float sy;
-            if (road_snap(g, sp, sy)) {
-                place_heading_ = sy;
-                const Vec3 po = place_origin_offset();  // the snap gives the piece's origin; the cursor spot is its middle
-                g = {sp.x - po.x, sp.y, sp.z - po.z};
-                snapped = true;
-            }
-        }
-        if (snapped && !road_snapped_) {
-            status_ = "Joined to the open end of the road. " + turn_keys_text() + ": join it by another of its ends. Hold " +
-                      mod_name(settings_.hold_free) + " to place it freely.";
-            status_time_ = 5;
-        }
-        road_snapped_ = snapped;
-    }
-    // A prop being placed stands on the roof or deck under the cursor (UX G10); the Click through key (Alt) reaches the ground
-    // below, and Place freely (Shift) does not snap to roofs either.
+    // A prop being placed stands on the ground or the paving under it. A roof, deck, rock or tree under the cursor holds it only
+    // while the Click through key (Alt) is down (it used to be the other way round, and trees and lamps counted as roofs).
     if (!place_drag_) place_on_top_ = false;  // a drag-aim keeps the spot it started on
-    if (have_ground && tool_ == Tool::PlaceObject && place_road_.empty() && editable() && !holding(settings_.hold_through) &&
+    if (have_ground && tool_ == Tool::PlaceObject && place_road_.empty() && editable() && holding(settings_.hold_through) &&
         !holding(settings_.hold_free) && !place_drag_) {
         Vec3 top;
         if (cursor_object_top(top)) { g = top; place_on_top_ = true; }
     }
-    // A wall or bridge piece near an open end of one of its own kind lines up with it (piece_snap, palette_search.cpp).
+    // One solver for every joint (core\snap.cpp, app_snap.cpp): a road piece, wall, bridge piece or foundation joins the open end, edge
+    // or corner of a placed piece when its own end comes within reach of it, on the screen and in metres. The place-freely key (Shift) turns
+    // it off. A drag-aim keeps the joint it started on.
+    if (move_snap_.on && !dragging_ && !gizmo_drag_) end_move_snap();   // the move drag ended
     if (!place_drag_) {
-        bool snapped = false;
-        if (have_ground && tool_ == Tool::PlaceObject && place_road_.empty() && editable() && !holding(settings_.hold_free)) {
-            Vec3 sp;
-            float sy;
-            if (piece_snap(g, sp, sy)) {
-                g = {sp.x, doc_->terrain.height_at(sp.x, sp.z), sp.z};
-                place_heading_ = sy;
-                place_on_top_ = false;
-                snapped = true;
+        bool joined = false;
+        if (have_ground && tool_ == Tool::PlaceObject && editable() && !holding(settings_.hold_free)) {
+            const ma2::snap::Mover mv = mover_for_place();
+            if (mv.fam) {
+                Vec3 c = g;
+                float y = place_heading_;
+                if (solve_snap(mv, c, y)) { g = c; place_on_top_ = false; joined = true; }
             }
         }
-        if (snapped && !piece_snapped_) {
-            const TemplateInfo* t = cat_ ? cat_->find(place_template_) : nullptr;
-            const bool wall = t && snap_family(*t) == 1;
-            const std::string free_txt = std::string(" Hold ") + mod_name(settings_.hold_free) + " to place it freely.";
-            const bool base = t && snap_family(*t) == 3;
-            status_ = wall ? "Joined to the end of the wall. " + turn_keys_text() + ": turn the corner." + free_txt
-                    : base ? "Joined edge to edge with the foundation next to it." + free_txt
-                           : "Joined to the end of the bridge. Bridges stand on their pillars; lower them or build from a hilltop to cross a valley." + free_txt;
-            status_time_ = 5;
-        }
-        if (!snapped) snap_turn_ = 0;
-        piece_snapped_ = snapped;
+        if (!joined && !move_snap_.on && tool_ != Tool::PasteGhost) snap_clear();   // (a move drag and the paste ghost keep their own joint between frames)
     }
-    // UX G9: Snap to grid puts what is being placed on a 5 m grid (the Place freely key held places freely). A road joined to an open end keeps its join.
-    if (grid_snap_ && have_ground && !road_snapped_ && !piece_snapped_ && !holding(settings_.hold_free) && editable() &&
+    // The grid (off until the snap bar turns it on) rounds the footprint centre under the cursor to the lattice, for every placing
+    // tool. A joint wins over it; the place-freely key (Shift) turns it off while held. The lines are drawn round the cursor while it can act.
+    if (!move_snap_.on) {   // (a move drag keeps its label and grid lines on frames where the mouse stands still)
+        snap_.grid_label.clear();
+        r_.params.snap_grid = {0, 0, 0, 0};
+    }
+    if (grid_active() && have_ground && editable() &&
         (tool_ == Tool::PlaceObject || tool_ == Tool::PlaceSpawn || tool_ == Tool::PlacePad || tool_ == Tool::PlaceStart || tool_ == Tool::PlaceWater)) {
-        g.x = std::round(g.x / kGridSnap) * kGridSnap;
-        g.z = std::round(g.z / kGridSnap) * kGridSnap;
-        if (!place_on_top_) g.y = doc_->terrain.height_at(g.x, g.z);  // on a roof: keep its height
+        const float cell = settings_.snap.grid_m;
+        r_.params.snap_grid = {g.x, g.z, cell, 12.f};
+        if (!snap_.on) {
+            g.x = ma2::snap::grid_round(g.x, cell);
+            g.z = ma2::snap::grid_round(g.z, cell);
+            if (!place_on_top_) g.y = surface_at(g.x, g.z);  // on a roof: keep its height
+            char b[32];
+            std::snprintf(b, sizeof b, "Grid %g m", double(cell));
+            snap_.grid_label = b;
+        }
     }
     // Brush preview.
     bool brush_tool = tool_ >= Tool::Raise && tool_ <= Tool::PaintCulture;  // includes PaintTexture
+    if (strength_slot(tool_) >= 0 && strength_slot(tool_) == strength_slot(brush_seen_tool_) && tool_ == brush_seen_tool_) {
+        // The strength is remembered per tool: brush_strength_ mirrors this tool's slot.
+        float& slot = settings_.tool_strength[strength_slot(tool_)];
+        if (slot != brush_strength_) { slot = brush_strength_; strength_dirty_ = true; }
+    }
+    if (sc_run_ && tool_ != Tool::ScatterTrees) scatter_end();   // the brush was put down mid-stroke: the stroke ends here
+    if (tool_ != brush_seen_tool_) {  // The smallest brush depends on what the tool edits (ground points, colour pixels, map cells)
+        if (strength_slot(brush_seen_tool_) >= 0 && strength_dirty_) { settings_.save(); strength_dirty_ = false; }
+        if (strength_slot(tool_) >= 0) brush_strength_ = settings_.tool_strength[strength_slot(tool_)];
+        if ((brush_tool || tool_ == Tool::ScatterTrees) && doc_) brush_size_clamped(tool_, true);
+        brush_seen_tool_ = tool_;
+    }
     if (have_ground && (brush_tool || tool_ == Tool::ScatterTrees || tool_ == Tool::MakePond)) {
         r_.params.brush = {g.x, g.y, g.z};
         r_.params.brush_radius = tool_ == Tool::MakePond ? pond_radius_ : brush_radius_;
@@ -3716,12 +4413,17 @@ void App::handle_viewport_input(float dt) {
         // The ring shows which half of a pair the next (or current) stroke uses.
         const Tool bt = stroke_active_ ? stroke_tool_ : sculpt_now();
         r_.params.brush_tint = sculpt_partner(bt) == bt ? 0.f : bt == Tool::Raise || bt == Tool::Plateau || bt == Tool::Smooth ? 1.f : 2.f;
+        if (vp_hover_ && !orbiting_ && !(tool_ == Tool::MakePond)) draw_brush_rings(g);
     } else {
         r_.params.brush_radius = 0;
+        if (tool_ == Tool::Ramp && have_ground && vp_hover_ && !orbiting_ && editable()) draw_ramp_preview(g);
     }
     // Placement preview: what the click will place, red where it cannot go.
     preview_on_ = false;
+    preview_y_ = std::numeric_limits<float>::quiet_NaN();
     water_over_new_ = false;
+    paste_on_ = false;
+    if (tool_ == Tool::PasteGhost && have_ground && editable()) { paste_on_ = true; paste_at_ = g; paste_solve(paste_at_); }   // Joins / grid like placing
     bool placing = tool_ == Tool::PlaceObject || tool_ == Tool::PlaceSpawn || tool_ == Tool::PlacePad || tool_ == Tool::PlaceStart || tool_ == Tool::PlaceWater;
     if (placing && have_ground && editable()) {
         preview_on_ = true;
@@ -3736,7 +4438,7 @@ void App::handle_viewport_input(float dt) {
             if (v >= 0 && !tmtype::playable(uint16_t(v))) {
                 preview_valid_ = false;
                 preview_reason_ = "Players cannot reach this ground (it is marked Border or Out of bounds). Paint it Playable on the "
-                                  "Terrain tab, or place it further in.";
+                                  "Sculpt and Paint tools, or place it further in.";
             }
         } else if (tool_ == Tool::PlaceWater && over_new_water(g)) {
             // Still over the water just placed: no ghost and no second water on top of it (the tool stays armed).
@@ -3744,8 +4446,15 @@ void App::handle_viewport_input(float dt) {
             water_over_new_ = true;
         }
     }
+    // Sloping ground under a flat piece being placed: what the click will do (app_slope.cpp). Level shows the ground it will change.
+    slope_plan_ = SlopePlan{};
+    if (preview_on_ && preview_valid_ && tool_ == Tool::PlaceObject) {
+        const Vec3 spo = place_origin_offset();
+        slope_plan_ = plan_slope({preview_pos_.x + spo.x, preview_pos_.y, preview_pos_.z + spo.z});
+        if (slope_plan_.active && slope_plan_.mode == SlopeMode::Level) { ground_preview_ = slope_plan_.edit; ground_preview_frame_ = ImGui::GetFrameCount(); }
+    }
     hover_uid_ = 0;
-    if (!vp_hover_) { if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) { stroke_active_ = false; dragging_ = false; box_selecting_ = false; gizmo_drag_ = 0; } }
+    if (!vp_hover_) { if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) { if (sc_run_) scatter_end(); stroke_active_ = false; dragging_ = false; box_selecting_ = false; sel_press_ = false; gizmo_drag_ = 0; orb_press_ = orbiting_ = false; } }
     // Right button: a click without moving stops the tool or clears the selection; a drag of a few
     // pixels pans the map (Preferences > Camera) and does not cancel anything.
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) { rpress_vp_ = vp_hover_; rdragged_ = false; }
@@ -3762,17 +4471,44 @@ void App::handle_viewport_input(float dt) {
     if (rpress_vp_ && ImGui::IsMouseReleased(ImGuiMouseButton_Right)) {
         rpress_vp_ = false;
         if (!rdragged_ && vp_hover_) {
-            if (tool_ != Tool::Select) tool_ = Tool::Select;
-            else selection_.clear();
+            if (tool_ == Tool::Ramp && ramp_stage_ == 1) ramp_cancel(true);   // Drops the ramp's start, the tool stays armed
+            else if (tool_ != Tool::Select) tool_ = Tool::Select;
+            else {
+                // On an object: its menu (an unselected one is selected first, a selected one keeps the whole selection). On empty ground: clear.
+                const int h = editable() && !glue_mode_ ? pick_object(io.MousePos.x, io.MousePos.y) : -1;
+                if (h >= 0) {
+                    const uint32_t u = doc_->world.objs[size_t(h)].uid();
+                    if (!selection_.count(u)) selection_ = {u};
+                    open_objmenu_ = true;
+                    objmenu_uid_ = u;
+                } else {
+                    selection_.clear();
+                }
+            }
         }
     }
-    if (!vp_hover_ && !dragging_ && !box_selecting_ && !stroke_active_ && !gizmo_drag_ && !place_drag_) return;
-    // Zoom and rotate.
-    if (io.MouseWheel != 0 && vp_hover_) {
+    if (!vp_hover_ && !dragging_ && !box_selecting_ && !sel_press_ && !stroke_active_ && !gizmo_drag_ && !place_drag_ && !water_drag_ && !orb_press_ && !size_drag_.id) return;
+    // Zoom and rotate. In a brush tool Ctrl+wheel is the brush size and Shift+wheel its strength (some mice send Shift+wheel sideways).
+    bool wheel_used = false;
+    if (vp_hover_ && (active_ctx() & C_BRUSH) && (io.KeyCtrl || io.KeyShift)) {
+        const float wheel = io.MouseWheel != 0 ? io.MouseWheel : io.KeyShift && !io.KeyCtrl ? io.MouseWheelH : 0.f;
+        const bool strength_ok = tool_ != Tool::PaintType && tool_ != Tool::ScatterTrees && tool_ != Tool::Ramp;
+        if (wheel != 0 && (io.KeyCtrl || strength_ok)) {
+            if (wheel_acc_ * wheel < 0) wheel_acc_ = 0;  // turned the wheel the other way: start counting again
+            wheel_acc_ += wheel;
+            while (wheel_acc_ >= 1.f || wheel_acc_ <= -1.f) {
+                const int dir = wheel_acc_ > 0 ? 1 : -1;
+                if (io.KeyCtrl) brush_size_step(dir); else brush_strength_step(dir);
+                wheel_acc_ -= float(dir);
+            }
+            wheel_used = true;
+        }
+    }
+    if (!wheel_used && io.MouseWheel != 0 && vp_hover_) {
         float w = io.MouseWheel * settings_.zoom_speed * (settings_.invert_zoom ? -1.f : 1.f);
         const float d0 = cam_.dist;
         cam_.dist = std::clamp(cam_.dist * std::pow(0.87f, w), 15.f, 5000.f);
-        // Zoom toward the ground under the cursor (review): scale the camera about that point so it stays
+        // Zoom toward the ground under the cursor: scale the camera about that point so it stays
         // under the mouse, like a map in an RTS. Off the map the view zooms about its centre as before.
         Vec3 c;
         if (cursor_ground(c) && d0 > 0) {
@@ -3782,30 +4518,67 @@ void App::handle_viewport_input(float dt) {
             cam_.tz = c.z + (cam_.tz - c.z) * k;
         }
     }
-    if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0)) {
-        float sx = (settings_.invert_rotate ? -1.f : 1.f) * settings_.rotate_speed;
-        float sy = (settings_.invert_pitch ? -1.f : 1.f) * settings_.rotate_speed;
-        cam_.yaw += io.MouseDelta.x * 0.006f * sx;
-        cam_.pitch = std::clamp(cam_.pitch + io.MouseDelta.y * 0.005f * sy, 0.12f, 1.5533f);
-    }
+    if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0)) turn_view(io.MouseDelta.x, io.MouseDelta.y);
     if (tool_ == Tool::Select && vp_hover_) {
         int h = pick_object(io.MousePos.x, io.MousePos.y);
         if (h >= 0) hover_uid_ = doc_->world.objs[size_t(h)].uid();
     }
-    bool lclick = ImGui::IsMouseClicked(ImGuiMouseButton_Left) && vp_hover_;
+    bool lclick = (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || (pal_drop_ && (tool_ == Tool::PlaceObject || tool_ == Tool::PlaceWater))) && vp_hover_;
     bool ldown = ImGui::IsMouseDown(ImGuiMouseButton_Left);
     bool lrelease = ImGui::IsMouseReleased(ImGuiMouseButton_Left);
+    // Turn the view with left-drag: with the orbit key (Alt) down at the press, the tools do not see the press yet. Past 6 px it
+    // turns the view like a middle-drag and the tools never see it; released before that, the tools get an ordinary click on release.
+    orb_click_ = false;
+    if (lclick && holding(settings_.hold_orbit)) {
+        orb_press_ = true;
+        orbiting_ = false;
+        orb_through_ = holding(settings_.hold_through);
+        orb_x_ = io.MousePos.x;
+        orb_y_ = io.MousePos.y;
+        lclick = false;
+    }
+    if (orb_press_) {
+        if (ldown && !orbiting_) {
+            const float dx = io.MousePos.x - orb_x_, dy = io.MousePos.y - orb_y_, th = 6.f * dpi_;
+            if (dx * dx + dy * dy >= th * th) { orbiting_ = true; turn_view(dx, dy); }  // the whole way since the press, so no pixel is lost
+        } else if (ldown && orbiting_) {
+            turn_view(io.MouseDelta.x, io.MouseDelta.y);
+        }
+        if (!ldown || lrelease) {
+            orb_press_ = false;
+            if (!orbiting_) { lclick = ldown = orb_click_ = true; lrelease = false; }  // a click: the tools see press now, release next frame
+            else ldown = lrelease = false;
+            orbiting_ = false;
+        } else {
+            ldown = lrelease = false;
+        }
+    }
+    const bool through_held = holding(settings_.hold_through) || (orb_click_ && orb_through_);
+    // Ramp: click 1 = start, click 2 = end (applied there).
+    if (tool_ == Tool::Ramp && editable()) {
+        if (lclick && have_ground) ramp_click(g);
+        return;
+    }
     // Brushes
     if (brush_tool && editable()) {
         if (tool_ != Tool::PaintColor) tint_pick_ = false;
         // Colour tint eyedropper: the button's next click, or Alt+click, picks the ground colour there.
-        if (tool_ == Tool::PaintColor && lclick && have_ground && (tint_pick_ || io.KeyAlt) && !doc_->colormap.px.empty()) {
+        if (tool_ == Tool::PaintColor && lclick && have_ground && (tint_pick_ || through_held) && !doc_->colormap.px.empty()) {
             const Image& img = doc_->colormap;
             int px = std::clamp(int(g.x / doc_->terrain.size_x() * img.w), 0, img.w - 1);
             int py = std::clamp(int((1 - g.z / doc_->terrain.size_z()) * img.h), 0, img.h - 1);
             uint32_t c = img.at(px, py);
             paint_color_[0] = float(c & 255) / 255; paint_color_[1] = float((c >> 8) & 255) / 255; paint_color_[2] = float((c >> 16) & 255) / 255;
             tint_pick_ = false;
+            return;
+        }
+        // Flatten: Alt+click (or the reverse key + click) only picks the height: no stroke, no undo step.
+        if (tool_ == Tool::Flatten && lclick && have_ground && (through_held || holding(settings_.hold_reverse))) {
+            flatten_height_ = doc_->terrain.stored(g.y);
+            char m[96];
+            snprintf(m, sizeof m, "Flatten height set to %.2f m (picked from the ground).", flatten_height_);
+            status_ = m;
+            status_time_ = 5;
             return;
         }
         if (lclick && have_ground) {
@@ -3815,19 +4588,42 @@ void App::handle_viewport_input(float dt) {
             push_undo(what.substr(0, what.find(" (")));
             ns_shaped_ = true;
             stroke_active_ = true;
-            // Flatten levels to the height set on the left; with the reverse key held the click picks it here (playtest).
-            if (tool_ == Tool::Flatten && holding(settings_.hold_reverse)) flatten_height_ = g.y;
+            stroke_held_ = 0;
+            // The ground can only be a saved step: a typed 19.95 on a 0.5 m map levels to 20.00, and the boxes say so.
+            flatten_height_ = doc_->terrain.stored(flatten_height_);
+            plateau_height_ = doc_->terrain.stored(plateau_height_);
             // Review: the plateau height defaulted to 30 m, below the ground on most maps (Mission 05 ~60 m), so a
             // first Plateau stroke did nothing. When it is not above the ground here, build 10 m up from here
             // (Plateau down: not below it, cut 10 m down).
             plateau_auto_ = (stroke_tool_ == Tool::Plateau && plateau_height_ <= g.y + 0.5f) || (stroke_tool_ == Tool::PlateauDown && plateau_height_ >= g.y - 0.5f);
-            if (plateau_auto_) plateau_height_ = stroke_tool_ == Tool::Plateau ? std::min(g.y + 10.f, doc_->terrain.max_h) : std::max(g.y - 10.f, doc_->terrain.min_h);
-            apply_brush(g, dt, true);
+            if (plateau_auto_) plateau_height_ = doc_->terrain.stored(stroke_tool_ == Tool::Plateau ? std::min(g.y + 10.f, doc_->terrain.max_h) : std::max(g.y - 10.f, doc_->terrain.min_h));
+            // Shift+click: a straight stroke from where the last stroke of this tool ended to the click, one undo step; the stroke then goes on
+            // from the click while the button is held. No previous stroke: an ordinary click.
+            const bool line = holding(settings_.hold_free) && last_stroke_ok_[int(tool_)];
+            const Vec3 from = line ? last_stroke_end_[int(tool_)] : g;
+            // The reverse key on Texture / Boundaries / Plants: the stroke paints the other way, whatever the key does after.
+            stroke_rev_ = (tool_ == Tool::PaintTexture || tool_ == Tool::PaintType || tool_ == Tool::PaintCulture) && holding(settings_.hold_reverse);
+            brush_t0_ = std::chrono::steady_clock::now();
+            apply_brush(from, dt, true);
+            if (line) {
+                constexpr float kLineSpeed = 40.f;  // m/s the line is drawn at, for the tools that work by time
+                brush_path(from, g, std::max(dt, std::sqrt((g.x - from.x) * (g.x - from.x) + (g.z - from.z) * (g.z - from.z)) / kLineSpeed));
+            }
+            stroke_last_ = g;
+            flush_brush();
+            brush_frame_ms_ += std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - brush_t0_).count();
         } else if (stroke_active_ && ldown && have_ground) {
-            apply_brush(g, dt, false);
+            stroke_held_ += dt;
+            brush_t0_ = std::chrono::steady_clock::now();
+            brush_path(stroke_last_, g, dt);
+            stroke_last_ = g;
+            flush_brush();
+            brush_frame_ms_ += std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - brush_t0_).count();
         }
         if (stroke_active_ && (lrelease || !ldown)) {
             stroke_active_ = false;
+            last_stroke_end_[int(tool_)] = stroke_last_;
+            last_stroke_ok_[int(tool_)] = true;
             if (tool_ == Tool::PaintCulture) store_culture();
             if (sculpt_tool(stroke_tool_)) {
                 // Review: only Raise / Lower said what a stroke did, so after Flatten or Smooth the status still read
@@ -3836,20 +4632,35 @@ void App::handle_viewport_input(float dt) {
                 const Tool st = stroke_tool_;
                 const int k = int(st) - int(Tool::Raise);
                 const bool up = st == Tool::Raise;
-                char m[320];
+                char m[360];
                 // The whole stroke's change (the brush's own number was one frame's step: a 1 s drag that dug 85 m said
                 // "Lowered by up to 4.5 m").
-                if (!undo_.empty() && undo_.back().hgt.size() == doc_->terrain.hgt.size())
-                    for (size_t j = 0; j < doc_->terrain.hgt.size(); j++) stroke_change_ = std::max(stroke_change_, std::fabs(doc_->terrain.hgt[j] - undo_.back().hgt[j]));
+                // Measured on the drawn ground (the saved steps); `fine` is the brush's own sub-step remainder, which nothing shows yet.
+                float fine = 0;
+                if (!undo_.empty() && undo_.back().hgt->size() == doc_->terrain.hgt.size())
+                    for (size_t j = 0; j < doc_->terrain.hgt.size(); j++) {
+                        const float cur = doc_->terrain.hgt[j], old = (*undo_.back().hgt)[j];
+                        stroke_change_ = std::max(stroke_change_, std::fabs(doc_->terrain.stored(cur) - doc_->terrain.stored(old)));
+                        fine = std::max(fine, std::fabs(cur - old));
+                    }
+                const char* limit_note = stroke_clamped_ ? " Some of it stopped at the map's height limit (Advanced > Height range)." : "";
                 if (stroke_clamped_ && stroke_change_ < 0.05f && (st == Tool::Raise || st == Tool::Lower))
                     snprintf(m, sizeof m, "The ground here is already at this map's %s height (%.0f m), so it cannot go %s. Change the limit in Advanced > Height range.",
                              up ? "highest" : "lowest", up ? doc_->terrain.max_h : doc_->terrain.min_h, up ? "higher" : "lower");
+                else if (stroke_change_ < 0.05f && fine > 1e-4f && (st == Tool::Raise || st == Tool::Lower))
+                    snprintf(m, sizeof m, "Nothing changed yet: the ground here moves in steps of %.2f m. Raise the Height per stroke.", doc_->terrain.step());
                 else if (stroke_change_ < 0.05f)
                     snprintf(m, sizeof m, "Nothing changed here: the ground is already %s.", st == Tool::Smooth ? "smooth" : st == Tool::PlateauDown ? "at or below that height" : "at that height");
+                else if (st == Tool::Raise)
+                    snprintf(m, sizeof m, "Raised the ground by up to %.2f m (highest point now %.2f m). Stroke again to raise more; %s undoes it.%s", stroke_change_, stroke_top_, kt(A_UNDO).c_str(), limit_note);
+                else if (st == Tool::Lower)
+                    snprintf(m, sizeof m, "Lowered the ground by up to %.2f m (lowest point now %.2f m). Stroke again to lower more; %s undoes it.%s", stroke_change_, stroke_bot_, kt(A_UNDO).c_str(), limit_note);
+                else if (st == Tool::Roughen)
+                    snprintf(m, sizeof m, "Roughened the ground by up to %.2f m. Stroke again for more bumps; %s undoes it.", stroke_change_, kt(A_UNDO).c_str());
                 else
-                    snprintf(m, sizeof m, "%s the ground (up to %.1f m)%s. Hold the button and keep dragging for more; Ctrl+Z undoes it.",
+                    snprintf(m, sizeof m, "%s the ground: the biggest change at one spot is %.1f m%s. Hold the button and keep dragging for more; %s undoes it.",
                              k >= 0 && k < 7 ? did[k] : "Shaped", stroke_change_,
-                             stroke_clamped_ ? " (some of it stopped at the map's height limit: Advanced > Height range)" : "");
+                             stroke_clamped_ ? " (some of it stopped at the map's height limit: Advanced > Height range)" : "", kt(A_UNDO).c_str());
                 status_ = m;
                 if (plateau_auto_) {
                     snprintf(m, sizeof m, " Plateau height set to %.1f m (10 m %s where you started); change it on the left.", plateau_height_, st == Tool::Plateau ? "above" : "below");
@@ -3865,17 +4676,83 @@ void App::handle_viewport_input(float dt) {
             if (tool_ == Tool::PaintColor || tool_ == Tool::PaintTexture) r_.set_colormap(doc_->colormap);
             minimap_dirty_ = true;
             objects_dirty_ = true;
+            if (show_steep_) overlay_dirty_ = true;
         }
         return;
     }
     if (tool_ == Tool::ScatterTrees && editable()) {
-        if (lclick && have_ground) { push_undo("scatter"); stroke_active_ = true; scatter_accum_ = 1; }
-        if (stroke_active_ && ldown && have_ground) {
-            scatter_accum_ += dt * 6.f * scatter_density_ * 4;
-            while (scatter_accum_ >= 1.f) { scatter_accum_ -= 1.f; scatter(g); }
-        }
-        if (stroke_active_ && (lrelease || !ldown)) stroke_active_ = false;
+        scatter_frame(g, lclick, ldown, lrelease, have_ground);   // F4 (app_scatter.cpp); an empty brush set ignores clicks
         return;
+    }
+    // The paste ghost (Ctrl+V / Ctrl+D): one click puts the copies down where the mouse is, then the Select tool is back with them selected.
+    if (tool_ == Tool::PasteGhost) {
+        if (lclick && have_ground && editable()) {
+            paste_clips(paste_src_, paste_on_ ? paste_at_ : g, paste_on_ ? paste_turn_ : paste_heading_, paste_dup_, paste_dup_ || !clipboard_cut_);
+            tool_ = Tool::Select;
+        }
+        return;
+    }
+    // Place water by dragging: the press is one corner of the rectangle, the cursor the opposite one, in the frame of the Q / E turn;
+    // release puts the water, centred in that rectangle, at that size. A click without a drag places the boxes' default size. Fixed types and the
+    // other tools keep click-to-place.
+    if (tool_ != Tool::PlaceWater) water_drag_ = false;
+    if (tool_ == Tool::PlaceWater && editable() && water_can_resize(water_place_tpl())) {
+        if (lclick && have_ground && !water_over_new_ && !(preview_on_ && !preview_valid_)) {
+            water_drag_ = true;
+            water_drag_moved_ = false;
+            water_drag_press_ = g;
+            water_drag_centre_ = g;
+            water_drag_w_ = water_new_w_;
+            water_drag_l_ = water_new_l_;
+            water_drag_mx_ = ImGui::GetIO().MousePos.x;
+            water_drag_my_ = ImGui::GetIO().MousePos.y;
+            return;
+        }
+        if (water_drag_) {
+            // The rectangle follows the mouse, on the release frame too (the last mouse position counts).
+            ImGuiIO& aio = ImGui::GetIO();
+            const float mdx = aio.MousePos.x - water_drag_mx_, mdy = aio.MousePos.y - water_drag_my_;
+            if (!water_drag_moved_ && mdx * mdx + mdy * mdy > 36.f * dpi_ * dpi_) water_drag_moved_ = true;   // 6 px: a click is not a drag
+            if (water_drag_moved_) {
+                XMFLOAT3 ro, rd;
+                cam_.ray(aio.MousePos.x - vp_x, aio.MousePos.y - vp_y, vp_w, vp_h, ro, rd);
+                if (std::fabs(rd.y) > 1e-4f && (water_drag_press_.y - ro.y) / rd.y > 0) {   // the flat plane through the press, as aiming a piece
+                    const float t = (water_drag_press_.y - ro.y) / rd.y;
+                    const float cx = ro.x + rd.x * t, cz = ro.z + rd.z * t;
+                    const float yaw = ghost_yaw(), ch = std::cos(yaw), sh = std::sin(yaw);
+                    const float dx = cx - water_drag_press_.x, dz = cz - water_drag_press_.z;
+                    float u = ch * dx - sh * dz, v = sh * dx + ch * dz;   // along the water's own width / length axes
+                    auto fit = [&](float a) {
+                        float m = std::fabs(a);
+                        if (grid_active() && !holding(settings_.hold_free)) m = snap::size_step(m, settings_.snap.grid_m, wcustom::kMinSide);
+                        return std::clamp(std::round(m), wcustom::kMinSide, wcustom::kMaxSide);
+                    };
+                    water_drag_w_ = fit(u);
+                    water_drag_l_ = fit(v);
+                    u = u < 0 ? -water_drag_w_ : water_drag_w_;
+                    v = v < 0 ? -water_drag_l_ : water_drag_l_;
+                    water_drag_centre_ = {water_drag_press_.x + ch * u * 0.5f + sh * v * 0.5f, water_drag_press_.y, water_drag_press_.z - sh * u * 0.5f + ch * v * 0.5f};
+                }
+            }
+            if (ldown && !lrelease) {
+                if (water_drag_moved_) {
+                    char b[80];
+                    snprintf(b, sizeof b, "%.0f x %.0f m", water_drag_w_, water_drag_l_);
+                    readout_label(b);
+                    status_ = std::string("Water ") + b + ": release to place it, right-click to cancel.";
+                    status_time_ = 0.5f;
+                }
+                preview_on_ = true;
+                preview_valid_ = true;
+                preview_pos_ = water_drag_moved_ ? water_drag_centre_ : water_drag_press_;
+                return;
+            }
+            water_drag_ = false;
+            if (water_drag_moved_) place_water(water_drag_centre_, water_drag_w_, water_drag_l_);
+            else place_water(water_drag_press_);
+            water_drag_moved_ = false;
+            return;
+        }
     }
     // Placing: press puts the object down, dragging aims it (the arrow follows the mouse), release places it facing
     // that way; a plain click keeps the heading chosen with Q / E. Roads, spawn points, pads and the player start use the same code.
@@ -3885,7 +4762,7 @@ void App::handle_viewport_input(float dt) {
             place_drag_pos_ = g;
             // A piece joined to its neighbour (road, wall, bridge, foundation: playtest 11-04 foundations rotated after a click)
             // keeps the join's facing; a drag never re-aims it, else the snapped spot got a heading from mouse jitter.
-            place_drag_joined_ = road_snapped_ || piece_snapped_;
+            place_drag_joined_ = snap_.on;
             place_drag_mx_ = ImGui::GetIO().MousePos.x;
             place_drag_my_ = ImGui::GetIO().MousePos.y;
             return;
@@ -3893,7 +4770,7 @@ void App::handle_viewport_input(float dt) {
         if (place_drag_) {
             if (ldown && !lrelease) {
                 // Aim on the flat plane through the press point, not the ground under the cursor: on slopes and in
-                // perspective the ground point slides, so a sideways drag gave an odd facing (audit G8).
+                // perspective the ground point slides, so a sideways drag gave an odd facing.
                 ImGuiIO& aio = ImGui::GetIO();
                 XMFLOAT3 ro, rd;
                 cam_.ray(aio.MousePos.x - vp_x, aio.MousePos.y - vp_y, vp_w, vp_h, ro, rd);
@@ -3909,7 +4786,8 @@ void App::handle_viewport_input(float dt) {
                 if (have_ground && !place_drag_joined_ && moved) {  // a joined piece keeps the facing of its join (Q / E picks the end / corner)
                     float dx = g.x - place_drag_pos_.x, dz = g.z - place_drag_pos_.z;
                     if (dx * dx + dz * dz > 4.f) place_heading_ = std::atan2(dx, dz) + (tool_ == Tool::PlaceObject && !place_road_.empty() ? 3.14159265f : 0.f);  // forward is (sin h, cos h); a road runs the other way
-                    if (holding(settings_.hold_quarter)) place_heading_ = std::round(place_heading_ / 0.2618f) * 0.2618f;  // quarter-turn key: 15-degree steps like Q / E
+                    if (settings_.snap.angle && !holding(settings_.hold_free)) place_heading_ = angle_snapped(place_heading_);  // Always in steps while they are on
+                    else if (holding(settings_.hold_quarter) && !holding(settings_.hold_free)) place_heading_ = std::round(place_heading_ / 0.2618f) * 0.2618f;  // quarter-turn key: 15-degree steps like Q / E
                 }
                 preview_pos_ = place_drag_pos_;
                 return;
@@ -3933,9 +4811,15 @@ void App::handle_viewport_input(float dt) {
                     push_undo(!place_road_.empty() ? "place road piece" : pt && pt->cls_name == "MAWater" ? "place water" : "place object");
                 }
                 {
+                    if (snap_.on) place_heading_ = ghost_heading_;  // the next piece continues the way this one was joined
                     const Vec3 po = place_origin_offset();
                     Vec3 gp = {g.x + po.x, g.y, g.z + po.z};
+                    const size_t before = doc_->world.objs.size();
                     place_object(gp);
+                    if (place_lift_ > 0 && doc_->world.objs.size() > before && !selection_.empty()) {  // lifted by PgUp: up by that much
+                        mark_selection_fixed();
+                        move_selection({0, place_lift_, 0}, false);
+                    }
                 }
                 return;
             case Tool::MakePond:
@@ -3950,6 +4834,7 @@ void App::handle_viewport_input(float dt) {
                 return;
             case Tool::PlaceSpawn: {
                 push_undo("place spawn");
+                g.y = surface_at(g.x, g.z) + place_lift_;  // on the paving under the click, else the ground (PgUp lifts it)
                 uint32_t u = io_->add_spawn(*doc_, spawn_team_, g, place_heading_);
                 selection_ = {u};
                 world_changed();
@@ -3959,6 +4844,7 @@ void App::handle_viewport_input(float dt) {
                 auto& kinds = io_->pad_kinds();
                 if (pad_kind_ >= 0 && pad_kind_ < int(kinds.size())) {
                     push_undo("place vehicle pad");
+                    g.y = surface_at(g.x, g.z) + place_lift_;
                     uint32_t u = io_->add_pad(*doc_, kinds[size_t(pad_kind_)], g, place_heading_);
                     selection_ = {u};
                     world_changed();
@@ -3967,6 +4853,7 @@ void App::handle_viewport_input(float dt) {
             }
             case Tool::PlaceStart: {
                 push_undo("move player start");
+                g.y = surface_at(g.x, g.z);
                 bool moved = false;
                 if (WObj* o = object_by_uid(doc_->world, player_start_uid(doc_->world))) {  // the 'Player Spawner' the game uses
                     set_pos(*o, {g.x, g.y + 2, g.z});
@@ -3981,6 +4868,9 @@ void App::handle_viewport_input(float dt) {
             }
             case Tool::PickPoint: {
                 if (pick_.kind == PickTarget::ObjTargets) { pick_objective_target(io.MousePos.x, io.MousePos.y); return; }
+                if (pick_.kind == PickTarget::LinkUnit) { pick_link_unit(io.MousePos.x, io.MousePos.y); return; }
+                if (pick_.kind == PickTarget::CutUnit) { pick_cut_unit(io.MousePos.x, io.MousePos.y); return; }
+                if (pick_.kind == PickTarget::OrderUnit) { pick_order_unit(io.MousePos.x, io.MousePos.y); return; }
                 const Tab pick_back = pick_.back;
                 if (pick_.kind == PickTarget::MoveShape) {
                     if (WObj* o = object_by_uid(doc_->world, pick_.uid)) {
@@ -3997,7 +4887,7 @@ void App::handle_viewport_input(float dt) {
                     }
                 } else if (pick_.kind == PickTarget::LinkMarker) {
                     push_undo("pick a point");
-                    uint32_t m = set_marker_link(*doc_, pick_.uid, pick_.key.c_str(), g.x, g.z, pick_.null_marker, pick_.name);
+                    uint32_t m = pick_.chain ? make_defend_walk(pick_.uid, g.x, g.z, pick_.name) : set_marker_link(*doc_, pick_.uid, pick_.key.c_str(), g.x, g.z, pick_.null_marker, pick_.name);
                     if (m) selection_ = {m};
                     world_changed();
                 }
@@ -4022,13 +4912,28 @@ void App::handle_viewport_input(float dt) {
     }
     if (tool_ != Tool::Select) return;
     // Click through (Alt) + click always cycles the object stack under the cursor, even over a selected object's handles (below).
-    const bool through = holding(settings_.hold_through);
+    const bool through = through_held;
     const bool alt_cycle = lclick && through;
+    // The orange size handles of a selected road piece, base, wall or bridge (app_size_gizmo.cpp): before the double-click rule below, so a
+    // double-click on a handle makes that side whole again instead of selecting every object of the type.
+    if (!alt_cycle && editable() && size_gizmo_update(lclick, ldown)) return;
+    // A double-click right after a click that selected an object: every object of that type (before the gizmo, which now sits under the cursor).
+    if (lclick && !through && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && last_click_uid_ && !glue_mode_) {
+        const int dh = pick_object(io.MousePos.x, io.MousePos.y);
+        if (dh >= 0 && doc_->world.objs[size_t(dh)].uid() == last_click_uid_) {
+            select_same_type(last_click_uid_, io.KeyCtrl);
+            last_click_uid_ = 0;
+            return;
+        }
+    }
     if (glue_pick(lclick)) return;  // the Glue tool (app_glue.cpp)
     if (!alt_cycle && trig_gizmo_update(lclick, ldown)) return;
     if (!alt_cycle && gizmo_update(lclick, ldown)) return;
-    // Selection, moving and box selection.
+    // Selection, moving and box selection. The press only records what is under it. A click (released before 6 px) selects: plain
+    // = that object alone (empty ground clears), Shift adds, Ctrl toggles. Past 6 px a press on a SELECTED object moves the selection;
+    // a press on anything else (empty ground or an unselected object) draws a box: plain replaces the selection, Shift adds, Ctrl removes.
     if (lclick) {
+        sel_press_ = dragging_ = box_selecting_ = false;
         std::vector<int> stack;
         int h = pick_object(io.MousePos.x, io.MousePos.y, through ? &stack : nullptr);
         if (through && stack.size() > 1) {
@@ -4040,32 +4945,43 @@ void App::handle_viewport_input(float dt) {
             h = stack[at >= stack.size() ? 0 : (at + 1) % stack.size()];
             selection_ = {doc_->world.objs[size_t(h)].uid()};
             drag_start_x_ = io.MousePos.x; drag_start_y_ = io.MousePos.y;
-            dragging_ = false;
             return;
         }
         drag_start_x_ = io.MousePos.x;
         drag_start_y_ = io.MousePos.y;
-        if (h >= 0) {
-            uint32_t u = doc_->world.objs[size_t(h)].uid();
-            if (io.KeyShift || io.KeyCtrl) {
-                if (selection_.count(u)) selection_.erase(u); else selection_.insert(u);
-            } else if (!selection_.count(u)) {
-                selection_ = {u};
-            }
-            dragging_ = editable() && selection_.count(u);
-            drag_moved_ = false;
-            if (have_ground) drag_last_ = g;
-        } else {
-            if (!io.KeyShift && !io.KeyCtrl) selection_.clear();
-            box_selecting_ = true;
+        const uint32_t u = h >= 0 ? doc_->world.objs[size_t(h)].uid() : 0;
+        last_click_uid_ = 0;
+        sel_press_ = true;
+        sel_press_uid_ = u;
+        sel_press_on_selected_ = u && selection_.count(u);
+        sel_press_shift_ = io.KeyShift;
+        sel_press_ctrl_ = io.KeyCtrl;
+        drag_moved_ = false;
+        if (have_ground) drag_last_ = g;
+    }
+    if (sel_press_ && ldown && !dragging_ && !box_selecting_) {
+        const float dx = io.MousePos.x - drag_start_x_, dy = io.MousePos.y - drag_start_y_, th = 6.f * dpi_;
+        if (dx * dx + dy * dy >= th * th) {
+            if (sel_press_on_selected_ && editable()) dragging_ = true;
+            else box_selecting_ = true;
         }
     }
     if (dragging_ && ldown && have_ground) {
         Vec3 d{g.x - drag_last_.x, 0, g.z - drag_last_.z};
         if (std::fabs(d.x) + std::fabs(d.z) > 0.01f) {
-            float px = std::fabs(io.MousePos.x - drag_start_x_) + std::fabs(io.MousePos.y - drag_start_y_);
-            if (!drag_moved_ && px > 4) { push_undo("move"); drag_moved_ = true; }
-            if (drag_moved_) { move_selection(d, true); drag_last_ = g; }
+            if (!drag_moved_) {
+                push_undo("move");
+                drag_moved_ = true;
+                body_move_ = {0, 0, 0};
+                begin_move_snap(sel_press_uid_, drag_last_.x, drag_last_.z);   // The pressed object is the anchor
+            }
+            if (move_snap_.on) move_snap_step(g.x, g.z);
+            else move_selection(d, true);
+            drag_last_ = g;
+            body_move_.x += d.x; body_move_.z += d.z;
+            char rb[80];
+            snprintf(rb, sizeof rb, "Move %.1f, %.1f m", body_move_.x, body_move_.z);
+            set_readout(rb);
         }
     }
     if (box_selecting_) {
@@ -4074,21 +4990,71 @@ void App::handle_viewport_input(float dt) {
         dl->AddRectFilled(ImVec2(drag_start_x_, drag_start_y_), io.MousePos, IM_COL32(255, 220, 60, 30));
     }
     if (lrelease || !ldown) {
-        if (box_selecting_) {
-            float x0 = std::min(drag_start_x_, io.MousePos.x), x1 = std::max(drag_start_x_, io.MousePos.x);
-            float y0 = std::min(drag_start_y_, io.MousePos.y), y1 = std::max(drag_start_y_, io.MousePos.y);
-            if (x1 - x0 > 3 && y1 - y0 > 3)
+        if (sel_press_) {
+            const SelMods mods{sel_press_shift_ || io.KeyShift, sel_press_ctrl_ || io.KeyCtrl};
+            if (box_selecting_) {
+                float x0 = std::min(drag_start_x_, io.MousePos.x), x1 = std::max(drag_start_x_, io.MousePos.x);
+                float y0 = std::min(drag_start_y_, io.MousePos.y), y1 = std::max(drag_start_y_, io.MousePos.y);
+                std::vector<uint32_t> inside;
                 for (auto& v : views_) {
                     if (v.index != v.root) continue;
                     float sx, sy;
                     if (cam_.project({v.pos.x, v.pos.y + 1, v.pos.z}, vp_w, vp_h, sx, sy) && sx + vp_x >= x0 && sx + vp_x <= x1 &&
                         sy + vp_y >= y0 && sy + vp_y <= y1)
-                        selection_.insert(v.uid);
+                        inside.push_back(v.uid);
                 }
+                sel_box(selection_, inside, mods);
+            } else if (!dragging_) {
+                sel_click(selection_, sel_press_uid_, mods);  // released before 6 px: a click
+                last_click_uid_ = sel_press_uid_;               // a second click on it at once is a double-click
+                if (!sel_press_uid_ && page_ == Page::Water && tab_ == Tab::Build && editable()) {  // The page's own click does not place anything until it is armed
+                    status_ = "Nothing is placed by a click yet: press \"Place water on the map\" in the left panel, then click the map.";
+                    status_time_ = 6;
+                }
+                // A still shot's eye is two points 2 cm apart: a plain click on one picks both, so a lift or move keeps
+                // the shot still (one point alone would turn it into a 0.5 m camera move).
+                if (!mods.shift && !mods.ctrl && selection_.size() == 1 && sel_press_uid_)
+                    if (const WObj* wp = object_by_uid(doc_->world, sel_press_uid_); wp && wp->cls == K_WAYPOINT)
+                        if (cinema_path_groups(doc_->world).count(wp->parent())) {
+                            Vec3 p0, q;
+                            std::vector<uint32_t> twins;
+                            bool still = get_pos(*wp, p0);
+                            for (auto& o : doc_->world.objs)
+                                if (still && o.cls == K_WAYPOINT && o.parent() == wp->parent() && o.uid() != wp->uid()) {
+                                    if (!get_pos(o, q) || std::hypot(q.x - p0.x, q.y - p0.y, q.z - p0.z) >= 0.1f) still = false;
+                                    else twins.push_back(o.uid());
+                                }
+                            if (still) selection_.insert(twins.begin(), twins.end());
+                        }
+            }
         }
         if (dragging_ && drag_moved_) { objects_dirty_ = minimap_dirty_ = true; }
-        box_selecting_ = dragging_ = false;
+        sel_press_ = box_selecting_ = dragging_ = false;
     }
+}
+
+// Double-click (or the Select-same key / menu item): every object of the clicked one's type. On screen by default, the whole map when asked.
+void App::select_same_type(uint32_t uid, bool whole_map) {
+    const WObj* o = doc_ ? object_by_uid(doc_->world, uid) : nullptr;
+    if (!o) return;
+    const uint32_t cls = o->cls, tpl = o->template_id();
+    std::set<uint32_t> now;
+    for (auto& v : views_) {
+        if (v.index != v.root || v.index < 0) continue;
+        const WObj& w = doc_->world.objs[size_t(v.index)];
+        if (!same_type(w.cls, w.template_id(), cls, tpl)) continue;
+        if (!whole_map) {
+            float sx, sy;
+            if (!cam_.project({v.pos.x, v.pos.y + 1, v.pos.z}, vp_w, vp_h, sx, sy) || sx < 0 || sy < 0 || sx > vp_w || sy > vp_h) continue;
+        }
+        now.insert(v.uid);
+    }
+    if (now.empty()) now.insert(uid);
+    selection_ = std::move(now);
+    const TemplateInfo* ti = cat_ ? cat_->find(tpl) : nullptr;
+    std::string what = ti ? palette_plain_name(*ti) : !o->description().empty() && o->description() != "NULL" ? o->description() : gd_.names().label(cls);
+    status_ = "Selected " + std::to_string(selection_.size()) + " " + what + (whole_map ? " (the whole map)." : " (all on screen). Ctrl+double-click: the whole map.");
+    status_time_ = 5;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -4096,11 +5062,11 @@ void App::handle_viewport_input(float dt) {
 
 void App::ui_menu() {
     // Esc closes the open menu, list or popup (one level), like every other program; without ImGui's
-    // keyboard navigation it did nothing (dogfood D7: "Add objective..."). Modal windows handle Esc
+    // keyboard navigation it did nothing ("Add objective..."). Modal windows handle Esc
     // themselves; a text field being typed in keeps it (Esc ends the typing first).
     {
         ImGuiContext& g = *ImGui::GetCurrentContext();
-        // Also plain pop-up lists (Add objective..., drop-downs; D7), but not a question box: it answers Esc itself.
+        // Also plain pop-up lists (Add objective..., drop-downs), but not a question box: it answers Esc itself.
         if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && g.OpenPopupStack.Size > 0) {
             ImGuiWindow* top = g.OpenPopupStack.back().Window;
             if (top && !(top->Flags & ImGuiWindowFlags_Modal)) {
@@ -4114,13 +5080,20 @@ void App::ui_menu() {
     if (!ImGui::BeginMainMenuBar()) return;
     // Menu shortcut text = the first key bound to the action (Preferences > Hotkeys).
     std::string ktext[A_COUNT];
-    for (int a = 0; a < A_COUNT; a++) ktext[a] = key_text(settings_.keys[a][0]);
+    for (int a = 0; a < A_COUNT; a++) ktext[a] = kt(a);
     auto K = [&](int a) { return ktext[a].empty() ? nullptr : ktext[a].c_str(); };
     if (ImGui::BeginMenu("File")) {
-        if (ImGui::MenuItem("New map...", K(A_NEW))) cmd_new_kind(true);
-        if (ImGui::MenuItem("New mission...")) cmd_new_kind(false);
-        if (ImGui::MenuItem("Open a saved one...", K(A_OPEN))) cmd_open();
+        // A greyed item says why (no game folder, no map open, a real level).
+        auto why = [&](const char* text) {
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", text);
+        };
+        const char* no_game = "Needs the game folder. It was not found: set it in File > Settings > General > Game folder (type or paste the path).";
+        const char* no_map = !doc_ ? "Make or open a map first (File > New map...)." : doc_->read_only ? "This is a real level and cannot be changed. Press \"Make an editable copy\" on the Map tab first." : nullptr;
+        if (ImGui::MenuItem(act_text(A_NEW, "...").c_str(), K(A_NEW))) cmd_new_kind(true);
+        if (ImGui::MenuItem(act_text(A_NEW_MISSION, "...").c_str())) cmd_new_kind(false);
+        if (ImGui::MenuItem(act_text(A_OPEN, "...").c_str(), K(A_OPEN))) cmd_open();
         if (ImGui::MenuItem("Look at a real level...", nullptr, false, io_ != nullptr)) show_retail_ = true;
+        if (!io_) why(no_game);
         if (ImGui::BeginMenu("Open recent")) {
             bool any = false;
             std::string pick;
@@ -4137,9 +5110,11 @@ void App::ui_menu() {
             if (!pick.empty() && confirm_close()) open_path(fs::path(widen(pick)));
         }
         ImGui::Separator();
-        if (ImGui::MenuItem("Save", K(A_SAVE), false, editable())) cmd_save(false);
-        if (ImGui::MenuItem("Save as...", K(A_SAVE_AS), false, editable())) cmd_save(true);
-        if (ImGui::MenuItem("Settings...", K(A_PREFS))) open_prefs_ = true;
+        if (ImGui::MenuItem(act_text(A_SAVE).c_str(), K(A_SAVE), false, editable())) cmd_save(false);
+        if (no_map && !editable()) why(no_map);
+        if (ImGui::MenuItem(act_text(A_SAVE_AS, "...").c_str(), K(A_SAVE_AS), false, editable())) cmd_save(true);
+        if (no_map && !editable()) why(no_map);
+        if (ImGui::MenuItem(act_text(A_PREFS, "...").c_str(), K(A_PREFS))) open_prefs_ = true;
         if (ImGui::MenuItem("Open scenario folder")) {
             std::error_code ec;
             fs::create_directories(settings_.scenarios(), ec);
@@ -4147,9 +5122,12 @@ void App::ui_menu() {
             else ShellExecuteW(hwnd_, L"open", settings_.scenarios().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         }
         if (ImGui::MenuItem("Update old scenarios...", nullptr, false, io_ != nullptr)) offer_update_old_scenarios(true);
+        if (!io_) why(no_game);
         ImGui::Separator();
-        if (ImGui::MenuItem("Check scenario...", nullptr, false, doc_ != nullptr)) { validation_ = check_now(); show_validation_ = true; }
-        if (ImGui::MenuItem("Test in game", K(A_TEST), false, editable())) cmd_test();
+        if (ImGui::MenuItem(act_text(A_CHECK, "...").c_str(), nullptr, false, doc_ != nullptr)) { validation_ = check_now(); show_validation_ = true; }
+        if (!doc_) why("Make or open a map first (File > New map...).");
+        if (ImGui::MenuItem(act_text(A_TEST).c_str(), K(A_TEST), false, editable())) cmd_test();
+        if (no_map && !editable()) why(no_map);
         ImGui::Separator();
         if (ImGui::MenuItem(from_game ? "Back to the game" : "Exit")) quit_ = true;
         if (from_game) ImGui::SetItemTooltip("Closes the editor and returns to Custom Scenarios in the game (it asks about unsaved changes first).");
@@ -4162,28 +5140,36 @@ void App::ui_menu() {
         if (ImGui::MenuItem((undo_name + "##undo").c_str(), K(A_UNDO), false, editable() && !undo_.empty())) undo();
         if (ImGui::MenuItem((redo_name + "##redo").c_str(), K(A_REDO), false, editable() && !redo_.empty())) redo();
         ImGui::Separator();
-        if (ImGui::MenuItem("Cut", K(A_CUT), false, editable() && !selection_.empty())) cut_selection();
-        if (ImGui::MenuItem("Copy", K(A_COPY), false, !selection_.empty())) copy_selection();
+        if (ImGui::MenuItem(act_text(A_CUT).c_str(), K(A_CUT), false, editable() && !selection_.empty())) cut_selection();
+        if (ImGui::MenuItem(act_text(A_COPY).c_str(), K(A_COPY), false, !selection_.empty())) copy_selection();
         if (ImGui::MenuItem("Paste at view centre", nullptr, false, editable() && !clipboard_.empty())) {
             paste({cam_.tx, 0, cam_.tz});
         }
-        if (ImGui::MenuItem("Duplicate", K(A_DUPLICATE), false, editable() && !selection_.empty())) duplicate_selected();
-        if (ImGui::MenuItem("Delete", K(A_DELETE), false, editable() && !selection_.empty())) delete_selection();
-        if (ImGui::MenuItem("Snap to ground", K(A_SNAP), false, editable() && !selection_.empty())) snap_selection_to_ground();
+        if (ImGui::MenuItem(act_text(A_DUPLICATE).c_str(), K(A_DUPLICATE), false, editable() && !selection_.empty())) duplicate_selected();
+        if (ImGui::MenuItem(act_text(A_DELETE).c_str(), K(A_DELETE), false, editable() && !selection_.empty())) delete_selection();
+        if (ImGui::MenuItem(act_text(A_SNAP).c_str(), K(A_SNAP), false, editable() && !selection_.empty())) snap_selection_to_ground();
+        if (ImGui::MenuItem(act_text(A_BRING_FORWARD).c_str(), K(A_BRING_FORWARD), false, editable() && !selection_.empty())) layer_forward();
+        ImGui::SetItemTooltip("Put the selected road piece or base on top of the flat pieces it overlaps.");
+        if (ImGui::MenuItem(act_text(A_SEND_BACK).c_str(), K(A_SEND_BACK), false, editable() && !selection_.empty())) layer_back();
+        ImGui::SetItemTooltip("Put the selected road piece or base under the flat pieces it overlaps.");
+        if (ImGui::MenuItem("Put flat pieces in order", nullptr, false, editable())) reseat_command();
+        ImGui::SetItemTooltip("Stack the selected road pieces and bases (or all of them) by the order they were placed in, so none lie at the same height. Tilted and glued pieces are left alone.");
         ImGui::Separator();
-        if (ImGui::MenuItem("Place again", K(A_PLACE_AGAIN), false, editable() && last_place_tool_ != Tool::Select && tool_ != last_place_tool_)) place_again();
-        if (ImGui::MenuItem("Place more of this", K(A_PICK_TYPE), false, editable() && selection_.size() == 1)) pick_selected_type();
-        ImGui::MenuItem("Snap placing to a 5 m grid", nullptr, &grid_snap_);
+        if (ImGui::MenuItem(act_text(A_PLACE_AGAIN).c_str(), K(A_PLACE_AGAIN), false, editable() && last_place_tool_ != Tool::Select && tool_ != last_place_tool_)) place_again();
+        if (ImGui::MenuItem(act_text(A_PICK_TYPE).c_str(), K(A_PICK_TYPE), false, editable() && selection_.size() == 1)) pick_selected_type();
+        ImGui::SeparatorText("Snapping");
+        snap_controls_ui(false);
         ImGui::Separator();
-        if (ImGui::MenuItem("Select all", K(A_SELECT_ALL), false, doc_ != nullptr)) select_all();
+        ImGui::Separator();
+        if (ImGui::MenuItem(act_text(A_SELECT_ALL).c_str(), K(A_SELECT_ALL), false, doc_ != nullptr)) select_all();
         if (ImGui::MenuItem("Deselect all", K(A_CANCEL), false, !selection_.empty())) selection_.clear();
-        if (ImGui::MenuItem("Frame the selection", K(A_ZOOM_SEL), false, !selection_.empty())) zoom_to_selection();
+        if (ImGui::MenuItem(act_text(A_ZOOM_SEL).c_str(), K(A_ZOOM_SEL), false, !selection_.empty())) zoom_to_selection();
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("View")) {
-        // Three groups (UX-SPEC S6): what to show, how close to the game it looks, and the camera. Item names stay as the hints quote them ("View > Effects").
+        // Three groups: what to show, how close to the game it looks, and the camera. Item names stay as the hints quote them ("View > Effects").
         ImGui::SeparatorText("Show");
-        ImGui::MenuItem("Grid", nullptr, &r_.params.grid);
+        ImGui::MenuItem("Map grid (64 m lines)", nullptr, &r_.params.grid);
         if (ImGui::BeginMenu("Show objects for game type", doc_ && doc_->multiplayer)) {
             if (ImGui::MenuItem("All game types", nullptr, view_type_ < 0)) { view_type_ = -1; objects_dirty_ = true; }
             ImGui::Separator();
@@ -4197,7 +5183,7 @@ void App::ui_menu() {
         }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Some objects only exist in one game type (for example the Snatch It base or the Capture the Flag flags). Pick a type to see just what the game shows in it. This only changes the view, not the saved map.");
         if (ImGui::BeginMenu("Helpers (not shown in the game)")) {
-            if (ImGui::MenuItem("Show helpers", K(A_HELPERS), &show_helpers_)) objects_dirty_ = true;
+            if (ImGui::MenuItem(act_text(A_HELPERS).c_str(), K(A_HELPERS), &show_helpers_)) objects_dirty_ = true;
             ImGui::Separator();
             static const char* names[HG_COUNT] = {"Trigger areas", "AI paths (waypoints)", "Markers", "Lights", "Cameras and camera paths", "Other logic"};
             for (int g = 0; g < HG_COUNT; g++)
@@ -4211,6 +5197,8 @@ void App::ui_menu() {
         ImGui::MenuItem("Level tree", nullptr, &show_level_tree_);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Every object of the level in its groups, as the game reads it: triggers and their actions, cutscenes, sets, everything. Click one to open it in Properties, also when it has no place on the map.");
         if (ImGui::MenuItem("Where players may go (overlay)", nullptr, &show_typemap_)) overlay_dirty_ = true, typemap_auto_ = false;
+        if (bool st = show_steep_; ImGui::MenuItem("Steep ground (overlay)", nullptr, &st)) { settings_.show_steep = st; show_steep_ = st; steep_auto_ = false; settings_.save(); overlay_dirty_ = true; }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Tints steep ground by who can get up it: yellow over %.0f%% (bots' 'Mechs won't walk up it; jump-jet 'Mechs may jet up a short face), orange over %.0f%% (very steep: bots won't route here; some 'Mechs may still climb it).", double(kSteepBot) * 100.0, double(kSteepLight) * 100.0);
         ImGui::SeparatorText("Look like the game");
         if (ImGui::MenuItem("3D models (off = simple boxes)", nullptr, &show_models_)) objects_dirty_ = true;
         ImGui::MenuItem("Sky", nullptr, &show_sky_);
@@ -4219,6 +5207,8 @@ void App::ui_menu() {
         ImGui::MenuItem("Ground textures", nullptr, &r_.params.detail);
         ImGui::MenuItem("Game lighting", nullptr, &r_.params.env_light);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Light the view with the map's own ambient and sun colours (Environment tab), so night maps look dark like in the game.");
+        if (ImGui::MenuItem("Brighten dark maps", nullptr, &r_.params.lift_dark)) { settings_.lift_dark = r_.params.lift_dark; settings_.save(); }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Night looks are very dark. On: the editor view lifts a very dark map so you can see what you place. Only this view changes; the map and the game look as before. Turn it off to see the night as the game draws it.");
         ImGui::MenuItem("Fog", nullptr, &r_.params.fog);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show the map's fog the way the game does (scaled by the game's Draw distance setting). Night maps fade to black a few hundred metres away, as in the game.");
         ImGui::MenuItem("Weather", nullptr, &show_weather_);
@@ -4236,43 +5226,42 @@ void App::ui_menu() {
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Let street lamps and other lights light the ground and nearby models the way the game does, to check the look of a scene. Off by default because it costs a little speed.");
         ImGui::MenuItem("Walls that block the camera", nullptr, &fade_blockers_);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Hide the walls and gates the game fades out when they stand between the camera and the player (an arena wall around the fight): objects ticked \"Blocks camera when faded\" disappear while the line from the camera to its target passes through them. Off by default; a replayed game camera pose (the pair scripts' --cam-eye) always does it.");
+        ImGui::SeparatorText("Window");
+        if (ImGui::BeginMenu("Text and button size")) {  // A big window can be given a bigger UI from here (also File > Settings > General)
+            const float cur = dpi_ / std::max(0.5f, base_dpi_);
+            static const float steps[] = {0.75f, 1.f, 1.25f, 1.5f, 1.75f, 2.f};
+            for (float sc : steps) {
+                char lb[32];
+                snprintf(lb, sizeof lb, "%.2fx", double(sc));
+                if (ImGui::MenuItem(lb, nullptr, !settings_.ui_scale_auto && std::fabs(cur - sc) < 0.01f)) { settings_.ui_scale = sc; settings_.ui_scale_auto = false; settings_.ui_scale_run = 0; ui_scale_dirty_ = true; settings_.save(); }
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Fit to this window", nullptr, settings_.ui_scale_auto)) {   // Stays on, follows the window size
+                settings_.ui_scale_auto = true;
+                settings_.ui_scale_run = 0;
+                ui_scale_dirty_ = true;
+                settings_.save();
+            }
+            ImGui::EndMenu();
+        }
         ImGui::SeparatorText("Camera");
-        if (ImGui::MenuItem("Top-down camera", K(A_TOP_DOWN))) cam_.pitch = cam_.pitch < 1.5f ? 1.5533f : 0.95f;
-        if (ImGui::MenuItem("Zoom to selection", K(A_ZOOM_SEL), false, doc_ != nullptr && !selection_.empty())) zoom_to_selection();
-        if (ImGui::MenuItem("Reset view", K(A_RESET_VIEW), false, doc_ != nullptr)) reset_view();
+        if (ImGui::MenuItem(act_text(A_TOP_DOWN).c_str(), K(A_TOP_DOWN))) cam_.pitch = cam_.pitch < 1.5f ? 1.5533f : 0.95f;
+        if (ImGui::MenuItem(act_text(A_ZOOM_SEL).c_str(), K(A_ZOOM_SEL), false, doc_ != nullptr && !selection_.empty())) zoom_to_selection();
+        if (ImGui::MenuItem(act_text(A_RESET_VIEW).c_str(), K(A_RESET_VIEW), false, doc_ != nullptr)) reset_view();
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Help")) {
-        if (ImGui::MenuItem("How to use the editor...", K(A_HELP))) show_help_ = true;
-        if (ImGui::MenuItem("Keyboard shortcuts...", "?")) show_keys_ = true;
+        if (ImGui::MenuItem(act_text(A_HELP, "...").c_str(), K(A_HELP))) { show_help_ = true; help_ctx_ = true; }
+        if (ImGui::MenuItem(act_text(A_SHORTCUTS, "...").c_str(), K(A_SHORTCUTS))) show_keys_ = true;
         if (ImGui::MenuItem("Getting Started")) show_getting_started_ = true;
         if (ImGui::MenuItem("User guide")) open_user_guide();
         ImGui::Separator();
         if (ImGui::MenuItem("About...")) show_about_ = true;
         ImGui::Separator();
-        ImGui::TextDisabled("Camera: WASD / arrows or right-drag pan, wheel zoom, middle-drag turn, T top-down.");
-        ImGui::TextDisabled("Q / E turn, G to the ground, Del delete, Ctrl+Z undo. Change keys: File > Settings > Keys.");
+        ImGui::TextDisabled("Camera: %s or right-drag pan, wheel zoom, middle-drag or %s+drag turn, %s top-down.", pan_text().c_str(), mod_name(settings_.hold_orbit), kt(A_TOP_DOWN).c_str());
+        ImGui::TextDisabled("%s turn, %s puts it on the ground, %s delete, %s undo. Change keys: File > Settings > Keys.", turn_keys_text().c_str(),
+                            kt(A_SNAP).c_str(), kt(A_DELETE).c_str(), kt(A_UNDO).c_str());
         ImGui::EndMenu();
-    }
-    bool no_popup = !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
-    // File shortcuts work with or without an open map (the map view handles the others).
-    ImGuiIO& io = ImGui::GetIO();
-    if (no_popup && !io.WantTextInput && capture_act_ < 0) {
-        bool save = pressed(A_SAVE), save_as = pressed(A_SAVE_AS), test = pressed(A_TEST);
-        if (save && editable()) cmd_save(false);
-        if (save_as && editable()) cmd_save(true);
-        if (pressed(A_OPEN)) cmd_open();
-        if (pressed(A_NEW)) cmd_new();
-        if (test && editable()) cmd_test();
-        // On a real level the keys say why nothing happened (the toolbar buttons say it in their tooltips).
-        if ((save || save_as || test) && doc_ && doc_->read_only) {
-            status_ = std::string("This is a real level and cannot be changed. Press \"Make an editable copy\" on the Map tab, then ") +
-                      (test ? "test" : "save") + " your copy.";
-            status_time_ = 8;
-        }
-        if (pressed(A_HELP)) show_help_ = true;
-        if (!ImGui::GetIO().WantTextInput && ImGui::GetIO().KeyShift && ImGui::IsKeyPressed(ImGuiKey_Slash, false)) show_keys_ = !show_keys_;  // "?"
-        if (pressed(A_PREFS)) open_prefs_ = true;
     }
     ImGui::EndMainMenuBar();
 }
@@ -4280,17 +5269,16 @@ void App::ui_menu() {
 void App::ui_tabs() {
     ImGuiWindowFlags f = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
     ImGui::Begin("##tabs", nullptr, f);
-    // Task order (UX-SPEC section 3): how a scenario is made. Players lives inside Units and Props, Messages inside Objectives & Triggers.
+    // Task order (section 3): how a scenario is made. Players lives inside Units and Props, Messages inside Objectives & Triggers.
     struct TabDef { Tab t; const char* name; const char* tip; };
     static const TabDef defs[] = {
         {Tab::Map, "Map", "Name, description, size and game types of this map."},
-        {Tab::Terrain, "Terrain", "Shape the ground and paint it."},
-        {Tab::Units, "Units and Props", "Starts and spawn points, then the units, buildings and props each side has."},
+        {Tab::Build, "Build", "Everything you put on the map or shape on it: objects, scatter, roads and walls, ground, paint, water and starts. The strip on the left picks the tool."},
         {Tab::Triggers, "Objectives & Triggers", "The briefing, the objectives, and what happens when (triggers, cutscenes)."},
         {Tab::Cameras, "Cameras & Cutscenes", "Cutscenes and the cameras they fly: make, aim and play them."},
         {Tab::Environment, "Environment", "Time of day, sky, light, fog and weather."},
     };
-    const Tab shown = tab_ == Tab::Players ? Tab::Units : tab_ == Tab::Messages ? Tab::Triggers : tab_;
+    const Tab shown = tab_ == Tab::Players || tab_ == Tab::Units || tab_ == Tab::Terrain ? Tab::Build : tab_ == Tab::Messages ? Tab::Triggers : tab_;
     for (int i = 0; i < int(sizeof defs / sizeof defs[0]); i++) {
         if (i) ImGui::SameLine();
         bool on = shown == defs[i].t;
@@ -4299,14 +5287,19 @@ void App::ui_tabs() {
         // With no map open only Map (new / open) leads anywhere; the task tabs wait for a map.
         const bool needs_map = !doc_ && defs[i].t != Tab::Map;
         ImGui::BeginDisabled(needs_map);
-        if (theme::heading_font()) ImGui::PushFont(theme::heading_font(), 0.f);
-        float w = std::max(96 * dpi_, ImGui::CalcTextSize(defs[i].name).x + 24 * dpi_);
+        if (theme::tab_font()) ImGui::PushFont(theme::tab_font(), 0.f);
+        // Narrow window: tabs only as wide as their words, so the map name and Helpers fit in the strip.
+        const bool tight = float(ImGui::GetMainViewport()->Size.x) / dpi_ < 1500.f;
+        float w = std::max((tight ? 52.f : 96.f) * dpi_, ImGui::CalcTextSize(defs[i].name).x + (tight ? 20.f : 24.f) * dpi_);
         const bool clicked = ImGui::Button(defs[i].name, ImVec2(w, 0));
-        if (theme::heading_font()) ImGui::PopFont();
+        if (theme::tab_font()) ImGui::PopFont();
         ImGui::EndDisabled();
         if (clicked) {
-            tab_ = defs[i].t;
-            if (tool_ != Tool::Select && tool_ != Tool::PickPoint) tool_ = Tool::Select;
+            if (defs[i].t == Tab::Build) goto_tab(Tab::Build);  // the page it was on
+            else {
+                tab_ = defs[i].t;
+                if (tool_ != Tool::Select && tool_ != Tool::PickPoint) tool_ = Tool::Select;
+            }
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("%s", needs_map ? "Make or open a map first (the start page in the middle, or File > New map or mission)." : defs[i].tip);
@@ -4316,26 +5309,27 @@ void App::ui_tabs() {
     ImGui::BeginDisabled(!editable());
     // Greyed buttons still say why (a newcomer otherwise has no idea what to do).
     const char* why_off = !doc_ ? "Make or open a scenario first (the start page in the middle, or File > New map...)." : doc_->read_only ? "This is a real level and cannot be changed. Press \"Make an editable copy\" on the Map tab first." : nullptr;
-    // Undo / Redo name the step they act on (UX-SPEC section 2: the toolbar strip).
+    // Undo / Redo name the step they act on (section 2: the toolbar strip).
     ImGui::BeginDisabled(undo_.empty());
     if (ImGui::Button("Undo")) undo();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("%s", undo_.empty() ? "Nothing to undo yet." : ("Undo " + undo_.back().label + " (" + key_text(settings_.keys[A_UNDO][0]) + ")").c_str());
+        ImGui::SetTooltip("%s", undo_.empty() ? "Nothing to undo yet." : ("Undo " + undo_.back().label + " (" + kt(A_UNDO) + ")").c_str());
     ImGui::EndDisabled();
     ImGui::SameLine(0, 2 * dpi_);
     ImGui::BeginDisabled(redo_.empty());
     if (ImGui::Button("Redo")) redo();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("%s", redo_.empty() ? "Nothing to redo." : ("Redo " + redo_.back().label + " (" + key_text(settings_.keys[A_REDO][0]) + ")").c_str());
+        ImGui::SetTooltip("%s", redo_.empty() ? "Nothing to redo." : ("Redo " + redo_.back().label + " (" + kt(A_REDO) + ")").c_str());
     ImGui::EndDisabled();
     ImGui::SameLine(0, 14 * dpi_);
     if (ImGui::Button("Save")) cmd_save(false);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("%s", why_off ? why_off : ("Save the scenario (" + key_text(settings_.keys[A_SAVE][0]) + ").").c_str());
+        ImGui::SetTooltip("%s", why_off ? why_off : ("Save the scenario (" + kt(A_SAVE) + ").").c_str());
     ImGui::SameLine();
-    if (theme::primary_button("Test", ImVec2(72 * dpi_, 0))) cmd_test();
+    // With no map the Test button is plain like Save, not the bright call to action.
+    if (editable() ? theme::primary_button("Test", ImVec2(72 * dpi_, 0)) : ImGui::Button("Test", ImVec2(72 * dpi_, 0))) cmd_test();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("%s", why_off ? why_off : ("Saves, then starts the game straight into this scenario (" + key_text(settings_.keys[A_TEST][0]) + ").").c_str());
+        ImGui::SetTooltip("%s", why_off ? why_off : ("Saves, then starts the game straight into this scenario (" + kt(A_TEST) + ").").c_str());
     if (doc_ && doc_->multiplayer) {
         // The test match settings sit next to Test (they were at the bottom of the Units and Props tab).
         ImGui::SameLine(0, 1 * dpi_);
@@ -4347,34 +5341,41 @@ void App::ui_tabs() {
     ImGui::EndDisabled();
     ImGui::SameLine();
     if (doc_) {
-        // The Helpers button and the game-type box sit at the right end of the strip (UX-SPEC S4/S5); the name is clipped
+        // The Helpers button and the game-type box sit at the right end of the strip; the name is clipped
         // before them (full name in its tooltip), the "not saved" note after it.
-        const float combo_w = doc_->multiplayer ? 200 * dpi_ : 0.f;
+        const float combo_w = doc_->multiplayer ? (ImGui::GetMainViewport()->Size.x / dpi_ < 1500.f ? 172.f : 200.f) * dpi_ : 0.f;
         const float help_w = ImGui::CalcTextSize("Helpers").x + ImGui::GetStyle().FramePadding.x * 2;
         const float helpers_x = ImGui::GetWindowContentRegionMax().x - help_w - combo_w - ImGui::GetStyle().ItemSpacing.x;
         const char* note = doc_->read_only ? "real level, read-only" : (doc_->dirty || doc_->file.empty()) ? "not saved" : nullptr;
         const float note_w = note ? ImGui::CalcTextSize(note).x + ImGui::GetStyle().ItemSpacing.x : 0.f;
         const float name_full = ImGui::CalcTextSize(doc_->name.c_str()).x;
-        const float name_w = std::min(name_full, std::max(40 * dpi_, helpers_x - ImGui::GetCursorPosX() - 8 * dpi_ - note_w));
-        ImGui::AlignTextToFramePadding();
-        {
-            const ImVec2 pos = ImGui::GetCursorScreenPos();
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-            dl->PushClipRect(pos, ImVec2(pos.x + name_w, pos.y + ImGui::GetFrameHeight()), true);
-            dl->AddText(ImVec2(pos.x, pos.y + ImGui::GetStyle().FramePadding.y), ImGui::GetColorU32(theme::tok().text_bright), doc_->name.c_str());
-            dl->PopClipRect();
-            ImGui::Dummy(ImVec2(name_w, ImGui::GetFrameHeight()));
-            if (name_w < name_full && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", doc_->name.c_str());
+        // The name is clipped before Helpers (full name in its tooltip); with less than ~36 px of room it is left out (the
+        // window title and the Map tab carry it) instead of being drawn under the Helpers button.
+        const float room = helpers_x - ImGui::GetCursorPosX() - 8 * dpi_ - note_w;
+        if (room >= 36 * dpi_) {
+            const float name_w = std::min(name_full, room);
+            ImGui::AlignTextToFramePadding();
+            {
+                const ImVec2 pos = ImGui::GetCursorScreenPos();
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                dl->PushClipRect(pos, ImVec2(pos.x + name_w, pos.y + ImGui::GetFrameHeight()), true);
+                dl->AddText(ImVec2(pos.x, pos.y + ImGui::GetStyle().FramePadding.y), ImGui::GetColorU32(theme::tok().text_bright), doc_->name.c_str());
+                dl->PopClipRect();
+                ImGui::Dummy(ImVec2(name_w, ImGui::GetFrameHeight()));
+                if (name_w < name_full && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", doc_->name.c_str());
+            }
+            ImGui::SameLine();
+            if (doc_->read_only) ImGui::TextColored(theme::tok().warn, "real level, read-only");
+            else if (note) ImGui::TextColored(theme::tok().text_hint, "not saved");
         }
-        ImGui::SameLine();
-        if (doc_->read_only) ImGui::TextColored(theme::tok().warn, "real level, read-only");
-        else if (note) ImGui::TextColored(theme::tok().text_hint, "not saved");
+        // At the right end of the strip, always: it does not slide when "not saved" comes and goes, nor sit mid-bar on a very
+        // wide window (this replaces's 300 px cap).
         ImGui::SameLine(std::max(ImGui::GetCursorPosX() + 20 * dpi_, helpers_x));
         const bool help_on = show_helpers_;
         if (theme::toggle_button("Helpers", help_on)) { show_helpers_ = !show_helpers_; objects_dirty_ = true; }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
             ImGui::SetTooltip("%s", (std::string(help_on ? "Hide" : "Show") + " the helpers the game never draws: trigger areas, AI paths, markers, lights, cameras (" +
-                                     key_text(settings_.keys[A_HELPERS][0]) + "). Pick groups in View > Helpers.").c_str());
+                                     kt(A_HELPERS) + "). Pick groups in View > Helpers.").c_str());
         if (doc_->multiplayer) {
             ImGui::SameLine();
             view_type_combo(combo_w);
@@ -4386,6 +5387,8 @@ void App::ui_tabs() {
 void App::ui_left_panel() {
     ImGuiWindowFlags f = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
                          ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBringToFrontOnFocus;
+    // The Build pages never scroll themselves: their browser or list does.
+    if (doc_ && tab_ == Tab::Build) f |= ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
     ImGui::Begin("##left", nullptr, f);
     // Each tab keeps its own scroll position: opening Map after scrolling down the Terrain tab used
     // to leave Map scrolled past its name and description.
@@ -4397,7 +5400,8 @@ void App::ui_left_panel() {
         scroll_tab = tab_;
     }
     if (!io_) {
-        ImGui::TextWrapped("%s", game_error_.c_str());
+        // The details are in Settings (it opens at start): said once, not in both places.
+        ImGui::TextWrapped("The game folder is not set up yet. Choose the folder with MechAssault 2.exe in Settings.");
         if (ImGui::Button("Settings...")) open_prefs_ = true;
     } else if (!doc_ && show_getting_started_) {
         // The same choices are in the Getting Started window in front: no second set with other words here.
@@ -4405,7 +5409,8 @@ void App::ui_left_panel() {
     } else if (!doc_) {
         // The start page in the middle of the window holds New / Open / Look; this panel fills once a map is open.
         ImGui::TextDisabled("No map open.");
-        ImGui::TextWrapped("Pick how to start in the middle of the window (or the File menu).");
+        if (show_new_) ImGui::TextWrapped("Fill in the New map or mission window to start.");  // the dialog is already open
+        else ImGui::TextWrapped("Pick how to start in the middle of the window (or the File menu).");
     } else {
         if (doc_ && doc_->read_only) {
             // Retail levels open read-only; say so on every tab and offer the way out.
@@ -4419,29 +5424,7 @@ void App::ui_left_panel() {
         }
         switch (tab_) {
             case Tab::Map: tab_map(); break;
-            case Tab::Terrain: tab_terrain(); break;
-            case Tab::Players:
-            case Tab::Units:
-                // Units and Props: where players start (spawn points, pads, game-mode objects / the player start), folded
-                // to one line above the palette so the unit pictures come first (fresh-eyes 7); a jump to Players opens it.
-                {
-                    int starts = 0;
-                    for (auto& o : doc_->world.objs) starts += o.cls == K_LEVELSTART;
-                    std::string head = doc_->multiplayer ? "Starts (" + std::to_string(starts) + " spawn points)###starts"
-                                                         : std::string(starts ? "Player start (placed)###starts" : "Player start (not placed yet)###starts");
-                    if (tab_ == Tab::Players) { ImGui::SetNextItemOpen(true); tab_ = Tab::Units; }  // opened once; it can be folded again
-                    if (!starts) ImGui::SetNextItemOpen(true, ImGuiCond_Once);
-                    const bool starts_open = theme::section(head.c_str());
-                    ImGui::SetItemTooltip(doc_->multiplayer ? "Where players start (spawn points for each team), the vehicle pads and the game-mode objects (flags, bases...)."
-                                                            : "Where the player starts the mission.");
-                    if (starts_open) {
-                    ImGui::Indent(4 * dpi_);
-                    tab_players();
-                    ImGui::Unindent(4 * dpi_);
-                    }
-                }
-                tab_units();
-                break;
+            case Tab::Terrain: case Tab::Players: case Tab::Units: case Tab::Build: ui_build_tab(); break;  // (the first three are normalised to Build each frame)
             case Tab::Triggers:
             case Tab::Messages:
             {
@@ -4451,7 +5434,7 @@ void App::ui_left_panel() {
                 static bool jump_to_triggers = false;
                 if (ImGui::SmallButton("Jump to Triggers")) jump_to_triggers = true;
                 // Arriving from another tab to open a trigger (unit orders, "Open the trigger"): its editor is in
-                // the Triggers list, below the briefing, so go there (review B6: it opened out of view).
+                // the Triggers list, below the briefing, so go there (it opened out of view).
                 static uint32_t trig_seen = 0;
                 if (tab_switched && trig_uid_ && trig_uid_ != trig_seen) jump_to_triggers = true;
                 trig_seen = trig_uid_;
@@ -4473,6 +5456,7 @@ void App::ui_left_panel() {
         }
     }
     if (!tab_switched) tab_scroll[int(tab_)] = ImGui::GetScrollY();
+    panels_.left_scroll_max = ImGui::GetScrollMaxY();
     ImGui::End();
 }
 
@@ -4480,20 +5464,34 @@ void App::ui_right_panel() {
     ImGuiWindowFlags f = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
                          ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBringToFrontOnFocus;
     ImGui::Begin("##right", nullptr, f);
-    // A smaller overview leaves the Properties list room to show more settings at once.
-    float mm = std::min(ImGui::GetContentRegionAvail().x, 220.f * dpi_);
-    ImGui::BeginChild("##inspector", ImVec2(0, ImGui::GetContentRegionAvail().y - mm - 8 * dpi_), ImGuiChildFlags_None);
+    // The overview map sits under the Properties list and never over it: the list's child ends where the overview starts. On a short
+    // window (under 800 px (700 left Properties 380 px at 1584x861) of panel) the overview starts hidden so the Size fields and the buttons under them are in reach without
+    // scrolling; a small button under the list shows / hides it, and the choice is kept (Settings file, [Layout] Minimap).
+    const float avail_y = ImGui::GetContentRegionAvail().y;
+    const bool mm_open = settings_.minimap < 0 ? avail_y >= 800.f * dpi_ : settings_.minimap == 1;
+    minimap_open_ = mm_open;
+    const float btn_h = ImGui::GetFrameHeight();
+    // The overview shrinks on a short window (a quarter of the panel, 120..220 px) so the Properties list keeps its room.
+    float mm = mm_open ? std::min(std::min(ImGui::GetContentRegionAvail().x, 220.f * dpi_), std::max(120.f * dpi_, 0.25f * avail_y)) : 0.f;
+    ImGui::BeginChild("##inspector", ImVec2(0, avail_y - mm - btn_h - 8 * dpi_), ImGuiChildFlags_None);
+    if (focus_props_) { ImGui::SetScrollY(0); focus_props_ = false; }  // the object menu's Properties: back to the top of the list
     transform_tools_ui();
     ui_inspector();
     ImGui::EndChild();
-    ui_minimap();
+    if (ImGui::SmallButton(mm_open ? "Hide the overview map##mmtoggle" : "Show the overview map##mmtoggle")) {
+        settings_.minimap = mm_open ? 0 : 1;
+        settings_.save();
+    }
+    ImGui::SetItemTooltip("The small map under Properties. Hidden, Properties gets the room.");
+    if (mm_open) ui_minimap();
     ImGui::End();
     ui_legend();
+    snap_bar();
     level_tree_window();
 }
 
 // Status bar: left = the tool and what a click does (or the last message, green, while it shows);
-// right = cursor position, selection, object count, map kind, last autosave (UX-SPEC 5).
+// right = cursor position, selection, object count, map kind, last autosave.
 // The game's key-hint footer look (style-guide section 5): in each " - " part after the first, the leading key
 // names ("Ctrl+Z", "Q / E", "[ / ]", "Esc") are drawn in the hint blue and the action words in the body colour.
 static bool is_key_word(const std::string& w) {
@@ -4502,10 +5500,11 @@ static bool is_key_word(const std::string& w) {
     if (!std::isupper((unsigned char)w[0])) return false;
     for (char ch : w) if (!std::isalnum((unsigned char)ch) && ch != '+') return false;
     return w.size() <= 2 || w.find('+') != std::string::npos || w == "Esc" || w == "Del" || w == "Space" || w == "Shift" || w == "Ctrl" ||
-           w == "Alt" || w == "Tab" || w == "Enter" || w == "Home" || w == "End" || w == "Delete" || w == "Backspace" || w == "Insert";
+           w == "Alt" || w == "Tab" || w == "Enter" || w == "Home" || w == "End" || w == "Delete" || w == "Backspace" || w == "Insert" ||
+           w == "PgUp" || w == "PgDn" || w == "Up" || w == "Down" || w == "Left" || w == "Right" || w == "Num";
 }
 
-static void key_hint_text(const std::string& line) {
+static void key_hint_text(const std::string& line, bool lead_sep = true) {
     const ImVec4 body = ImGui::GetStyleColorVec4(ImGuiCol_Text), keyc = theme::tok().text_hint, dim = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
     size_t at = 0;
     for (int part = 0; at <= line.size(); part++) {
@@ -4513,13 +5512,15 @@ static void key_hint_text(const std::string& line) {
         std::string seg = line.substr(at, end == std::string::npos ? std::string::npos : end - at);
         if (part) { ImGui::SameLine(0, 0); ImGui::TextColored(dim, " - "); ImGui::SameLine(0, 0); }
         size_t k = 0;  // end of the leading key words
-        if (part) {
+        if (part || !lead_sep) {  // a continuation line starts with key words too, but has no separator before them
             for (size_t i = 0;;) {
                 size_t sp = seg.find(' ', i);
                 std::string w = seg.substr(i, sp == std::string::npos ? std::string::npos : sp - i);
+                const bool colon = w.size() > 1 && w.back() == ':';  // "Q / E: another way" - the last key name ends in a colon
+                if (colon) w.pop_back();
                 if (!is_key_word(w)) break;
                 k = sp == std::string::npos ? seg.size() : sp;
-                if (sp == std::string::npos) break;
+                if (colon || sp == std::string::npos) break;
                 i = sp + 1;
             }
         }
@@ -4537,12 +5538,26 @@ static void key_hint_text(const std::string& line) {
 void App::ui_status() {
     ImGuiWindowFlags f = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8 * dpi_, 2 * dpi_));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, 2 * dpi_));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(1, 1));   // The bar is shorter than a window's usual minimum, which pushed it below the window edge
     ImGui::Begin("##status", nullptr, f);
     if (doc_) {
         char right[256];
         Vec3 g;
-        int k = (vp_hover_ && cursor_ground(g)) ? std::snprintf(right, sizeof right, "x %.0f  z %.0f  height %.1f m", g.x, g.z, g.y)
+        int k = (vp_hover_ && cursor_ground(g)) ? std::snprintf(right, sizeof right, "x %.0f  z %.0f  ground %.2f m", g.x, g.z, g.y)
                                                 : std::snprintf(right, sizeof right, "x -  z -");
+        if (vp_hover_ && k > 0 && editable()) {  // a flat piece under the cursor: its top as well
+            const double now = ImGui::GetTime();
+            if (now - paving_time_ > 0.1 || std::fabs(paving_x_ - g.x) + std::fabs(paving_z_ - g.z) > 0.5f) {  // a few times a second is plenty
+                paving_time_ = now;
+                paving_x_ = g.x;
+                paving_z_ = g.z;
+                uint32_t on = 0;
+                const float sf = surface_at(g.x, g.z, 1e30f, &on);
+                paving_ = on ? sf : std::numeric_limits<float>::quiet_NaN();
+            }
+            if (std::isfinite(paving_)) k += std::snprintf(right + k, sizeof right - k, "  paving %.2f m", paving_);
+        }
         size_t n = doc_->world.objs.size();
         // "N placed" counts what the user put down; the warnings past 2,300 / 3,000 use the full count (the game's limit).
         // The biggest real level (Mission_03) has 2,098, so a copy of it plus a few units is not yet "a lot".
@@ -4560,28 +5575,60 @@ void App::ui_status() {
         float rw = ImGui::CalcTextSize(right).x, avail = ImGui::GetWindowWidth() - rw - 28 * dpi_;
         bool msg = status_time_ > 0;
         std::string left = msg ? status_ : tool_hint_text();
-        // Cut to fit in front of the right cells; the whole line is in the tooltip.
-        std::string shown = left;
-        while (shown.size() > 4 && ImGui::CalcTextSize(shown.c_str()).x > avail) shown.resize(shown.size() - 4), shown += "...";
-        if (msg) ImGui::TextColored(theme::tok().ok, "%s", shown.c_str());
+        const ImVec4 msg_col = !status_amber_.empty() && status_ == status_amber_ ? theme::tok().warn : theme::tok().ok;
+        // Two-line bar (narrow window): the text breaks into a second line (at a " - " when that fills most of the first line,
+        // else at a space); only what does not fit in two lines is cut, and the whole line is in the tooltip.
+        std::string shown = left, second;
+        auto cut_to = [&](std::string t, float w) {
+            while (t.size() > 4 && ImGui::CalcTextSize(t.c_str()).x > w) t.resize(t.size() - 4), t += "...";
+            return t;
+        };
+        if (status_two_ && ImGui::CalcTextSize(left.c_str()).x > avail) {
+            size_t brk = std::string::npos, skip = 1;
+            for (size_t i = left.find(" - "); i != std::string::npos; i = left.find(" - ", i + 1)) {
+                if (ImGui::CalcTextSize(left.substr(0, i).c_str()).x > avail) break;
+                brk = i;
+            }
+            if (brk != std::string::npos && ImGui::CalcTextSize(left.substr(0, brk).c_str()).x > 0.6f * avail) skip = 3;
+            else {
+                brk = std::string::npos;
+                for (size_t i = left.find(' '); i != std::string::npos; i = left.find(' ', i + 1)) {
+                    if (ImGui::CalcTextSize(left.substr(0, i).c_str()).x > avail) break;
+                    brk = i;
+                }
+            }
+            if (brk == std::string::npos) brk = std::min<size_t>(left.size(), 40);
+            shown = left.substr(0, brk);
+            second = left.substr(std::min(left.size(), brk + skip));
+            second = cut_to(second, ImGui::GetWindowWidth() - 24 * dpi_);  // the second line has no cursor / count text beside it: the whole width
+        } else if (!status_two_) {
+            shown = cut_to(left, avail);
+        }
+        if (msg) ImGui::TextColored(msg_col, "%s", shown.c_str());
         else if (shown == left) key_hint_text(shown);
+        else if (status_two_) key_hint_text(shown);
         else ImGui::TextUnformatted(shown.c_str());
-        if (shown != left) ImGui::SetItemTooltip("%s", left.c_str());
+        if (!status_two_ && shown != left) ImGui::SetItemTooltip("%s", left.c_str());
         ImGui::SameLine(std::max(ImGui::GetWindowWidth() - rw - 10 * dpi_, ImGui::GetCursorPosX()));
         ImVec4 col = n > 3000 ? theme::tok().error : n > 2300 ? theme::tok().warn : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
         ImGui::TextColored(col, "%s", right);
         ImGui::SetItemTooltip("'placed' = things you placed on the map. Helpers (trigger areas, paths, markers) and the hidden objects\n"
                               "every map has (terrain, sky...) are not counted. The game's limit counts everything: %zu of 3,000.", n);
+        if (!second.empty()) {  // the second line of a two-line bar
+            if (msg) ImGui::TextColored(msg_col, "%s", second.c_str());
+            else key_hint_text(second, false);
+            if (second.size() > 3 && second.compare(second.size() - 3, 3, "...") == 0) ImGui::SetItemTooltip("%s", left.c_str());
+        }
     } else if (status_time_ > 0) {
         ImGui::TextColored(theme::tok().ok, "%s", status_.c_str());
     } else if (io_) {
         ImGui::TextDisabled("No map open. Pick how to start: New map, New mission, Open a saved one or Look at a real level.");
     }
     ImGui::End();
-    ImGui::PopStyleVar();
+    ImGui::PopStyleVar(3);
 }
 
-// No map open: the start page in the middle of the view (UX-SPEC 2, S11/M17). The same four words as
+// No map open: the start page in the middle of the view (S11/M17). The same four words as
 // the File menu and Getting Started, one line each, and the files opened last.
 void App::ui_start_page() {
     if (!io_) return;  // the left panel says what is wrong with the game folder
@@ -4594,7 +5641,8 @@ void App::ui_start_page() {
         theme::heading("Start");
         if (settings_.first_run)
             ImGui::TextWrapped("Welcome to the MechAssault 2 Scenario Editor. Build multiplayer maps to play against bots, or "
-                               "missions with briefings, objectives and enemies. Hover over any button to see what it does.");
+                               "missions with briefings, objectives and enemies. Hover over any button to see what it does. "
+                               "If the text is too small, File > Settings > General > UI scale makes it bigger.");
         else ImGui::TextDisabled("No map open. Pick how to start.");
         ImGui::Spacing();
         const float bw = 200 * dpi_, bh = 34 * dpi_;
@@ -4636,7 +5684,7 @@ std::string App::tool_hint_text() {
     c.read_only = doc_ && doc_->read_only;
     c.selected = int(selection_.size());
     if (doc_ && !selection_.empty()) {
-        // UX-SPEC 5 / O5: a selection where nothing has a place of its own (timers, 'units destroyed' triggers, sets).
+        // A selection where nothing has a place of its own (timers, 'units destroyed' triggers, sets).
         int placed = 0, trig = 0;
         for (const auto& o : doc_->world.objs) {
             if (!selection_.count(o.uid())) continue;
@@ -4648,34 +5696,97 @@ std::string App::tool_hint_text() {
         size_t n = selection_.size();
         c.what = n == 1 ? (trig ? "This trigger" : "This object") : "These " + std::to_string(n) + (trig == int(n) ? " triggers" : " objects");
     }
+    if (tool_ == Tool::Select) {
+        // Fresh each time (the flags the map input sets are stale until the mouse is over the map): the same piece says the same
+        // thing on every tab.
+        SizeLayout slo;
+        const bool sok = doc_ && selection_.size() == 1 && size_layout(slo);
+        c.sizable = sok;
+        c.size_water = sok && slo.si.kind == SizeKind::Water;
+        c.size_small = doc_ && selection_.size() == 1 && !sok && slo.reason == "too small on screen";
+        c.size_hint = size_hint_;
+        {  // Also with something selected (placing just stopped): the lit page says what it does
+            const bool on_build = tab_ == Tab::Build || tab_ == Tab::Terrain || tab_ == Tab::Players || tab_ == Tab::Units;   // Other tabs do not show a page's line
+            if (!on_build) {}
+            else if (page_ == Page::Water) c.page_pick = "press Place water on the map in the panel, then click the map";   // 
+            else if (page_ == Page::Scatter) c.page_pick = "pick an object in the list to arm the scatter brush";
+            else if (page_ == Page::Place) c.page_pick = "pick an object in the list, then click the map to place it";
+            else if (page_ == Page::RoadsWalls) c.page_pick = "pick a piece in the list, then click the map to place it";
+            else if (page_ == Page::Paint) c.page_pick = "pick a texture or a plant in the panel to start painting";
+            else if (page_ == Page::Sculpt) c.page_pick = "pick a shaping tool in the panel (Raise, Ramp ...)";
+            else if (page_ == Page::Starts) c.page_pick = doc_ && !doc_->multiplayer ? "press Move player start in the panel, then click the map where the player starts"
+                                                                                   : "press Place spawn point (or Add 6 on a ring) in the panel, then click the map";   // F-V5R-3
+            if (!c.page_pick.empty()) c.page_name = page_name(page_);   // The line names the page, not Select
+        }
+    }
+    c.water_w = water_new_w_;
+    c.water_l = water_new_l_;
+    c.water_dragging = water_drag_ && water_drag_moved_;
+    c.paste_count = int(paste_src_.size());
+    c.paste_dup = paste_dup_;
     c.brush_m = brush_radius_;
-    c.heading_deg = std::fmod(std::fmod(std::round(place_heading_ * 57.2958f), 360.f) + 360.f, 360.f);  // round first: -0.3 deg read '360'
+    c.raise_amount = settings_.raise_amount;
+    c.build_up = settings_.build_up;
+    c.ramp_stage = ramp_stage_;
+    c.ramp_width = settings_.ramp_width;
+    c.heading_deg = heading_display(std::round(ghost_yaw() * 57.2958f));  // round first: -0.3 deg read '360'
     c.road = !place_road_.empty();
     c.road_snapped = road_snapped_;
+    c.snapped = snap_.on && (tool_ == Tool::PlaceObject || tool_ == Tool::PasteGhost || (tool_ == Tool::Select && move_snap_.on));
+    c.moving = move_snap_.on;
+    c.snap_what = snap_.label;
     c.move_shape = pick_.kind == PickTarget::MoveShape;
     c.obj_targets = pick_.kind == PickTarget::ObjTargets;
+    c.link_unit = pick_.kind == PickTarget::LinkUnit || pick_.kind == PickTarget::CutUnit || pick_.kind == PickTarget::OrderUnit;
     c.cam_path = pick_.kind == PickTarget::CamPath;
     c.tint_pick = tint_pick_;
-    c.plant_erase = plant_erase_;
+    c.scatter_empty = scatter_set_.empty();
+    c.scatter_count = tool_ == Tool::ScatterTrees ? scatter_so_far() : -1;
+    c.scatter_erase = sc_run_ && sc_run_->erase;
+    {   // The reverse key on the paint tools flips the line while it is held, or for the whole stroke once it has begun.
+        const bool rev_tool = tool_ == Tool::PaintTexture || tool_ == Tool::PaintType || tool_ == Tool::PaintCulture;
+        c.paint_reversed = rev_tool && (stroke_active_ ? stroke_rev_ : holding(settings_.hold_reverse));
+        c.paint_layers = doc_ && doc_->ground.enabled && doc_->ground.count() >= 3;
+    }
+    c.plant_erase = plant_erase_ != (tool_ == Tool::PaintCulture && c.paint_reversed);
     c.objects_follow = settings_.objects_follow_terrain;
-    auto key = [&](int a, const char* def) { std::string t = key_text(settings_.keys[a][0]); return t.empty() ? std::string(def) : t; };
-    c.stop = key(A_CANCEL, "Esc");
-    c.turn_l = key(A_TURN_LEFT, "Q");
-    c.turn_r = key(A_TURN_RIGHT, "E");
-    c.del = key(A_DELETE, "Del");
-    c.frame = key(A_ZOOM_SEL, "F");
-    c.snap = key(A_SNAP, "G");
+    if (tool_ == Tool::PlaceObject && slope_plan_.active) {
+        c.slope_mode = int(slope_plan_.mode);
+        c.slope_fell_back = slope_plan_.fell_back;
+        c.slope_gap = slope_plan_.gap;
+        c.slope_up = slope_plan_.up;
+        c.slope_down = slope_plan_.down;
+        c.slope_deg = std::max(std::fabs(slope_plan_.pitch), std::fabs(slope_plan_.roll)) * 57.2958f;
+        c.slope_left = slope_plan_.left;
+        c.slope_fits = slope_plan_.fits_ground;
+        c.slope_joint = slope_plan_.joint_kept;
+        c.slope_buried = slope_plan_.buried;
+        c.slope_key = kt(A_SLOPE_MODE);
+    }
+    auto key = [&](int a, const char* def) { std::string t = kt(a); return t.empty() ? std::string(def) : t; };
+    c.stop = key(A_CANCEL, "-");
+    c.turn_l = key(A_TURN_LEFT, "-");
+    c.turn_r = key(A_TURN_RIGHT, "-");
+    c.del = key(A_DELETE, "-");
+    c.frame = key(A_ZOOM_SEL, "-");
+    c.snap = key(A_SNAP, "-");
+    c.select_all = key(A_SELECT_ALL, "-");
+    c.shortcuts = key(A_SHORTCUTS, "-");
+    c.undo = key(A_UNDO, "-");
+    c.brush = key(A_BRUSH_SMALLER, "-") + " / " + key(A_BRUSH_BIGGER, "-");
+    c.brush_weak = key(A_BRUSH_WEAKER, "-") + " / " + key(A_BRUSH_STRONGER, "-");
     c.hold_free = mod_name(settings_.hold_free);
+    c.grid_m = grid_active() ? settings_.snap.grid_m : 0.f;
+    c.angle_step = settings_.snap.angle && !holding(settings_.hold_free) ? settings_.snap.angle_deg : 0.f;
+    c.grid_keys = key(A_GRID_SMALLER, "-") + " / " + key(A_GRID_BIGGER, "-");
     c.hold_through = mod_name(settings_.hold_through);
     c.hold_quarter = mod_name(settings_.hold_quarter);
     c.hold_reverse = mod_name(settings_.hold_reverse);
-    if (c.stop == "Escape") c.stop = "Esc";
-    if (c.del == "Delete") c.del = "Del";
     bool mp = doc_ && doc_->multiplayer;
     if (tool_ == Tool::PlaceObject && cat_) {
         if (const TemplateInfo* t = place_road_.empty() ? cat_->find(place_template_) : nullptr) {
             c.thing = palette_plain_name(*t);  // the game name stays on the palette row tooltip
-            // The same rule as the 'Placing for' row: on a multiplayer map only turrets and soldiers take a team (fresh-eyes #8).
+            // The same rule as the 'Placing for' row: on a multiplayer map only turrets and soldiers take a team.
             static const uint32_t K_TURRET_ = key_of("MATurret"), K_PERSON_ = key_of("MAPerson");
             if (mp && (t->cls == K_TURRET_ || t->cls == K_PERSON_)) c.side = place_team_ == 1 ? "Red team" : place_team_ == 2 ? "Blue team" : "(no team)";
             else if (mp && side_unit(t->cls)) c.side = "(no team: it stands empty)";
@@ -4688,7 +5799,7 @@ std::string App::tool_hint_text() {
         c.thing = "spawn point";
         c.side = spawn_team_ == 1 ? "Red team" : spawn_team_ == 2 ? "Blue team" : "free-for-all games";
     }
-    if (tool_ == Tool::PlacePad && io_) {  // pads have no team: whoever reaches one climbs in (fresh-eyes #9)
+    if (tool_ == Tool::PlacePad && io_) {  // pads have no team: whoever reaches one climbs in
         auto& pads = io_->pad_kinds();
         c.thing = pad_kind_ >= 0 && pad_kind_ < int(pads.size()) ? "vehicle pad (" + pads[size_t(pad_kind_)].label + ")" : "vehicle pad";
         c.side = "any team";
@@ -4717,7 +5828,7 @@ Tool App::sculpt_now() const {
 void App::ui_viewport_hint() {
     if (!doc_) return;
     ui_weather();
-    // No hint banner over the view: the status bar carries the tool hint (UX-SPEC S4, fresh-eyes #4).
+    // No hint banner over the view: the status bar carries the tool hint.
     // Background list: over the 3D view, under every window and menu.
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
     float pad = 6 * dpi_;
@@ -4729,7 +5840,7 @@ void App::ui_viewport_hint() {
         dl->AddRectFilled(ImVec2(at2.x - pad, at2.y - pad * 0.5f), ImVec2(at2.x + ts2.x + pad, at2.y + ts2.y + pad * 0.5f), ImGui::ColorConvertFloat4ToU32(ImVec4(theme::tok().error.x * 0.45f, theme::tok().error.y * 0.45f, theme::tok().error.z * 0.45f, 0.85f)), 2 * dpi_);
         dl->AddText(at2, ImGui::ColorConvertFloat4ToU32(theme::tok().text_bright), preview_reason_.c_str());
     }
-    // UX G11: the armed thing's name and footprint under the ghost, so similar palette rows can be told apart on the map.
+    // The armed thing's name and footprint under the ghost, so similar palette rows can be told apart on the map.
     if (preview_on_ && tool_ == Tool::PlaceObject) {
         std::string label;
         float fw = 0, fl = 0;
@@ -4753,7 +5864,11 @@ void App::ui_viewport_hint() {
         float sx, sy;
         if (!label.empty() && cam_.project({preview_pos_.x, preview_pos_.y, preview_pos_.z}, vp_w, vp_h, sx, sy)) {  // the footprint centre
             ImVec2 ls = ImGui::CalcTextSize(label.c_str());
-            ImVec2 lp(vp_x + sx - ls.x * 0.5f, vp_y + sy + 22 * dpi_);
+            // Above the ghost's centre, so the join label (below the cursor, draw_snap_feedback) and the joint marker are never covered; kept
+            // inside the view so a ghost at the map edge is not cut off.
+            ImVec2 lp(vp_x + sx - ls.x * 0.5f, vp_y + sy - 24 * dpi_ - ls.y);
+            lp.x = std::clamp(lp.x, vp_x + pad + 2 * dpi_, std::max(vp_x + pad + 2 * dpi_, vp_x + vp_w - ls.x - pad - 2 * dpi_));
+            lp.y = std::clamp(lp.y, vp_y + pad, std::max(vp_y + pad, vp_y + vp_h - ls.y - pad));
             dl->PushClipRect(ImVec2(vp_x, vp_y), ImVec2(vp_x + vp_w, vp_y + vp_h), true);
             dl->AddRectFilled(ImVec2(lp.x - pad, lp.y - pad * 0.4f), ImVec2(lp.x + ls.x + pad, lp.y + ls.y + pad * 0.4f), IM_COL32(0, 0, 0, 150), 3 * dpi_);
             dl->AddText(lp, IM_COL32(255, 255, 255, 235), label.c_str());
@@ -4767,7 +5882,7 @@ void App::view_type_combo(float w) {
     ImGui::SetNextItemWidth(w);
     std::string cur = view_type_ < 0 ? std::string("Showing: all game types") : std::string("Showing: ") + game_types()[size_t(view_type_)].label;
     if (view_type_ >= 0) cur += " (" + std::to_string(view_type_hidden_) + " hidden)";
-    if (ImGui::BeginCombo("##viewtype", cur.c_str())) {
+    if (begin_combo("##viewtype", cur.c_str())) {
         if (ImGui::Selectable("All game types", view_type_ < 0)) { view_type_ = -1; objects_dirty_ = true; }
         for (size_t gi = 0; gi < game_types().size(); gi++) {
             const GameTypeDef& g = game_types()[gi];
@@ -4778,79 +5893,95 @@ void App::view_type_combo(float w) {
     ImGui::SetItemTooltip("Some objects only exist in one game type (for example the Snatch It base or the Capture the Flag flags). Pick a type to see just what the game shows in it. This only changes the view, not the saved map.");
 }
 
-static void help_section(const char* title, const char* body) {
-    ImGui::SeparatorText(title);
-    ImGui::TextWrapped("%s", body);
-}
-
 // Esc closes the window that has focus, unless the player is typing in a box or dragging a value.
+// That Esc is then used up for the frame (the map's Esc = leave the tool / clear the selection does not see it).
 static bool esc_closes_window() {
-    return ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::IsKeyPressed(ImGuiKey_Escape, false) &&
-           !ImGui::IsAnyItemActive() && !ImGui::GetIO().WantTextInput;
+    const bool r = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::IsKeyPressed(ImGuiKey_Escape, false) &&
+                   !ImGui::IsAnyItemActive() && !ImGui::GetIO().WantTextInput;
+    if (r) ImGui::SetKeyOwner(ImGuiKey_Escape, ImGui::GetID("##esc_closed_window"), ImGuiInputFlags_LockThisFrame);
+    return r;
 }
 
 // Help > Keyboard shortcuts (or "?"): one page built from the rebindable action table, so it always shows the user's
 // own keys, plus the mouse grammar that is not rebindable.
 void App::ui_keys() {
-    ImGui::SetNextWindowSize(ImVec2(520 * dpi_, 600 * dpi_), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+    // The sheet opens as wide as the screen allows (min(1100, 92 % of the window) with two columns, 1500 with three on a wide
+    // one) and 85 % of its height, so L2 / L3 need no scrolling; a window the user resized keeps its own size.
+    {
+        const ImVec2 vs = ImGui::GetMainViewport()->Size;
+        const float logical_w = vs.x / dpi_;
+        const float want_w = logical_w >= 1700.f ? 1500.f : 1100.f;
+        ImGui::SetNextWindowSize(ImVec2(std::min(want_w * dpi_, 0.92f * vs.x), 0.85f * vs.y), ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    }
     if (theme::begin_window("Keyboard shortcuts", &show_keys_)) {
         if (esc_closes_window()) show_keys_ = false;
         // The hold-key rows read the user's own hold keys (Settings > Keys).
-        const std::string through = std::string(mod_name(settings_.hold_through)) + "+click";
-        const std::string add = settings_.hold_through == KM_SHIFT ? "Ctrl+click" : settings_.hold_through == KM_CTRL ? "Shift+click" : "Shift+click / Ctrl+click";
-        const std::string free_hold = std::string("Hold ") + mod_name(settings_.hold_free) + " while placing";
-        const std::string quarter = std::string(mod_name(settings_.hold_quarter)) + "+" + turn_keys_text();
-        const std::string reverse = std::string("Hold ") + mod_name(settings_.hold_reverse) + " while shaping";
-        const std::string mouse[][2] = {
-            {"Click", "Select an object (or place, with a tool picked)"},
-            {"Drag on empty ground", "Select everything in the box"},
-            {add, "Add to or remove from the selection"},
-            {through, "Next object under the mouse (cycles through overlapping ones); while placing, the ground under a roof"},
-            {free_hold, "Place freely: no grid, no joining roads, walls or bridges, no roofs"},
-            {quarter, "Turn 90 degrees (while dragging to aim: 15-degree steps)"},
-            {reverse, "Terrain: the other half of the pair (Lower for Raise, Roughen for Smooth...); Flatten: a click picks the height"},
-            {"Drag the object or a handle", "Move / turn / tilt the selection"},
-            {"Right-drag", "Pan the view (a right click stops the tool)"},
-            {"Middle-drag", "Turn the view"},
-            {"Mouse wheel", "Zoom"},
-        };
-        auto table = [&](const char* id, auto rows_fn) {
-            if (ImGui::BeginTable(id, 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
-                ImGui::TableSetupColumn("Key", ImGuiTableColumnFlags_WidthFixed, 190 * dpi_);
-                ImGui::TableSetupColumn("Does");
-                rows_fn();
-                ImGui::EndTable();
+        const Hold h = settings_.hold();
+        const std::string add = h.through == KM_SHIFT ? "Ctrl+click" : h.through == KM_CTRL ? "Shift+click" : "Shift+click / Ctrl+click";
+        const std::vector<MouseRow> mouse = mouse_rows(mod_name(h.through), mod_name(h.free), mod_name(h.quarter), mod_name(h.reverse), turn_keys_text(), add, mod_name(h.orbit));
+        // Blocks: the mouse sheet, then every section of the key table (an action with no handler yet is not listed).
+        struct Block { std::string title; std::vector<std::pair<std::string, std::string>> rows; };
+        std::vector<Block> blocks;
+        blocks.push_back({"Mouse", {}});
+        for (auto& m : mouse) blocks.back().rows.push_back({m.gesture, m.does});
+        for (const char* section : kSections) {
+            Block b{section, {}};
+            for (int a = 0; a < A_COUNT; a++) {
+                if (strcmp(act_section(a), section) != 0 || kActTable[a].pending) continue;
+                const std::string k = kt2(a);
+                b.rows.push_back({k.empty() ? "(none)" : k, act_label(a)});
             }
-        };
-        ImGui::SeparatorText("Mouse");
-        table("##mouse", [&]() {
-            for (auto& m : mouse) {
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn(); ImGui::TextUnformatted(m[0].c_str());
-                ImGui::TableNextColumn(); ImGui::TextWrapped("%s", m[1].c_str());
+            if (!b.rows.empty()) blocks.push_back(std::move(b));
+        }
+        const float avail_w = ImGui::GetContentRegionAvail().x;
+        const int ncols = avail_w >= 1400 * dpi_ ? 3 : avail_w >= 880 * dpi_ ? 2 : 1;
+        const float col_w = (avail_w - float(ncols - 1) * ImGui::GetStyle().ItemSpacing.x * 2.f) / float(ncols);
+        const float key_w = std::max(190 * dpi_, 0.4f * col_w);
+        // Heights (estimated with the real wrap widths) so the columns balance; a block is never split.
+        std::vector<float> bh(blocks.size());
+        float total = 0;
+        for (size_t i = 0; i < blocks.size(); i++) {
+            float hh = ImGui::GetTextLineHeightWithSpacing() * 1.6f;
+            for (auto& r : blocks[i].rows)
+                hh += std::max(ImGui::CalcTextSize(r.first.c_str(), nullptr, false, key_w - 16 * dpi_).y, ImGui::CalcTextSize(r.second.c_str(), nullptr, false, col_w - key_w - 16 * dpi_).y) + ImGui::GetStyle().CellPadding.y * 2.f;
+            bh[i] = hh;
+            total += hh;
+        }
+        std::vector<int> col_of(blocks.size(), 0);
+        {   // tallest block first into the shortest column; inside a column the blocks keep their order
+            std::vector<size_t> order(blocks.size());
+            for (size_t i = 0; i < order.size(); i++) order[i] = i;
+            std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) { return bh[a] > bh[b]; });
+            std::vector<float> colh(size_t(ncols), 0.f);
+            for (size_t i : order) {
+                const size_t c = size_t(std::min_element(colh.begin(), colh.end()) - colh.begin());
+                col_of[i] = int(c);
+                colh[c] += bh[i];
             }
-        });
-        std::string section;
-        for (int a = 0; a < A_COUNT; a++) {
-            if (section != act_section(a)) {
-                section = act_section(a);
-                ImGui::SeparatorText(section.c_str());
+        }
+        if (ImGui::BeginTable("##keycols", ncols, ImGuiTableFlags_SizingStretchSame)) {
+            ImGui::TableNextRow();
+            for (int c = 0; c < ncols; c++) {
+                ImGui::TableSetColumnIndex(c);
+                for (size_t i = 0; i < blocks.size(); i++) {
+                    if (col_of[i] != c) continue;
+                    ImGui::SeparatorText(blocks[i].title.c_str());
+                    ImGui::PushID(int(i));
+                    if (ImGui::BeginTable("##kb", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+                        ImGui::TableSetupColumn("Key", ImGuiTableColumnFlags_WidthFixed, key_w);
+                        ImGui::TableSetupColumn("Does");
+                        for (auto& r : blocks[i].rows) {
+                            ImGui::TableNextRow();
+                            ImGui::TableNextColumn(); ImGui::TextWrapped("%s", r.first.c_str());  // wraps instead of being cut
+                            ImGui::TableNextColumn(); ImGui::TextWrapped("%s", r.second.c_str());
+                        }
+                        ImGui::EndTable();
+                    }
+                    ImGui::PopID();
+                }
             }
-            auto pretty = [](std::string t) {  // "UpArrow" -> "Up arrow"
-                for (const char* d : {"Up", "Down", "Left", "Right"})
-                    if (size_t p = t.find(std::string(d) + "Arrow"); p != std::string::npos) t.replace(p, strlen(d) + 5, std::string(d) + " arrow");
-                return t;
-            };
-            std::string k = pretty(key_text(settings_.keys[a][0])), k2 = pretty(key_text(settings_.keys[a][1]));
-            if (!k2.empty()) k += k.empty() ? k2 : " or " + k2;
-            ImGui::PushID(a);
-            table("##k", [&]() {
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn(); ImGui::TextUnformatted(k.empty() ? "(none)" : k.c_str());
-                ImGui::TableNextColumn(); ImGui::TextUnformatted(act_label(a));
-            });
-            ImGui::PopID();
+            ImGui::EndTable();
         }
         ImGui::Spacing();
         ImGui::TextDisabled("Change any of these in File > Settings > Keys.");
@@ -4858,66 +5989,103 @@ void App::ui_keys() {
     theme::end_window();
 }
 
+KeyText App::help_keys() const {
+    KeyText k;
+    for (int a = 0; a < A_COUNT; a++)
+        for (int s = 0; s < 2; s++) k.keys[a][s] = settings_.keys[a][s];
+    k.hold = settings_.hold();
+    return k;
+}
+
+// The Help topic for the tab and tool you are on; "Start here" when nothing matches.
+int App::help_context_topic() const {
+    const char* want = "Start here";
+    if (doc_) {
+        const Tab t = tab_;
+        if (t == Tab::Build || t == Tab::Terrain || t == Tab::Players || t == Tab::Units) want = help_topic_for_page(page_);
+        else if (t == Tab::Triggers || t == Tab::Messages) want = "Missions";
+        else if (t == Tab::Cameras) want = "Cutscenes";
+        else if (t == Tab::Environment) want = "Look and weather";
+    }
+    const std::vector<HelpTopic>& raw = help_raw();
+    for (size_t i = 0; i < raw.size(); i++)
+        if (std::string(raw[i].title) == want) return int(i);
+    return 0;
+}
+
+// Help (F1): the topic list on the left with "Find in Help" over it, the page on the right. The text is help_text.h's, with the
+// user's own keys; Getting Started and docs\Scenario editor.txt read the same text.
 void App::ui_help() {
-    ImGui::SetNextWindowSize(ImVec2(620 * dpi_, 560 * dpi_), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+    const ImVec2 vp = ImGui::GetMainViewport()->Size;
+    ImGui::SetNextWindowSize(ImVec2(std::min(820.f * dpi_, 0.9f * vp.x), std::min(640.f * dpi_, 0.85f * vp.y)), ImGuiCond_Appearing);
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     if (theme::begin_window("Help", &show_help_)) {
         if (esc_closes_window()) show_help_ = false;
-        help_section("Moving around the map",
-                     "Pan: W A S D or the arrow keys (hold Shift to go faster), or hold the right mouse button and drag.\n"
-                     "Edge scrolling: tick \"Scroll when the mouse touches the window edge\" (File > Settings > Camera), then push the mouse against a window edge.\n"
-                     "Zoom: the mouse wheel.\n"
-                     "Turn the view: hold the middle mouse button and drag.\n"
-                     "Top-down view: T switches to it and back.\n"
-                     "Jump: click the small map (bottom right).");
-        help_section("Placing and editing",
-                     "Place: pick a tool on the left, then click the map. A green outline shows where the object goes; red means it cannot go there. "
-                     "Q and E turn it. Right-click stops the tool.\n"
-                     "Select: click an object. A handle appears on it, and the Move / Rotate / Tilt buttons (top of Properties) choose what it does. "
-                     "Several selected objects share one handle at their centre. Deselect all clears the selection.\n"
-                     "Move: drag an arrow (red = east-west, blue = north-south, green = up) or the yellow square, or drag the object itself to slide it along the ground.\n"
-                     "Rotate: drag the ring. Hold Shift while turning for steps of 15 degrees.\n"
-                     "Tilt: drag the red ring to tip it forward or back, the blue ring to lean it sideways.\n"
-                     "Keys: Del deletes, G puts it back on the ground, Ctrl+C and Ctrl+V copy and paste, Ctrl+D duplicates, Ctrl+A selects everything, "
-                     "Ctrl+Z undoes, Ctrl+Y redoes. Help > Keyboard shortcuts (or ?) lists every key.");
-        help_section("Checking each game type",
-                     "Some objects exist in only one game type (the Snatch It base, the Capture the Flag flags). The drop-down in the toolbar strip "
-                     "(also View > Show objects for game type) shows only what the game uses in that type, so you can check every mode one by one. "
-                     "It changes the view only; nothing saved changes. Esc closes the open window or dialog, F zooms to the selection.");
-        help_section("The tabs",
-                     "The tabs follow the order you make a scenario in.\n"
-                     "Map: name, description, size and game types.\n"
-                     "Terrain: hills and valleys, ground colour, where players may go, water.\n"
-                     "Units and Props: where players start (spawn points, vehicle pads, game-mode objects; the player start in a mission), then "
-                     "'Mechs, buildings, trees and everything else you can place, for each side.\n"
-                     "Objectives & Triggers: the briefing and objectives the player reads, then what happens when (triggers, cutscenes).\n"
-                     "Environment: time of day, sky, sun, fog and weather.\n"
-                     "Cameras & Cutscenes: camera paths and the cutscenes that play them.\n"
-                     "Test (top right): the arrow next to it holds the test match's game type, bots and skill.\n"
-                     "File > Settings: folders, camera, keys (every shortcut can be changed), recovery copies, UI size and Quick test.");
-        help_section("Making a multiplayer map",
-                     "1. File > New, choose Multiplayer map, a size, a theme and the game types.\n"
-                     "2. Terrain tab: shape the ground.\n"
-                     "3. Units and Props tab: add 6 Red and 6 Blue spawn points (or 6 free-for-all ones), keep the teams apart, and press Add for each "
-                     "game type's objects (flags, bases...).\n"
-                     "4. Units and Props tab: buildings and trees.\n"
-                     "5. Map tab > Check scenario, then Save and Test (F5): the game starts straight into a match on your map with the bots "
-                     "you set (Units and Props tab > Testing).");
-        help_section("Making a mission",
-                     "1. File > New, choose Mission.\n"
-                     "2. Units and Props tab: put the player start.\n"
-                     "3. Units and Props tab: place enemies and set them to Enemy.\n"
-                     "4. Objectives & Triggers tab: write the briefing and add objectives.\n"
-                     "5. Objectives & Triggers tab: for example 'When the mission starts' -> 'Show a message'; 'Units are destroyed' -> 'Complete objective' and 'Win the mission'.\n"
-                     "6. Save and Test (F5): the game starts straight into your mission.");
-        help_section("Where files go",
-                     "Scenarios are saved as .ma2map files in the scenario folder (File > Settings > General). The game lists every scenario in that folder "
-                     "the next time it starts. Share a map by sending the .ma2map file: it holds no game files, so the other player needs "
-                     "their own copy of the game.");
-        help_section("If something goes wrong",
-                     "The editor saves a recovery copy every two minutes (File > Settings) while you have unsaved changes and offers it back if it closes "
-                     "unexpectedly. Crash reports go to %LOCALAPPDATA%\\MechAssault2\\Logs.");
+        const std::vector<HelpPage> pages = help_topics(help_keys());
+        if (ImGui::IsWindowAppearing() || help_ctx_) {  // opens at the topic of where you are (F1 on the Environment tab: Look and weather), scrolled to its top
+            help_topic_ = help_context_topic();
+            help_filter_.clear();
+            help_shown_ = -1;
+            help_ctx_ = false;
+        }
+        std::vector<int> shown;
+        for (size_t i = 0; i < pages.size(); i++)
+            if (help_filter_.empty() || help_matches(pages[i], help_filter_)) shown.push_back(int(i));
+        if (!shown.empty() && std::find(shown.begin(), shown.end(), help_topic_) == shown.end()) help_topic_ = shown[0];
+        const float list_w = 180 * dpi_;
+        const float foot = ImGui::GetFrameHeightWithSpacing();
+        ImGui::BeginChild("##helplist", ImVec2(list_w, -foot), ImGuiChildFlags_None);
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputTextWithHint("##helpfind", "Find in Help", &help_filter_);
+        if (help_filter_.empty() && !ImGui::IsItemActive()) ImGui::SetItemTooltip("Type a word to list only the topics that mention it.");  // not while typing: it covered the first result line
+        for (int i : shown) {
+            if (ImGui::Selectable((pages[size_t(i)].title + "##topic" + std::to_string(i)).c_str(), help_topic_ == i)) help_topic_ = i;
+        }
+        if (shown.empty()) ImGui::TextDisabled("Nothing found.");
+        ImGui::EndChild();
+        ImGui::SameLine();
+        if (help_shown_ != help_topic_) ImGui::SetNextWindowScroll(ImVec2(0, 0));
+        ImGui::BeginChild("##helppage", ImVec2(0, -foot), ImGuiChildFlags_Borders);
+        if (shown.empty()) {
+            // No hit says what to do next, with the topics to open (the words of the UI are not always the words of the text).
+            ImGui::PushTextWrapPos(0);
+            ImGui::TextUnformatted(("Nothing in Help mentions \"" + help_filter_ + "\". Try a shorter or simpler word, or open a topic:").c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::Spacing();
+            for (size_t i = 0; i < pages.size(); i++)
+                if (ImGui::Selectable((pages[i].title + "##sugg" + std::to_string(i)).c_str())) { help_topic_ = int(i); help_filter_.clear(); help_shown_ = -1; }
+        } else {
+            help_shown_ = help_topic_;
+            const HelpPage& pg = pages[size_t(help_topic_)];
+            theme::heading(pg.title.c_str());
+            ImGui::Separator();
+            ImGui::PushTextWrapPos(0);
+            size_t i = 0;
+            while (i <= pg.body.size()) {
+                size_t e = pg.body.find('\n', i);
+                if (e == std::string::npos) e = pg.body.size();
+                const std::string para = pg.body.substr(i, e - i);
+                i = e + 1;
+                if (para.empty()) continue;
+                if (para.compare(0, 2, "- ") == 0) {
+                    ImGui::Bullet();
+                    ImGui::TextUnformatted(para.c_str() + 2);
+                } else if (para.size() > 3 && para[0] >= '0' && para[0] <= '9' && para[1] == '.' && para[2] == ' ') {
+                    ImGui::Indent(14 * dpi_);
+                    ImGui::TextUnformatted(para.c_str());
+                    ImGui::Unindent(14 * dpi_);
+                } else {
+                    ImGui::TextUnformatted(para.c_str());
+                }
+                ImGui::Dummy(ImVec2(0, 3 * dpi_));
+            }
+            ImGui::PopTextWrapPos();
+        }
+        ImGui::EndChild();
         if (ImGui::Button("Show Getting Started")) show_getting_started_ = true;
+        ImGui::SameLine();
+        if (ImGui::Button("User guide")) open_user_guide();
+        ImGui::SetItemTooltip("Opens the same text as a plain file, to read or print.");
     }
     theme::end_window();
 }
@@ -4995,10 +6163,9 @@ void App::ui_getting_started() {
         ImGui::BulletText("New map or mission: start from flat ground, random hills, or a copy of a real level.");
         ImGui::BulletText("The Next steps list (right, under Properties) then takes you through it:");
         ImGui::Indent();
-        ImGui::TextWrapped("shape the ground (Terrain tab), place starts and units (Units and Props tab), add an objective for a mission (Objectives & Triggers tab), "
-                           "then Test (F5): it saves and plays your scenario in the game.");
+        ImGui::TextWrapped("%s", help_getting_started_steps(help_keys()).c_str());
         ImGui::Unindent();
-        ImGui::BulletText("Hover over any button to see what it does. Help (top menu) has more.");
+        ImGui::BulletText("Hover over any button to see what it does. Help (%s) has the rest.", kt(A_HELP).c_str());
         ImGui::Spacing();
         float w = (ImGui::GetContentRegionAvail().x - 2 * ImGui::GetStyle().ItemSpacing.x) / 3;
         if (ImGui::Button("New multiplayer map...", ImVec2(w, 0))) {
@@ -5056,8 +6223,21 @@ void App::ui_validation() {
     }
     // Top-right corner of the map view, clear of the middle where the reported objects usually are.
     ImGui::SetNextWindowPos(ImVec2(vp_x + vp_w - 10 * dpi_, vp_y + 40 * dpi_), ImGuiCond_Appearing, ImVec2(1, 0));
+    // W3 (note D): it stays over the map after a resize or a panel change: when the window has drifted out of the map view
+    // (window resized, panels moved), it is moved back inside the view's edges.
+    if (ImGuiWindow* cw = ImGui::FindWindowByName("Check scenario"); cw && cw->WasActive) {
+        const float m = 4 * dpi_;
+        const float maxw = std::max(120 * dpi_, vp_w - 2 * m), maxh = std::max(120 * dpi_, vp_h - 2 * m);
+        const ImVec2 sz(std::min(cw->Size.x, maxw), std::min(cw->Size.y, maxh));
+        const ImVec2 want(std::clamp(cw->Pos.x, vp_x + m, std::max(vp_x + m, vp_x + vp_w - sz.x - m)),
+                          std::clamp(cw->Pos.y, vp_y + m, std::max(vp_y + m, vp_y + vp_h - sz.y - m)));
+        if (std::fabs(want.x - cw->Pos.x) > 0.5f || std::fabs(want.y - cw->Pos.y) > 0.5f) ImGui::SetNextWindowPos(want, ImGuiCond_Always);
+        if (sz.x < cw->Size.x - 0.5f || sz.y < cw->Size.y - 0.5f) ImGui::SetNextWindowSize(sz, ImGuiCond_Always);
+    }
     if (theme::begin_window("Check scenario", &show_validation_)) {
-        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) show_validation_ = false;
+        if (esc_closes_window()) show_validation_ = false;
+        check_rect_[0] = ImGui::GetWindowPos().x; check_rect_[1] = ImGui::GetWindowPos().y;
+        check_rect_[2] = ImGui::GetWindowSize().x; check_rect_[3] = ImGui::GetWindowSize().y;
         // Follows the map: re-checked after edits (not mid-drag, at most twice a second), so a fixed item does not
         // stay red; "Check again" still runs it at once.
         const bool refresh = check_stale_ && !ImGui::IsAnyItemActive() && ImGui::GetTime() - check_time_ > 0.5;
@@ -5078,7 +6258,7 @@ void App::ui_validation() {
                 check_fixed_ = true;
                 errs = warns = 0;
                 for (auto& v : validation_) { errs += v.level == 2; warns += v.level == 1; }
-                status_ = "Added spawn points for every team. Move or turn them on the map if you like; Ctrl+Z undoes.";
+                status_ = "Added spawn points for every team. Move or turn them on the map if you like; " + kt(A_UNDO) + " undoes.";
             }
             ImGui::SetItemTooltip("Places a ring of spawn points on each team's side of the map, as many as each game type needs.");
         }
@@ -5086,7 +6266,7 @@ void App::ui_validation() {
         // Nothing left to fix after a fix button: close and say so on the status line (the window would only say "Ready").
         if (check_fixed_ && !errs && !warns) {
             show_validation_ = false;
-            status_ = "Ready to test: press Test (F5).";
+            status_ = "Ready to test: press Test (" + kt(A_TEST) + ").";
             status_time_ = 8;
         }
         check_fixed_ = false;
@@ -5107,18 +6287,36 @@ void App::ui_validation() {
             if (errors_only && v.level != 2) continue;
             ImVec4 c = v.level == 2 ? theme::tok().error : v.level == 1 ? theme::tok().warn : theme::tok().ok;
             ImGui::PushID(&v);
-            // Labels left (UX-SPEC M1): the level in a fixed column, the text and its Show button in one column after it.
+            // Labels left: the level in a fixed column, the text and its Show button in one column after it.
             ImGui::TextColored(c, "%s", v.level == 2 ? "Must fix" : v.level == 1 ? "Warning" : "OK");
             ImGui::SameLine(80 * dpi_);
             ImGui::BeginGroup();
             ImGui::TextWrapped("%s", v.text.c_str());
             if (v.uid) {
-                if (ImGui::SmallButton("Show")) {
+                const bool group = v.uids.size() > 1;
+                if (!v.uids.empty()) {  // a placement item: a low side view of the object, and on to the next one with the next press
+                    if (ImGui::SmallButton(group ? "Show next" : "Show")) check_show(v);
+                    ImGui::SetItemTooltip(group ? "Select the next object of this warning and move the camera to it." : "Select it and move the camera to it.");
+                } else if (ImGui::SmallButton("Show")) {
                     selection_ = {v.uid};
                     for (auto& o : doc_->world.objs)
                         if (o.uid() == v.uid) { Vec3 p; if (get_pos(o, p)) { cam_.tx = p.x; cam_.tz = p.z; cam_.dist = std::min(cam_.dist, 250.f); } }
+                    ImGui::SetItemTooltip("Select it and move the camera to it.");
                 }
-                ImGui::SetItemTooltip("Select it and move the camera to it.");
+            }
+            if (v.fix && doc_ && !doc_->read_only) {
+                if (v.uid) ImGui::SameLine();
+                const char* label = v.fix == 4 ? "Play from its own view" : v.fix == 2 ? "Put the newer one on top" : v.fix == 3 ? (v.uids.size() > 1 ? "Put them on the ground" : "Put it on the ground")
+                                                                                         : (v.uids.size() > 1 ? "Lift them to the ground" : "Lift it to the ground");
+                if (ImGui::SmallButton(label)) {
+                    apply_placement_fix(v.fix, v.uids);
+                    validation_ = check_now();
+                    check_time_ = ImGui::GetTime();
+                    ImGui::EndGroup();
+                    ImGui::PopID();
+                    break;
+                }
+                ImGui::SetItemTooltip(v.fix == 4 ? "The camera path starts at the camera instead of at the marker, and the camera looks at the marker itself. The undo key undoes it." : v.fix == 2 ? "Brings the newer piece forward so it lies 0.03 m above the other." : "Puts the object back on the ground or paving under it (the same as pressing the Put on the ground key). The undo key undoes it.");
             }
             ImGui::EndGroup();
             if (v.fix_team >= 0 && doc_ && !doc_->read_only) {
@@ -5131,7 +6329,7 @@ void App::ui_validation() {
                     world_changed();
                     validation_ = check_now();
                     check_fixed_ = true;
-                    status_ = "Added spawn points. Move or turn them on the map if you like; Ctrl+Z undoes.";
+                    status_ = "Added spawn points. Move or turn them on the map if you like; " + kt(A_UNDO) + " undoes.";
                     ImGui::PopID();
                     break;
                 }
@@ -5182,7 +6380,7 @@ void App::ui_retail_dialog() {
 }
 
 void App::ui_minimap() {
-    float size = std::min(ImGui::GetContentRegionAvail().x, 220.f * dpi_);
+    float size = std::min(std::min(ImGui::GetContentRegionAvail().x, 220.f * dpi_), std::max(ImGui::GetContentRegionAvail().y, 60.f));  // what the right panel left it
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - size) * 0.5f);
     ImVec2 p0 = ImGui::GetCursorScreenPos();
     if (!doc_) { ImGui::Dummy(ImVec2(size, size)); return; }
@@ -5207,12 +6405,19 @@ void App::ui_minimap() {
     {
         ImVec2 q[4];
         const float cx[4] = {0, vp_w, vp_w, 0}, cy[4] = {0, 0, vp_h, vp_h};
+        // The corner rays meet the ground under the view centre (not the orbit target's height, which an orbit about a pivot moves off
+        // the ground); a ray that does not come down within reach (the sky above the horizon) stops at the reach along its own
+        // bearing, so the outline stays the trapezoid the view really is instead of collapsing to a sliver.
+        const float gy = t.inside(std::clamp(cam_.tx, 0.f, sx), std::clamp(cam_.tz, 0.f, sz)) ? t.height_at(std::clamp(cam_.tx, 0.f, sx), std::clamp(cam_.tz, 0.f, sz)) : cam_.ty;
+        const float reach = std::max(cam_.dist * 3.f, 100.f);
         for (int k = 0; k < 4; k++) {
             XMFLOAT3 ro, rd;
             cam_.ray(cx[k], cy[k], vp_w, vp_h, ro, rd);
-            float t = rd.y < -0.02f ? (cam_.ty - ro.y) / rd.y : cam_.dist * 3;
-            t = std::min(t, cam_.dist * 3);
-            q[k] = to_screen(ro.x + rd.x * t, ro.z + rd.z * t);
+            float hl = std::hypot(rd.x, rd.z);
+            float bx = hl > 1e-4f ? rd.x / hl : std::sin(cam_.yaw), bz = hl > 1e-4f ? rd.z / hl : std::cos(cam_.yaw);
+            float H = rd.y < -0.02f ? (gy - ro.y) / rd.y * hl : reach;
+            H = std::clamp(H, 0.f, reach);
+            q[k] = to_screen(ro.x + bx * H, ro.z + bz * H);
         }
         dl->PushClipRect(o, ImVec2(o.x + w, o.y + h), true);
         dl->AddPolyline(q, 4, IM_COL32(255, 255, 255, 220), ImDrawFlags_Closed, 1.5f);
@@ -5323,7 +6528,8 @@ std::string App::debug_state() const {
     for (auto& c : id_conflicts_) line("id_conflict %s", c.c_str());
     if (!doc_) { line("doc=none"); return o; }
     double hsum = 0;
-    for (float h : doc_->terrain.hgt) hsum += h;
+    for (int gz = 0; gz < doc_->terrain.h; gz++)
+        for (int gx = 0; gx < doc_->terrain.w; gx++) hsum += double(doc_->terrain.step_at(gx, gz));  // the saved steps, not the brushes' fine layer
     uint64_t csum = 0;
     for (uint32_t c : doc_->colormap.px) csum = csum * 31 + c;
     size_t ntrig = 0;
@@ -5360,29 +6566,78 @@ std::string App::debug_state() const {
 namespace ed {
 
 const char* App::tab_label() const {
-    static const char* names[] = {"Map", "Terrain", "Units and Props", "Units and Props", "Objectives & Triggers", "Cameras & Cutscenes", "Objectives & Triggers", "Environment", "Options"};
-    return names[std::clamp(int(tab_), 0, 8)];
+    static const char* names[] = {"Map", "Build", "Build", "Build", "Objectives & Triggers", "Cameras & Cutscenes", "Objectives & Triggers", "Environment", "Options", "Build"};
+    return names[std::clamp(int(tab_), 0, 9)];
 }
 
 // --automation "state": what a test needs to check, as JSON.
 std::string App::automation_state() const {
     static const char* tools[] = {"Select", "Raise", "Lower", "Flatten", "Smooth", "Roughen", "Plateau", "PlateauDown", "PaintColor", "PaintTexture", "PaintType", "PaintCulture",
                                   "PlaceObject", "ScatterTrees", "PlaceSpawn", "PlacePad", "PlaceStart", "PlaceWaypoint", "PickPoint",
-                                  "MakePond", "PlaceWater"};
+                                  "MakePond", "PlaceWater", "PasteGhost", "Ramp"};
     Json j = Json::object();
     j.with("tab", Json::string(tab_label()));
     j.with("tool", Json::string(tools[std::clamp(int(tool_), 0, int(sizeof tools / sizeof tools[0]) - 1)]));
     j.with("status_hint", Json::string(const_cast<App*>(this)->tool_hint_text()));
+    j.with("left_panel_ms", Json::number(double(left_panel_ms_))).with("frame_ms", Json::number(double(frame_ms_)));
+    j.with("page", Json::string(page_name(page_)));  // the Build tab's page
+    {
+        auto rect = [](const float* r) { return Json::object().with("x", Json::number(r[0])).with("y", Json::number(r[1])).with("w", Json::number(r[2])).with("h", Json::number(r[3])); };
+        Json pn = Json::object();
+        pn.with("strip", rect(panels_.strip)).with("left", rect(panels_.left)).with("right", rect(panels_.right));
+        pn.with("viewport", Json::object().with("x", Json::number(vp_x)).with("y", Json::number(vp_y)).with("w", Json::number(vp_w)).with("h", Json::number(vp_h)));
+        pn.with("left_scroll_max", Json::number(panels_.left_scroll_max));
+        j.with("panels", pn);
+        Json ss = Json::array();
+        for (uint32_t u : scatter_set_) ss.push(Json::number(double(u)));
+        j.with("scatter_set", ss);
+    }
+    {   // The scatter brush's options, the footprint radius of each kind in the set, and the counts of the last stroke
+        Json rad = Json::object();
+        for (uint32_t u : scatter_set_) {
+            char k[16];
+            std::snprintf(k, sizeof k, "%u", u);
+            const auto ri = scatter_r_.find(u);
+            rad.with(k, Json::number(ri == scatter_r_.end() ? 0.0 : std::round(ri->second * 100.f) / 100.f));   // 0 until the kind's model has loaded
+        }
+        j.with("scatter", Json::object()
+            .with("density", Json::number(settings_.sc_density)).with("spacing", Json::number(settings_.sc_spacing))
+            .with("facing", Json::boolean(settings_.sc_facing)).with("lean", Json::number(settings_.sc_lean))
+            .with("follow", Json::boolean(settings_.sc_follow)).with("keep_off", Json::boolean(settings_.sc_keep_off))
+            .with("skip_steep", Json::boolean(settings_.sc_skip_steep)).with("slope_limit", Json::number(settings_.sc_slope))
+            .with("radii", rad).with("active", Json::boolean(sc_run_ != nullptr)).with("so_far", Json::number(scatter_so_far()))
+            .with("erase", Json::boolean(sc_last_.erase)).with("placed", Json::number(sc_last_.placed)).with("erased", Json::number(sc_last_.erased))
+            .with("kinds", Json::number(sc_last_.kinds)).with("skipped_close", Json::number(sc_last_.close))
+            .with("skipped_keepoff", Json::number(sc_last_.keepoff)).with("skipped_slope", Json::number(sc_last_.steep)));
+    }
     Json cam = Json::object();
     cam.with("x", Json::number(cam_.tx)).with("z", Json::number(cam_.tz)).with("dist", Json::number(cam_.dist));
     cam.with("yaw", Json::number(cam_.yaw)).with("pitch", Json::number(cam_.pitch));
+    {   // The target height, the eye and the vertical angle (what a shot taken from this view must match)
+        const ma2::Vec3 ce = cam_eye_now();
+        Json eye = Json::array();
+        eye.push(Json::number(ce.x));
+        eye.push(Json::number(ce.y));
+        eye.push(Json::number(ce.z));
+        cam.with("y", Json::number(cam_.ty)).with("eye", std::move(eye)).with("fov_deg", Json::number(cam_.fov * 57.29578f));
+    }
     j.with("camera", cam);
     Json win = Json::object();
     win.with("help", Json::boolean(show_help_)).with("getting_started", Json::boolean(show_getting_started_)).with("new", Json::boolean(show_new_));
-    win.with("about", Json::boolean(show_about_));
+    win.with("about", Json::boolean(show_about_)).with("keys", Json::boolean(show_keys_));
     win.with("check", Json::boolean(show_validation_)).with("retail", Json::boolean(show_retail_)).with("preferences", Json::boolean(prefs_open_));
     win.with("message", Json::boolean(show_msg_ || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)));
     j.with("windows", win);
+    {   // the Help window: which topic is open and which topics "Find in Help" leaves
+        Json hs = Json::object();
+        Json titles = Json::array();
+        const std::vector<HelpPage> pages = help_topics(help_keys());
+        for (const HelpPage& p : pages)
+            if (help_filter_.empty() || help_matches(p, help_filter_)) titles.push(Json::string(p.title));
+        hs.with("topic", Json::string(help_topic_ >= 0 && help_topic_ < int(pages.size()) ? pages[size_t(help_topic_)].title : std::string()))
+          .with("filter", Json::string(help_filter_)).with("shown", titles).with("topics", Json::number(double(pages.size())));
+        j.with("help", hs);
+    }
     j.with("popup_open", Json::boolean(ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)));
     j.with("message_title", Json::string(msg_title_)).with("message_text", Json::string(msg_text_));
     j.with("confirm_text", Json::string(confirm_text_));
@@ -5391,13 +6646,102 @@ std::string App::automation_state() const {
     j.with("hotkey_capture", Json::string(capture_act_ >= 0 ? act_label(capture_act_) : ""));
     j.with("edge_scrolling", Json::boolean(edge_scrolling_)).with("right_dragged", Json::boolean(rdragged_));
     j.with("test_running", Json::boolean(test_proc_ != nullptr));
-    j.with("gizmo", Json::object().with("mode", Json::number(gizmo_mode_)).with("hot", Json::number(gizmo_hot_)).with("drag", Json::number(gizmo_drag_)));
+    j.with("audition", Json::object().with("playing", Json::boolean(audition_playing())).with("clip", Json::number(audition_clip_))
+                           .with("ms", Json::number(audition_clip_ >= 0 ? audition_ms_ : 0)));
+    j.with("test_launch_skipped", Json::boolean(test_launch_skipped_));
+    if (test_launch_skipped_) j.with("test_command", Json::string(narrow(test_command_))).with("test_dir", Json::string(narrow(test_dir_)));
+    j.with("gizmo", Json::object().with("mode", Json::number(gizmo_mode_)).with("hot", Json::number(gizmo_hot_)).with("drag", Json::number(gizmo_drag_))
+                       .with("local", Json::boolean(gizmo_local_)).with("turn_each", Json::boolean(turn_each_)).with("place_lift", Json::number(place_lift_))
+                       .with("readout", Json::string(ImGui::GetTime() <= readout_until_ ? readout_ : std::string()))
+                       .with("knob", knob_x_ < 0 ? Json() : Json::object().with("x", Json::number(knob_x_)).with("y", Json::number(knob_y_)))
+                       .with("pivot", pivot_x_ < 0 ? Json() : Json::object().with("x", Json::number(pivot_x_)).with("y", Json::number(pivot_y_))));
+    j.with("size_gizmo", size_gizmo_json()).with("model_cache_crops", Json::number(const_cast<App*>(this)->size_selection_variants()));
     j.with("preview", Json::object().with("on", Json::boolean(preview_on_)).with("valid", Json::boolean(preview_valid_))
-                         .with("reason", Json::string(preview_reason_)).with("heading_deg", Json::number(place_heading_ * 57.2958f)));
+                         .with("reason", Json::string(preview_reason_)).with("heading_deg", Json::number(ghost_yaw() * 57.2958f))
+                         .with("x", Json::number(std::round(preview_pos_.x * 100.f) / 100.f)).with("z", Json::number(std::round(preview_pos_.z * 100.f) / 100.f))
+                         .with("y", std::isfinite(preview_y_) ? Json::number(std::round(preview_y_ * 1000.f) / 1000.f) : Json())
+                         .with("slope", slope_plan_.active
+                                            ? Json::object().with("mode", Json::string(slope_plan_.mode == SlopeMode::Level ? "level" : slope_plan_.mode == SlopeMode::Tilt ? "tilt" : "float"))
+                                                  .with("wanted", Json::string(slope_plan_.wanted == SlopeMode::Level ? "level" : slope_plan_.wanted == SlopeMode::Tilt ? "tilt" : "float"))
+                                                  .with("fell_back", Json::boolean(slope_plan_.fell_back))
+                                                  .with("gap", Json::number(std::round(slope_plan_.gap * 100.f) / 100.f))
+                                                  .with("left", Json::number(std::round(slope_plan_.left * 100.f) / 100.f))
+                                                  .with("pitch_deg", Json::number(std::round(slope_plan_.pitch * 5729.58f) / 100.f))
+                                                  .with("roll_deg", Json::number(std::round(slope_plan_.roll * 5729.58f) / 100.f))
+                                                  .with("up", Json::number(std::round(slope_plan_.up * 100.f) / 100.f))
+                                                  .with("down", Json::number(std::round(slope_plan_.down * 100.f) / 100.f))
+                                                  .with("kept", Json::number(double(slope_plan_.edit.kept.size())))
+                                            : Json()));
     j.with("undo", Json::number(double(undo_.size()))).with("redo", Json::number(double(redo_.size())));
+    j.with("undo_cap", Json::number(double(kUndoSteps))).with("undo_bytes", Json::number(double(undo_bytes())));
+    j.with("saved_state", Json::boolean(cur_state_id_ == saved_state_id_));
+    {
+        uint64_t p[7] = {};
+        undo_bytes(p);
+        j.with("undo_parts", Json::object().with("world_meta", Json::number(double(p[0]))).with("heights", Json::number(double(p[1]))).with("colours", Json::number(double(p[2])))
+                                           .with("types", Json::number(double(p[3]))).with("ground_weights", Json::number(double(p[4]))).with("ground_layers", Json::number(double(p[5])))
+                                           .with("audio", Json::number(double(p[6]))));
+    }
+    j.with("snap", snap_state_json());
+    // What the key dispatcher and the viewport are doing.
+    j.with("undo_label", Json::string(undo_.empty() ? std::string() : undo_.back().label));
+    j.with("helpers_faded", Json::number(helpers_faded_));  // Start slabs drawn faded (camera within 20 m)
+    j.with("later_hidden", Json::number(later_hidden_));  // Objects left off the map because they come later (or not yet, in a cutscene preview)
+    j.with("viewport", Json::object().with("x", Json::number(vp_x)).with("y", Json::number(vp_y)).with("w", Json::number(vp_w)).with("h", Json::number(vp_h)));
+    j.with("brush", Json::object().with("radius", Json::number(brush_radius_)).with("strength", Json::number(brush_strength_)).with("hardness", Json::number(brush_hardness_))
+                                  .with("amount", Json::number(settings_.raise_amount)).with("build_up", Json::boolean(settings_.build_up))
+                                  .with("min_radius", Json::number([&] { float lo, hi; brush_limits(tool_, lo, hi); return lo; }())).with("readout", Json::string(brush_readout_))
+                                  .with("strengths", Json::object().with("texture", Json::number(strength_of(Tool::PaintTexture))).with("tint", Json::number(strength_of(Tool::PaintColor)))
+                                                                   .with("smooth", Json::number(strength_of(Tool::Smooth))).with("flatten", Json::number(strength_of(Tool::Flatten)))
+                                                                   .with("plants", Json::number(strength_of(Tool::PaintCulture))))
+                                  .with("reverse", Json::boolean(stroke_active_ ? stroke_rev_ : holding(settings_.hold_reverse))));
+    // The mean of the last 30 frames (ms) and, of the time the brush spent in them (applying a stroke and uploading what it touched), plus the layer stats.
+    {
+        float fm = 0, bm = 0;
+        const int n = std::min(ring_n_, 30);
+        for (int i = 0; i < n; i++) { fm += frame_ring_[i]; bm += brush_ring_[i]; }
+        j.with("perf", Json::object().with("frame_ms", Json::number(n ? std::round(fm / float(n) * 100.f) / 100.f : 0.0))
+                                     .with("brush_ms", Json::number(n ? std::round(bm / float(n) * 1000.f) / 1000.f : 0.0))
+                                     .with("full_upload", Json::boolean(paint_full_upload_))
+                                     .with("stroke", Json::object().with("frames", Json::number(perf_stroke_n_))   // the last stroke: its frames, mean frame time, mean brush time per frame
+                                                                   .with("frame_ms", Json::number(perf_stroke_n_ ? std::round(perf_stroke_frame_ / float(perf_stroke_n_) * 100.f) / 100.f : 0.0))
+                                                                   .with("brush_ms", Json::number(perf_stroke_n_ ? std::round(perf_stroke_brush_ / float(perf_stroke_n_) * 1000.f) / 1000.f : 0.0))));
+    }
+    // The Ramp tool and the overlays.
+    j.with("ramp", Json::object().with("stage", Json::number(ramp_stage_)).with("ax", Json::number(std::round(ramp_a_.x * 100.f) / 100.f)).with("az", Json::number(std::round(ramp_a_.z * 100.f) / 100.f))
+                                 .with("ha", Json::number(std::round(ramp_ha_ * 100.f) / 100.f)).with("hb", Json::number(std::round(ramp_hb_ * 100.f) / 100.f))
+                                 .with("width", Json::number(settings_.ramp_width)).with("slope", Json::number(std::round(ramp_slope_ * 1000.f) / 1000.f))
+                                 .with("length", Json::number(std::round(ramp_len_ * 10.f) / 10.f)).with("label", Json::string(ramp_label_)).with("typed", Json::boolean(ramp_typed_)));
+    j.with("overlay", Json::object().with("steep", Json::boolean(show_steep_)).with("typemap", Json::boolean(show_typemap_)).with("plants", Json::boolean(overlay_plants_ >= 0)));
+    j.with("box_selecting", Json::boolean(box_selecting_)).with("dragging", Json::boolean(dragging_));
+    j.with("orbiting", Json::boolean(orbiting_)).with("orb_press", Json::boolean(orb_press_));  // Alt+left-drag turning the view / an Alt press waiting to be a click or a turn
+    j.with("context_menu_open", Json::boolean(objmenu_open_)).with("paste_armed", Json::boolean(tool_ == Tool::PasteGhost));
+    j.with("paste", Json::object().with("count", Json::number(double(paste_src_.size()))).with("heading_deg", Json::number(std::round(paste_heading_ * 57.2958f)))
+                                  .with("duplicate", Json::boolean(paste_dup_)).with("over_map", Json::boolean(paste_on_)));
+    {
+        Json lab = Json::array();  // helper labels on the map (pad / power-up names): a click on one selects what it names
+        for (const LabelHit& l : label_hits_)
+            lab.push(Json::object().with("text", Json::string(l.text)).with("uid", Json::number(double(l.uid))).with("x0", Json::number(l.x0)).with("y0", Json::number(l.y0))
+                                   .with("x1", Json::number(l.x1)).with("y1", Json::number(l.y1)).with("cx", Json::number(std::floor((l.x0 + l.x1) * 0.5f)))
+                                   .with("cy", Json::number(std::floor((l.y0 + l.y1) * 0.5f))));
+        j.with("labels", lab);
+    }
+    {
+        Json fired = Json::object();  // actions the dispatcher ran, by label: each key press must show +1 (a key never runs two actions)
+        for (int a = 0; a < A_COUNT + 2; a++)
+            if (key_counts_[a]) fired.with(a < A_COUNT ? act_label(a) : (a == A_TURN_QUARTER_L ? "Quarter turn left" : "Quarter turn right"), Json::number(key_counts_[a]));
+        j.with("keys_fired", fired);
+        j.with("last_action", Json::string(last_act_ == A_NONE ? "" : last_act_ < A_COUNT ? act_label(last_act_) : last_act_ == A_TURN_QUARTER_L ? "Quarter turn left" : "Quarter turn right"));
+        j.with("keymap_ok", Json::boolean(keymap_ok_));
+        j.with("palette_filter", Json::string(unit_filter_)).with("text_input", Json::boolean(ImGui::GetIO().WantTextInput));
+    }
     j.with("id_conflicts", Json::number(double(id_conflicts_.size())));
     Json chk = Json::array();
-    for (auto& v : validation_) chk.push(Json::object().with("level", Json::number(v.level)).with("text", Json::string(v.text)));
+    for (auto& v : validation_) {
+        Json ids = Json::array();
+        for (uint32_t u : v.uids) ids.push(Json::number(double(u)));
+        chk.push(Json::object().with("level", Json::number(v.level)).with("text", Json::string(v.text)).with("uid", Json::number(double(v.uid))).with("uids", ids).with("fix", Json::number(v.fix)));
+    }
     j.with("check_items", chk);
     if (doc_) {
         Json d = Json::object();
@@ -5406,6 +6750,7 @@ std::string App::automation_state() const {
         d.with("id", Json::string(doc_->id_hex()));  // scenario Id (the game skips a second file with the same Id)
         d.with("objects", Json::number(double(doc_->world.objs.size()))).with("triggers", Json::number(double(doc_->triggers.size())));
         d.with("graphics_mb_last_save", Json::number(last_report_.graphics_mb));
+        d.with("graphics_mb_live", Json::number(gfx_live_total()));
         // Ground-texture blend (colour map alpha): mean and the share of texels at 255 (texture A).
         double asum = 0, azero = 0;
         for (uint32_t c : doc_->colormap.px) { asum += c >> 24; azero += (c >> 24) == 255; }
@@ -5429,14 +6774,22 @@ std::string App::automation_state() const {
                 .with("texture_b", Json::string(doc_->world.objs[size_t(ti)].str("TerrainDetailMap 1")));
         j.with("doc", d);
         Json sel = Json::array();
+        bool sel_sheets = false;
+        SheetSet sel_ss;
         for (auto& o : doc_->world.objs)
             if (selection_.count(o.uid())) {
                 Vec3 p;
                 get_pos(o, p);
-                sel.push(Json::object().with("uid", Json::number(o.uid())).with("name", Json::string(o.description()))
-                             .with("x", Json::number(p.x)).with("y", Json::number(p.y)).with("z", Json::number(p.z))
+                Json row = Json::object();
+                row.with("uid", Json::number(o.uid())).with("name", Json::string(o.description()))
+                   .with("x", Json::number(p.x)).with("y", Json::number(p.y)).with("z", Json::number(p.z));
+                if (!sel_sheets) { sel_sheets = true; sel_ss = const_cast<App*>(this)->sheets(true); }
+                const_cast<App*>(this)->stand_fields(row, o, sel_ss, true);
+                sel.push(row
+                             .with("layer", [&] { int ly = 0; bool fx = false; return place::layer_of(o, ly, fx) ? Json::string(place::format_layer(ly, fx)) : Json(); }())
                              .with("heading_deg", Json::number(std::remainder(world::heading(o) * 57.2958f, 360.f)))
-                             .with("pitch_deg", Json::number(o.f32("CorporalPitch"))).with("roll_deg", Json::number(o.f32("CorporalRoll"))));
+                             .with("pitch_deg", [&] { float tp, tr; world::get_tilt(o, tp, tr); return Json::number(tp * 57.29578f); }())
+                             .with("roll_deg", [&] { float tp, tr; world::get_tilt(o, tp, tr); return Json::number(tr * 57.29578f); }()));
                 if (sel.a.size() >= 50) break;
             }
         j.with("selection", sel);
@@ -5488,7 +6841,7 @@ ma2::Vec3 App::place_origin_offset() const {
         lx = -0.5f * (gm->bmin[0] + gm->bmax[0]);
         lz = -0.5f * (gm->bmin[2] + gm->bmax[2]);
     }
-    const float ch = std::cos(place_heading_), sh = std::sin(place_heading_);
+    const float ch = std::cos(ghost_yaw()), sh = std::sin(ghost_yaw());
     return {ch * lx + sh * lz, 0, -sh * lx + ch * lz};
 }
 }  // namespace ed

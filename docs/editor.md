@@ -52,7 +52,7 @@ a build-save-reload of sample scenarios (`t04.editor-tests`). Source locations: 
 
 ## 3. What each editor control writes (t16)
 
-`t16_editor_to_game` has a table per editor tab (the wiki may use older tab names; the current tabs are Map, Terrain, Units and Props, Objectives & Triggers, Cameras & Cutscenes and Environment): control label, the class property or file written, how the game uses it, the
+`t16_editor_to_game` has a table per editor tab (the wiki may use the older tab names Terrain, Players and Units, which are now pages of the Build tab; the current tabs are Map, Build, Objectives & Triggers, Cameras & Cutscenes and Environment, on Ctrl+1 to Ctrl+5. The Build tab's tool strip has Select, Place, Scatter, Roads & walls, Sculpt, Paint, Water and Starts, on Shift+1 to Shift+8): control label, the class property or file written, how the game uses it, the
 related wiki facts and the confidence. Each section ends with "surprises" (places where editor wording and game behaviour
 differ) and "gaps" (controls whose game effect is not explained by any fact). Examples of things developers trip over:
 

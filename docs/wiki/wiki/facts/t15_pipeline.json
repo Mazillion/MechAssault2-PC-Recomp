@@ -1158,7 +1158,7 @@
     "kind": "concept",
     "id": "thread placement"
    },
-   "fact": "RECOMP_PERF_CPU=1 [PERF-LP] on the main test desktop, M01b FULL: game thread on P-cores 99.5 % of frames, its SMT sibling 11 % busy (median), no core with both LPs over 50 %, executor (74-78 % of a core) on another core; the game's most-used LP has only 20-26 % of frames. So M0's mask-55 result was not SMT or E-core placement; migration (cold L1/L2) or run noise is the remaining explanation (T1-5)."
+   "fact": "RECOMP_PERF_CPU=1 [PERF-LP] on the main test desktop, M01b FULL: game thread on P-cores 99.5 % of frames, its SMT sibling 11 % busy (median), no core with both LPs over 50 %, executor (74-78 % of a core) on another core; the game's most-used LP has only 20-26 % of frames. So M0's mask-55 result was not SMT or E-core placement; migration (cold L1/L2) or run noise is the remaining explanation."
   },
   {
    "status": "current",

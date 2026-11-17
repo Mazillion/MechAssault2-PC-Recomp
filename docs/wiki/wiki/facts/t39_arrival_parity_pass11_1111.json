@@ -1,0 +1,87 @@
+{
+ "pack": "t39_arrival_parity_pass11_1111",
+ "title": "Arrival parity pass 11: LandedLeg, FirstLeg, SlopeStale",
+ "facts": [
+  {
+   "id": "landed-jet-leg-stays-next",
+   "title": "A jet leg already flown stays the route's next leg when the flight lands a few metres off its planned landing",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_ctrl.c LandedLeg"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "After a jet flight the route's path.next can still be the jet leg just flown (drop 2) when the body came down 6-15 m short of / beside its planned landing at the same level: (needs the body within 8 m of the leg's foot) cannot fire, LeapStall(Up) scans from that leg and sees no rise, so nothing jets on and the goto walks the body to the old landing point first. Ill Wind Snatch It T2 at the basin exit ledge: P13_81b2 b6 landed 729,0.7,1401 at 40.97 (path 1/6 = basin jet leg to 722,1388) and jetted up the band only at 43.20; P13_81b2 b9 32.3 -> 33.74; P14_81a1 b5 33.7 -> 36.17 (landed_proof.py: 1.0-2.0 s each).",
+   "how_to_use": "LandedLeg (RECOMP_BOT_LANDED_LEG / [Bots] LandedLeg, default on): on the ground, next leg a jet leg whose landing is < 16 m off, within -2.+3 m of the body's height and 8 m+ from its foot -> path.next++. LeapNotWalk's jet-up reach follows LeapStallUpFar (24 m to the foot, 52 m to the landing). [C7] landedleg n; [BOT-LANDEDLEG] with RECOMP_BOT_DIAG.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 3413
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "jets",
+    "route"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "gotowalk-offroute-first-leg",
+   "title": "GotoWalk's on-route test after a walk ignored the first leg (path.next == 0): long string-pulled first legs read as off route",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_ctrl.c FirstLeg"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "When a GotoWalk direct walk 'moved' it decides whether the body is still on the route (else the route is dropped and replanned). With path.next == 0 there was no previous corner, so only distances to the corners counted, and a first corner 20-130 m on (string-pulled straight legs) always read as off route: the route was thrown away after every walk and the goto stood the body again 0.1-0.6 s. B11_84a1 b6 (On the Rocks Snatch It T2) down the T2 base's 11 m slope 1526,62.7,1485 -> 1510,53.9,1478, 30.2-32.8 s, four walks each followed by a stand; firstleg_proof.py counted 15 T2 / 3 T1 such hand-backs in that match, 2-3 T2 / 9-10 T1 in Ill Wind matches.",
+   "how_to_use": "FirstLeg (RECOMP_BOT_FIRST_LEG / [Bots] FirstLeg, default on): with next == 0 the leg runs from the walk's start lw_p0 to pt[0]; within 12 m = on route (WalkChainHold may then rearm). [C7] firstleg kept.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 3577
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "goto",
+    "route"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "slopeturn-hold-skips-staleturn",
+   "title": "A SlopeTurn hold skipped StaleTurn's 0.25 s even when the held turn target was stale",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_ctrl.c SlopeStale"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "GotoWalk's holds are tested in order SlopeTurn (turn target comp+0xA0 held on the facing, carrot > 25 deg off), SlopeStuck, StaleTurn -- and StaleTurn only when nothing held yet, so a body whose latched turn target was both on its facing and > 30 deg off the carrot bearing waited the full 1 s clock instead of 0.25 s: B11_84a1 b6 landed on the On the Rocks T2 base slope top 1526,62.7,1485 at 28.54, turned to the stale -26 deg (carrot -127) and stood till 29.54 (slopestale_proof.py: 0.5-1.7 s per spell, a few per match, both teams).",
+   "how_to_use": "SlopeStale (RECOMP_BOT_SLOPE_STALE / [Bots] SlopeStale, default on): StaleTurn's test also runs under a SlopeTurn/SlopeStuck hold. [C7] staleturn slope (s).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 3670
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "goto",
+    "mechai"
+   ],
+   "date": "2026-11-11"
+  }
+ ]
+}

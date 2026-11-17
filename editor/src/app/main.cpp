@@ -14,6 +14,7 @@
 
 #include "app.h"
 #include "automation.h"
+#include "from_game_live.h"
 #include "theme.h"
 #include "version.h"
 #include "ma2models.h"
@@ -35,6 +36,7 @@ static ed::App* g_app = nullptr;
 static HWND g_hwnd = nullptr;
 static bool g_automation = false;
 static bool g_shutdown_saved = false;  // WM_QUERYENDSESSION already wrote the recovery slot
+static ed::FromGameLive g_live;        // --from-game-live: the running game and this editor take turns on screen
 
 // Errors that end the editor: a message box for a person, stderr under automation (never a window).
 static void fatal_box(HWND owner, const std::wstring& msg) {
@@ -362,9 +364,26 @@ static void player_step(Player& p, ed::App& app) {
     p.exit = true;
 }
 
+// Automation "window_size": resize the (hidden) window so its client area is w x h. Windows would cap a window at the screen
+// (WM_GETMINMAXINFO below lifts that under automation), so 3840 x 1600 shots work on any monitor.
+bool ed::automation_set_client_size(int w, int h) {
+    if (!g_hwnd || w < 320 || h < 240 || w > 8192 || h > 8192) return false;
+    RECT r{0, 0, w, h};
+    AdjustWindowRect(&r, DWORD(GetWindowLongPtrW(g_hwnd, GWL_STYLE)), FALSE);
+    return SetWindowPos(g_hwnd, nullptr, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE) != 0;
+}
+
 static LRESULT WINAPI WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wp, lp)) return 1;
     switch (msg) {
+        case WM_GETMINMAXINFO:
+            if (g_automation) {
+                MINMAXINFO* mm = reinterpret_cast<MINMAXINFO*>(lp);
+                mm->ptMaxTrackSize = POINT{9000, 9000};
+                mm->ptMaxSize = POINT{9000, 9000};
+                return 0;
+            }
+            break;
         case WM_SIZE:
             if (wp == SIZE_MINIMIZED) return 0;
             g_resize_w = LOWORD(lp);
@@ -374,7 +393,14 @@ static LRESULT WINAPI WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if ((wp & 0xFFF0) == SC_KEYMENU) return 0;
             break;
         case WM_CLOSE:
+            if (g_live.active() && g_live.returning()) return 0;  // already on the way back
             if (g_app && !g_app->confirm_close()) return 0;
+            // Live: closing (Alt+F4, the close button, File > Back to the game) hands back to the game, which comes on screen
+            // first; the window goes when it has (main loop, return_done).
+            if (g_live.active() && !g_live.game_gone()) {
+                g_live.request_return(g_app ? g_app->doc_path().native() : std::wstring());
+                return 0;
+            }
             break;
         case WM_QUERYENDSESSION:
             // Logoff / restart / Windows Update: the process is ended without WM_CLOSE, often seconds after this message. Save to the
@@ -434,6 +460,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     ImGui_ImplWin32_EnableDpiAwareness();
     float scale = ImGui_ImplWin32_GetDpiScaleForMonitor(MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY));
     // The game's icon with a yellow "SE" badge (res/ma2se.ico, resource 101): title bar, Alt+Tab, taskbar.
+    // Started by the game: its AppUserModelID before any window, so the two share one taskbar button.
+    if (wcsstr(GetCommandLineW(), L"--from-game")) ed::FromGameLive::set_app_id();
     HICON icon = (HICON)LoadImageW(inst, MAKEINTRESOURCEW(101), IMAGE_ICON, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), 0);
     HICON icon_sm = (HICON)LoadImageW(inst, MAKEINTRESOURCEW(101), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), 0);
     WNDCLASSEXW wc{sizeof(wc), CS_CLASSDC, WndProc, 0, 0, inst, icon, LoadCursor(nullptr, IDC_ARROW),
@@ -446,13 +474,14 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     wchar_t** argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     std::wstring shot, play, automation, settings_file;
     bool automation_show = false;
+    int win_w = 0, win_h = 0;  // --window-size WxH: client area of a hidden / automation window (default 1584 x 861)
     std::vector<std::pair<std::wstring, std::wstring>> script;
     std::wstring open_file;
-    // Opened from the game's Custom Scenarios screen (ux/spec-ingame-editor.md 6): --from-game <game HWND> --saved-list <file>
+    // Opened from the game's Custom Scenarios screen: --from-game <game HWND> --saved-list <file>
     // [--file <scenario>]. Borderless over the game's whole monitor; exit code 2 = play the test= file.
     bool from_game = false;
     HWND game_hwnd = nullptr;
-    std::wstring saved_list;
+    std::wstring saved_list, live_name;
     for (int i = 1; argv && i < argc; i++) {
         std::wstring a = argv[i];
         if (a == L"--from-game") {
@@ -461,11 +490,15 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
             continue;
         }
         if ((a == L"--from-game-result" || a == L"--saved-list") && i + 1 < argc) { saved_list = argv[++i]; continue; }
+        if (a == L"--from-game-live" && i + 1 < argc) { live_name = argv[++i]; continue; }
         if (a == L"--file" && i + 1 < argc) { open_file = argv[++i]; continue; }
         if (a == L"--shot" && i + 1 < argc) shot = argv[++i];
         else if (a == L"--play" && i + 1 < argc) play = argv[++i];
         else if (a == L"--automation") automation = i + 1 < argc && argv[i + 1][0] != L'-' ? argv[++i] : L"ma2se";
         else if (a == L"--automation-show") automation_show = true;
+        else if (a == L"--window-size" && i + 1 < argc) {
+            if (swscanf(argv[++i], L"%dx%d", &win_w, &win_h) != 2) win_w = win_h = 0;
+        }
         else if (a == L"--settings" && i + 1 < argc) settings_file = argv[++i];
         else if (a.size() > 2 && a[0] == L'-' && a[1] == L'-') script.push_back({a, i + 1 < argc && argv[i + 1][0] != L'-' ? argv[++i] : L""});
         else open_file = a;
@@ -489,16 +522,23 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     }
     // Automation: the window is never activated; it stays hidden unless --automation-show (then it
     // appears without taking focus).
-    bool headless = !shot.empty() || !play.empty() || (g_automation && !automation_show);
+    // --from-game-live: the game's shared block (from_game_live.h); the window then comes on screen through the switch.
+    const bool live = from_game && !live_name.empty() && shot.empty() && play.empty() && g_live.open(live_name);
+    bool headless = !live && (!shot.empty() || !play.empty() || (g_automation && !automation_show));
     // SWP_NOACTIVATE: without it this call activates the (never shown) window and takes the
     // keyboard focus from whatever the user is typing in.
     if (headless) SetWindowPos(hwnd, nullptr, 0, 0, 1600, 900, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    if (headless && win_w) ed::automation_set_client_size(win_w, win_h);
     if (!create_device(hwnd)) {
         fatal_box(hwnd, L"Direct3D 11 is not available.");
         return 1;
     }
     DragAcceptFiles(hwnd, TRUE);
-    if (g_automation && automation_show) {
+    if (live) {
+        // Hidden for now, at the game's place; shown just below the game once the first frames are drawn (main loop).
+        if (g_live.game()) scale = ImGui_ImplWin32_GetDpiScaleForMonitor(MonitorFromWindow(g_live.game(), MONITOR_DEFAULTTONEAREST));
+        g_live.attach(hwnd);
+    } else if (g_automation && automation_show) {
         SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 1600, 900, SWP_NOMOVE | SWP_NOACTIVATE);
         ShowWindow(hwnd, SW_SHOWNOACTIVATE);
     } else if (!headless && from_game) {
@@ -532,7 +572,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     // recover quietly instead of raising a C++ runtime box in front of the user.
     io.ConfigErrorRecoveryEnableAssert = io.ConfigDebugHighlightIdConflicts;
     io.ConfigErrorRecoveryEnableTooltip = io.ConfigDebugHighlightIdConflicts;
-    // The MechAssault 2 front-end look (theme.cpp, ux/style-guide.md): the only place colours, shapes and fonts are set.
+    // The MechAssault 2 front-end look (theme.cpp): the only place colours, shapes and fonts are set.
     ImGui::StyleColorsDark();
     ImGuiStyle& style = ImGui::GetStyle();
     theme::apply(style);
@@ -556,6 +596,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
         return 1;
     }
     app.background = headless || g_automation;
+    app.automation = g_automation;
+    app.from_game_live = live;
     if (from_game) {
         app.start_from_game(open_file);
         // The game always sends --file for the selected scenario; after an editor crash its note promises the autosave back.
@@ -612,6 +654,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
 
     auto last = std::chrono::steady_clock::now();
     bool done = false;
+    int live_presented = 0;
+    bool live_asked = false;
     while (!done) {
         if (frame_no == 2) for (auto& [c, a] : script) app.script(c, a);
         MSG msg;
@@ -621,8 +665,31 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
             if (msg.message == WM_QUIT) done = true;
         }
         if (done) break;
+        if (g_live.active()) {
+            if (g_live.game_gone()) {
+                g_live.detach_after_game_ended();
+                app.game_ended();
+            } else {
+                g_live.step(live_presented);
+                live_presented = 0;
+                if (!live_asked && frame_no >= 3) { g_live.want_on_screen(); live_asked = true; }
+                std::wstring note;
+                if (int ev = g_live.game_event(&note); ev >= 0) app.live_game_event(ev, note);
+                ed::App::LiveTest t;
+                if (app.take_live_test(t)) g_live.request_test(t.file.native(), t.mode, t.red, t.blue, t.skill);
+                if (g_live.return_done()) {
+                    g_live.close();
+                    DestroyWindow(hwnd);  // WM_DESTROY -> WM_QUIT: the loop ends, the result file is written, exit code 0
+                    continue;
+                }
+                if (live_asked && g_live.hidden()) {  // the game is on screen: nothing to draw
+                    Sleep(10);
+                    continue;
+                }
+            }
+        }
         // Automation keeps drawing while the window is covered or minimized (screenshots).
-        if (!g_automation && g_occluded && g_swap->Present(0, DXGI_PRESENT_TEST) == DXGI_STATUS_OCCLUDED) { Sleep(15); continue; }
+        if (!g_automation && !g_live.active() && g_occluded && g_swap->Present(0, DXGI_PRESENT_TEST) == DXGI_STATUS_OCCLUDED) { Sleep(15); continue; }
         g_occluded = false;
         // Not the foreground window (and not scripted): a steady low rate, so a covered editor neither burns the GPU nor shows
         // frames in bursts as the compositor throttles it.
@@ -692,6 +759,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
         HRESULT hr = g_swap->Present(headless ? 0 : 1, 0);
         if (g_automation && headless) Sleep(8);  // ~60-100 frames a second, light on the CPU
         g_occluded = hr == DXGI_STATUS_OCCLUDED;
+        if (SUCCEEDED(hr)) live_presented++;
         app.end_frame();
         if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET || g_dev->GetDeviceRemovedReason() != S_OK) recover_device();
     }

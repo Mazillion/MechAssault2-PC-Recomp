@@ -32,7 +32,7 @@ void App::level_tree_window() {
 
     static std::string filter;
     ImGui::SetNextItemWidth(-1);
-    ImGui::InputTextWithHint("##ltf", "Find (name or kind, e.g. cinema, MATriggerTimer)", &filter);
+    ImGui::InputTextWithHint("##ltf", "Find (name or kind, e.g. cinema, timer)", &filter);
     ImGui::SetItemTooltip("Every object of the level, as the game reads it. Click one to select it and see it in Properties; "
                           "double-click to move the camera to it (objects with a place on the map).");
     std::string lf = lower(filter);
@@ -73,19 +73,19 @@ void App::level_tree_window() {
                               "Ones with a place on the map (triggers, lights, cameras...) land at the view centre.");
         why_disabled(!editable() || !sel1, why_off);
         ImGui::SameLine();
-        if (ImGui::Button("Duplicate")) duplicate_selected();
+        if (ImGui::Button("Duplicate")) duplicate_selected_now();
         ImGui::SetItemTooltip("Copies the selected object with all its parts next to it. Links to other objects stay; links between its own parts are remapped.");
         why_disabled(!editable() || !sel1, why_off);
         ImGui::SameLine();
         if (theme::danger_button("Delete")) delete_selection();
-        ImGui::SetItemTooltip("Deletes the selected object with all its parts (Ctrl+Z undoes).");
+        ImGui::SetItemTooltip("%s", ("Deletes the selected object with all its parts (" + kt(A_UNDO) + " undoes).").c_str());
         why_disabled(!editable() || !sel1, why_off);
         ImGui::EndDisabled();
         ImGui::SameLine();
         ImGui::BeginDisabled(!editable());
         if (ImGui::Button("New cutscene")) new_cutscene();
-        ImGui::SetItemTooltip("Adds a real cutscene (MACinema with its camera, shot, path, focus marker and start/end triggers, built like the game's own) at the view centre. "
-                              "Play it with the trigger effect \"Play a camera sequence\".");
+        ImGui::SetItemTooltip("Adds a real cutscene (a cinema with its camera, shot, path, focus marker and start/end triggers, built like the game's own) at the view centre. "
+                              "Play it with the trigger effect \"Play a cutscene\".");
         why_disabled(!editable(), "This is a real level and cannot be changed. Press \"Make an editable copy\" on the Map tab first.");
         ImGui::EndDisabled();
     }
@@ -98,7 +98,7 @@ void App::level_tree_window() {
         ImGui::Separator();
         bool ed = editable();
         if (ImGui::MenuItem("Add part...", nullptr, false, ed)) { add_part_parent_ = o.uid(); add_part_open_ = true; add_part_filter_.clear(); }
-        if (ImGui::MenuItem("Duplicate with its parts", nullptr, false, ed && o.cls != K_ROOT_)) duplicate_selected();
+        if (ImGui::MenuItem("Duplicate with its parts", nullptr, false, ed && o.cls != K_ROOT_)) duplicate_selected_now();
         if (o.cls == key_of("MACinema") && ImGui::MenuItem("Add a shot (copy of the last)", nullptr, false, ed)) add_cutscene_shot(o.uid());
         if (o.cls == key_of("MAFreeCameraController")) {
             int pi = t.parent_of[size_t(i)];

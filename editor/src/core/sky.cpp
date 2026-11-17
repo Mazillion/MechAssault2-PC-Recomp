@@ -2,6 +2,7 @@
 // Models/Environment/Sky in the level archives, and the MASky2 objects of every world file in
 // common.mgf (MP maps, missions, cinemas, the lobby) for how each sky is set up.
 #include "scenario.h"
+#include "weather.h"
 
 #include <algorithm>
 #include <map>
@@ -101,6 +102,10 @@ const std::vector<ScenarioIO::SkyInfo>& ScenarioIO::skies() {
                 u.fog_color = w.objs[size_t(ei)].u32("FogColor");
                 u.has_fog = true;
             }
+            if (ei >= 0 && w.objs[size_t(ei)].find("DirectionalLightColor")) {
+                u.sun_color = w.objs[size_t(ei)].u32("DirectionalLightColor");
+                u.has_sun = true;
+            }
             it->second.uses.push_back(std::move(u));
         }
     }
@@ -192,6 +197,23 @@ bool ScenarioIO::sky_fog(const Scenario& s, const std::string& name, uint32_t& c
     if (!u || !u->has_fog) return false;
     color = u->fog_color;
     return true;
+}
+
+bool ScenarioIO::sky_is_night(const std::string& name) {
+    const SkyInfo* si = find_sky(name);
+    if (!si) return false;
+    // A look names its time: the sky of a night look is a night sky, the sky of a day or evening look (and no night look) is not.
+    for (auto& l : weather::looks()) if (l.night && iequals(weather::look_sky(l), si->name)) return true;
+    for (auto& l : weather::looks()) if (!l.night && iequals(weather::look_sky(l), si->name)) return false;
+    // A sky no look uses: the typical sun of the worlds that use it (the median, so one odd cutscene does not decide). The space sky's
+    // cinemas sit at 0.35 to 0.51 (median 0.355), the night skies of the looks at 0.25 to 0.31, the day skies at 0.43 and above.
+    std::vector<double> lum;
+    for (auto& u : si->uses)
+        if (u.has_sun) lum.push_back((0.299 * ((u.sun_color >> 16) & 255) + 0.587 * ((u.sun_color >> 8) & 255) + 0.114 * (u.sun_color & 255)) / 255.0);
+    if (lum.empty()) return false;
+    std::sort(lum.begin(), lum.end());
+    const double med = lum.size() % 2 ? lum[lum.size() / 2] : (lum[lum.size() / 2 - 1] + lum[lum.size() / 2]) * 0.5;
+    return med < 0.36;
 }
 
 bool ScenarioIO::set_sky(Scenario& s, const std::string& name, bool use_fog, std::string* err) {

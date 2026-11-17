@@ -1,0 +1,66 @@
+{
+ "pack": "t42_arrival_parity_pass14_1112",
+ "title": "Arrival parity pass 14: LowJetWalk, SkipHump (Ill Wind basin mound)",
+ "facts": [
+  {
+   "id": "low-jet-walk",
+   "title": "LowJetWalk: a jet leg landing within ~4 m of its foot costs +40, so a similar ground route wins",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_LOW_JET_WALK"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_SKIP_HUMP",
+    "t41.tankface-embedded-hull-false-faces"
+   ],
+   "fact": "ma2_bot_path.c priced a jet leg (drop kind 2: up-link, BankDive/HopOut leg) at run + 12 + 1.5 x rise, barely above walking the same run, so a replan from the foot of a 3 m lip took the jet: Ill Wind Snatch It basin, V24_81b3 b8 t=22.9 from 899,-20,1487 jetted 898,1486 -> 872,1460 (3 m up), the burn carried the 'Mech to y +3.8 and 849,1441, then a 90-degree turn (2-3 s lost); plans 1.3 s before / 0.5 s after walked. LowJetWalk adds PATH_LOW_JET_PEN 40 (the measured jet + landing-turn loss at the 'Mech's 18.7 m/s) to a jet leg whose |rise| < 2 x radius x walk grade (0.55 heavy grid = TG_STEP_HEAVY/TG_CELL, 0.8 light = TG_STEEP): 4.0 m for a 3.67 m 'Mech, 2.4 m for a 1.5 m BattleArmor. A lip with no walk round is still jetted.",
+   "how_to_use": "Default on; RECOMP_BOT_LOW_JET_WALK=0 / [Bots] LowJetWalk=0 = old. [C7] lowjetwalk: links (penalised link candidates). Commit d49d9ec (v28-parity), exe v13-v28p25. Proof: PATHTEST 899.27,1486.77 -> 718.58,1295.61 r3.67 crush1 drop60 up23.41: p24 898,1486 v872,1460 . len 299; p25 824,1450 742,1408 . len 214 (no jet leg).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_path.c",
+     "line": 289
+    }
+   ],
+   "tags": [
+    "bots",
+    "pathing",
+    "jets",
+    "parity"
+   ],
+   "date": "2026-11-12"
+  },
+  {
+   "id": "skip-hump",
+   "title": "SkipHump: the follower's clear-sight corner skip no longer cuts over a mound the planner routed round",
+   "subject": {
+    "kind": "env_var",
+    "id": "RECOMP_BOT_SKIP_HUMP"
+   },
+   "addresses": [],
+   "related": [
+    "RECOMP_BOT_LOW_JET_WALK",
+    "ma2_path_follow",
+    "RECOMP_BOT_LEAP_TOP"
+   ],
+   "fact": "ma2_path_follow skipped the next corner whenever the one after it was clear by clearance only (line_free), ignoring height, so 'Mechs on Ill Wind's basin floor (-20) cut over the 12 m mound at ~926,1464 (-8) instead of following pt[0] round its flat north foot: V24_81a2 b6 skipped at 15.6/16.6/20.1 s, b7 at 20.5, W17_81a2 b8 at 19.9 (W17's 'jet-up' at 27.4 was the dive off that mound after the skip put it there). SkipHump refuses the skip when the line rises more than max(2 m, LowJetWalk's 2 x radius x walk grade) above the straight grade between its two ends; replayed on the NavCache grid all five recorded skips keep the corner (hump 6.4-10.0 m vs limit 4.0-4.4).",
+   "how_to_use": "Default on; RECOMP_BOT_SKIP_HUMP=0 / [Bots] SkipHump=0 = old. [C7] skiphump: kept (per-tick refusals). Proof script hump_proof.py. Live p25 Ill Wind Snatch It T2 first-'Mech basin segment -1.6.+1.0 s (median -1.2, 8 runs) vs p24 recordings +1.0.+3.1.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_path.c",
+     "line": 1276
+    }
+   ],
+   "tags": [
+    "bots",
+    "pathing",
+    "parity"
+   ],
+   "date": "2026-11-12"
+  }
+ ]
+}

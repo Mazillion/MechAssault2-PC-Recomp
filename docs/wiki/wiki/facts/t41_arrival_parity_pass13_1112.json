@@ -1,0 +1,66 @@
+{
+ "pack": "t41_arrival_parity_pass13_1112",
+ "title": "Arrival parity pass 13: TankFaceReal, Ill Wind Snatch It A/B",
+ "facts": [
+  {
+   "id": "tankface-embedded-hull-false-faces",
+   "title": "TankFace learned false faces from embedded tanks; TankFaceReal skips them and the bail needs no net progress",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_ctrl.c TankFaceReal"
+   },
+   "addresses": [],
+   "related": [
+    "t40.tank-face-learned",
+    "RECOMP_BOT_TANK_FACE_REAL"
+   ],
+   "fact": "TankFace learned a face on every 6 s no-progress stall of a tank with ground 2 m+ lower ahead, including hulls already embedded (TankUnembed had fired: x/z velocity 0, pivot and eject refused). In H12_84a 10 of 13 learns came from two embedded hulls: T2 b6 (embedded 70.6 at 1548,62,1427) and T1 b4 (embedded 87.0 at 848,77,1193 after driving off the deck crest by its own pile), each re-learning a 'face' every stall and banning slope >= 20 cells 35 m round the T1 pile for every tank for 10 min. The T1 tank's bail at 100 s was PocketStill on that embedded hull (hp 567/2000 under fire), not TankFaceBail. Also P_84a (p23) T1 b2 learned a face while standing part-way DOWN the slope off its pile's deck (842,74.9,1196; y 79.4 -> 72.6) and drove on 2 s later.",
+   "how_to_use": "TankFaceReal (RECOMP_BOT_TANK_FACE_REAL / [Bots] TankFaceReal, default on; commits 129b3ca + 2d1c070): a hull with c->ue_n > 0 (embedded) learns no face ([C7] tankface embedded_skip); a hull whose ground 4 m behind (away from the carrot) is 1.5 m+ higher is on the slope, not at a lip: no face ([C7] tankface on_slope_skip); TankFaceBail's third face bails only when 20 s+ passed since the first counted face and the hull got under 20 m closer to its goal, else the count restarts ([C7] tankface bail_progress). All 21 pass-12 plateau-lip faces (A11/D11/E12/F12) still learn. Live p24 R_84a: T2 tank 5 plateau faces, bail at 98.8 s. Proof: proof-runs\u000b33\tools\tankfacereal_proof.py, tankfacereal_out.txt, tankface_ontop_old.txt.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 4605
+    }
+   ],
+   "tags": [
+    "bots",
+    "tanks",
+    "parity"
+   ],
+   "date": "2026-11-12"
+  },
+  {
+   "id": "illwind-snatch-pass12-switches-ab",
+   "title": "Ill Wind Snatch It p22 parity slip is not caused by ChokeAbreast / ChokeFileHyst / DeckNear",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_brain.c ChokeFileHyst / DeckNear A/B"
+   },
+   "addresses": [],
+   "related": [
+    "t40.choke-file-in-wide-and-flicker",
+    "RECOMP_BOT_CHOKE_FILE_HYST",
+    "RECOMP_BOT_DECK_NEAR",
+    "RECOMP_BOT_CHOKE_ABREAST"
+   ],
+   "fact": "p22 (4fd3865) with RECOMP_BOT_CHOKE_ABREAST=0, RECOMP_BOT_CHOKE_FILE_HYST=0 and RECOMP_BOT_DECK_NEAR=0 on Ill Wind Snatch It gave excess +13.8 / +6.0 / +1.9 (81a) and -0.2 / +5.8 (81b): not better than with them on, so they are not the cause of the p22 slip. TankFace learned at most one face per Ill Wind match. p17 (a03b4f3) 81a: -0.3 / +1.4 / +0.3 / -0.2 / +3.2 (median +0.3); p22-p24 81a: 11 runs median +3.6 (0.+9.0); 81b p22-p24 11 runs median +3.4. Per segment the T2 first arriver loses plat +1.8.+3.8 s (hop over the platform, 0.4-0.8 s landing stand, LeapStallQuick leap) and exit +1.2.+2.9 s against T1 base +0.7.+2.0; boarding to_zone runs 3-8 s over ideal for some pilots on both teams, which decides who arrives first.",
+   "how_to_use": "Keep the pass 12 switches on. Judge Ill Wind on 5+ runs per side order (one run swings -0.3.+13.8); score with cmp_floor.py against tools\floor_all.csv.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "illwind"
+   ],
+   "date": "2026-11-12"
+  }
+ ]
+}

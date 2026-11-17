@@ -84,6 +84,7 @@ struct Scenario {
     std::vector<std::string> types;      // ini game-type names
     std::string base = "boggeddown.mgf"; // retail resource archive
     std::string briefing_title, briefing;
+    std::string win_text, lose_text;     // [Mission] WinText / LoseText: the line on the end-of-mission screen (empty = the game's own)
     std::map<int, std::string> strings;  // [Strings]
     std::map<int, AudioClip> audio;      // [Audio]
     std::vector<EdTrigger> triggers;
@@ -94,9 +95,10 @@ struct Scenario {
     Terrain terrain;
     Image colormap, lightmap;            // decoded; empty when unknown
     bool colormap_custom = false, lightmap_custom = false;
+    bool colormap_lossless = false;      // F3: the colour map came from editor/colormap.bin, not from the game's DXT file (old file / changed TIF: false)
     Mgic colormap_style, lightmap_style; // container/format to encode with
     Picture colormap_layout, lightmap_layout;
-    GroundLayers ground;                 // P4: more than two ground textures (PC only, opt-in; ground_layers.h)
+    GroundLayers ground;                 // More than two ground textures (PC only, opt-in; ground_layers.h)
     std::vector<uint16_t> typemap;       // MATerrainInfo 512x512 flags, row 0 = z 0 (as stored); empty if none
     int typemap_w = 0, typemap_h = 0;
     bool typemap_dirty = false;
@@ -106,6 +108,7 @@ struct Scenario {
     bool read_only = false;              // a retail map opened for viewing
     std::string retail_name;             // for read-only views
     bool dirty = false;
+    std::vector<uint32_t> old_cut_roads;  // Cut road pieces whose saved .road / .node / .mesh have bare '\n' line ends (editor before); a save clears it
 
     std::string base_level() const;      // "boggeddown"
     std::string id_hex() const;          // "1A2B3C4D"
@@ -116,7 +119,7 @@ struct NewMapParams {
     bool multiplayer = true;
     int w = 129, h = 129;
     std::string base = "boggeddown.mgf";
-    float min_h = -20.f, max_h = 100.f;
+    float min_h = -20.f, max_h = 107.5f;   // 127.5 m over 255 steps: exactly 0.5 m a step, so flat ground reads 10.00
     enum Start { Flat, Noise, CopyRetail } start = Flat;
     float flat_height = 10.f;
     float noise_amp = 0.35f;             // fraction of the height range
@@ -143,7 +146,7 @@ struct SaveReport {
     std::string limit_text;
 };
 
-// MATerrainInfo type-map values (maintainer bisects, 2026-10-20). Every retail MP spawn, vehicle
+// MATerrainInfo type-map values (bisect runs, 2026-10-20). Every retail MP spawn, vehicle
 // pad and mode objective stands on 0 or 8; bots never enter 1. Other values (16, 32, ...) appear in
 // retail maps with unknown meanings.
 namespace tmtype {
@@ -164,8 +167,17 @@ int typemap_at(const Scenario& s, float x, float z);
 // Makes the whole terrain one playable area: `margin` cells of 1 at the edge, then `band` cells
 // of 2, 0 inside (retail edges are 1; their 2-bands are 6-14 cells wide at the 90th percentile).
 void fill_playable_typemap(Scenario& s, int margin = 4, int band = 6);
+// The layout the save writes the game's colour map in: the level's size and mips, swizzled A8R8G8B8 (never DXT,
+// whose 5:6:5 rounding shifted dark ground colours in the game).
+Picture colormap_game_layout(const Picture& level);
+// Which colour-map pixels lie on the playable ground of the type map tm (tw x th, row 0 = z 0); all of them when it has none.
+std::vector<uint8_t> playable_colormap_mask(const Image& cm, const std::vector<uint16_t>& tm, int tw, int th);
+// Share of the ground (mask) showing TerrainDetailMap (alpha 255) rather than TerrainDetailMap 1; on green ground, weighted by green.
+float first_texture_share(const Image& cm, const std::vector<uint8_t>& mask);
 
-struct ValidationItem { int level; std::string text; uint32_t uid; int fix_team = -1; int fix_missing = 0; };  // level: 0 info, 1 warning, 2 error
+// level: 0 info, 1 warning, 2 error. uids: every object of the item (uid = the first); fix: 0 none, 1 put them on the ground,
+// 2 put the newer one on top, 3 put it on the ground (hanging object); the editor's placement checks (app_checks.cpp) fill both.
+struct ValidationItem { int level; std::string text; uint32_t uid; int fix_team = -1; int fix_missing = 0; std::vector<uint32_t> uids; int fix = 0; };
 
 // What the game's list shows of a saved scenario, read from scenario.ini alone (no world, no textures): cheap enough to
 // scan the whole scenario folder.
@@ -192,13 +204,24 @@ public:
     // Builds the .ma2map bytes without writing (used by save and tests). ready = false writes "Ready = 0" (the game does not
     // list the scenario); so does a scenario over the game's limits. save() passes false while Check shows a Must fix item.
     bool build(Scenario& s, Bytes& out, SaveReport* rep, std::string* err, bool ready = true);
+    // Tests only: the next build() throws std::bad_alloc, as when the machine runs out of memory (the guard turns it into a message).
+    static bool test_fail_alloc;
 
     std::vector<ValidationItem> validate(const Scenario& s);
 
     // Terrain textures for a world (colormap/lightmap paths -> Base archive, else defaults).
     void load_terrain_textures(Scenario& s);
-    // Generates a colormap from the Base colormap palette and the terrain shape.
-    Image procedural_colormap(const Scenario& s, int size);
+    // The ground texture a new map on Base level `base` starts on (a per-level table chosen by looking; else the texture
+    // covering most of its playable ground). terrain = its MATerrain, cm / mask = its colour map and playable pixels.
+    std::string new_map_ground(const MapInfo& base, const WObj& terrain, const Image& cm, const std::vector<uint8_t>& mask);
+    // The New dialog's preview of that ground: texture path and the colour it shows in the game (0xAABBGGRR). False when unreadable.
+    bool theme_ground(const MapInfo& m, std::string& path, uint32_t& rgb);
+    // A ground texture's average colour (0..1), from the Base archive, common.mgf or any level archive.
+    bool ground_texture_average(const std::string& base, const std::string& path, double rgb[3]);
+    // Generates a colormap from the Base colormap palette and the terrain shape; use (optional, one per colour-map pixel)
+    // picks the pixels the palette is read from (a new map: the Base level's playable ground).
+    // centred: heights count from the map's mean (a new map: its ground takes the theme's middle colours).
+    Image procedural_colormap(const Scenario& s, int size, const std::vector<uint8_t>* use = nullptr, bool centred = false);
     void bake_lightmap(Scenario& s);
     NavGraph build_nav(const Scenario& s);
 
@@ -277,12 +300,19 @@ public:
     // around `at`: the camera flies a path over the focus marker. Returns the cinema's UID (0 on failure).
     // behind: a heading (radians, forward = (sin h, cos h)); the flight path is turned about `at` so it
     // lies behind that heading (an intro over the player start); null = the retail template's own layout.
-    uint32_t add_cutscene(Scenario& s, Vec3 at, const std::string& name, const float* behind = nullptr);
+    uint32_t add_cutscene(Scenario& s, Vec3 at, const std::string& name, const float* behind = nullptr, bool detach_flyby = true);  // detach_flyby false: the shot keeps hanging under the template marker (tests of old files)
     // Adds another shot to a cinema: a copy of the cinema's last shot (controller with its steps, camera,
     // path with its waypoints, focus marker, start/end triggers) appended after it, links remapped, 25 m aside.
     // Returns the new controller's UID (0 when the cinema has no shot to copy).
-    // at: where the new shot's pieces go (their middle; heights kept above the ground); null = 25 m +X of the last shot.
-    uint32_t add_cutscene_shot(Scenario& s, uint32_t cinema_uid, const Vec3* at = nullptr);
+    // The new shot is a STILL 5 s shot: its pieces are copies of the last shot's, but nothing it carries is
+    // copied (the start / end triggers are cloned empty; end actions move from the old last shot to the new one, 2.1), its length
+    // is `len`, and its eye stands at `eye` looking at `look` (core/cutscene: set_shot_view). Null eye / look: the pieces move
+    // 25 m +X of the last shot (old behaviour). Returns the new controller's UID (0 when the cinema has no shot to copy).
+    uint32_t add_cutscene_shot(Scenario& s, uint32_t cinema_uid, const Vec3* eye = nullptr, const Vec3* look = nullptr, float len = 5.f);
+    // Gives a shot an eye path again when its type-2 step's eyeUID is 0 or dangling (the path was deleted): clones the
+    // path and waypoint group of the Mission_05 template cutscene into the cinema (the waypoints start at the camera's spot)
+    // and relinks. Returns the path's UID, the bare eye object's when the shot flies to one object, 0 when it cannot.
+    uint32_t ensure_shot_eye_path(Scenario& s, uint32_t ctrl_uid);
     // Deletes one shot (the controller and the pieces only it uses: camera, start/end triggers, eye path
     // with its waypoints, focus marker). Returns how many objects went away (0: not a shot).
     int remove_cutscene_shot(Scenario& s, uint32_t controller_uid);
@@ -304,6 +334,8 @@ public:
         float heading_deg = 0;            // CorporalHeading
         uint32_t fog_color = 0;           // that world's MAEnvironment FogColor
         bool has_fog = false;
+        uint32_t sun_color = 0;           // that world's DirectionalLightColor (a night world's sun is dark)
+        bool has_sun = false;
     };
     struct SkyInfo {
         std::string name;                 // model name without _MP: "Env_SkyAurora_01"
@@ -322,6 +354,9 @@ public:
     // world of the same kind (MP map / mission) with the same model variant.
     const SkyUse* sky_source(const Scenario& s, const SkyInfo& si);
     bool sky_fog(const Scenario& s, const std::string& name, uint32_t& color);
+    // Whether a sky is a night sky: the sky of a night look, else the sky of a retail world whose sun is dark
+    // (median DirectionalLightColor luminance of the worlds that use it under 0.36).
+    bool sky_is_night(const std::string& name);
     // Points the world's MASky2 at a sky: the _MP model for MP maps when there is one, and the
     // source world's .mtb, scale, offset, position and heading. use_fog also copies its FogColor.
     // The model's files outside Base go to [Assets] on save.
@@ -338,7 +373,7 @@ public:
     std::vector<std::pair<std::string, std::string>> asset_closure(const Scenario& s, const std::unordered_set<uint32_t>& tpl,
                                                                    uint64_t* bytes, std::vector<AssetUse>* per_file = nullptr);
     // Graphics (contiguous) memory the level needs in the game, measured 2026-10-21 on 13 runs
-    // (maintainer notes about 8 + 0.88 x (texture + vertex/index MB,
+    // (notes about 8 + 0.88 x (texture + vertex/index MB,
     // unpacked, of the Base archive and [Assets]) of a 64 MB window; past ~63.5 MB the game crashes
     // while loading the level.
     struct GraphicsEstimate {
@@ -348,6 +383,26 @@ public:
     static constexpr double kGraphicsWarnMb = 48, kGraphicsErrorMb = 58;
     static constexpr size_t kMaxObjects = 3000;  // what the game loads
     GraphicsEstimate graphics_estimate(const Scenario& s);
+    // Graphics MB (x 0.88) of the files one placed object of this template adds outside the Base archive and common.mgf:
+    // 0 for a template the Base level already carries. Cached per (Base, uid); ms-scale on first call.
+    double template_graphics_mb(const Scenario& s, uint32_t uid);
+    // The Base archive's own graphics MB (x 0.88), cached per Base: the live total is 8 + this + the other levels' templates.
+    double base_graphics_mb(const Scenario& s);
+    // Ground plants of every retail level: each MACultureType of a world with a culture system, with its generators.
+    // add_plant gives the scenario's own culture system one more layer (free bits of the culture map, the cultureBF<n> fields on
+    // MATerrainInfo, a copy of the type and its generators); the plant's model files reach [Assets] through fresh_templates.
+    struct PlantSource {
+        std::string map, level;            // the retail world ("Mission_02") and its level archive without ".mgf"
+        std::string name;                  // MACultureType Name
+        int nbits = 3;                     // the layer's bits in the source map (at most 4 are used)
+        uint32_t color0 = 0xFF00FF00u;     // the source layer's display colour
+        std::vector<uint32_t> templates;   // each generator's GenerationTemplate (the first is the picture)
+        Wdf tree;                          // the MACultureType and its generators, type first
+    };
+    enum class PlantResult { Added, NoCultureSystem, NoFreeBits, AlreadyHere };
+    const std::vector<PlantSource>& plant_sources();
+    // dry_run: only the verdict, nothing changes. new_layer: set when a culture-map layer was allocated (its bits start at 0).
+    PlantResult add_plant(Scenario& s, const PlantSource& src, bool dry_run = false, bool* new_layer = nullptr);
     // Error at kGraphicsErrorMb (blocks Test), warning at kGraphicsWarnMb.
     void graphics_check(const Scenario& s, std::vector<ValidationItem>& v, double* mb = nullptr);
 
@@ -376,6 +431,10 @@ public:
     // Side of a placed unit (6 player's side, 5 enemy, 0 neutral); neutral 'Mechs and vehicles
     // become enterable (empty, with their type's owner controller).
     void apply_unit_side(Scenario& s, uint32_t uid, int nation);
+    // A unit a trigger moves to a side must have a pilot. An empty unit (StartAbandoned 1) gets the retail
+    // "changes side later" form: Nation unchanged (0), crewed (StartAbandoned 0, AttackPilot 1), AI asleep
+    // (m_bAIEnabled 0, woken by the trigger), no owner controller. Returns true when it changed the unit.
+    bool crew_for_side_change(Scenario& s, uint32_t uid);
     // Whether the player can climb into units of this template (a retail world or the templates
     // give it an owner controller), whether this placed unit has one, and adding/removing it.
     bool can_board(uint32_t template_uid);
@@ -413,8 +472,15 @@ public:
     // what editor/project.json keeps so reopening restores the crop and the original path.
     struct CropSaved { uint32_t uid = 0; std::string rect, orig; bool road = false; };
     std::vector<CropSaved> add_cropped(const Scenario& s, Wdf& w, MgfWriter& mgf, std::vector<std::string>* warnings);
+    // The save's own model test (crop::cuttable) against this scenario's archives, so the editor offers a cut only where the save can make it.
+    // why = the tail of "This piece cannot be cut: its model ...". Results are cached per model path (until the base changes).
+    bool model_cuttable(const Scenario& s, const std::string& model, std::string* why = nullptr);
 
 private:
+    // build / validate / save without the memory guard (the public ones catch std::bad_alloc and std::exception).
+    bool build_unguarded(Scenario& s, Bytes& out, SaveReport* rep, std::string* err, bool ready);
+    bool save_unguarded(Scenario& s, const fs::path& file, SaveReport* rep, std::string* err, bool force_over_limit);
+    std::vector<ValidationItem> validate_unguarded(const Scenario& s);
     void ensure_deps_archives(const Scenario& s);
     void index_owner_controllers();
     void fixup_clone(Scenario& s, std::vector<WObj>& clone, const Wdf& src);
@@ -428,6 +494,7 @@ private:
     std::string gfx_base_name_;                         // graphics_estimate: Base archive cached
     uint64_t gfx_base_bytes_ = 0;
     std::unordered_map<uint32_t, bool> absent_;          // model_absent cache
+    std::unordered_map<std::string, std::pair<bool, std::string>> cuttable_;  // model_cuttable cache: lower-case model path (+ base) -> verdict, reason
     std::vector<StartChoice> start_choices_;
     std::unordered_map<uint32_t, uint32_t> similar_;     // similar_template cache
     GameData& gd_;
@@ -440,6 +507,8 @@ private:
     bool pads_ready_ = false;
     std::unordered_map<uint32_t, std::vector<Instance>> instances_;
     bool instances_ready_ = false;
+    std::vector<PlantSource> plants_;
+    bool plants_ready_ = false;
     std::vector<SkyInfo> skies_;
     bool skies_ready_ = false;
     std::unordered_map<uint32_t, Instance> oc_index_;  // unit template -> a retail owner controller

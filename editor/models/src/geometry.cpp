@@ -254,7 +254,7 @@ void MatMul(const float a[16], const float b[16], float out[16]) {
 
 // Node transform: scale, then rotate by rot_angle (radians) about rot_axis,
 // then translate. Angles follow the right-hand rule about rot_axis
-// (checked on the Rommel tank treads, 240 deg about (1,1,-1); NOTES.md).
+// (checked on the Rommel tank treads, 240 deg about (1,1,-1)).
 static const float kRotationSign = 1.0f;
 
 void MatFromSRT(const float scale[3], const float axis_in[3], float angle, const float pos[3], float out[16]) {

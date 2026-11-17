@@ -208,6 +208,7 @@ extern "C" uint32_t ma2_pc_prompt_text(uint32_t original)
     return result?result:original;
 }
 extern "C" uint32_t ma2_scn_text(uint32_t id,uint32_t original); /* scenario/ma2_scenario.c */
+extern "C" int ma2_scn_editor_test_level(void);                  /* scenario/ma2_scenario.c */
 extern "C" uint32_t ma2_pc_localized(uint32_t id,uint32_t original)
 {
     if(id>=0x00F00000 && id<0x01000000)return ma2_scn_text(id,original);
@@ -241,6 +242,9 @@ extern "C" uint32_t ma2_pc_localized(uint32_t id,uint32_t original)
     if(id==0x7CEB&&original&&!wcscmp((const wchar_t*)(g_xbox_mem_offset+original),L"LOCAL XBOX CONSOLE"))return ma2_pc_wide(L"BOT MATCH");
     if(id==0x92D&&original&&!wcsncmp((const wchar_t*)(g_xbox_mem_offset+original),L"Go head-to-head",15))
         return ma2_pc_wide(L"Play offline against computer-controlled pilots.");
+    // Playtest 11-17: in a mission or match started by the Scenario Editor's Test, the pause menu's "Quit to Main Hub"
+    // (text 0xE) goes back to the editor, so it says so. Retail and Custom Scenarios played from the menu keep the game's text.
+    if(id==0xE&&ma2_scn_editor_test_level())return ma2_pc_wide(L"Return to Editor");
     // Keep the stored/localized message intact. Resolve its prompts when it
     // is measured/drawn so an already-visible tutorial can change devices.
     return original;

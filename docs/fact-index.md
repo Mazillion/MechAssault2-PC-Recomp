@@ -1,6 +1,6 @@
 # Fact index: how to search the wiki
 
-The fact wiki (`docs/wiki/`) holds 3,305 facts in 37 topics about how the recompiled game works: what a function does,
+The fact wiki (`docs/wiki/`) holds 3,472 facts in 72 topics about how the recompiled game works: what a function does,
 which global holds what, which switch changes which behaviour, what a bug was and how it was fixed. This page explains how
 to find things and lists the topics. How to add or correct a fact is in `docs/wiki/WIKI_BRIEF.md`.
 
@@ -101,6 +101,41 @@ Pack prefix (`t01a`, `t02`, ...) = the part of an id before the dot. Counts are 
 | `t28_vtol_ferry_speed_1110` | 4 | VTOL ferry crawl: stale AI forward speed in the body integrator. |
 | `t29_lens_flash_freeze_1110` | 8 | Explosion lens flash and the screen-haze fix. |
 | `t3_first_pass_research` | 63 | First-pass research on bots and custom-map details. |
+| `t30_arrival_parity_1110` | 6 | Objective arrival parity (Snatch It Ill Wind bank, 11-10). |
+| `t31_foot_slope_1110` | 5 | Check It arrival parity: pilot walk precheck (FootSlope) and map diagnoses. |
+| `t32_floor_model_1110` | 3 | Objective arrival floor model and measured movement speeds. |
+| `t33_arrival_parity_pass5_1111` | 5 | Arrival parity pass 5: leap stalls, step-off clearance, deep jet landings, floor tool fixes. |
+| `t34_arrival_parity_pass6_1111` | 2 | Arrival parity pass 6: the grid misses buildings over 40 m (TallSolid); MechAI goto stutter. |
+| `t35_arrival_parity_pass7_1111` | 3 | Arrival parity pass 7: GotoWindow (goto stutter), Ill Wind Check It T1 variance, NavCache key ignores switches. |
+| `t35_lightning_units_1110` | 4 | Lightning flash: whole-scene flicker root cause and N.L-lit-only fix (R27 tint3). |
+| `t36_arrival_parity_pass8_1111` | 7 | Arrival parity pass 8: FarAir, ChokeWaitYield, DeckHold, PickHold, CruisePace; Ill Wind Snatch It segment losses. |
+| `t37_arrival_parity_pass9_1111` | 5 | Arrival parity pass 9: StaleTurn, AirAhead, LeapStall family, LeapNearFix; floor step limit. |
+| `t38_arrival_parity_pass10_1111` | 4 | Arrival parity pass 10: JetOverYield, LeapStallUpFar, WalkChainHold; corrected floor table. |
+| `t39_arrival_parity_pass11_1111` | 3 | Arrival parity pass 11: LandedLeg, FirstLeg, SlopeStale. |
+| `t40_arrival_parity_pass12_1111` | 3 | Arrival parity pass 12: ChokeAbreast, ChokeFileHyst, DeckNear, TankFace. |
+| `t41_arrival_parity_pass13_1112` | 2 | Arrival parity pass 13: TankFaceReal, Ill Wind Snatch It A/B. |
+| `t42_arrival_parity_pass14_1112` | 2 | Arrival parity pass 14: LowJetWalk, SkipHump (Ill Wind basin mound). |
+| `t43_vtol_rider_1112` | 8 | Bot VTOL rider pick-up / carry polish. |
+| `t44_ride_intent_1112` | 1 | Bot VTOL pick-up ends when the BattleArmor stops wanting the ride (RideIntent, 2026-11-12). |
+| `t45_cinematics` | 4 | Cinematic levels: frame rate and fill view (v30-cine, 2026-11-12). |
+| `t46_crash_1112` | 4 | Crash dumps 11-11 / 11-12 triage (v38-crash, 2026-11-12). |
+| `t47_ctf_standoff_1114` | 5 | CTF 2v2 stall at the flag stands: ExtractHome, the real capture rule (CapAnyway), LoneGround, StageComing (2026-11-14). |
+| `t48_scenario_messages_1114` | 2 | Mission messages (MAActionBroadcast / PopupMenu Execute 0x001A0991): one box, the later replaces the earlier; the custom-level queue (v35-edgame, 2026-11-14). |
+| `t49_f56_g0_game_look_1114` | 5 | Editor look sweep against the PC Release game: lightning, dust storm, skies, lamp cones, sky fog band (2026-11-14). |
+| `t49_mission_result_1115` | 6 | How a mission ends: the level result (level descriptor +0x10C), its writers, the death path, and the custom-mission result screen (v35-edgame, 2026-11-15). |
+| `t50_cinema_skip_1115` | 3 | Cutscene skip: fixed 0.2 s world steps, the skip flag, MACinema offsets, [Cutscenes] NoSkip (v35-edgame, 2026-11-15). |
+| `t50_f1_t1_trigger_kinds_1115` | 8 | Remaining trigger kinds tested in the game (2026-11-15). |
+| `t51_f1_g5_keepalive_1115` | 2 | Keep these alive: diagnosis (2026-11-15). |
+| `t52_f1_g4_g6_1115` | 2 | Checkpoint restart keeps the scenario [Assets] archive; frame counter and button press stamps (cutscene skip) (v35-edgame, 2026-11-15). |
+| `t53_f1_s2_1116` | 8 | Defend, side change, counter, match clock, effect, player vehicle (2026-11-16). |
+| `t54_f56_e2_lights_snow_band_1116` | 3 | Editor look fixes against the PC game: lamp cones are back-face culled, snow box turns with the camera, environment band (2026-11-16). |
+| `t55_f56_e3_near_ground_1116` | 2 | Near ground in the game vs the editor: DXT colour-map rounding and resized water drawn as a 1000 m sheet (2026-11-16). |
+| `t56_f56_e2b_skies_dust_water_1116` | 4 | Skies, dust storm and resized water in the game vs the editor (2026-11-16). |
+| `t57_f56_e2c_water_model_space_sky_1116` | 2 | Generated water / wall models on custom levels, and the Starry space (second) sky brightness (2026-11-16). |
+| `t58_f1_j4_live_editor_1116` | 7 | In-game live editor: live session, scenario reload in place, loading screen timing, hidden-game audio CPU (2026-11-16). |
+| `t59_j4_apu_hold_1116` | 1 | J4 follow-up: audio emulation held while the in-game editor is on screen. |
+| `t60_reach_units_1116` | 19 | Reach overlay: per-unit movement facts ("Can it get here?"). |
+| `t61_reach_bot_gaps_1116` | 17 | Reach overlay: bot behaviour gaps (planner vs real limits). |
 
 Topic articles (`wiki/pages/<pack>.md`) exist for the larger packs and give an overview, key code, added hooks, switches,
 a bug-and-fix history and open questions before the facts.

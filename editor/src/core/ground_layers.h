@@ -1,4 +1,4 @@
-// More than two ground textures (P4, PC only): a scenario that opts in carries up to 8 ground
+// More than two ground textures (PC only): a scenario that opts in carries up to 8 ground
 // layers and its own weight map, finer than the colour map (256 x 256 on a square map; UnderCover,
 // 1024 x 2048 m, has a non-square one) whose alpha picks between the
 // retail pair. The PC runtime blends them on the game's lit terrain draw (maintainer tree,
@@ -18,6 +18,7 @@
 //   (N - 2) x S x S RGBA8 layer textures, mip 0 (both sides build the mips with a 2x2 box filter)
 #pragma once
 #include <algorithm>
+#include <cmath>
 #include <memory>
 #include <string>
 #include <vector>
@@ -74,6 +75,48 @@ inline float brush_falloff(float d, float R, float hardness) {
     f = f < 0.f ? 0.f : f > 1.f ? 1.f : f;
     return f * f * (3 - 2 * f);
 }
+// Rubs layer `layer` out of one texel's eight weights by `a` (0..1): its weight shrinks and what it gave up goes to the other layers in
+// proportion to what they hold; where it was alone, to texture 1 (layer 0), or to texture 2 (layer 1) when texture 1 is the one rubbed
+// out. The sum stays 255 (the weights are normalised first).
+inline void rub_out(uint8_t w[kGroundMaxLayers], int layer, float a) {
+    a = a < 0.f ? 0.f : a >= 0.99f ? 1.f : a;
+    float f[kGroundMaxLayers], sum = 0;
+    for (int j = 0; j < kGroundMaxLayers; j++) { f[j] = float(w[j]); sum += f[j]; }
+    if (sum <= 0.f) { f[0] = 255.f; sum = 255.f; }
+    for (float& v : f) v *= 255.f / sum;
+    const float give = f[layer] * a;
+    float others = 0;
+    for (int j = 0; j < kGroundMaxLayers; j++) if (j != layer) others += f[j];
+    f[layer] -= give;
+    if (others > 0.f) { for (int j = 0; j < kGroundMaxLayers; j++) if (j != layer) f[j] += give * f[j] / others; }
+    else f[layer == 0 ? 1 : 0] += give;
+    int total = 0, big = 0;
+    for (int j = 0; j < kGroundMaxLayers; j++) {
+        w[j] = uint8_t(std::clamp(int(f[j] + 0.5f), 0, 255));
+        total += w[j];
+        if (w[j] > w[big]) big = j;
+    }
+    w[big] = uint8_t(std::clamp(int(w[big]) + 255 - total, 0, 255));   // rounding: the sum stays 255
+}
+
+// One texel of the texture brush on the weight map, from the texel's weights when the stroke began: the chosen layer rises toward 255
+// by `a` (= strength x biggest brush weight) and the others fall in proportion.
+inline void paint_layer_texel(const uint8_t base[kGroundMaxLayers], uint8_t out[kGroundMaxLayers], int layer, float a) {
+    int sum = 0;
+    for (int j = 0; j < kGroundMaxLayers; j++) sum += base[j];
+    const float scale = sum > 0 ? 255.f / float(sum) : 0.f;   // normalise to 255 first
+    int total = 0;
+    for (int j = 0; j < kGroundMaxLayers; j++) {
+        const uint8_t b = uint8_t(std::clamp(int(float(base[j]) * scale + 0.5f), 0, 255));
+        const float f = a >= 0.99f ? 1.f : a < 0.f ? 0.f : a, tg = j == layer ? 255.f : 0.f;   // (0.99 = kPaintFull in brush.h)
+        const float v = float(b) + (tg - float(b)) * f;
+        const float r = tg >= float(b) ? std::floor(v + 0.5f) : std::ceil(v - 0.5f);
+        out[j] = uint8_t(std::clamp(int(r), 0, 255));
+        total += out[j];
+    }
+    if (!total) out[layer] = 255;
+}
+
 class MgfReader;
 // A retail ground texture (an MGIc .tif in an archive), decoded at kGroundTextureSize.
 bool load_ground_texture(MgfReader& archive, const std::string& path, Image& out, std::string* err = nullptr);

@@ -237,7 +237,7 @@ static struct { uint32_t who; double until; } g_bapick[8];   /* CtfBaPick: the o
 static struct { uint32_t who; double until; } g_vtpick[8];   /* CtfVtolPick: the one pilot per team the VTOL bonus is for */
 static int lifts_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("RECOMP_BOT_LIFTS"); v = !(e && *e == '0'); } return v; }
 static int lift_find(uint32_t ba) { for (int i = 0; i < 12; i++) if (g_lift[i].ba == ba) return i; return -1; }
-/* LiftClaimFix (batch 5, default on, RECOMP_BOT_LIFT_CLAIM_FIX / [Bots] LiftClaimFix): a VTOL's claim on a request only counts while it
+/* LiftClaimFix (default on, RECOMP_BOT_LIFT_CLAIM_FIX / [Bots] LiftClaimFix): a VTOL's claim on a request only counts while it
  * keeps pursuing it (go_t is refreshed by the claimant when its goal is the lift, and by order_lift's pickup leg). Before, the claim
  * lived as long as the BattleArmor re-posted, so a VTOL that got into a fight, or died, kept every other VTOL off a flag carrier. */
 static int lift_claim_fix_on(void) { return c7_on("liftfix", "RECOMP_BOT_LIFT_CLAIM_FIX", "LiftClaimFix", 1); }
@@ -252,7 +252,7 @@ static int lift_claim_live(int i, double now)
     if (!lift_claim_fix_on()) return 1;
     return now >= g_lift[i].go_t && now - g_lift[i].go_t < 4.0;
 }
-/* RideIntent (default on, RECOMP_BOT_RIDE_INTENT / [Bots] RideIntent; lead 11-12, VTOL pass leftover): a bot BattleArmor's request was
+/* RideIntent (default on, RECOMP_BOT_RIDE_INTENT / [Bots] RideIntent; design 11-12, VTOL pass leftover): a bot BattleArmor's request was
  * re-posted on every evaluation its objective was far and nobody shot at it -- also while its own goal was a fight or a power-up -- so a
  * VTOL kept coming for, then hovering over, a BattleArmor that was not boarding (v29h1 VTOL bot 10 t=101.6-110.7: 258 -> 48 m, then 4 s
  * hovering 70-78 m off while BA bot 8 peeked and shot; v29h2 VTOL bot 2 t=113-119 after BA bot 4 on a power-up run). want_t is the last
@@ -271,7 +271,7 @@ static void lift_post(uint32_t ba, int nation, Ma2Vec3 pos, Ma2Vec3 dest, double
     if (i < 0) { for (int j = 0; j < 12; j++) if (g_lift[j].t < g_lift[old].t || now < g_lift[j].t) old = j; i = old; g_lift[i].vtol = 0; g_lift[i].go_t = 0.0; g_lift[i].want_t = -1e9; }
     g_lift[i].ba = ba; g_lift[i].nation = nation; g_lift[i].pos = pos; g_lift[i].dest = dest; g_lift[i].t = now; g_lift[i].car = 0;
 }
-/* VTOL carrier lifts (batch 5, VTOL-CARRIER-SPEC v1). LiftCarrier: a teammate carrying their flag in a BattleArmor
+/* VTOL carrier lifts (VTOL-CARRIER-SPEC v1). LiftCarrier: a teammate carrying their flag in a BattleArmor
  * is fetched more readily by a better VTOL pilot (decisions only); LiftHuman: the player as that carrier posts a
  * request too (only bot brains post them). [C7] lift counts posted / taken / boarded / home, bot vs player. */
 static int lift_carrier_on(void) { return c7_on("liftcarrier", "RECOMP_BOT_LIFT_CARRIER", "LiftCarrier", 1); }
@@ -441,7 +441,7 @@ struct Ma2Brain {
     int lane_j, lane_dir, lane_end, lane_paused, lane_prog_i, lane_skip; double lane_keep_until, lane_prog_t; float lane_prog_d;      /* F45: the lane this trip follows, which way, to which point; a choke re-lane holds */
     float lane_join_d;                                         /* F45: nearest this trip has been to its lane (joining from mid-map) */
     double zone_t;                                             /* F45 [C7] lane share / fight zone sampling */
-    int flank_on, flank_side; uint32_t flank_tgt, flank_tgt0; double flank_next, flank_t0;   /* flank route (batch 2) */
+    int flank_on, flank_side; uint32_t flank_tgt, flank_tgt0; double flank_next, flank_t0;   /* flank route */
     Ma2Vec3 flank_tpos;         /* where the enemy we set out against (flank_tgt0) is (batch 4 FlankKeep: a switch to one near it keeps the trip) */
     /* kills: go for what they drop */
     uint32_t kill_watch; Ma2Vec3 kill_watch_pos; double kill_t; Ma2Vec3 kill_pos; int kills;
@@ -615,7 +615,7 @@ static float decay_v(float v, double t, double now) { return now > t ? v * (floa
 static float rate_of(float v, double t, double now) { return decay_v(v, t, now) / (float)MA2B_DMG_TAU; }
 
 /* AI rays: a token bucket per bot (the ray is not free). Returns 1 clear, 0 blocked, -1 no budget.
- * Brain spike (batch 2): the 33/66 ms bot frames were one sight ray (the game's raycast) stalling
+ * Brain spike: the 33/66 ms bot frames were one sight ray (the game's raycast) stalling
  * inside game code -- the thread blocked or pre-empted (t3-brainspike 1a90fdf: 8.3 ms wall, 0.3 ms
  * CPU) -- with every other bot's rays still to come that frame. Now all bots' rays share a frame
  * budget of RAY_FRAME_MS wall time: past it, a ray waits for the next frame ("no budget", the
@@ -800,7 +800,7 @@ int ma2_brain_kind_allowed(int kind, int game_type)
 static struct { int nation; uint32_t player; Ma2Vec3 pos, vel; double t; } g_tb[TB_MAX];
 static double g_tb_now = -1.0;
 static struct { int nation, bot, lane; double t; } g_lane[TB_MAX];   /* each bot's lane, for spreading */
-static struct { int nation, bot; double until; } g_flankers[TB_MAX];  /* bots on a flank route now (batch 2) */
+static struct { int nation, bot; double until; } g_flankers[TB_MAX];  /* bots on a flank route now */
 static void flank_release(const Ma2Brain *b);
 static double g_fz_t[3];                                            /* F45 [C7]: last fight sample per zone (left / centre / right) */
 /* Power-ups someone just collected: the entity stays in the world until it respawns, so for a
@@ -826,12 +826,12 @@ static int spot_taken(const Ma2Brain *b, const Ma2World *w, const Ma2PlayerView 
     }
     return 0;
 }
-/* Several fights at once (batch 2, switch RECOMP_BOT_FIGHT_ZONES / [Bots] FightZones, default on):
+/* Several fights at once (switch RECOMP_BOT_FIGHT_ZONES / [Bots] FightZones, default on):
  * where each bot is fighting or heading to fight, so a hunting bot claims a fight like C3 claims a
  * vehicle -- once a fight already has its share of the team, the next one goes after another enemy
  * instead of the whole team piling into one brawl. */
 #define ZONE_R 80.0f
-/* [C7] per-skill counter names for the batch-2 review (suffix _recruit.._elite; c7 keeps the pointer). */
+/* [C7] per-skill counter names for review (suffix _recruit.._elite; c7 keeps the pointer). */
 static const char *const k_c7_spread_sk[4] = { "spread_hunts_recruit", "spread_hunts_regular", "spread_hunts_veteran", "spread_hunts_elite" };
 static const char *const k_c7_f23_sk[4] = { "stronger_picks_recruit", "stronger_picks_regular", "stronger_picks_veteran", "stronger_picks_elite" };
 static const char *const k_c7_f37c_sk[4] = { "chances_recruit", "chances_regular", "chances_veteran", "chances_elite" };
@@ -921,7 +921,7 @@ static void perceive(Ma2Brain *b, const Ma2World *w, int self, const Ma2Senses *
     const Ma2PlayerView *me = &w->players[self];
     int k = kind_ok(me->kind);
     float sight = maxf(k_kind[k].sight, my_reach(me)) * b->sk.sight_mult;   /* long guns come with the zoom to use them */
-    /* F28b (batch 3, switch RECOMP_BOT_F28_ENGAGED / ini BotSightCapEngaged): the draw-distance cap is for
+    /* (switch RECOMP_BOT_F28_ENGAGED / ini BotSightCapEngaged): the draw-distance cap is for
      * spotting; a target already in sight, or one shooting at us, stays seen out to the bot's own sight (A/B
      * N\bots-4c\ab: the cap alone cost NRC ~0.7 kills/min with the hide fix on). [C7] f28 engaged_keep. */
     float sight_full = sight;
@@ -1906,7 +1906,7 @@ static float poly_dist(const Ma2Lane *ln, Ma2Vec3 q)
     return best;
 }
 
-/* F45 (batch 2): lanes spread by team rank and role. The review saw ~70% of the traffic on the
+/* Lanes spread by team rank and role. The review saw ~70% of the traffic on the
  * centre lane and most bots in one lane all match: each bot's lane was its own random pick with
  * the centre favoured, and a flank bot only aimed at its lane's apex once a trip (past it, or with
  * the apex not on the way, it went straight -- the main route). Now, with the map's lanes known
@@ -2913,6 +2913,33 @@ static float pair_veh_value(const Ma2World *w, const Ma2PlayerView *me, const Ma
     return 0.0f;
 }
 
+/* LoneGround (default on, RECOMP_BOT_LONE_GROUND / [Bots] LoneGround; design 11-14): a VTOL cannot take a flag. A bot with nobody on its team to
+ * fly in (no other bot, no teammate player in a BattleArmor) took the VTOL anyway (CtfVtolPick's pull 1.1-2.2 + the 'no gunship up' 0.4) and
+ * flew lone cover over their flag for nobody: 1v1 CTF Bogged Down on rc33 (c34bd1v), both bots, 0 flag grabs in 240 s. Alone, those
+ * two bonuses and the lone cover are off: it takes a ground ride and goes for the flag itself. [C7] loneground: vtol_pick_skipped, cover_skipped. */
+static int lone_ground_on(void) { return c7_on("loneground", "RECOMP_BOT_LONE_GROUND", "LoneGround", 1); }
+static int ctf_vtol_partner(const Ma2World *w, const Ma2PlayerView *me)   /* 1 = someone on our team a VTOL can fly in */
+{
+    if (!lone_ground_on()) return 1;
+    for (int j = 0; j < w->nplayers && j < MA2_WORLD_MAX_PLAYERS; j++) {
+        const Ma2PlayerView *q = &w->players[j];
+        if (q->player == me->player || q->nation != me->nation) continue;
+        if (q->is_bot || (q->is_human && q->alive && kind_ok(q->kind) == MA2_KIND_BATTLEARMOR)) return 1;
+    }
+    return 0;
+}
+/* LoneGround: a teammate on the ground who could take their flag while a VTOL covers it (a bot not in a VTOL; a player in a ground ride) */
+static int ctf_ground_mate(const Ma2World *w, const Ma2PlayerView *me)
+{
+    if (!lone_ground_on()) return 1;
+    for (int j = 0; j < w->nplayers && j < MA2_WORLD_MAX_PLAYERS; j++) {
+        const Ma2PlayerView *q = &w->players[j];
+        int k = kind_ok(q->kind);
+        if (q->player == me->player || q->nation != me->nation || !q->alive || k == MA2_KIND_VTOL) continue;
+        if (q->is_bot || k != MA2_KIND_PILOT) return 1;
+    }
+    return 0;
+}
 static float vehicle_value(const Ma2Brain *b, const Ma2World *w, const Ma2PlayerView *me, const Ma2VehicleView *v)
 {
     int j;
@@ -2929,7 +2956,7 @@ static float vehicle_value(const Ma2Brain *b, const Ma2World *w, const Ma2Player
     }
     s += pair_veh_value(w, me, v);   /* CtfPair: the opening's two roles; the bonuses below are off meanwhile */
     if (v->kind == MA2_KIND_BATTLEARMOR && w->game_type == MA2_GT_CTF && ctf_ba_pick_on() && !pair_active(me->nation)) {
-        /* CtfBaPick (batch 5): a team with a VTOL up and no BattleArmor sends ONE pilot near a free BattleArmor
+        /* CtfBaPick: a team with a VTOL up and no BattleArmor sends ONE pilot near a free BattleArmor
          * into it, so the VTOL+BattleArmor flag run has a partner (bots almost never chose one: BA 0.30-0.45
          * against a 'Mech's 1.0 + rating). A better pilot plays the team game more (decisions only). The
          * partner ask from a VTOL (g_frun_want) gets the same bonus over 350 m. */
@@ -2965,7 +2992,9 @@ static float vehicle_value(const Ma2Brain *b, const Ma2World *w, const Ma2Player
      * a playtester's 4 NRC CTF matches (11-03/04), and no bot run started in any (playtest 11-04: bots should use the VTOL strategy too;
      * the flag-run tests forced a VTOL by test hook). Now a team with no bot in a VTOL sends ONE pilot within 300 m of a free
      * VTOL into it (the PartnerPull bonus); CtfBaPick then finds it a BattleArmor partner. [C7] vtpick: picks_<skill>. */
-    if (v->kind == MA2_KIND_VTOL && w->game_type == MA2_GT_CTF && me->kind == MA2_KIND_PILOT && d < 300.0f && !pair_active(me->nation) &&
+    int lone_vt = v->kind == MA2_KIND_VTOL && w->game_type == MA2_GT_CTF && w->team_mode && !ctf_vtol_partner(w, me);   /* LoneGround */
+    if (lone_vt && me->kind == MA2_KIND_PILOT && d < 300.0f) c7_add("loneground", "vtol_pick_skipped", 1);
+    if (v->kind == MA2_KIND_VTOL && w->game_type == MA2_GT_CTF && me->kind == MA2_KIND_PILOT && d < 300.0f && !pair_active(me->nation) && !lone_vt &&
         c7_on("vtpick", "RECOMP_BOT_CTF_VTOL_PICK", "CtfVtolPick", 1)) {
         static const float pull[4] = { 1.1f, 1.5f, 1.9f, 2.2f };
         static const char *const k_vp[4] = { "picks_recruit", "picks_regular", "picks_veteran", "picks_elite" };
@@ -2998,7 +3027,7 @@ static float vehicle_value(const Ma2Brain *b, const Ma2World *w, const Ma2Player
         if (hdist(p->pos, v->pos) + 3.0f < d) { s -= 0.25f; break; }
     }
     if (d < 25.0f) s += 0.3f * vehicle_pref_b(b, v->kind);   /* right here: take it */
-    if (v->kind == MA2_KIND_VTOL && d < 80.0f) {
+    if (v->kind == MA2_KIND_VTOL && d < 80.0f && !lone_vt) {
         /* A team wants one gunship up: the first bot near a free VTOL while no teammate flies one
          * takes it (unless a 'Mech is just as close). */
         int flying = 0;
@@ -3321,7 +3350,7 @@ static const char *const k_fr_name[6] = { "-", "pickup", "inbound", "grab", "ext
  * until a teammate has the flag or 50 s are up. */
 static int frun_solo_on(void) { return c7_on("f36-solo", "RECOMP_BOT_FLAGRUN_SOLO", "FlagRunSolo", 1); }
 static int vtol_wait_player_on(void) { return c7_on("frun", "RECOMP_BOT_VTOL_WAIT_PLAYER", "VtolWaitPlayer", 1); }
-/* [C7] frun (batch 4, playtest: the run had no counters): started (paired with a bot
+/* [C7] frun (playtest: the run had no counters): started (paired with a bot
  * BattleArmor) / started_<skill> / started_player (a human clawed on, VtolWaitPlayer); reached_<phase>
  * (+ _player); ends_<reason>; captures / captures_<skill> / captures_player. Cover runs stay in f36-solo. */
 static const char *const k_frun_started_sk[4] = { "started_recruit", "started_regular", "started_veteran", "started_elite" };
@@ -3511,7 +3540,9 @@ static void frun_consider(Ma2Brain *b, const Ma2World *w, const Ma2PlayerView *m
     /* RunNeedsHome (default on, RECOMP_BOT_RUN_NEEDS_HOME / [Bots] RunNeedsHome): no run while our own flag is carried -- a capture
      * needs it on its stand, so the run could only grab and wait (au16_61 runs 4 and 5: started with nation 1's flag away, no capture
      * possible, run 5's VTOL died re-picking its BattleArmor). No partner ask or lone cover either. [C7] frun: no_run_flag_away. */
-    if (mine && mine->state == MA2_OBJS_CARRIED && c7_on("runneedshome", "RECOMP_BOT_RUN_NEEDS_HOME", "RunNeedsHome", 1)) {
+    /* CapAnyway (ma2_bot_brain_obj.c): MechAssault 2 scores with our own flag away, so a run is worth making then too -- RunNeedsHome
+     * stands only with CapAnyway off. */
+    if (mine && mine->state == MA2_OBJS_CARRIED && c7_on("runneedshome", "RECOMP_BOT_RUN_NEEDS_HOME", "RunNeedsHome", 1) && !cap_anyway_on()) {
         c7_add("frun", "no_run_flag_away", 1); b->frun_next = b->now + 5.0;
         if (diag_on()) fprintf(stderr, "[BOT-FLAGRUN] t=%.1f bot=%d no run: our flag is carried\n", b->now, b->index);
         return;
@@ -3572,6 +3603,7 @@ static void frun_consider(Ma2Brain *b, const Ma2World *w, const Ma2PlayerView *m
                       (getenv("RECOMP_BOT_FLAGRUN_TEST") || rng_f(&b->rng) < ptry);
         if (recruit) { g_frun_want[n] = b->now + 45.0; b->frun_next = b->now + (c7_on("runfromlift", "RECOMP_BOT_RUN_FROM_LIFT", "RunFromLift", 1) ? 4.0 : 20.0); }   /* RunFromLift: look again soon -- a partner on board starts it */
         if (diag_on()) fprintf(stderr, "[BOT-FLAGRUN] t=%.1f bot=%d no run: %s%s\n", b->now, b->index, why, recruit ? " -- asks for a BattleArmor partner" : "");
+        if (recruit && !b->vt_carry && !me->cargo && frun_solo_on() && !ctf_ground_mate(w, me)) { c7_add("loneground", "cover_skipped", 1); recruit = 0; }   /* LoneGround: nobody to cover */
         if (recruit && !b->vt_carry && !me->cargo && frun_solo_on()) {   /* F36: and goes in alone meanwhile, as cover for the ground grab */
             memset(&g_frun[n], 0, sizeof g_frun[n]);
             g_frun[n].vtol = me->actor; g_frun[n].phase = FR_COVER; g_frun[n].skill = b->skill;
@@ -3698,6 +3730,17 @@ static void frun_eval(Ma2Brain *b, const Ma2World *w, const Ma2PlayerView *me, f
         if (s[G_SUPPORT] > 0.f || s[G_ATTACK] > 0.f || s[G_COVER] > 0.f || s[G_POWERUP] > 0.f) c7_add("runcommit", "side_goals_dropped", 1);
         s[G_SUPPORT] = s[G_ATTACK] = s[G_COVER] = s[G_POWERUP] = 0.f;
     }
+    /* ExtractHome (default on, RECOMP_BOT_EXTRACT_HOME / [Bots] ExtractHome; design 11-14, the 2v2 CTF stall): order_ride lets a carrier go
+     * within 40 m of our stand (to walk onto it), but the extract kept the BattleArmor's ride (G_RIDE 3.0 whenever its VTOL is within
+     * 120 m: "meet it") and the VTOL's fetch (G_LIFT 3.0, lift-pickup over the BattleArmor) -- the carrier clawed back on at once
+     * (ReClaw, 2 s) and was let go again, 22 m from its stand, every 2 s for 80 s: rc33 c34bd0 Bogged Down 2v2, both pairs, bots 0-3
+     * still 49.7-131.4 until the 100 s limit (on Deliverance the same with obj=def/hold). Off the claw within 40 m of our stand the
+     * carrier walks the rest: no ride, no fetch. [C7] extracthome: ride_dropped_s. */
+    const Ma2ObjectiveView *mine0 = obj_find(w, MA2_OBJ_FLAG, me->nation, 1);
+    int at_home = ph == FR_EXTRACT && mine0 && ba->riding != v->actor && hdist(ba->pos, mine0->home) < 40.0f &&
+                  c7_on("extracthome", "RECOMP_BOT_EXTRACT_HOME", "ExtractHome", 1);
+    if (at_home && me->actor == g_frun[n].ba) c7_add("extracthome", "ride_dropped_s", b->dt);
+    if (at_home && (me->actor == g_frun[n].vtol || me->actor == g_frun[n].ba)) return;
     if (me->actor == g_frun[n].vtol) {
         if (ph == FR_GRAB) { s[G_LIFT] = 2.6f; b->lift_ba = 0; b->frun_cover = 1; }   /* cover the grab */
         else { s[G_LIFT] = 3.0f; b->lift_ba = ba->actor; }                              /* fetch / fly / fetch again */
@@ -5030,8 +5073,8 @@ static int peek_search(Ma2Brain *b, const Ma2World *w, const Ma2PlayerView *me, 
     }
     return 1;
 }
-/* Hide cost (batch 3, switch RECOMP_BOT_HIDE_COST / ini BotHideCost): the batch-2 review A/B (N\bots-4c\ab)
- * found F79's slow-weapon hide cost the fights: with it on, kills/min UC 3.9 vs 5.9 off and Elite shots per
+/* Hide cost (switch RECOMP_BOT_HIDE_COST / ini BotHideCost): the earlier A/B review
+ * found's slow-weapon hide cost the fights: with it on, kills/min UC 3.9 vs 5.9 off and Elite shots per
  * bot-minute 27 vs 55 (Elite hid on 90 % of slow-weapon peeks, each 18-30 s, so it fired less than a Veteran).
  * Hiding pays only while the target shoots at us: a slow-weapon hide starts only when it is attacking us or hit
  * us in the last 3 s, ends once it has left us alone for 5 s, and the per-skill wish is flatter (Elite 0.65,
@@ -5167,7 +5210,7 @@ static void reload_cover_metric(Ma2Brain *b, const Ma2PlayerView *me, const Mem 
     }
 }
 
-/* Flank routes (batch 2). In a group fight -- a teammate within 110 m shooting too, and one of us
+/* Flank routes. In a group fight -- a teammate within 110 m shooting too, and one of us
  * nearer the enemy holding the front -- a bot now and then works round to the enemy's side
  * instead of trading fire head-on: a firing spot ~80-140 m to the side of its target, across the
  * line from our group to it (its own side of that line first), open ground the planner can reach.
@@ -5920,7 +5963,7 @@ static void order_lift(Ma2Brain *b, const Ma2World *w, const Ma2PlayerView *me, 
             snprintf(b->note, sizeof b->note, "lift-climb");
             return;
         }
-        /* VtolWaitPlayer (batch 4, switch RECOMP_BOT_VTOL_WAIT_PLAYER / [Bots] VtolWaitPlayer, default on; design
+        /* VtolWaitPlayer (switch RECOMP_BOT_VTOL_WAIT_PLAYER / [Bots] VtolWaitPlayer, default on; design
          * note): a player clawed on and flown to their flag makes this a flag run with him as the BattleArmor --
          * the VTOL circles their flag as cover while he takes it (FR_GRAB, up to 40 s; ends if he walks 200 m off),
          * then comes down beside the carrier for him to claw back on and flies him home (FR_EXTRACT, ctf 1 above).

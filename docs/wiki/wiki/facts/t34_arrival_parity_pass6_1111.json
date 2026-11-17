@@ -1,0 +1,60 @@
+{
+ "pack": "t34_arrival_parity_pass6_1111",
+ "title": "Arrival parity pass 6: the grid misses buildings over 40 m (TallSolid); MechAI goto stutter",
+ "facts": [
+  {
+   "id": "grid-probe-blind-inside-tall-buildings",
+   "title": "Collider faces are one-sided: a ray starting inside a building sees none of it",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bots_core.c obstacle_top (RECOMP_BOT_TALL_SOLID)"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The game's collision ray query (sub_A10A0 + sub_8DF50) only hits faces seen from outside, and the terrain is not in that space. The bot grid probe cast down from ground+40 m, so any building taller than 40 m was open ground. Rush Hour has 4562 such cells (2 m grid); its 42-50 m block at 1118-1138,1322-1344 read as a 20 m corridor between two 7-9 m walls, and team 2 'Mechs stood 25-30 s at its face (Z_85a/b). FPROBE on D_85b1: a down ray from +100 m hits the roof at +42/+50, an up ray from +0.5 m hits nothing. TallSolid (commit adbf1ec): the first ray starts at terrain top + 160 m; if it meets something above ground+40, the 44 m ray gives the surface below and an up ray from that surface separates an overhead deck (underside hit: the low surface stays) from a solid (no hit: the roof is the surface). Movers, projectiles and water above keep the old ray.",
+   "how_to_use": "[C7] tallsolid cells/open; RECOMP_BOT_DIAG prints [BOT-NAV] tallsolid. RECOMP_BOT_TALL_SOLID=0 / [Bots] TallSolid=0 = old. RECOMP_BOT_FPROBE now also logs top (down from +100 m) and up rays per point; RECOMP_BOT_STALLPROBE=1 logs rays from stalled bot 'Mechs.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bots_core.c",
+     "line": 1
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "pathing",
+    "navgrid"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "mechai-goto-stutter-defeats-gotowalk",
+   "title": "The campaign MechAI goto can stutter (0.3 s step, 0.8 s stop) while facing its carrot",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_ctrl.c GotoWalk"
+   },
+   "addresses": [],
+   "related": [
+    "t33.leapstall-jet-from-short-of-top"
+   ],
+   "fact": "Q_81a1 b6 (Ill Wind Snatch It, team 2) right after boarding, 10.1-14.6 s at 1199-1188,1419-1421: drive A348 (body_steer to MechAI mode 6), yaw equal to the carrot bearing, yet it moves in 0.3 s bursts and stands 0.8-1 s between them (about 1 m/s in all). Each burst moves more than 0.7 m, which resets GotoWalk's 1 s still-timer, so walk-direct (W3515) only took over at 14.6 s; then 12-24 m/s. Nobody within 15 m (no crowding). This is ~3-4 s of team 2's post-boarding loss. Not fixed: a fix would judge progress over a 2 s window instead of a 1 s still-timer.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 3520
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "follower"
+   ],
+   "date": "2026-11-11"
+  }
+ ]
+}

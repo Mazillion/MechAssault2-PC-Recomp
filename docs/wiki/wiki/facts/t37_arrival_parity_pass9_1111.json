@@ -1,0 +1,142 @@
+{
+ "pack": "t37_arrival_parity_pass9_1111",
+ "title": "Arrival parity pass 9: StaleTurn, AirAhead, LeapStall family, LeapNearFix; floor step limit",
+ "facts": [
+  {
+   "id": "mechai-turn-target-latched-at-burn-end",
+   "title": "MechAI goto latches its turn target comp+0xA0 when a jet burn ends and keeps it until that turn is done",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_ctrl.c GotoWalk StaleTurn"
+   },
+   "addresses": [
+    "001843C1",
+    "0018A38E"
+   ],
+   "related": [],
+   "fact": "In MechAI goto (mode 6, awake) the turn target comp+0xA0 (degrees) follows the bearing to ai+0x130 while it walks or burns, but it is latched at the frame the jet burn ends (ai+0x240 1 -> 0) and is not re-taken during the fall nor during the in-place turn (anim ai+0x360 = 18, comp+0xB0 = +-124 deg/s) it starts on landing; after the turn it stands at anim 0 with comp+0x98 = 0 (the known goto idle). X_81a2 b5 (Ill Wind Snatch It T2): carrot behind for 0.4 s as the burn ended at 13.37 -> A0 = 129 deg, landed at 1115.7,-14.7,1515.5 with the carrot at -159 deg, turned the wrong way to 129 (14.44-15.47) and stood until AiKick at 15.97 (1.8 s). The boarding stand has the same signature (A0 = 0 right after boarding).",
+   "how_to_use": "StaleTurn (RECOMP_BOT_STALE_TURN / [Bots] StaleTurn, default on): a still walker whose comp+0xA0 is > 30 deg off the bearing to its carrot (8 m+) is walked (GotoWalk body_walk_direct) after 0.25 s. [C7] staleturn held_s / n. Proof: staleturn_proof.py (29\tools) on X_81a1.X_81b3: the leap landing spell at 1112-1116,1516 in 5 of 6 runs, walk 1.1-1.5 s earlier; 4-9 spells per team per 75 s.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 3560
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "mechai",
+    "goto"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "airahead-carrot-not-behind-flight",
+   "title": "A replan made in mid-flight starts behind the body: carrot behind as the burn ends -> stale turn on landing (AirAhead)",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_ctrl.c AirAhead"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "A plan searched from a body over a rock or an edge starts at the free cell the search snapped to; every T2 'Mech that leapt into Ill Wind's basin over the rock (X_81a1 b6, X_81a2 b5, X_81a3 b7, X_81b1 b9, X_81b3 b7) replanned 'off' at 1131-1132,37,1502 and got 1142,1494 (behind, 129 deg) as carrot exactly when the burn ended. AirAhead: in a jet flight (ai+0x240, or 3 m+ over the surface with |vy| > 1) at 3 m/s+, path corners behind the velocity are passed. Holding 'off'/'age' replans in flight was tried first and rejected: the replay showed T1 bodies whose OLD plan corner was behind (overflown) and which the mid-air replan had fixed.",
+   "how_to_use": "RECOMP_BOT_AIR_AHEAD / [Bots] AirAhead. [C7] airahead skips. airahead_proof.py: at burn ends the recorded carrot was behind on 1-2 flights per team per run; AirAhead gives the next corner ahead.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 3690
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "jets",
+    "planner"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "leap-top-goto-halt-band",
+   "title": "Leap / jet-up legs: the goto halts 5-10 m short of the leap top or jet foot, so the body stands outside the 8 m jet range (LeapStallQuick, LeapStallUp, LeapNotWalk, LeapStallFar)",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_ctrl.c LeapStall family"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "LeapTop stops the carrot at the top of a leap (or the foot of a jet-up) and MechAI MoveTo halts 5-10 m short of its point, while jets only within 8 m. Leaps down: LeapStall waited 1.2 s of no closing (X_81b1 b8 13.2-14.1 at 1159,13,1513); the goto also refuses to walk DOWN the slope to the top, so GotoWalk's direct walks (0.3-1 s clocks) pre-empted LeapStall (T9_81a1 b6 10.0-12.6 s at 1168->1154,1502, 18 m from the top). Jet-ups: S9_81b1 b7 stood 31.8-33.9 at 713,-0.3,1391, 10 m from the foot 718,1382 of the band jet-up. Both teams hit it (T1 at its base exit 301,992 / 359,971).",
+   "how_to_use": "LeapStallQuick (standing < 1 m/s: 0.4 s instead of 1.2), LeapStallUp (jet-up leg, landing 5-22 m higher < 45 m off, 6-14 m from the foot, standing 0.4 s), LeapNotWalk (when GotoWalk would walk a standing jet body whose route leaps down 6-24 m on, the leap goes from here). [C7] leapstall quick / up / notwalk / n. Proofs rim_proof.py, lsup_proof.py, notwalk_proof.py (29\tools): LeapStall fires 0.8 s earlier both teams; LeapNotWalk 0.9-2.4 s (T2 rim) and 1.2-5.4 s (T1 base) earlier. LeapStallFar: standing, LeapStall reaches 24 m from the top (W9_81b1 b8 19 m short at 12.07 -> 12.47 vs recorded 13.4). Live Ill Wind Snatch It on v13-v28p11: excess over the floor gap 81a +9.0/+2.4/+4.8, 81b +12.7/+3.9/+5.7 (p4 medians +5.5/+7.7); T2 first 'Mech loss vs floor median 10.5 -> 8.1 s (plat 2.6 -> 1.9, basin 2.5 -> 0.7).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 3700
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "jets",
+    "leap"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "leap-near-skipped-next-zero",
+   "title": "ma2_bot_leap_near never saw a leap at drop[1] while path.next was 0 (ChokeLeap blind): FollowHold behind team-mates at the leap",
+   "subject": {
+    "kind": "concept",
+    "id": "ma2_bot_ctrl.c ma2_bot_leap_near"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The scan began at path.next with the condition i > 0, so with next = 0 (right after every plan) it returned 0 and ChokeLeap filed the body in behind team-mates at the leap's choke instead of letting it jump beside them: X_81a1 b8 10.7-12.8 s at 1164,1509, X_81a2 b9 8.6-11.6 s, X_81a3 b5 7.3-12.4 s (Ill Wind Snatch It T2, path 0/9). Fixed: starts at max(next, 1).",
+   "how_to_use": "[Bots] LeapNearFix / RECOMP_BOT_LEAP_NEAR_FIX=0 = old. rim_proof.py: follow_holds frames with old 0 -> fixed 1.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "kit/source/game/src/bots/ma2_bot_ctrl.c",
+     "line": 1447
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "choke"
+   ],
+   "date": "2026-11-11"
+  },
+  {
+   "id": "floor-model-free-cliff-step",
+   "title": "floor_model.py walked UP cliffs between two free cells (no step limit): Ill Wind T2 'Mech floor was 2.5 s optimistic",
+   "subject": {
+    "kind": "concept",
+    "id": "tools/floor_model.py build_graph"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The walk edge allowed any rise from a free cell onto a free cell (the 1.5 m limit applied only from steep cells), so the one-layer NavCache grid's interleaved basin (-10) and terrace (+24) cells under Ill Wind's core terrace (760-790,1336-1372) were 'walked' up 33 m. With STEP = 1.5 m (FLOOR_STEP env) Snatch It Ill Wind: jet 'Mech T1 26.5 -> 27.5, T2 29.2 -> 31.7 s (gap 2.7 -> 4.2); BattleArmor T1 24.5 -> 24.6, T2 26.4 -> 26.8 (best-ground gap 1.9 -> 2.2).",
+   "how_to_use": "FLOOR_STEP=99 reproduces the old floor (used for pass-9 comparisons against floor_all2.csv). Re-run floor_all for every map before using the new numbers as targets.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "bots",
+    "parity",
+    "floor"
+   ],
+   "date": "2026-11-11"
+  }
+ ]
+}

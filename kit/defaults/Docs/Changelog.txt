@@ -4,6 +4,182 @@ MechAssault 2 PC recompilation - changes
 You have version {{VERSION}} (build {{BUILD}}).
 
 
+1.1.0
+-----
+Game
+- 2v2 Capture the Flag: bots no longer stall at the stands. Four bot
+  behaviours that fix this are on by default (ExtractHome, CapAnyway,
+  LoneGround, StageComing); each has a switch under [Bots] in
+  pc_settings.ini.
+- Custom missions: messages that fire together are queued and all show.
+  Retail levels run the original code.
+- Custom missions: Mission failed (Retry / Quit) and Mission complete
+  (Continue / Replay) screens, with the Won / Lost text from the editor.
+  The world stands still while they show.
+- Custom cutscenes: a new [Cutscenes] NoSkip setting keeps the listed
+  cutscenes from being skipped.
+- Custom missions: the mission's own archive is mounted again after a
+  Retry.
+- Custom levels: a resized lake or river, and a cut wall, base or
+  parking lot, are drawn at the size you saved. The ground around a
+  resized lake no longer goes dark.
+- Custom levels: the sky you pick now shows on multiplayer maps (Starry
+  space was black), and the Dust storm weather works on them.
+- The scenario editor opens from Custom Scenarios and takes you back to
+  it without restarting the game. Test goes straight into the mission.
+  While the editor is open the game waits quietly in the background and
+  uses very little of your PC.
+Scenario Editor
+- A large update: a new Build tab, one snapping system, size handles, a
+  cutscene timeline, a full Environment tab and a new user guide (Help >
+  User guide).
+  Where things sit:
+  - The ground you see is the ground that is saved: sculpting works on
+    the game's stored height steps, so nothing shifts when you reopen a
+    map.
+  - Roads, bases, plates and paved squares are layered sheets: each sits
+    a few centimetres above the one below, so the game and the editor
+    draw the same thing and the flicker is gone. Roads sit above bases
+    by default; Bring forward and Send back override it.
+  - Objects stand on the top surface under them (a sheet, else the
+    ground), never on a tree or roof unless asked. The readout shows
+    what an object stands on.
+  - Ground tools carry what stands on them. Fit ground to road protects
+    its neighbours and says what it changed.
+  - Slopes: choose Level the ground, Tilt or Float before the click; the
+    ghost shows the gap. Plates default to Level, roads to Tilt.
+  - Water basins protect neighbours and follow the water. Check scenario
+    reports floating, buried, overlapping, deep and hanging pieces and
+    has Show buttons.
+  - A pad moves as a whole, and buried pads are flagged. A road joined
+    to a neighbour in Float keeps the joint height.
+  Snapping:
+  - One snapping solver for every modular family: a joint pulls the
+    piece only when the cursor is near it, Q and E step through ways to
+    join, Shift places freely.
+  - Cross-family snaps: buildings on a base, a road beside or ending at
+    a base edge, a wall at a corner, flush-corner base runs. Aiming at
+    an open end joins it, for walls and roads.
+  - Grid (off by default, 1-20 m, drawn), 15 degree angle steps, a snap
+    bar, Ctrl+G and a typed Facing.
+  - Moving a piece snaps like placing it: body drag, arrows, nudges and
+    the paste ghost all join.
+  Controls:
+  - One table of actions: every key is in it, and hints, tooltips and
+    Help are generated from it. Help and the user guide use the key
+    names from your own bindings.
+  - Undo keeps 200 steps. Repeated Q/E, nudges and slider drags merge
+    into one step, and the unsaved mark clears when you undo back to the
+    saved state.
+  - Box select from a drag on empty ground, a right-click menu on
+    objects, double-click selects the same type, paste shows a ghost.
+  - PgUp / PgDn and arrows nudge, a lift knob that cannot hide, number
+    readouts, a floor so nothing goes underground silently, group turn.
+  - Ctrl+wheel changes brush size, Shift+wheel strength, [ ] one even
+    step; a ring shows size and half strength. Alt+drag turns the view.
+  - One name per command and one text per hint. The layout is checked at
+    1280 x 720, 1584 x 861, 1920 x 1080 and 3840 x 1600; at 3840 x 1600
+    the interface starts at a larger scale.
+  Panels and palette:
+  - One Build tab with an always-visible tool strip (Select, Place,
+    Scatter, Roads and walls, Sculpt, Paint, Water, Starts).
+  - One palette browser for Place and Scatter: filter chips, every
+    object listed, brush-set chips, drag and drop, ranked search by
+    visible name, plain names with no raw codes, sizes on modular
+    pieces.
+  - Help is a topic list with a page and Find in Help; Getting Started
+    and the user guide come from the same text.
+  - Graphics memory figure per template and live in the footer. The New
+    dialog names themes by what they contain.
+  - Add a plant from another level (Paint > Plants), or scatter it as
+    objects.
+  - The first-run window opens big at a larger interface scale, and the
+    Helpers panel is pinned to the right.
+  Sizing:
+  - What can be cut is decided in one place. Collision follows the cut,
+    cut destructibles default to Cannot be destroyed, and a cut end
+    joins the next piece.
+  - Orange size handles on the map for roads, bases, walls, fences,
+    gates and bridges, with a ghost of the cut part, and a Size panel
+    around a top-down outline that says why something cannot be cut.
+  - Water is placed by dragging, with eight edge and corner handles and
+    a Level knob; the basin follows. Default size 60 x 40 m.
+  - Cut wall, bridge and road ends snap to base edges and building faces
+    and say what they meet.
+  - Cut .road, .node and .mesh files are now written with CR LF. Version
+    1.0.9 wrote bare LF, which the game's reader does not split, and a
+    map with a cut road could crash the game when loading. Check warns
+    about old cut maps until you save them again.
+  Terrain, paint and scatter:
+  - The ground colour map is kept lossless in the project and saved to
+    the game uncompressed, so a painted tint reaches the game exactly.
+    Save As never renames a name you typed.
+  - Sculpt: Raise, Lower and Roughen are one pass per stroke with a
+    Height per stroke setting; the smallest brush follows the map's
+    height grid; height-point dots, a cursor readout, Shift+click
+    straight lines, Flatten pick.
+  - Ramp tool: two clicks, one undo step.
+  - Painting is one pass per stroke with a strength per tool. Ctrl
+    reverses Texture, Boundaries and Plants.
+  - Scatter brush: count by area, spacing by model size, keeps off
+    roads, bases and buildings, optional lean and
+    follow-the-slope, Ctrl erases, Shift draws a line.
+  Missions:
+  - Briefing: a timed start-of-mission message (pages of up to six
+    lines), also used as the description in Custom Scenarios.
+  - Message speaker, an Add a sound button, and Won / Lost texts for the
+    end screens.
+  - Player-outside-a-circle triggers now write the values the game reads
+    (old files open as 2).
+  - Base War maps write the objective settings the game needs, so they
+    no longer end after 5 seconds. "Win: every objective done" stays off
+    while there is no objective to wait for, with a Check warning, so a
+    mission is not won at once.
+  - Objectives can be completed by a place, a delay, destroyed units or
+    a trigger. Units can arrive after a delay, and orders given to a
+    reinforcement start when it arrives. Lose if time runs out. An
+    orders chooser (walk once, patrol, defend, follow, attack); Neutral
+    units warn that they ignore orders.
+  - Defend a point walks the unit to the spot first, then guards it.
+  - A side change gives an empty unit a pilot ("It has a pilot from the
+    start"), so it fights.
+  - Put the player in a vehicle ships the new vehicle's files and works
+    from on foot and from a 'Mech.
+  - The damage trigger reads "Fires at health left (%)"; counters list
+    the triggers they count.
+  - The trigger list is split into Your triggers and From the level,
+    with Pick on map and one action editor everywhere.
+  Cutscenes:
+  - Add a shot from the current view, intro cutscenes start at 0 s, and
+    Check flags long holds, missing paths and a mission that ends
+    mid-cutscene.
+  - Timeline strip with shots and total length, typed lengths, reorder
+    by dragging, preview in the game's wide band.
+  - Frame it / Use this view, shot glyphs on the map, pickable eye
+    points.
+  - Shots play at their authored position (a path used to start at a
+    marker high above the map).
+  - Events on the timeline (sounds, messages, unit orders), When it ends
+    actions, and a Check fix that moves old shots off the flyby marker.
+  - Listen to your own clips from the editor; cue pickers show the words
+    of retail cues.
+  - Hold the fight (enemies by default), a player-can-skip checkbox, and
+    held units wake again after the cutscene, including on a replay. A
+    multi-shot cutscene that can replay uses hard cuts on both plays.
+  Look and weather:
+  - Environment tab: one Look section, Lightning always shown, fog
+    Default / Light / Medium / Thick, Sun or Moon with direction 0-359
+    and height, a status line for every control.
+  - Light cones the game does not draw are culled, the lightning preview
+    lights models and the sky as the game does, snow follows the camera
+    heading, and there is no black band at the horizon.
+  - Skies match the game: Bright overcast, Dark blue storm clouds and
+    Starry space now look the same in both, and the picked sky is
+    shipped with the map. Dust storm is a scenario effect that works on
+    multiplayer maps. On a multiplayer map the Sky list marks Planet,
+    which is black in the game.
+- Help > About and the file properties show 1.1.0.
+
 1.0.9
 -----
 First public release.

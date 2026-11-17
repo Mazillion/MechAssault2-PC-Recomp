@@ -136,7 +136,7 @@ void App::tab_sets() {
             int users = int(used_by(w, victim, [&](uint32_t c) { return names.label(c).rfind("MATrigger", 0) == 0; }).size());
             std::string q = "Delete the set \"" + name_of(victim) + "\"?";
             if (users) q += "\n\n" + std::to_string(users) + " action(s) or swap set(s) use it and will have nothing to act on.";
-            q += "\n\nYou can undo this with Ctrl+Z.";
+            q += "\n\nYou can undo this with " + kt(A_UNDO) + ".";
             confirm(q, [this, victim]() {
                 if (!doc_) return;
                 push_undo("delete set");
@@ -206,7 +206,7 @@ void App::tab_sets() {
     // Swap sets: switches that exchange one set of characters for another.
     std::vector<uint32_t> swaps;
     for (auto& o : w.objs) if (o.cls == K_SWAP) swaps.push_back(o.uid());
-    // Advanced detail (UX-SPEC: retail-only machinery stays reachable but out of the way): collapsed by default.
+    // Advanced detail (retail-only machinery stays reachable but out of the way): collapsed by default.
     if (!swaps.empty() && theme::section(("Advanced: swap sets (" + std::to_string(swaps.size()) + ")###swapsets").c_str())) {
         ImGui::TextDisabled("Switches in the game's levels that exchange one set of units for another (actions 'Swap set in / out').");
         ImGui::BeginDisabled(ro);
@@ -217,7 +217,7 @@ void App::tab_sets() {
             ImGui::TextUnformatted(name_of(su).c_str());
             uint32_t cs = o->u32("dwEntitySwapSet");
             form_label("Swaps in", form_col());
-            if (ImGui::BeginCombo("##swapsin", name_of(cs).c_str())) {
+            if (begin_combo("##swapsin", name_of(cs).c_str())) {
                 for (auto& x : w.objs) {
                     if (x.cls != K_SET) continue;
                     std::string l = name_of(x.uid()) + "##" + std::to_string(x.uid());

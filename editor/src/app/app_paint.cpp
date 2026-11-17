@@ -1,10 +1,11 @@
-// The Paint section of the Terrain tab (P1). Three modes side by side: Texture, Colour tint, Boundaries.
+// The Paint section of the Terrain tab. Three modes side by side: Texture, Colour tint, Boundaries.
 //
 // Texture mode shows ONE palette of the ground textures of the map (up to 8). Two textures (the MATerrain
 // pair, First / Second) keep the retail path: the colour map's alpha mixes them, which every version of the
 // game understands. Adding a third switches the scenario to the P4 layers (core/ground_layers.h, PC only);
 // removing back to two bakes the mix back into the colour map's alpha.
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <set>
@@ -54,14 +55,16 @@ static std::string short_name(const std::string& p) {
 static std::string friendly_name(const std::string& p) {
     static const std::pair<const char*, const char*> names[] = {
         {"dante_detail_03", "Pebbles"},          {"dante_detail_06", "Lava rock"},
-        {"m05_detail02", "Cracked earth"},       {"missionxx_detail01", "Smooth stone"},
+        {"m05_detail02", "Grass"},               {"missionxx_detail01", "Smooth stone"},
         {"details_010_cracked", "Cracked ground"},
+        // Named by looking at each picture (playtest 11-17): M05_Detail02 is grass blades (it was "Cracked earth"), the
+        // green TestMission_DetailMap1 is moss (it was "Grass"), MissionXX_Detail02 is rock.
         {"missionxx_detail02", "Boulders"},      {"northwind_detail_02", "Dark rock"},
         {"northwind_detail_03", "Mossy gravel"}, {"northwind_detail_04", "Pale stone"},
         {"northwind_detail_05", "Light gravel"}, {"northwind_detail_06", "Rubble"},
         {"prototype_detail_01", "Dry crust"},    {"rushhourdetail_01", "Broken paving"},
         {"rushhourdetail_02", "Concrete"},       {"space_null_terrain", "Plain (no pattern)"},
-        {"spot", "Soft spot"},                   {"testmission_detailmap1", "Grass"},
+        {"spot", "Soft spot"},                   {"testmission_detailmap1", "Moss"},
         {"testmission_detailmap2", "Speckled stone"}, {"uraskicked_park", "Park picture"},
         {"uraskicked_park_detail", "Sand"},      {"uraskicked_park_mdetail01", "Gravel"},
     };
@@ -109,6 +112,44 @@ void App::ensure_detail_textures() {
     std::sort(detail_textures_.begin(), detail_textures_.end(), [](auto& a, auto& b) { return lower(a.first) < lower(b.first); });
 }
 
+// The average colour of ground texture slot k (0 and 1 = the retail pair named by the terrain object, 2.. = the layer's own picture), cached by file.
+bool App::ground_texture_average(int k, float rgb[3]) {
+    if (!doc_) return false;
+    const Image* im = nullptr;
+    Image loaded;
+    std::string key;
+    if (k >= 2) {
+        if (!doc_->ground.enabled || k >= doc_->ground.count()) return false;
+        im = &doc_->ground.layers[size_t(k)].image;
+        if (im->px.empty()) return false;
+    } else {
+        const int ti = find_class(doc_->world, K_TERRAIN);
+        if (ti < 0) return false;
+        std::string path = doc_->world.objs[size_t(ti)].str(kDetailKeys[k]);
+        if (path.empty() && k == 1) path = doc_->world.objs[size_t(ti)].str(kDetailKeys[0]);
+        key = lower(norm_path(path));
+        if (key.empty()) return false;
+    }
+    static std::map<std::string, std::array<float, 3>> cache;
+    if (k < 2) {
+        if (auto it = cache.find(key); it != cache.end()) { std::copy(it->second.begin(), it->second.end(), rgb); return it->second[0] >= 0.f; }
+        ensure_detail_textures();
+        std::array<float, 3> none = {-1.f, -1.f, -1.f};
+        for (auto& [p, an] : detail_textures_) {
+            if (!iequals(norm_path(p), norm_path(key))) continue;
+            MgfReader* a = gd_.archive(an);
+            if (a && load_ground_texture(*a, p, loaded, nullptr)) im = &loaded;
+            break;
+        }
+        if (!im || im->px.empty()) { cache[key] = none; return false; }
+    }
+    double sum[3] = {};
+    for (uint32_t p : im->px) for (int ch = 0; ch < 3; ch++) sum[ch] += double((p >> (8 * ch)) & 255);
+    for (int ch = 0; ch < 3; ch++) rgb[ch] = float(sum[ch] / double(im->px.size()));
+    if (k < 2) cache[key] = {rgb[0], rgb[1], rgb[2]};
+    return true;
+}
+
 // Retail pair -> P4 layers (the weights start as the colour map's alpha mix, so nothing changes visibly).
 void App::enable_ground_layers() {
     Scenario& s = *doc_;
@@ -127,7 +168,7 @@ void App::enable_ground_layers() {
     r_.set_ground_layers(&g);
 }
 
-// P4 layers -> retail pair: the colour map's alpha takes the pair's share of the weights.
+// Layers -> retail pair: the colour map's alpha takes the pair's share of the weights.
 void App::disable_ground_layers() {
     Scenario& s = *doc_;
     GroundLayers& g = s.ground;
@@ -226,7 +267,7 @@ void App::remove_ground_layer(int k) {
         WObj& t = s.world.objs[size_t(ti)];
         push_undo("remove ground texture");
         status_ = "Removed " + friendly_name(t.str(kDetailKeys[1])) + ": where it was painted, " + friendly_name(t.str(kDetailKeys[0])) +
-                  " shows. Ctrl+Z puts it back.";
+                  " shows. " + kt(A_UNDO) + " puts it back.";
         status_time_ = 5;
         t.set_str(kDetailKeys[1], t.str(kDetailKeys[0]));
         for (auto& px : s.colormap.px) px |= 0xFF000000u;
@@ -240,7 +281,7 @@ void App::remove_ground_layer(int k) {
     if (!g.enabled || k < 2 || k >= g.count()) return;
     push_undo("remove ground texture");
     // No confirm (it undoes), so say what went and how to get it back.
-    status_ = "Removed " + friendly_name(g.layers[size_t(k)].path) + ": where it was painted, the other textures show. Ctrl+Z puts it back.";
+    status_ = "Removed " + friendly_name(g.layers[size_t(k)].path) + ": where it was painted, the other textures show. " + kt(A_UNDO) + " puts it back.";
     status_time_ = 5;
     g.remove_layer(k);
     if (paint_texture_ == k) paint_texture_ = 0;
@@ -286,7 +327,7 @@ void App::ground_picker_ui() {
     if (pick_target_ < 0) {
         ImGui::TextUnformatted("Pick a texture to add to this map");
     } else {
-        // Name the slot being changed and what it is now (retail rebuild H7: the picker looked the same for both).
+        // Name the slot being changed and what it is now (the picker looked the same for both).
         const Scenario& s = *doc_;
         int ti = find_class(s.world, K_TERRAIN);
         std::string now = pick_target_ < 2 ? (ti >= 0 ? s.world.objs[size_t(ti)].str(kDetailKeys[pick_target_]) : std::string())
@@ -382,6 +423,7 @@ void App::ground_textures_ui() {
         ImGui::TextDisabled("Click a texture to start painting.");
     ImGui::Checkbox("Show it in its own colours", &paint_neutral_colour_);
     tip("Ground = texture x the map's colour tint, so a texture painted over green ground looks green. On: the brush also clears the tint under it. Off: only the texture changes.");
+    hint("The ground you see is a texture below, coloured by the map's colour tint: green ground on a map may be \"Light gravel\" with a green tint.");   // 
 
     // Share of the map per texture (sampled; refreshed a few times a second).
     static float share[kGroundMaxLayers];
@@ -479,7 +521,7 @@ void App::ground_textures_ui() {
         ImGui::TextWrapped("More than two textures: only this PC version shows them all. The original Xbox game and older PC builds show only %s and %s.", a.c_str(), b.c_str());
         ImGui::PopStyleColor();
         if (ImGui::SmallButton("Back to two textures"))
-            confirm("Keep only " + a + " and " + b + "? The others leave the map; where they were painted, " + a + " and " + b + " show instead (Ctrl+Z undoes).",
+            confirm("Keep only " + a + " and " + b + "? The others leave the map; where they were painted, " + a + " and " + b + " show instead (" + kt(A_UNDO) + " undoes).",
                     [this] { push_undo("two ground textures"); disable_ground_layers(); });
         tip(("Drops the other textures; " + a + " and " + b + " keep their painted share, so it works in every version of the game.").c_str());
         help(("The original Xbox game, and older PC builds, blend only two textures (" + a + " and " + b + "): where you painted the others they show those two, mixed as you painted them. This PC version blends all of them, on a texture map four times finer than the colour map.").c_str());
@@ -534,7 +576,7 @@ void App::tint_ui() {
     if (!s.colormap.px.empty()) {
         const bool picking = tint_pick_;
         if (theme::toggle_button(picking ? "Click the ground to take its colour...###eyedrop" : "Pick a colour from the map###eyedrop", picking, ImVec2(-1, 0))) tint_pick_ = !picking;
-        tip("Eyedropper: click this, then click the ground to tint with the colour that is there. Alt+click on the map does the same while tinting.");
+        tip(("Eyedropper: click this, then click the ground to tint with the colour that is there. " + std::string(mod_name(settings_.hold_through)) + "+click on the map does the same while tinting.").c_str());
     }
 }
 
@@ -705,7 +747,7 @@ void App::copy_level_tint(const std::string& level) {
     r_.set_colormap(dst);
     doc_->dirty = true;
     minimap_dirty_ = true;
-    status_ = "Copied " + pretty_name(level) + "'s colour tint (Ctrl+Z undoes).";
+    status_ = "Copied " + pretty_name(level) + "'s colour tint (" + kt(A_UNDO) + " undoes).";
 }
 
 // Terrain tab > Whole map: the buttons that change every part of the map at once.
@@ -730,7 +772,7 @@ void App::terrain_whole_map_ui() {
         if (ImGui::Button(("Cover the whole map with " + name).c_str(), ImVec2(-1, 0))) {
             int chosen = paint_texture_;
             confirm("Cover the whole map with " + name + "? This REPLACES all the texture painting you have done: the other textures disappear from the ground" +
-                        std::string(paint_neutral_colour_ ? ", and the colour tint is reset so it shows in its own colours" : "") + " (Ctrl+Z undoes).",
+                        std::string(paint_neutral_colour_ ? ", and the colour tint is reset so it shows in its own colours" : "") + " (" + kt(A_UNDO) + " undoes).",
                     [this, chosen] { fill_ground(chosen); });
         }
         tip("Replaces everything: the whole map becomes the texture picked in the palette (Texture tool), and your painting is wiped. To add a patch instead, drag on the map with the brush. With \"Show it in its own colours\" on (Texture tool), the colour tint is reset too; otherwise it stays.");
@@ -741,7 +783,7 @@ void App::terrain_whole_map_ui() {
         tip("The colour chosen with the Colour tint tool.");
         ImGui::SameLine();
         if (ImGui::Button("Tint the whole map with this colour", ImVec2(-1, 0))) {
-            confirm("Tint the whole map with this colour? This replaces all the colour painting you have done (Ctrl+Z undoes). The textures stay.", [this] {
+            confirm("Tint the whole map with this colour? This replaces all the colour painting you have done (" + kt(A_UNDO) + " undoes). The textures stay.", [this] {
                 push_undo("ground colour fill");
                 uint32_t c = uint32_t(std::clamp(int(paint_color_[0] * 255 + 0.5f), 0, 255)) | uint32_t(std::clamp(int(paint_color_[1] * 255 + 0.5f), 0, 255)) << 8 |
                              uint32_t(std::clamp(int(paint_color_[2] * 255 + 0.5f), 0, 255)) << 16;
@@ -756,20 +798,20 @@ void App::terrain_whole_map_ui() {
         // A real level's tint carries its hand-painted look (Bogged Down's pale mud cracks, dark patches): copy it.
         const MapInfo* from = nullptr;
         ImGui::SetNextItemWidth(-1);
-        if (ImGui::BeginCombo("##tintfrom", "Copy the tint of a real level...", ImGuiComboFlags_HeightLarge)) {
+        if (begin_combo("##tintfrom", "Copy the tint of a real level...", ImGuiComboFlags_HeightLarge)) {
             for (auto& m : gd_.maps())
                 if (m.resource_present && ImGui::Selectable(pretty_name(m.name).c_str())) from = &m;
             ImGui::EndCombo();
         }
-        tip("Gives your map the colour painting of a level from the game (its dark and light patches, paths and cracks) at the same size on the ground. Replaces your colour painting; the textures stay (Ctrl+Z undoes).");
+        tip(("Gives your map the colour painting of a level from the game (its dark and light patches, paths and cracks) at the same size on the ground. Replaces your colour painting; the textures stay (" + kt(A_UNDO) + " undoes).").c_str());
         if (from) {
             const std::string name = from->name;
-            confirm("Copy " + pretty_name(name) + "'s colour tint onto this map? This replaces all the colour painting you have done (Ctrl+Z undoes). The textures stay.",
+            confirm("Copy " + pretty_name(name) + "'s colour tint onto this map? This replaces all the colour painting you have done (" + kt(A_UNDO) + " undoes). The textures stay.",
                     [this, name] { copy_level_tint(name); });
         }
         if (ImGui::Button("Repaint ground colours from height", ImVec2(-1, 0))) {
             // Asks like the other whole-map buttons: on a copy of a real level it replaces the level's own colour work.
-            confirm("Repaint the whole map's colours from its height? This replaces all the colour painting (Ctrl+Z undoes). The textures stay.", [this] {
+            confirm("Repaint the whole map's colours from its height? This replaces all the colour painting (" + kt(A_UNDO) + " undoes). The textures stay.", [this] {
                 Scenario& d = *doc_;
                 push_undo("ground colours");
                 int sz = d.colormap_layout.width ? int(d.colormap_layout.width) : 256;
@@ -784,12 +826,12 @@ void App::terrain_whole_map_ui() {
                 minimap_dirty_ = true;
             });
         }
-        tip("Paints the whole map automatically: valleys, slopes and hilltops get the theme's colours. Replaces your colour painting; the texture painting stays (Ctrl+Z undoes).");
+        tip(("Paints the whole map automatically: valleys, slopes and hilltops get the theme's colours. Replaces your colour painting; the texture painting stays (" + kt(A_UNDO) + " undoes).").c_str());
     }
     if (!s.typemap.empty()) {
         ImGui::SeparatorText("Boundaries");
         if (ImGui::Button("Make the whole map playable", ImVec2(-1, 0))) {
-            confirm("Make the whole map playable? This replaces where players may go (on a real level: its borders and out-of-bounds areas) with a thin border at the edge (Ctrl+Z undoes).", [this] {
+            confirm("Make the whole map playable? This replaces where players may go (on a real level: its borders and out-of-bounds areas) with a thin border at the edge (" + kt(A_UNDO) + " undoes).", [this] {
                 push_undo("terrain types");
                 fill_playable_typemap(*doc_);
                 doc_->dirty = true;
@@ -799,7 +841,7 @@ void App::terrain_whole_map_ui() {
                 overlay_dirty_ = true;
             });
         }
-        tip("Resets where players may go: playable everywhere except a thin border at the edge, like a new map (Ctrl+Z undoes).");
+        tip(("Resets where players may go: playable everywhere except a thin border at the edge, like a new map (" + kt(A_UNDO) + " undoes).").c_str());
     }
 }
 
@@ -850,7 +892,7 @@ void App::terrain_advanced_paint_ui() {
             std::string cur = t.str(mkeys[k]);
             // One row per grain texture: its name, then its tile size in metres (as Pattern size above).
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
-            if (ImGui::BeginCombo("##micro", cur.empty() ? "(none)" : friendly_name(cur).c_str())) {
+            if (begin_combo("##micro", cur.empty() ? "(none)" : friendly_name(cur).c_str())) {
                 if (ImGui::Selectable("(none)", cur.empty())) { push_undo("close-up detail"); t.set_str(mkeys[k], ""); s.dirty = true; }
                 for (auto& [path, ar] : detail_textures_) {
                     bool own = base && base->find(path) >= 0;

@@ -1,0 +1,220 @@
+{
+ "pack": "t53_f1_s2_1116",
+ "title": "Defend, side change, counter, match clock, effect, player vehicle (2026-11-16)",
+ "facts": [
+  {
+   "id": "madefend-guards-does-not-walk",
+   "title": "MADefend guards (caps chase radius); it does not walk the unit to its marker",
+   "subject": {
+    "kind": "class",
+    "id": "MADefend"
+   },
+   "addresses": [
+    "001B3B9B",
+    "001B8D08",
+    "001B42E5",
+    "001841F3"
+   ],
+   "related": [],
+   "fact": "The mech Defend handler start (sub_001B3B9B; tank twin sub_001B8D08) only stores the marker uid (AI+0xD8), sets AI+0x94 = 1 and stores the radius (behaviour +0x7C) in AI+0xDC, and switches the AI to mode 2 (go for the current target; sub_001841F3 does nothing with no target at AI+0x16C). The combat think (sub_001B42E5) uses AI+0x94/+0xDC to cap the engage radius (AI+0x208). No code walks the unit to the marker. In a run two friendly Hackmen with Defend (marker 52-58 m away, one AI on from the start, MAEvent selected) moved 0.0 m in 47 s. Retail uses Defend on enemy 'Mechs placed at their spot (12 MAMech uses, radius 100-190). The older wiki claim that a tank drove to its marker is not reproducible by code.",
+   "how_to_use": "Use Walk a path once (MAPatrol, TraverseType 1) to send a unit somewhere; Defend to make it hold and fight inside a radius. Editor wording updated (8397f86). Repro: shots1t1/maps/mapC7.ma2map with RECOMP_ENT_DUMP=file,3 and a 'file.now' dump at 50 s.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "ai",
+    "defend",
+    "orders"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "neutral-empty-unit-side-change-inert",
+   "title": "A neutral editor unit is an empty vehicle; changing its side makes an enemy with no pilot (stands idle)",
+   "subject": {
+    "kind": "property",
+    "id": "StartAbandoned"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The editor places a Neutral 'Mech with StartAbandoned 1, AttackPilot 0, m_bAIEnabled 0 and an owner controller (boardable, no pilot). MAActionNation (+ MAActionAI EnableAI 1) later turns it red on the radar but nobody is inside, so it never acts (F1-T1 row 6, 60 s idle). The same map with StartAbandoned 0 (crewed): the Hackman moved 164 m after the 8 s change; built with the editor's crew checkbox: 157.8 m.",
+   "how_to_use": "Editor commit 8397f86: the Change-side action crews an empty unit from the start (StartAbandoned 0, AttackPilot 1, owner controller removed).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "nation",
+    "abandoned",
+    "editor"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "matriggercounter-sums-fire-counts",
+   "title": "MATriggerCounter sums the fire counts of the triggers it references and compares with CounterValue",
+   "subject": {
+    "kind": "class",
+    "id": "MATriggerCounter"
+   },
+   "addresses": [
+    "0014FC90",
+    "001452D4"
+   ],
+   "related": [],
+   "fact": "sub_0014FC90 walks the counter's MoeEntityReference children (ReferenceUID) and adds up each referenced entity's fire count (+0x98, incremented every time sub_001452D4 fires a trigger), then compares the sum with CounterValue (+0xB4) by CheckType (+0xB0): 0 equal, 1 greater, 2 less, otherwise not equal. In a run a counter referencing a 8 s timer with 'exactly 1' fired (D-COUNT at clock 14.26, queued). With no references the sum is 0 and it never fires (unless asked for exactly 0).",
+   "how_to_use": "Editor: Triggers tab 'Triggers it counts' list (8397f86).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "trigger",
+    "counter"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "matriggergametime-multiplayer-only",
+   "title": "MATriggerGameTime needs a match with a time limit: never fires in a mission",
+   "subject": {
+    "kind": "class",
+    "id": "MATriggerGameTime"
+   },
+   "addresses": [
+    "0019F40A"
+   ],
+   "related": [],
+   "fact": "sub_0019F40A compares m_nPercentLeft with (time left x 100 / time limit) from the game's rules object (game+0x4C vt+0x7C / +0x80); with no rules object or a zero limit it does nothing. A mission trigger with percent 100 never fired in a run. It is for multiplayer maps (the retail GameOver trigger).",
+   "how_to_use": "Editor shows the field and warns on missions (8397f86). Direction of the compare is inferred (fires when the remaining percent is at or below the field).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "trigger",
+    "match-clock"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "maactionmoefx-plays-at-triggering-entity",
+   "title": "MAActionMoeEFX plays the effect at the entity that set the trigger off; a timer passes none and shows nothing",
+   "subject": {
+    "kind": "class",
+    "id": "MAActionMoeEFX"
+   },
+   "addresses": [
+    "0014EA23"
+   ],
+   "related": [],
+   "fact": "The action's execute (sub_0014EA23) takes the triggering entity as its argument and spawns the effect at that entity's position; a NULL argument does nothing. Retail uses it under circle triggers (43 of 44 uses) and one box. Effect id 125706 under a Player-enters-circle trigger at the player start gave a large explosion on the player at mission start; the same id under a timer showed nothing.",
+   "how_to_use": "Editor: note and warning in the action panel (8397f86).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "action",
+    "effect"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "maactionchangeplayervehicle-needs-player-configuration",
+   "title": "MAActionChangePlayerVehicle wants a MAPlayerConfiguration uid (GlobalEntities), not a unit template",
+   "subject": {
+    "kind": "class",
+    "id": "MAActionChangePlayerVehicle"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "ConfigTemplateUID must be a MAPlayerConfiguration in GlobalEntities (Mad Dog 33088, Blood Asp 123588 and others; retail PlayerNum 0, UseHeading 1, SetAsDefaultConfig 0). A plain unit template (Atlas) changed nothing in F1-T1. With a real configuration (Stiletto, Mad Dog player) the view changed at once (fade, then a HUD-less ground camera): CORRECTED in part 2: the failure was missing configuration files, not mech-to-mech; see maactionchangeplayervehicle-needs-config-files.",
+   "how_to_use": "Editor picker lists the game's configurations; saving ships the chosen configuration's files (53f7c38).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "action",
+    "player"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "madefend-guard-only-walk-first-chain",
+   "title": "Defend a point guards; a walk-once path plus an arrival circle makes the unit go there first",
+   "subject": {
+    "kind": "class",
+    "id": "MADefend"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "MADefend holds a marker and a radius: a unit placed at its spot and engaged by enemies advances to the radius (60 m measured: 0 positions beyond 60.1 m) and fires, never further. It does not walk to the marker. A friendly 'Mech given MAPatrol TraverseType 1 walks the route once and stands at the last point (Hackman, 2 waypoints, game run). An MATriggerRadius with RadiusSet = a MoeEntitySet holding the unit, TypeOfCheck 2, PlayerEntitesOnly 0, NationInverse 1, NationCompare 11 fires when that unit is inside (message queued at clock 6.9 s as the Hackman arrived). Enemies in sight (about 450 m) pull a walking or patrolling unit off its route.",
+   "how_to_use": "Editor 27d5148: Defend a point in the orders chooser builds walk-once path to the spot + that circle + MADefend started by the circle.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "action",
+    "player"
+   ],
+   "date": "2026-11-16"
+  },
+  {
+   "id": "maactionchangeplayervehicle-needs-config-files",
+   "title": "A player-configuration swap needs the configuration files in the mission archive",
+   "subject": {
+    "kind": "class",
+    "id": "MAActionChangePlayerVehicle"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "The swap works from an on-foot start (Mad Dog: HUD, new body, W moves it) and from a 'Mech start. What broke Mech to Mech and on foot to Blood Asp in F1-S2 part 1 was missing files: the configuration's body, camera and models were not in the Base, common.mgf or the mission [Assets] archive, so the game left a HUD-less ground camera and no body. Shipping the files fixes it (on foot to Blood Asp and Mech start to Blood Asp: HUD, model, control).",
+   "how_to_use": "Editor 53f7c38: saving a map with a Put the player in a vehicle action ships the configuration's templates (closure) like the start body's.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "action",
+    "player"
+   ],
+   "date": "2026-11-16"
+  }
+ ]
+}

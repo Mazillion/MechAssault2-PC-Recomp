@@ -232,5 +232,14 @@
  },
  "t06.installer-release-fix-v5": {
   "append": "POINTER 2026-11-10: to be checked once in the W-90 campaign gate run (all 41 campaign entries on the installed build); Sky_Test and Small_TeamDestruction are not campaign entries, so check them by hand. Stays open until then."
+ },
+ "t02.cinematic-30fps": {
+  "append": "UPDATE 2026-11-12 (v30-cine, unpublished test exe v13-v30c4): cinema levels now default to the Fill view (re-rendered at full output resolution, authored width kept) and a 60 FPS cap; CinematicView 0 / RECOMP_CINEMATIC_VIEW=0 with RECOMP_CINEMATIC_FPS=30 gives the old pillarbox at 30. See t45.cinematic-fill-view."
+ },
+ "t01b.flag-ctf-rules": {
+  "append": "CORRECTION 2026-11-14: measured on 6 recordings, the capture does NOT need the carrier's own flag on its stand -- a carrier within ~10 m of its own stand scores with its own flag carried by the enemy (stat 18 +1, team +10; t47.ctf-capture-own-flag-away)."
+ },
+ "t18.ctfvtol-run-needs-home": {
+  "append": "CORRECTION 2026-11-14: its premise is wrong in MechAssault 2 (a capture counts with our flag away); RunNeedsHome now applies only with CapAnyway off (t47.ctf-capture-own-flag-away)."
  }
 }

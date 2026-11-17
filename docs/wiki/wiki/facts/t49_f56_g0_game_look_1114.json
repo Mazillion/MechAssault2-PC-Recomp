@@ -1,0 +1,137 @@
+{
+ "pack": "t49_f56_g0_game_look_1114",
+ "title": "Editor look sweep against the PC Release game: lightning, dust storm, skies, lamp cones, sky fog band (2026-11-14)",
+ "facts": [
+  {
+   "id": "lightning-seen-units-props-and-sky",
+   "title": "PC Release lightning at 16 frames/s: units and sun-lit props flash about 1.4x for 1-5 frames, the sky flashes separately about 2x, terrain does not",
+   "subject": {
+    "kind": "concept",
+    "id": "lightning flash in the PC game"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Spot-A scenario (Under Cover base, Thunderstorm night look, Heavy rain, EnableLightning with bursts 1-3 s), PC Release exe 2ecf4050, screenshots every 50 ms (63 ms between frames in practice). 207 consecutive frames analysed: 29 flash frames in 16 runs of 1-5 frames, 4 bursts of 6-8 flash frames inside 0.3-1.1 s. The human pilot region is 1.43x its median in flash frames (1.28-1.66); the terrain region does not change (ratio 1.03 in flash frames against 0.99 in others). Static sun-lit models (a concrete tower, the building wall) brighten with the pilot (the known N.L-lit residual). The sky dome flashes on its own in frames where nothing else does: 2.0-2.3x for 1-2 frames, about 6 events in 13 s. So the editor tooltip 'the ground and sky stay as they are' is wrong for the sky.",
+   "how_to_use": "Editor preview: flash all sun-lit model instances about 1.4x for 1-5 frames per burst, brighten the sky about 2x for 1-2 frames, no terrain or whole-view tint.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "lightning",
+    "weather",
+    "editor",
+    "game-check"
+   ],
+   "date": "2026-11-14"
+  },
+  {
+   "id": "dust-storm-broken-on-mp-base",
+   "title": "Editor Dust storm on a multiplayer base draws a violet veil and a magenta ground band in the PC game, not brown dust",
+   "subject": {
+    "kind": "concept",
+    "id": "Dust storm weather in the PC game"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Under Cover multiplayer base, Warm sun look, Dust storm ticked: the editor shows a brown haze with brown flecks (3 % of pixels change per frame); PC Release shows a dark violet scene, a magenta band across the ground near the horizon and almost no motion (0.2 % per frame), ground region 9,10,4 against the editor's 50,40,21. Same symptom as an unknown PrecipEffectID in the wiki (dark or purple terrain). Light rain and Snow work on the same map. Cause not checked (probably the dust effect files are missing from the base).",
+   "how_to_use": "Do not offer Dust storm on a multiplayer base without shipping its effect files, or warn that it does not work in the game.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "weather",
+    "dust",
+    "editor",
+    "game-check"
+   ],
+   "date": "2026-11-14"
+  },
+  {
+   "id": "starry-and-planet-skies-black-in-game",
+   "title": "Starry space and Planet seen from space draw pure black in the PC game on a multiplayer base; White cloudy sky is 1.35x too bright in the editor",
+   "subject": {
+    "kind": "concept",
+    "id": "MASky2 sky list in the PC game"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "All 13 skies of the editor's list were run on the Warm sun look (spot B). All load (the asset list reports 0 missing, no texture error). 9 match the editor's sky region within 15 % (Clear blue day, City night, Storm front, Black thunderstorm clouds, Night with green aurora, Hazy golden dusk, Red planet sky, Red planet sky second, Dark blue storm clouds at 1.15). Mismatches: Starry space and Planet seen from space are exactly 0,0,0 over the whole sky in the game (the editor shows stars or a dark blue-grey 25-27,28-30,33-35), and the pale horizon fog band every other sky shows is black too; Starry space second is dimmer and warmer in the game (60,58,46 against 72,75,71); White cloudy sky (the Bright overcast sky) is 144,150,155 in the game against 197,201,206 in the editor. Dark blue storm clouds is 1.15-1.20x brighter in the editor (Stormy night and Cold dusk looks).",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "sky",
+    "editor",
+    "game-check"
+   ],
+   "date": "2026-11-14"
+  },
+  {
+   "id": "lamp-cones-canal-wall-yes-bridge-foot-no",
+   "title": "PC game draws light cones for the canal-wall lamps in every look but never for the Pedestrian bridge B foot lamps; Building lights changes only windows",
+   "subject": {
+    "kind": "concept",
+    "id": "lamp cones and IsNightTime in the PC game"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Spot-A frames of the same map: Warm sun (flag off), City night with Building lights on and off, Thunderstorm night. Canal_Wall_ST lamp column: green or cyan cones in all four. Pedestrian bridge B foot lamps (upper left): lamp heads lit, no cone in all four. The editor draws cones for both groups in all looks. The Building lights flag (IsNightTime) changes only the glow of building windows and small sign lights (Office 07 on/off checked in both programs), not the lamp cones. Highway lamp not tested.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "lamp",
+    "light",
+    "editor",
+    "game-check"
+   ],
+   "date": "2026-11-14"
+  },
+  {
+   "id": "low-fog-band-no-visible-effect",
+   "title": "Changing the editor's Low fog band (SkyFogTop/Bottom) from -22.8 to -22.20 or 200.600 changes nothing visible in the game or the editor",
+   "subject": {
+    "kind": "property",
+    "id": "SkyFogTop / SkyFogBottom"
+   },
+   "addresses": [],
+   "related": [],
+   "fact": "Warm sun and Hazy golden dusk on a 10 m ground at spot B: band top 8 -> 20 gave 0 changed pixels in the editor and the same ground in the game; band 200.600 gave 0 changed pixels in the editor and 2.9 % in the game (bridge truss rows), below the 5 % between two frames of one run. The values are the sky dome's height fog gradient, not fog on the ground, so a 'misty valleys' description is not supported.",
+   "status": "current",
+   "confidence": "verified-in-game",
+   "source": [
+    {
+     "file": "maintainer analysis notes (not in the repository)",
+     "line": 0
+    }
+   ],
+   "tags": [
+    "fog",
+    "sky",
+    "editor",
+    "game-check"
+   ],
+   "date": "2026-11-14"
+  }
+ ]
+}

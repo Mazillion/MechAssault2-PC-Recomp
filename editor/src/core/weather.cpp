@@ -80,6 +80,44 @@ void set_lightning(WObj& env, bool on) {
         if (!env.find(c)) env.set_u32(c, 255);
 }
 
+namespace {
+uint32_t flash_hash(uint32_t h) {  // murmur3 finalizer
+    h += 0x9E3779B9u;
+    h ^= h >> 16; h *= 0x85EBCA6Bu; h ^= h >> 13; h *= 0xC2B2AE35u; h ^= h >> 16;
+    return h;
+}
+double flash_unit(uint32_t seed, uint32_t k) { return double(flash_hash(seed * 31u + k) & 0xFFFF) / 65535.0; }
+// Flash i of a burst: on from *on to *off (seconds after the burst starts).
+void flash_span(uint32_t seed, uint32_t i, double* on, double* off) {
+    double t = 0;
+    for (uint32_t k = 0;; k++) {
+        const double len = 0.06 + 0.19 * flash_unit(seed, 2 * k), gap = 0.06 + 0.14 * flash_unit(seed, 2 * k + 1);
+        if (k == i) { *on = t; *off = t + len; return; }
+        t += len + gap;
+    }
+}
+uint32_t flash_count(uint32_t seed, uint32_t max_flashes) { return 1 + flash_hash(seed ^ 0xA5A5u) % std::max(1u, max_flashes); }
+}  // namespace
+
+FlashNow burst_flash(double since, uint32_t seed, uint32_t max_flashes) {
+    FlashNow f;
+    const uint32_t n = flash_count(seed, max_flashes);
+    double on = 0, off = 0;
+    for (uint32_t i = 0; i < n; i++) {
+        flash_span(seed, i, &on, &off);
+        if (since >= on && since < off) f.model = true;
+    }
+    const double sky_on = off + 0.1 + 0.3 * flash_unit(seed, 99), sky_off = sky_on + 0.06 + 0.06 * flash_unit(seed, 98);
+    f.sky = since >= sky_on && since < sky_off;
+    return f;
+}
+
+double burst_length(uint32_t seed, uint32_t max_flashes) {
+    double on = 0, off = 0;
+    flash_span(seed, flash_count(seed, max_flashes) - 1, &on, &off);
+    return off + 0.1 + 0.3 * flash_unit(seed, 99) + 0.06 + 0.06 * flash_unit(seed, 98);
+}
+
 // ----------------------------------------------------------------------------- looks
 
 namespace {
@@ -146,6 +184,75 @@ const Look* current_look(ScenarioIO& io, const Scenario& s) {
     return nullptr;
 }
 
+const Look* current_look_light(ScenarioIO&, const Scenario& s) {
+    int ei = find_class(s.world, K_ENV);
+    if (ei < 0) return nullptr;
+    const WObj& env = s.world.objs[size_t(ei)];
+    for (auto& l : looks()) {
+        const LookData* d = data_of(l);
+        if (d && env.u32("LightAmbientColor") == d->ambient && env.u32("DirectionalLightColor") == d->sun) return &l;
+    }
+    return nullptr;
+}
+
+bool light_is_night(ScenarioIO& io, const Scenario& s) {
+    if (const Look* l = current_look_light(io, s)) return l->night;
+    const int ei = find_class(s.world, K_ENV);
+    if (ei < 0) return false;
+    const uint32_t c = s.world.objs[size_t(ei)].u32("DirectionalLightColor");
+    return (0.299 * ((c >> 16) & 255) + 0.587 * ((c >> 8) & 255) + 0.114 * (c & 255)) / 255.0 < 0.35;
+}
+
+bool look_fog(ScenarioIO&, const Look& look, float* start, float* end) {
+    const LookData* d = data_of(look);
+    if (!d) return false;
+    if (start) *start = d->fog_start;
+    if (end) *end = d->fog_end;
+    return true;
+}
+
+bool own_fog(ScenarioIO& io, const Scenario& s, float* start, float* end) {
+    const Wdf* w = io.base_world(s);
+    const int bi = w ? find_class(*w, K_ENV) : -1;
+    if (bi < 0) return false;
+    if (start) *start = w->objs[size_t(bi)].f32("FogStart");
+    if (end) *end = w->objs[size_t(bi)].f32("FogEnd");
+    return true;
+}
+
+namespace {
+LightningLook lightning_of(const WObj& e) {
+    LightningLook l;
+    l.on = e.i32("LightFlash") != 0;
+    if (e.find("FlashTimeMin")) l.min_ms = e.u32("FlashTimeMin");
+    if (e.find("FlashTimeMax")) l.max_ms = e.u32("FlashTimeMax");
+    if (e.find("MaxFlashes")) l.max_flashes = e.u32("MaxFlashes");
+    if (e.find("LightningColorRed")) l.r = e.u32("LightningColorRed");
+    if (e.find("LightningColorGreen")) l.g = e.u32("LightningColorGreen");
+    if (e.find("LightningColorBlue")) l.b = e.u32("LightningColorBlue");
+    return l;
+}
+// A retail level's lightning onto the world: on with its timings and colour, or off (the timings of the map stay).
+void put_lightning(WObj& env, const LightningLook& l) {
+    set_lightning(env, l.on);
+    if (!l.on) return;
+    env.set_u32("MaxFlashes", l.max_flashes ? l.max_flashes : 4);
+    env.set_u32("FlashTimeMin", l.min_ms);
+    env.set_u32("FlashTimeMax", l.max_ms > l.min_ms ? l.max_ms : l.min_ms + 1000);  // equal values crash the game
+    env.set_u32("LightningColorRed", l.r);
+    env.set_u32("LightningColorGreen", l.g);
+    env.set_u32("LightningColorBlue", l.b);
+}
+}  // namespace
+
+bool look_lightning(ScenarioIO& io, const Look& look, LightningLook* out) {
+    const Wdf* w = io.retail_world(look.world);
+    const int ei = w ? find_class(*w, K_ENV) : -1;
+    if (ei < 0) return false;
+    if (out) *out = lightning_of(w->objs[size_t(ei)]);
+    return true;
+}
+
 const char* look_sky(const Look& look) {
     const LookData* d = data_of(look);
     return d ? d->sky : "";
@@ -164,6 +271,10 @@ bool apply_look(ScenarioIO& io, Scenario& s, const Look& look, bool night, std::
     env.set_f32("FogEnd", d->fog_end);
     env.set_u32("ShadowColor", d->shadow);
     env.set_str("EnvironmentMapName", d->env_map);
+    {   // The look's lightning is the retail level's (Ill Wind flashes, Under Cover does not)
+        LightningLook ll;
+        if (look_lightning(io, look, &ll)) put_lightning(env, ll);
+    }
     env.set_i32("IsNightTime", look.lit ? 1 : 0);  // as the retail level does: Go Commando, Ill Wind and Bogged Down are 1; New River City, Witch Cauldron and Mission_10 are 0
     s.dirty = true;
     return true;
@@ -183,6 +294,7 @@ bool apply_own_light(ScenarioIO& io, Scenario& s, std::string* err) {
     env.set_f32("FogEnd", src.f32("FogEnd"));
     env.set_str("EnvironmentMapName", src.str("EnvironmentMapName"));
     env.set_i32("IsNightTime", src.i32("IsNightTime"));
+    put_lightning(env, lightning_of(src));
     s.dirty = true;
     return true;
 }
@@ -194,7 +306,7 @@ bool apply_own_light(ScenarioIO& io, Scenario& s, std::string* err) {
 // files: the scenario archive carries the snow effect's model, material table, dust layer and
 // texture (copied from Mission 10/11) and, at the snow particle's path, a rain particle (the
 // snow file with fast fall, no spin and the sprite turned along its velocity, which stretches
-// it into a streak). Tested in game 2026-10-23 (runs T1-T5): sizes below ~1 are invisible, and
+// it into a streak). Tested in game 2026-10-23 (runs): sizes below ~1 are invisible, and
 // a sprite not oriented to its velocity stays a flake.
 namespace {
 const char* kSnowParticle = "SpecialEffects/Environment/Env_Snow_01.mgparticle";
@@ -231,7 +343,7 @@ std::string fnum(float v) {
 bool rain_particle_impl(std::string& s, RainLevel level) {
     const RainParams& rp = rain_params(level);
     auto rgba = [&](int a) { return std::to_string(rp.r) + ", " + std::to_string(rp.g) + ", " + std::to_string(rp.b) + ", " + std::to_string(a); };
-    // E1: the particle keeps the snow effect's own name. Renamed ("MA2SE Rain") the game drew it as big magenta quads
+    // The particle keeps the snow effect's own name. Renamed ("MA2SE Rain") the game drew it as big magenta quads
     // (missing material); rain is told apart by orient_to_velocity="true" (snow is "false").
     if (s.rfind("<mgParticle name=\"", 0) != 0) return false;
     bool ok = replace_once(s, "offset=\"0.00000000, 3.00000000, 0.00000000\"", "offset=\"0.00000000, 12.00000000, 0.00000000\"") &&
@@ -270,6 +382,74 @@ bool add_rain(GameData& gd, MgfWriter& mgf, RainLevel level, std::string* err) {
     }
     if (err) *err = "Rain: the snow effect's files were not found on the disc (Missions 10 and 11).";
     return false;
+}
+
+// The dust storm. Template 31516 Env_DustStorm_Wst names \SpecialEffects\Environment\Env_DustStorm_Wst\Env_DustStorm_Wst.node
+// and .mtb, files no archive on the disc holds (its level was cut): the game could not build the effect and left the world
+// lighting broken (dark violet ground, magenta band). The scenario ships the effect at those paths, made from the snow
+// effect like rain: a .node holding a copy of the snow model, the snow .mtb with its two particles renamed (same lengths, the
+// binary keeps its layout) and two brown particles: Env_Dust_01 (fine grit from the snow flakes) and Env_DustHaze_01 (smoke
+// puffs from the snow dust, thicker).
+namespace {
+const char* kDustDir = "SpecialEffects/Environment/Env_DustStorm_Wst/";
+bool replace_all(std::string& s, const std::string& from, const std::string& to) {
+    size_t n = 0;
+    for (size_t i = s.find(from); i != std::string::npos; i = s.find(from, i + to.size()), n++) s.replace(i, from.size(), to);
+    return n > 0;
+}
+bool replace_bytes(Bytes& b, const std::string& from, const std::string& to) {  // same length only
+    if (from.size() != to.size()) return false;
+    size_t n = 0;
+    for (auto it = std::search(b.begin(), b.end(), from.begin(), from.end()); it != b.end();
+         it = std::search(it + ptrdiff_t(from.size()), b.end(), from.begin(), from.end()), n++)
+        std::copy(to.begin(), to.end(), it);
+    return n > 0;
+}
+}  // namespace
+
+bool dust_particle_xml(std::string& xml, bool haze) {
+    if (xml.rfind("<mgParticle name=\"", 0) != 0) return false;
+    // Haze (from Env_SnowDust_01): the smoke puffs, brown and about three times as dense as the snow dust.
+    if (haze) return replace_all(xml, "255, 255, 255, 29", "150, 116, 78, 90") && replace_all(xml, "255, 255, 255, ", "150, 116, 78, ");
+    // Grit (from Env_Snow_01): brown, smaller, falling slowly across the view.
+    return replace_all(xml, "255, 255, 255, ", "176, 138, 92, ") && set_channel(xml, "size", "1.50000000") &&
+           replace_once(xml, "gravity=\"1.00000000\"", "gravity=\"0.30000000\"");
+}
+
+bool dust_files(GameData& gd, std::vector<std::pair<std::string, Bytes>>& out, std::string* err) {
+    out.clear();
+    for (auto& an : gd.level_archives()) {
+        MgfReader* a = gd.archive(an);
+        if (!a || a->find(kSnowParticle) < 0 || a->find(kSnowFiles[0]) < 0) continue;
+        Bytes model, mtb, flakes, haze, tex;
+        if (!a->read_file(kSnowFiles[0], model) || !a->read_file(kSnowFiles[1], mtb) || !a->read_file(kSnowParticle, flakes) ||
+            !a->read_file(kSnowFiles[2], haze) || !a->read_file(kSnowFiles[3], tex))
+            continue;
+        bool ok = replace_bytes(mtb, "Env_Snow_01.mgparticle", "Env_Dust_01.mgparticle") &&
+                  replace_bytes(mtb, "Env_SnowDust_01.mgparticle", "Env_DustHaze_01.mgparticle");
+        std::string f(flakes.begin(), flakes.end()), h(haze.begin(), haze.end());
+        ok = ok && dust_particle_xml(f, false) && dust_particle_xml(h, true);
+        if (!ok) break;
+        const std::string node = "[fileinfo]\r\nfile_version    = 2\r\n\r\n[node]\r\ntype         = NODE\r\nname         = \"env_duststorm_wst\"\r\n"
+                                 "position     = 0, 0, 0\r\nrot_axis     = 1, 0, 0\r\nrot_angle    = 0\r\nscale        = 1, 1, 1\r\n"
+                                 "num_children = 1\r\nchild        = \"Env_DustStorm_Wst.MGMODEL\"\r\n";
+        out.push_back({std::string(kDustDir) + "Env_DustStorm_Wst.node", Bytes(node.begin(), node.end())});
+        out.push_back({std::string(kDustDir) + "Env_DustStorm_Wst.MGMODEL", model});
+        out.push_back({std::string(kDustDir) + "Env_DustStorm_Wst.mtb", mtb});
+        out.push_back({"SpecialEffects/Environment/Env_Dust_01.mgparticle", Bytes(f.begin(), f.end())});
+        out.push_back({"SpecialEffects/Environment/Env_DustHaze_01.mgparticle", Bytes(h.begin(), h.end())});
+        out.push_back({kSnowFiles[3], tex});
+        return true;
+    }
+    if (err) *err = "Dust storm: the snow effect's files (its base) were not found on the disc (Missions 10 and 11).";
+    return false;
+}
+
+bool add_dust(GameData& gd, MgfWriter& mgf, std::string* err) {
+    std::vector<std::pair<std::string, Bytes>> files;
+    if (!dust_files(gd, files, err)) return false;
+    for (auto& [p, b] : files) mgf.add(p, std::move(b));
+    return true;
 }
 
 bool base_has_snow(GameData& gd, const std::string& base) {
