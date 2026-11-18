@@ -16,6 +16,9 @@ import gui, ui_theme, precheck, install                # noqa: E402
 user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
 
 def make(scale=None, plain=False, fonts=True):
+    # The default install folder is C:\Games\MechAssault 2 on most PCs, and a PC that already has an install there would turn every wizard test into an
+    # "update" run: point the default at a folder that never exists.
+    precheck.default_install_folder = lambda: str(WORK / 'tmp' / 'no-default-install' / 'MechAssault 2')
     if fonts: ui_theme.load_fonts()
     root = tk.Tk()
     root.withdraw(); root.attributes('-alpha', 0.0); root.attributes('-toolwindow', True)   # fully transparent: never visible

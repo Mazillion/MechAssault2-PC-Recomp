@@ -18,7 +18,7 @@ body:
     attributes:
       label: Version
       description: Shown on the installer's first page, in the game's title screen, or in recomp-install.json in the install folder.
-      placeholder: "1.1.0"
+      placeholder: "1.1.1"
     validations: { required: true }
   - type: textarea
     id: what
@@ -31,10 +31,11 @@ body:
     attributes:
       label: Logs
       description: |
-        1. Run the installer again and press **Collect diagnostics** (on its first page; command line: `--diagnostics`).
+        1. Run the installer and press **Collect diagnostics** on its first page (command line: `--diagnostics`).
            It puts one zip on your Desktop with the game and installer logs, your settings and basic PC facts,
            with your Windows user name removed. Drag that zip in here.
-        2. If the installer itself failed, press **Copy log** on the failure page and paste it (it is redacted the same way).
+        2. If the installer itself failed, press **Collect diagnostics** on the failure page (the zip names the failed step and holds the install log),
+           or **Copy log** and paste it (it is redacted the same way).
         - Crash or freeze: the game also writes `crash-<number>.dmp` / `hang-<number>.dmp`. A dump can contain folder
           names and your Windows user name, so don't attach it unless a maintainer asks; then tick *Include the newest
           crash or hang dump* in **Collect diagnostics**.

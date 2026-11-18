@@ -10,7 +10,7 @@ Bug reports with logs are the most useful thing you can send. Code is welcome to
 
 ## Reporting a bug
 
-Use the [bug report form](https://github.com/Mazillion/MechAssault2-PC-Recomp/issues/new?template=bug_report.yml). Run the installer again and press Collect diagnostics, then attach the zip it puts on your Desktop. It has the game and installer logs and your settings, with your Windows user name removed. Say what you did, what you expected and what happened.
+Use the [bug report form](https://github.com/Mazillion/MechAssault2-PC-Recomp/issues/new?template=bug_report.yml). Run the installer and press Collect diagnostics on its first page, then attach the zip it puts on your Desktop. It has the game and installer logs and your settings, with your Windows user name removed. Say what you did, what you expected and what happened.
 
 Crashes also leave a `crash-<number>.dmp` in `%LOCALAPPDATA%\MechAssault2\Logs`. A dump can contain your user name, so only share one if you're asked for it.
 

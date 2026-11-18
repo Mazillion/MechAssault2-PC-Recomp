@@ -23,6 +23,7 @@ def fresh_env():
     d = tempfile.mkdtemp(prefix='ma2ux-flow-', dir=str(WORK / 'tmp'))
     os.environ['LOCALAPPDATA'] = os.path.join(d, 'LocalAppData')
     os.makedirs(os.environ['LOCALAPPDATA'], exist_ok=True)
+    os.environ['MA2_SHORTCUT_DIR'] = os.path.join(d, 'lnk')                  # each scenario has its own Desktop (diagnostics zips land there)
     os.environ['MA2_INSTALLER_FAKE'] = str(REC); os.environ['MA2_FAKE_SPEED'] = '400'
     os.environ.pop('MA2_FAKE_FAIL', None); os.environ.pop('MA2_FAKE_EXTRA', None)
     return Path(d)
@@ -194,7 +195,7 @@ def scenario_resume():
     remember(dest)
     root, app = rig.make(); pump(root, 0.6)
     w = app.pages['welcome']; texts = [c.cget('text') for c in w.banner.winfo_children()[1].winfo_children()] if w.banner.winfo_ismapped() else []
-    check('resume: Welcome offers Resume / Start over', texts == ['Resume', 'Start over'], texts)
+    check('resume: Welcome offers Resume / Start over (and Collect diagnostics, quietly, in the same row)', texts == ['Resume', 'Start over', 'Collect diagnostics'], texts)
     snap(root, SHOTS / 'resume-1-welcome.png')
     w.banner.winfo_children()[1].winfo_children()[0].invoke()
     check('resume: jumps straight to the install page', app.cur.key == 'install')
@@ -540,6 +541,160 @@ def scenario_diag():
     with zipfile.ZipFile(z2) as z: check('diag: with the dump box ticked the dump is included', 'dumps/crash-1.dmp' in z.namelist(), z.namelist())
     root.destroy()
 
+def desktop_zips():
+    return sorted((Path(os.environ['MA2_SHORTCUT_DIR']) / 'desktop').glob('MA2-diagnostics-*.zip'))
+
+def zip_members(path):
+    import zipfile
+    with zipfile.ZipFile(path) as z: return {n: z.read(n) for n in z.namelist()}
+
+def user_free(members):
+    u = os.environ.get('USERNAME', '').lower().encode()
+    return len(u) <= 2 or not any(u in data.lower() for data in members.values())
+
+def scenario_diag_none():
+    """1.1.1: Collect diagnostics is on the first page even with nothing installed (nothing remembered, no logs): link in the links row, zip on the Desktop."""
+    d = fresh_env()
+    root, app = rig.make(); pump(root, 0.6)
+    w = app.pages['welcome']; app.dest.set(str(d / 'nothing' / 'MechAssault 2'))
+    check('diag-none: no install banner', not w.banner.winfo_ismapped())
+    check('diag-none: Collect diagnostics sits in the links row, in the quiet Link style', w.diag_link.winfo_ismapped() and w.diag_link.cget('text') == 'Collect diagnostics'
+          and str(w.diag_link.cget('style')) == 'Link.TButton' and w.diag_link.master is w.links, w.diag_link.cget('style'))
+    check('diag-none: it is a link next to the other two', [b.cget('text') for b in w.links.winfo_children()] == ['How does this work?', 'Windows warned me about this file', 'Collect diagnostics'])
+    snap(root, SHOTS / 'diag-none-welcome.png')
+    asked = []
+    app.ask_diagnostics = lambda dd: (asked.append(dd) or False, False, False)
+    w.diag_link.invoke(); pump(root, 0.3)
+    check('diag-none: Cancel writes nothing', asked and not desktop_zips())
+    check('diag-none: it asks about the folder this PC would install to (not a missing one)', asked[0] == precheck.clean_path(app.dest.get()) and asked[0], asked)
+    app.ask_diagnostics = lambda dd: (True, False, False)
+    w.diag_link.invoke()
+    until(root, lambda: len(desktop_zips()) == 1, 30); pump(root, 0.4)
+    z = desktop_zips()
+    check('diag-none: a zip appears on the Desktop', len(z) == 1, z)
+    m = zip_members(z[0]) if z else {}
+    check('diag-none: it holds system.txt only (no install record), and says what was not found', sorted(m) == ['system.txt'] and b'was not found' in m.get('system.txt', b''), sorted(m))
+    check('diag-none: the user name is in no member', user_free(m))
+    check('diag-none: selected in Explorer and the page says where it is', app.launches and app.launches[-1] == ('select', str(z[0])) and str(z[0]) in w.notice_l.cget('text'), app.launches)
+    check('diag-none: the link is still there afterwards', w.diag_link.winfo_ismapped())
+    root.destroy()
+    # with an install that already has its own banner button, the links row does not repeat it
+    d = fresh_env(); dest = d / 'Games' / 'MechAssault 2'
+    dummy_install(dest, {'kit_id': install.KIT_ID, 'version': install.VERSION}); remember(dest)
+    root, app = rig.make(); pump(root, 0.6); w = app.pages['welcome']
+    check('diag-none: with a banner button the links row steps aside (one button, not two)', not w.diag_link.winfo_ismapped()
+          and 'Collect diagnostics' in [b.cget('text') for b in banner_buttons(w)], [b.cget('text') for b in banner_buttons(w)])
+    root.destroy()
+
+def scenario_diag_interrupted():
+    """1.1.1: the 'An install was interrupted' banner has Collect diagnostics; the zip says how far the install got."""
+    d = fresh_env(); dest = d / 'Games' / 'MechAssault 2'; dest.mkdir(parents=True); (dest / '_work').mkdir()
+    (dest / '_work' / 'state.json').write_text(json.dumps({'done': ['check', 'disc', 'extract', 'analyze'], 'last_title': 'Translating to C', 'options': {}, 'xiso': str(XISO)}))
+    remember(dest)
+    logs = Path(os.environ['LOCALAPPDATA']) / 'MechAssault2' / 'Logs'; logs.mkdir(parents=True); (logs / 'install-20261110-100000.log').write_text('installer log\n')
+    root, app = rig.make(); pump(root, 0.6); w = app.pages['welcome']
+    labels = [b.cget('text') for b in banner_buttons(w)]
+    check('diag-interrupted: the banner offers Resume, Start over and Collect diagnostics', labels == ['Resume', 'Start over', 'Collect diagnostics'], labels)
+    snap(root, SHOTS / 'diag-interrupted-welcome.png')
+    asked = []
+    app.ask_diagnostics = lambda dd: (asked.append(dd) or True, False, False)
+    [b for b in banner_buttons(w) if b.cget('text') == 'Collect diagnostics'][0].invoke()
+    until(root, lambda: len(desktop_zips()) == 1, 30); pump(root, 0.3)
+    check('diag-interrupted: it asks about the interrupted install\'s folder', asked == [str(dest)], asked)
+    m = zip_members(desktop_zips()[0])
+    txt = m['system.txt'].decode()
+    check('diag-interrupted: system.txt says how far it got', 'Unfinished install: 3 step(s) finished (disc, extract, analyze); last step: Translating to C' in txt, txt)
+    check('diag-interrupted: the newest install log is in the zip, the disc path is not', 'logs/install-20261110-100000.log' in m and str(XISO).encode() not in b''.join(m.values()), sorted(m))
+    root.destroy()
+
+def scenario_diag_fail():
+    """1.1.1: the failure screen has Collect diagnostics: the zip names the failed step and the reason and holds the newest install log and the last lines shown."""
+    d = fresh_env(); os.environ['MA2_FAKE_FAIL'] = 'build:build_failed'
+    logs = Path(os.environ['LOCALAPPDATA']) / 'MechAssault2' / 'Logs'; logs.mkdir(parents=True)
+    (logs / 'install-20261110-100000.log').write_text('old installer log\n'); os.utime(logs / 'install-20261110-100000.log', (1000, 1000))
+    (logs / 'install-20261117-100000.log').write_text('newest installer log of %s\n' % os.environ.get('USERNAME', 'x')); os.utime(logs / 'install-20261117-100000.log', (2000, 2000))
+    root, app = rig.make(); walk_to_loadout(root, app, d)
+    click(app, 'Install'); until(root, lambda: app.pages['install'].failed, 60)
+    p = app.pages['install']; pump(root, 0.4)
+    b = buttons(app)
+    check('diag-fail: the failure screen has Collect diagnostics next to Copy log and Open log folder', {'Collect diagnostics', 'Copy log', 'Open log folder', 'Resume', 'Close'} <= set(b), b)
+    asked = []
+    app.ask_diagnostics = lambda dd: (asked.append(dd) or False, False, False)
+    click(app, 'Collect diagnostics'); pump(root, 0.3)
+    check('diag-fail: Cancel writes nothing', asked and not desktop_zips())
+    app.ask_diagnostics = lambda dd: (True, False, False)
+    click(app, 'Collect diagnostics')
+    until(root, lambda: len(desktop_zips()) == 1, 30); pump(root, 0.4)
+    z = desktop_zips()
+    check('diag-fail: a zip appears on the Desktop', len(z) == 1, z)
+    m = zip_members(z[0]) if z else {}; txt = m.get('system.txt', b'').decode()
+    check('diag-fail: system.txt names the failed step', 'Failed stage: build' in txt, txt[:600])
+    check('diag-fail: ...and the reason and the last lines the window showed', 'Failure: build_failed' in txt and 'Last log lines:' in txt and 'FAILED: simulated failure' in txt, txt[-600:])
+    check('diag-fail: the newest install log is in the zip, the older one is not', 'logs/install-20261117-100000.log' in m and 'logs/install-20261110-100000.log' not in m, sorted(m))
+    check('diag-fail: the user name is in no member', user_free(m))
+    check('diag-fail: the screen says where the zip is, and it is selected in Explorer', p.fail_note.winfo_ismapped() and str(z[0]) in p.fail_note.cget('text') and app.launches[-1] == ('select', str(z[0])), p.fail_note.cget('text'))
+    snap(root, SHOTS / 'diag-fail.png')
+    check('diag-fail: the failure screen has not lost its other buttons', {'Resume', 'Copy log'} <= set(buttons(app)))
+    os.environ.pop('MA2_FAKE_FAIL'); click(app, 'Resume'); until(root, lambda: app.cur.key == 'done', 60)
+    check('diag-fail: Resume still finishes the install', app.cur.key == 'done')
+    root.destroy()
+
+def scenario_layout():
+    """1.1.1: with the log open the note ("Lines marked normal ...") and the Copy log row are fully visible, above the log box and not covered by it, while running
+    and on the failure screen, on every window size the installer supports; the footer buttons stay inside the window (the failure screen has up to seven)."""
+    import tkinter as tk
+    precheck.MA2_SUPPORT_URL = 'https://example.invalid/report'              # the public build shows Report a problem: the widest footer
+    # (label, screen, scale, the failure message must fit too). 1280x720 at 125 percent is a 1024x576 desktop: the note and the Copy log row must still be
+    # whole there, but the long failure message plus a two-row footer cannot all fit, so the log box and the stage list give way and the message may lose its last row.
+    setups = (('default', None, 1.0, True), ('1366x768 at 125 percent', (1366, 768), 1.25, True), ('1280x720 at 100 percent', (1280, 720), 1.0, True),
+              ('1280x720 at 125 percent', (1280, 720), 1.25, False), ('150 percent', None, 1.5, True), ('200 percent', None, 2.0, True), ('smallest window', 'min', 1.0, True))
+    try:
+        for label, screen, scale, strict in setups:
+            for fail in (False, True):
+                d = fresh_env(); os.environ['MA2_FAKE_SPEED'] = '60'
+                if fail: os.environ['MA2_FAKE_FAIL'] = 'build:build_failed'
+                if isinstance(screen, tuple): tk.Tk.winfo_screenwidth = lambda self, s=screen: s[0]; tk.Tk.winfo_screenheight = lambda self, s=screen: s[1]
+                try:
+                    root, app = rig.make(scale=scale); pump(root, 0.3)
+                    if screen == 'min':
+                        mw, mh = root.wm_minsize(); root.geometry('%dx%d' % (mw, mh)); pump(root, 0.3)
+                    app.disc.set(str(XISO)); app.dest.set(str(d / 'G' / 'MA2')); app.action.set('install'); app.show('install')
+                    p = app.pages['install']
+                    if fail: until(root, lambda: p.failed, 60)
+                    else: until(root, lambda: p.model and p.model.status.get('build') == 'active', 60)
+                    pump(root, 0.4)
+                    for _ in range(40): p.event('log', 'Building C object xboxrecomp/src/apu/dsp/interp/dsp_cpu.c.obj')
+                    p.show_log.set(True); p.toggle_log(); pump(root, 0.5)
+                    name = '%s, %s' % (label, 'failure screen' if fail else 'installing')
+                    body_top, body_bot = app.body.winfo_rooty(), app.body.winfo_rooty() + app.body.winfo_height()
+                    nt, nb = p.note.winfo_rooty(), p.note.winfo_rooty() + p.note.winfo_height()
+                    check('layout [%s]: the note is fully visible (%d of %d px)' % (name, p.note.winfo_height(), p.note.winfo_reqheight()),
+                          p.note.winfo_ismapped() and p.note.winfo_height() >= p.note.winfo_reqheight() and nt >= body_top and nb <= body_bot + 1, (nt, nb, body_top, body_bot))
+                    lt = p.log.winfo_rooty()
+                    check('layout [%s]: the log box starts below the note (note ends %d, log starts %d)' % (name, nb, lt), p.log.winfo_ismapped() and lt >= nb - 1, (nb, lt))
+                    check('layout [%s]: the log box is on screen with at least 1 line (%d px)' % (name, p.log.winfo_height()),
+                          p.log.winfo_rooty() + p.log.winfo_height() <= body_bot + 1 and p.log.winfo_height() >= p.t.fonts['mono'].metrics('linespace'), (p.log.winfo_height(), body_bot))
+                    row = [p.copy_b, p.open_b]
+                    check('layout [%s]: the Copy log / Open log folder row is fully visible and above the log' % name,
+                          all(b.winfo_ismapped() and b.winfo_rooty() >= body_top and b.winfo_rooty() + b.winfo_height() <= min(nt, body_bot) + 1 for b in row), [(b.winfo_rooty(), b.winfo_height()) for b in row])
+                    if fail and strict:
+                        check('layout [%s]: the failure message is not clipped' % name, p.fail_panel.winfo_ismapped() and p.fail_panel.winfo_height() >= p.fail_panel.winfo_reqheight(), (p.fail_panel.winfo_height(), p.fail_panel.winfo_reqheight()))
+                    right = root.winfo_rootx() + root.winfo_width()
+                    bs = app.btns.winfo_children()
+                    check('layout [%s]: every footer button (%d) is inside the window' % (name, len(bs)), all(b.winfo_rootx() + b.winfo_width() <= right for b in bs), [(b.cget('text'), b.winfo_rootx() + b.winfo_width(), right) for b in bs])
+                    check('layout [%s]: the footer is inside the window' % name, app.btns.winfo_rooty() + app.btns.winfo_height() <= root.winfo_rooty() + root.winfo_height() + 1)
+                    if label in ('default', '1366x768 at 125 percent', 'smallest window'):
+                        snap(root, SHOTS / ('layout-%s-%s.png' % (label.split()[0], 'fail' if fail else 'run')))
+                    p.show_log.set(False); p.toggle_log(); pump(root, 0.3)
+                    bs = app.btns.winfo_children()
+                    check('layout [%s]: closing the details leaves the buttons in place' % name, all(b.winfo_ismapped() for b in bs) and not p.logf.winfo_ismapped())
+                    root.destroy()
+                finally:
+                    if isinstance(screen, tuple): del tk.Tk.winfo_screenwidth, tk.Tk.winfo_screenheight
+                    os.environ.pop('MA2_FAKE_FAIL', None)
+    finally:
+        precheck.MA2_SUPPORT_URL = ''
+
 def scenario_plain():
     fresh_env(); root, app = rig.make(plain=True); pump(root, 0.5)
     snap(root, SHOTS / 'plain-welcome.png')
@@ -560,7 +715,7 @@ def scenario_fonts():
 
 if __name__ == '__main__':
     (WORK / 'tmp').mkdir(exist_ok=True)
-    names = sys.argv[1:] or ['happy', 'fail', 'cancel', 'update', 'resume', 'real', 'small', 'dpi', 'plain', 'fonts', 'disk', 'checks', 'crash', 'back', 'folder', 'work', 'uninstall', 'tools', 'diag']
+    names = sys.argv[1:] or ['happy', 'fail', 'cancel', 'update', 'resume', 'real', 'small', 'dpi', 'plain', 'fonts', 'disk', 'checks', 'crash', 'back', 'folder', 'work', 'uninstall', 'tools', 'diag', 'diag_none', 'diag_interrupted', 'diag_fail', 'layout']
     for n in names:
         print('== %s' % n)
         try:

@@ -64,10 +64,10 @@ there; on a few maps a bot can be caught for a moment near a base exit.
 
 REPORTING A BOT PROBLEM
 -----------------------
-Run the installer again and press Collect diagnostics: it puts one zip on
-your Desktop with the logs (your Windows user name removed). Attach that zip
-to your report at {{MA2_SUPPORT_URL}} and note the time in the match when
-the problem happened.
+Run the installer and press Collect diagnostics on its first page: it puts
+one zip on your Desktop with the logs (your Windows user name removed).
+Attach that zip to your report at {{MA2_SUPPORT_URL}} and note the time in
+the match when the problem happened.
 
 If a maintainer asks for a bot recording: set BotRecorder=1 under [Bots] in
 %LOCALAPPDATA%\MechAssault2\pc_settings.ini, play until the problem

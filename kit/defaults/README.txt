@@ -52,12 +52,12 @@ Saves: to back up your saves copy only UserData and TitleData from
 %LOCALAPPDATA%\MechAssault2\Saved Games. The Partition*.img files there are
 empty placeholders that take no real disk space.
 
-Bot match recordings: each offline bot match writes a flight record of every
-player's position and input to the Logs folder (about 6 MB a minute; the
-newest 4 are kept, at most 150 MB each). It is only used to find and fix bot
-problems, is never sent anywhere, and holds the game folder path (which can
-include your Windows user name). Turn it off with BotRecorder=0 under [Bots]
-in your pc_settings.ini.
+Bot match recordings: off by default. Turn them on with BotRecorder=1 under
+[Bots] in your pc_settings.ini and each offline bot match then writes a flight
+record of every player's position and input to the Logs folder (about 6 MB a
+minute; the newest 4 are kept, at most 150 MB each). It is only used to find
+and fix bot problems, is never sent anywhere, and holds the game folder path
+(which can include your Windows user name).
 
 
 UPDATING AND UNINSTALLING
@@ -93,12 +93,13 @@ GETTING HELP AND REPORTING A PROBLEM
 ------------------------------------
 First look in Docs\Troubleshooting.txt and Docs\Known issues.txt.
 
-To report a problem: run the installer again and press Collect diagnostics on
-its first page. It puts one zip file on your Desktop with the logs and
-settings (your Windows user name is removed from the text files). Attach that
-zip at {{MA2_SUPPORT_URL}} and say which version you have: the first line of
-this file. Crash or hang dumps and bot recordings are added only if you tick
-them; do that only when a maintainer asks for one.
+To report a problem: run the installer and press Collect diagnostics on its
+first page (it works even if nothing is installed). It puts one zip file on
+your Desktop with the logs and settings (your Windows user name is removed
+from the text files). Attach that zip at {{MA2_SUPPORT_URL}} and say which
+version you have: the first line of this file. Crash or hang dumps and bot
+recordings are added only if you tick them; do that only when a maintainer
+asks for one.
 
 Crash and hang dumps hold the call stack and part of the game's memory at
 that moment (they can include folder paths and your Windows user name), so

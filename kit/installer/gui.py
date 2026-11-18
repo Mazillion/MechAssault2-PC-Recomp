@@ -124,6 +124,7 @@ class App:
         self.dest.set(precheck.remembered_install() or precheck.default_install_folder())
         root.protocol('WM_DELETE_WINDOW', self.close)
         root.bind('<Return>', self.on_return)
+        self._root_w = 0; root.bind('<Configure>', self.on_root_configure)
         self._after = root.after(100, self.pump)
         threading.Thread(target=self.detect_hardware, daemon=True).start()
         self.show('welcome')
@@ -236,11 +237,36 @@ class App:
         self.status['text'] = why if (why and not ok) else (why or '')
         self.status['fg'] = C['orange'] if not ok else C['muted']
         for w in self.btns.winfo_children(): w.destroy()
+        self.btn_widgets = []
         for text, cmd, style, enabled in page.buttons(ok):
             b = ttk.Button(self.btns, text=text, command=cmd, style=style, state='normal' if enabled else 'disabled')
-            b.pack(side='left', padx=(self.t.S(8), 0))
+            self.btn_widgets.append(b)
             if style.startswith('Primary') and enabled: b.focus_set()
+        self.lay_buttons()
         self.root.update_idletasks()
+
+    def lay_buttons(self):
+        """The footer buttons in one row, or in two or more right-aligned rows when they do not fit the window (the failure screen has up to
+        seven: Close, Open log folder, Copy log, Collect diagnostics, Systems check, Report a problem, Resume). The primary button stays in the last row."""
+        S = self.t.S; ws = [b for b in getattr(self, 'btn_widgets', []) if b.winfo_exists()]
+        if not ws: return
+        gap = S(8); rw = self.root.winfo_width()
+        avail = (rw - self.rail.winfo_reqwidth() - 2 * S(28)) if rw > 300 else 10 ** 6         # before the window is mapped: one row
+        widths = [b.winfo_reqwidth() + gap for b in ws]
+        rows, cur, used = [], [], 0
+        for i in reversed(range(len(ws))):
+            if cur and used + widths[i] > avail: rows.insert(0, cur); cur, used = [], 0
+            cur.insert(0, i); used += widths[i]
+        rows.insert(0, cur)
+        ncols = max(len(r) for r in rows)
+        for b in ws: b.grid_forget()
+        for r, idxs in enumerate(rows):
+            for c, i in enumerate(idxs):
+                ws[i].grid(row=r, column=ncols - len(idxs) + c, sticky='e', padx=(gap, 0), pady=(S(6) if r else 0, 0))
+
+    def on_root_configure(self, event):
+        if event.widget is self.root and event.width != self._root_w:
+            self._root_w = event.width; self.root.after_idle(self.lay_buttons)
 
     # -- services
     def bg(self, fn, cb):
@@ -278,11 +304,15 @@ class App:
         """(go, include a crash or hang dump, include the newest bot recording); both boxes start off. Tests replace this."""
         win = tk.Toplevel(self.root); win.title(TITLE); win.configure(bg=C['bg']); win.transient(self.root); win.resizable(False, False)
         S = self.t.S; dump = tk.BooleanVar(value=False); rec = tk.BooleanVar(value=False); answer = {'go': False}
+        extras = precheck.diagnostics_extras()
         self.t.label(win, 'Collect diagnostics for a problem report', 'h2', 'text', bg='bg', wraplength=S(520), justify='left').pack(anchor='w', padx=S(20), pady=(S(16), S(6)))
-        self.t.label(win, 'This saves one .zip on your Desktop with the install record, your settings, the newest game and installer logs and basic facts about this PC. '
-                     'Your user name is replaced in every text file.', 'body', 'muted', bg='bg', wraplength=S(520), justify='left').pack(anchor='w', padx=S(20))
-        ttk.Checkbutton(win, text='Include the newest crash or hang dump (it can contain folder names and your Windows user name)', variable=dump).pack(anchor='w', padx=S(20), pady=(S(10), 0))
-        ttk.Checkbutton(win, text='Include the newest bot match recording', variable=rec).pack(anchor='w', padx=S(20), pady=(S(2), S(4)))
+        self.t.label(win, 'This saves one .zip on your Desktop with basic facts about this PC and whatever of these exists: the install record, your settings and the newest '
+                     'game and installer logs. It works even if nothing is installed. Your user name is replaced in every text file.',
+                     'body', 'muted', bg='bg', wraplength=S(520), justify='left').pack(anchor='w', padx=S(20))
+        if extras['dump']:
+            ttk.Checkbutton(win, text='Include the newest crash or hang dump (it can contain folder names and your Windows user name)', variable=dump).pack(anchor='w', padx=S(20), pady=(S(10), 0))
+        if extras['botrec']:
+            ttk.Checkbutton(win, text='Include the newest bot match recording', variable=rec).pack(anchor='w', padx=S(20), pady=(S(2), S(4)))
         row = tk.Frame(win, bg=C['bg']); row.pack(anchor='e', padx=S(20), pady=(S(8), S(16)))
         def finish(go): answer['go'] = go; win.destroy()
         ttk.Button(row, text='Cancel', command=lambda: finish(False)).pack(side='left', padx=(0, S(8)))
@@ -381,6 +411,9 @@ class Welcome(Page):
         self.smart = tk.Label(self, text=SMARTSCREEN, font=t.fonts['small'], fg=C['muted'], bg=C['bg'], wraplength=self.app.wrap, justify='left')
         ttk.Button(links, text='How does this work?', style='Link.TButton', command=lambda: self.toggle(self.how)).pack(side='left')
         ttk.Button(links, text='Windows warned me about this file', style='Link.TButton', command=lambda: self.toggle(self.smart)).pack(side='left', padx=S(12))
+        # Always available, even with nothing installed. When a banner below offers its own Collect diagnostics button this one steps aside (detect_existing).
+        self.diag_link = ttk.Button(links, text='Collect diagnostics', style='Link.TButton', command=lambda: self.diagnostics(self.diag_dest()))
+        self.diag_link.pack(side='left'); self.in_banner = False
         self.ver = t.label(self, install.build_label(), 'small', 'steel')
         if precheck.MA2_SUPPORT_URL: self.ver['text'] += ' · Help: %s' % precheck.MA2_SUPPORT_URL
         if not self.app.compact: self.ver.pack(side='bottom', anchor='w')
@@ -396,6 +429,10 @@ class Welcome(Page):
     def on_show(self):
         self.notice_text = None
         self.detect_existing()
+
+    def diag_dest(self):
+        """The folder a diagnostics zip looks at: the install this PC remembers, else the folder chosen so far, else the default (it may not exist: that is fine)."""
+        return precheck.remembered_install() or precheck.clean_path(self.app.dest.get()) or precheck.default_install_folder()
 
     def diagnostics(self, d):
         go, dump, rec = self.app.ask_diagnostics(d)
@@ -430,7 +467,14 @@ class Welcome(Page):
         return precheck.read_state(d) is not None or install.install_relation(d) in ('older', 'same', 'newer')
 
     def detect_existing(self):
-        """A banner for an interrupted install (Resume) or an older version (Update) in the remembered folder."""
+        """A banner for an interrupted install (Resume) or an older version (Update) in the remembered folder.
+        One Collect diagnostics button is enough: the banner has its own, otherwise the links row below the intro shows it."""
+        self.in_banner = False
+        self._detect_existing()
+        if self.in_banner: self.diag_link.pack_forget()
+        elif not self.diag_link.winfo_ismapped(): self.diag_link.pack(side='left')
+
+    def _detect_existing(self):
         t, S, app = self.t, self.t.S, self.app
         for w in self.banner.winfo_children(): w.destroy()
         self.banner.pack_forget()
@@ -451,12 +495,14 @@ class Welcome(Page):
         state, stamp = precheck.read_state(d), None
         rel = install.install_relation(d)
         stamp = precheck.read_stamp(d)
-        text = None; buttons = []
+        text = None; buttons = []; one_row = False
         if state is not None:
             done = [s for s in state.get('done', []) if s not in ('check',)]
             last = state.get('last_title') or 'an earlier step'
             text = 'An install was interrupted (%d steps finished) in %s.' % (len(done), precheck.short(d, 60))
-            buttons = [('Resume', lambda: self.choose(d, 'resume'), 'Primary.TButton'), ('Start over', lambda: self.start_over(d), 'TButton')]
+            buttons = [('Resume', lambda: self.choose(d, 'resume'), 'Primary.TButton'), ('Start over', lambda: self.start_over(d), 'TButton'),
+                       ('Collect diagnostics', lambda: self.diagnostics(d), 'Link.TButton')]
+            one_row = True                            # the quiet link shares the row: the banner stays as tall as before
         elif rel == 'older':
             s = stamp or {}
             have = ('%s (build %s)' % (s['public_version'], str(s.get('kit_id', ''))[:8]) if s.get('public_version') else
@@ -481,8 +527,9 @@ class Welcome(Page):
         t.label(self.banner, text, 'body', 'text', bg='panel2', wraplength=app.wrap - S(40), justify='left').pack(anchor='w', padx=S(12), pady=(S(8), S(4)))
         row = tk.Frame(self.banner, bg=C['panel2']); row.pack(anchor='w', padx=S(10), pady=(0, S(8)))
         for label, cmd, style in buttons:
-            if style != 'Link.TButton': ttk.Button(row, text=label, command=cmd, style=style).pack(side='left', padx=(0, S(8)))
-        more = [b for b in buttons if b[2] == 'Link.TButton']          # Uninstall, Collect diagnostics: a quieter second row
+            if style != 'Link.TButton' or one_row: ttk.Button(row, text=label, command=cmd, style=style).pack(side='left', padx=(0, S(8)))
+        self.in_banner = any(b[0] == 'Collect diagnostics' for b in buttons)
+        more = [] if one_row else [b for b in buttons if b[2] == 'Link.TButton']          # Uninstall, Collect diagnostics: a quieter second row
         if more:
             row2 = tk.Frame(self.banner, bg=C['panel2']); row2.pack(anchor='w', padx=S(10), pady=(0, S(8)))
             for label, cmd, style in more: ttk.Button(row2, text=label, command=cmd, style=style).pack(side='left', padx=(0, S(8)))
@@ -971,31 +1018,42 @@ class Install(Page):
     def build(self):
         t, S, app = self.t, self.t.S, self.app
         self.failed = None; self.model = None; self.lines = []; self.finished = False; self.stage_rows = {}
-        top = tk.Frame(self, bg=C['bg']); top.pack(fill='x')
+        self.top_mode = 'full'; self._fitting = False
+        # Packing order is priority order. The details row, the log and its note come first (at the bottom), so a short window
+        # squeezes the stage list above them and never hides the note ("Lines marked normal ...") or the Copy log row.
+        self.area = tk.Frame(self, bg=C['bg']); self.area.pack(side='bottom', fill='both', expand=True)
+        self.upper = tk.Frame(self, bg=C['bg']); self.upper.pack(side='top', fill='x')
+        top = self.top = tk.Frame(self.upper, bg=C['bg']); top.pack(fill='x')
         left = self.left = tk.Frame(top, bg=C['bg']); left.pack(side='left', anchor='n')
         self.ring = ui_theme.Reticle(left, t, 150); self.ring.pack()
         self.eta = t.label(left, 'Estimating...', 'mono_mid', 'amber', bg='bg'); self.eta.pack(pady=(S(6), 0))
         self.elapsed = t.label(left, 'Elapsed 0:00', 'mono', 'muted', bg='bg'); self.elapsed.pack()
         self.right = tk.Frame(top, bg=C['bg']); self.right.pack(side='left', fill='x', expand=True, padx=(S(24), 0), anchor='n')
-        self.fail_panel = t.panel(self, accent=True)
+        self.fail_panel = t.panel(self.upper, accent=True)
         self.fail_head = t.label(self.fail_panel, '', 'h2', 'danger', bg='panel', anchor='w'); self.fail_head.pack(anchor='w', padx=S(14), pady=(S(8), 0))
         self.fail_msg = t.label(self.fail_panel, '', 'body', 'text', bg='panel', wraplength=app.wrap - S(40), justify='left'); self.fail_msg.pack(anchor='w', padx=S(14), pady=(0, S(4)))
         self.hide_user = tk.BooleanVar(value=True)
         ttk.Checkbutton(self.fail_panel, text='Hide my user name in the copied log', variable=self.hide_user, style='Panel.TCheckbutton').pack(anchor='w', padx=S(10), pady=(0, S(8)))
-        self.detail = t.label(self, '', 'body', 'muted', anchor='w'); self.detail.pack(fill='x', pady=(S(8), 0), side='top')
+        self.fail_note = t.label(self.fail_panel, '', 'small', 'muted', bg='panel', wraplength=app.wrap - S(40), justify='left')     # shown after Collect diagnostics
+        self.detail = t.label(self.upper, '', 'body', 'muted', anchor='w'); self.detail.pack(fill='x', pady=(S(8), 0), side='top')
         self.show_log = tk.BooleanVar(value=False)
-        bar = tk.Frame(self, bg=C['bg']); bar.pack(fill='x', side='top')
+        bar = self.bar = tk.Frame(self.area, bg=C['bg']); bar.pack(fill='x', side='top')
         ttk.Checkbutton(bar, text='Show details', variable=self.show_log, command=self.toggle_log).pack(side='left')
         self.copy_b = ttk.Button(bar, text='Copy log', style='Link.TButton', command=self.copy_log); self.open_b = ttk.Button(bar, text='Open log folder', style='Link.TButton', command=self.open_logs)
         self.copy_b.pack(side='left', padx=S(10)); self.open_b.pack(side='left')
-        self.logf = tk.Frame(self, bg=C['bg'])
-        self.log = tk.Text(self.logf, height=7, font=t.fonts['mono'], bg=C['panel'], fg=C['text'], bd=0, highlightthickness=1, highlightbackground=C['line'],
+        self.logf = tk.Frame(self.area, bg=C['bg'])
+        # The note is packed before the box, so it always gets its row; the box takes what is left (it asks for 1 line and grows with the window).
+        self.note = t.label(self.logf, 'Lines marked normal are expected and don\'t mean something went wrong.', 'small', 'steel', bg='bg')
+        self.note.pack(side='top', anchor='w', pady=(0, S(2)))
+        box = tk.Frame(self.logf, bg=C['bg']); box.pack(side='top', fill='both', expand=True)
+        self.log = tk.Text(box, height=1, font=t.fonts['mono'], bg=C['panel'], fg=C['text'], bd=0, highlightthickness=1, highlightbackground=C['line'],
                            state='disabled', wrap='none')
-        sb = ttk.Scrollbar(self.logf, orient='vertical', command=self.log.yview); self.log['yscrollcommand'] = sb.set
+        sb = ttk.Scrollbar(box, orient='vertical', command=self.log.yview); self.log['yscrollcommand'] = sb.set
         sb.pack(side='right', fill='y'); self.log.pack(side='left', fill='both', expand=True)
         self.log.tag_configure('dim', foreground=C['steel'])
-        self.note = t.label(self.logf, 'Lines marked normal are expected and don\'t mean something went wrong.', 'small', 'steel', bg='bg')
         self.rows_built = False
+        self.bind('<Configure>', lambda e: self.fit() if e.widget is self else None)
+        self.fail_panel.bind('<Configure>', self.wrap_failure)
 
     def kicker(self):
         return ('SYSTEM FAULT', 'The install stopped') if self.failed else KICKER['install']
@@ -1043,8 +1101,9 @@ class Install(Page):
     def start(self):
         app = self.app
         self.failed = None; self.finished = False; self.lines = []
-        if not self.left.winfo_ismapped(): self.left.pack(side='left', anchor='n', before=self.right)
-        self.fail_panel.pack_forget(); self.log.configure(state='normal'); self.log.delete('1.0', 'end'); self.log.configure(state='disabled')
+        self.fail_note['text'] = ''; self.fail_note.pack_forget()
+        self.top_mode = 'full'; self.place(); self.after_idle(self.fit)
+        self.log.configure(state='normal'); self.log.delete('1.0', 'end'); self.log.configure(state='disabled')
         p = app.params()
         if app.action.get() == 'resume':
             st = precheck.read_state(p['dest']) or {}
@@ -1108,10 +1167,54 @@ class Install(Page):
 
     def toggle_log(self):
         if self.show_log.get():
-            self.logf.pack(fill='both', expand=True, pady=(self.t.S(4), 0)); self.note.pack(anchor='w')
+            self.logf.pack(side='top', fill='both', expand=True, pady=(self.t.S(2), 0))
         else:
             self.logf.pack_forget()
-        self.app.refresh()
+        self.app.refresh(); self.fit()
+
+    def wrap_failure(self, event):
+        """The failure text wraps to the panel (the smallest window is narrower than the usual wrap width, which cut the left of the message)."""
+        S = self.t.S; w = max(S(300), min(self.app.wrap - S(40), event.width - S(40)))
+        if int(str(self.fail_msg.cget('wraplength'))) != w:
+            self.fail_msg['wraplength'] = w; self.fail_note['wraplength'] = w; self.after_idle(self.fit)
+
+    def place(self):
+        """(Re)pack the part above the log: the stage list (with the ring while it fits and nothing failed), then the failure message or the step line."""
+        S = self.t.S
+        for w in (self.top, self.fail_panel, self.detail, self.left): w.pack_forget()
+        if self.top_mode != 'none':
+            self.top.pack(fill='x')
+            if self.top_mode == 'full' and not self.failed: self.left.pack(side='left', anchor='n', before=self.right)
+        if self.failed: self.fail_panel.pack(fill='x', pady=(S(8), 0))
+        else: self.detail.pack(fill='x', pady=(S(8), 0))
+
+    def fit(self):
+        """Keep the log's note and the Copy log row on screen in a short window (a 720p laptop, the smallest window, a long failure message):
+        what gives way, in order, is the ring, then the stage list, then the log's own height (down to 1 line)."""
+        if self._fitting or not self.winfo_ismapped(): return
+        self._fitting = True
+        try:
+            S = self.t.S
+            self.update_idletasks()
+            used = self.bar.winfo_reqheight() + S(8)
+            used += (self.fail_panel.winfo_reqheight() if self.failed else self.detail.winfo_reqheight()) + S(8)
+            room = self.winfo_height() - used
+            line = self.t.fonts['mono'].metrics('linespace')
+            least = want = 0
+            if self.show_log.get():
+                least = self.note.winfo_reqheight() + S(8) + 3 * line + S(8)
+                want = self.note.winfo_reqheight() + S(8) + 6 * line + S(8)
+            right = self.right.winfo_reqheight()
+            modes = [('slim', right)] if self.failed else [('full', max(right, self.left.winfo_reqheight())), ('slim', right)]
+            pick = 'none'
+            for cost in (want, least):
+                for name, h in modes:
+                    if room - cost >= h: pick = name; break
+                if pick != 'none': break
+            if pick != self.top_mode:
+                self.top_mode = pick; self.place()
+        finally:
+            self._fitting = False
 
     def fail(self, kind, msg):
         app = self.app
@@ -1121,11 +1224,10 @@ class Install(Page):
         drive = os.path.splitdrive(precheck.clean_path(app.dest.get()))[0] or 'the drive'
         self.fail_head['text'] = head
         self.fail_msg['text'] = advice.format(drive=drive, report=precheck.report_hint()) + ('\n\n' + msg if kind not in ('cancelled',) and msg and msg != head else '')
-        self.left.pack_forget()                        # room for the explanation; the stage list keeps the failed row
-        self.fail_panel.pack(fill='x', pady=(self.t.S(8), 0), before=self.detail)
         self.detail['text'] = ''
+        self.place()                                   # room for the explanation: no ring; the stage list keeps the failed row if it fits (fit)
         app.kicker_l['text'], app.title_l['text'] = self.kicker()
-        self.render(); app.update_rail(fault=True); app.refresh(); self.flash()
+        self.render(); app.update_rail(fault=True); app.refresh(); self.fit(); self.flash()
 
     def flash(self):
         try:
@@ -1150,6 +1252,33 @@ class Install(Page):
         d = precheck.logs_dir(); d.mkdir(parents=True, exist_ok=True)
         self.app.launch('open', d)
 
+    def diagnostics(self):
+        """Collect diagnostics from the failure screen: the zip names the step that failed and the reason, and holds the newest install log
+        (plus the last lines this window showed)."""
+        app = self.app
+        dest = precheck.clean_path(app.dest.get()) or precheck.default_install_folder()
+        go, dump, rec = app.ask_diagnostics(dest)
+        if not go: return
+        stage = (app.inst and app.inst.stage) or ''
+        failure = '%s: %s' % self.failed if self.failed else ''
+        lines = list(self.lines)
+        self.show_note('Collecting diagnostics...')
+        def work():
+            return precheck.collect_diagnostics(dest, install.known_folder('desktop'), install.PUBLIC_VERSION, install.BUILD, app.facts.get('gpus'), dump, rec, stage, failure, lines)
+        app.bg(work, self.diagnostics_done)
+
+    def diagnostics_done(self, res):
+        if isinstance(res, Exception):
+            self.show_note('Could not collect diagnostics: %s' % res)
+        else:
+            self.show_note('Diagnostics saved to %s. Attach this file to your problem report (%s).' % (res['path'], precheck.support_where()))
+            self.app.launch('select', res['path'])
+
+    def show_note(self, text):
+        self.fail_note['text'] = text
+        if not self.fail_note.winfo_manager(): self.fail_note.pack(anchor='w', padx=self.t.S(14), pady=(0, self.t.S(8)))
+        self.fit()
+
     def leave(self, key):
         """Back from the failure screen to a page where the cause can be fixed ('systems' for the compiler, 'disc' for the image)."""
         self.failed = None; self.finished = False
@@ -1172,7 +1301,8 @@ class Install(Page):
 
     def buttons(self, ok):
         if self.failed:
-            out = [('Close', self.app.close, 'TButton', True), ('Open log folder', self.open_logs, 'TButton', True), ('Copy log', self.copy_log, 'TButton', True)]
+            out = [('Close', self.app.close, 'TButton', True), ('Open log folder', self.open_logs, 'TButton', True), ('Copy log', self.copy_log, 'TButton', True),
+                   ('Collect diagnostics', self.diagnostics, 'TButton', True)]
             kind = self.failed[0]
             if kind == 'compiler': out.append(('Systems check', lambda: self.leave('systems'), 'TButton', True))
             if kind == 'disc': out.append(('Choose disc image', lambda: self.leave('disc'), 'TButton', True))

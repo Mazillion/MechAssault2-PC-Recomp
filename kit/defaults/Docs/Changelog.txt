@@ -4,6 +4,18 @@ MechAssault 2 PC recompilation - changes
 You have version {{VERSION}} (build {{BUILD}}).
 
 
+1.1.1
+-----
+Installer
+- Collect diagnostics is now always on the installer's first page, even
+  with nothing installed. It is also on the error screen of a failed
+  install (the zip names the step that failed and holds the install log)
+  and on the banner for an interrupted install.
+- The log on the install page no longer hides the note above it ("Lines
+  marked normal are expected ..."), and the failure screen's buttons wrap
+  onto a second row instead of running past the window edge.
+- The --diagnostics switch no longer needs --dest.
+
 1.1.0
 -----
 Game

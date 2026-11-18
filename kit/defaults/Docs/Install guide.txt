@@ -46,8 +46,9 @@ asks).
 
 THE SEVEN PAGES
 ---------------
-1. Welcome - what the installer does. If it finds an existing install it
-   also offers Update, Repair, Uninstall and Collect diagnostics.
+1. Welcome - what the installer does. Collect diagnostics is always here,
+   even with nothing installed. If it finds an existing install it also
+   offers Update, Repair and Uninstall.
 2. Systems - Windows version, graphics card, memory, power, the C++
    Build Tools and free space. A red row must be fixed before Next; for
    missing Build Tools press "Install for me" (this downloads Microsoft's own
@@ -63,7 +64,9 @@ THE SEVEN PAGES
 6. Install - the steps run one after another with a progress bar: checking
    the disc, extracting the game files, analysing and translating the game
    program, applying the PC fixes and features, compiling the game, building
-   the PC menus, installing. Copy log copies the log for a report.
+   the PC menus, installing. Copy log copies the log for a report; if the
+   install stops, Collect diagnostics saves a zip with the failed step and
+   the log.
 7. Done - Play, Open install folder, Open Scenario Editor and Controls.
 
 Pause, cancel, resume: you can cancel at any time. Running the installer

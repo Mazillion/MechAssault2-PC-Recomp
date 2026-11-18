@@ -538,11 +538,25 @@ def _screen_size():
     except Exception:
         return 'unknown'
 
-def collect_diagnostics(dest, out_dir, version='', kit_id='', gpus=None, include_dump=False, include_botrec=False):
+def diagnostics_extras():
+    """What the two optional boxes of Collect diagnostics could add: {'dump': newest crash or hang dump or None, 'botrec': newest bot recording or None}."""
+    logs = logs_dir(); out = {'dump': None, 'botrec': None}
+    if not logs.is_dir(): return out
+    newest = lambda files: max((f for f in files if f.is_file()), key=lambda f: f.stat().st_mtime, default=None)
+    try:
+        out['dump'] = newest(list(logs.glob('crash-*.dmp')) + list(logs.glob('hang-*.dmp')))
+        out['botrec'] = newest(list(logs.glob('*.botrec')))
+    except OSError:
+        pass
+    return out
+
+def collect_diagnostics(dest, out_dir, version='', kit_id='', gpus=None, include_dump=False, include_botrec=False, stage='', failure='', log_lines=None):
     r"""Write MA2-diagnostics-<time>.zip into out_dir (the Desktop) with what a developer needs and nothing else:
     recomp-install.json, the live pc_settings.ini, the newest three game logs, the newest installer log(s), system.txt (the support-bundle header, graphics
-    cards, screen size). Every text file goes through redact() (user name and profile folder). Only if asked: the newest crash or hang dump
-    under 50 MB (binary, NOT redacted: it can hold folder names and the Windows user name) and the newest bot recording.
+    cards, screen size, the state of an unfinished install). Every text file goes through redact() (user name and profile folder). Only if asked: the newest
+    crash or hang dump under 50 MB (binary, NOT redacted: it can hold folder names and the Windows user name) and the newest bot recording.
+    Works with nothing installed (dest missing or empty): then the zip holds system.txt and whatever logs and settings exist, and system.txt says what was not found.
+    A failed install passes `stage` (the step that failed), `failure` (the reason) and `log_lines` (the last lines the window showed).
     Returns {'path', 'members', 'notes'}."""
     dest = Path(dest); out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
     logs = logs_dir(); notes = []
@@ -553,7 +567,7 @@ def collect_diagnostics(dest, out_dir, version='', kit_id='', gpus=None, include
         try: text_members[arc] = redact(Path(path).read_text(encoding='utf-8', errors='replace'))
         except OSError as e: notes.append('%s could not be read (%s)' % (arc, e.strerror or e))
     if (dest / STAMP).is_file(): add_text(STAMP, dest / STAMP)
-    else: notes.append('%s was not found in %s' % (STAMP, dest))
+    else: notes.append('%s was not found in %s (nothing finished is installed there)' % (STAMP, dest))
     live = local_dir() / 'pc_settings.ini'
     if live.is_file(): add_text('pc_settings.ini', live)
     else: notes.append('no pc_settings.ini yet (the game has not been started)')
@@ -571,10 +585,16 @@ def collect_diagnostics(dest, out_dir, version='', kit_id='', gpus=None, include
         rec = newest(list(logs.glob('*.botrec')))
         if rec: file_members['botrec/' + rec[0].name] = rec[0]
         else: notes.append('a bot recording was asked for but none exists')
-    head = support_bundle([], '', True, version, kit_id, gpus if gpus is not None else detect_gpus(), '').split('\n\nLast log lines:')[0]
+    head = support_bundle([], stage, True, version, kit_id, gpus if gpus is not None else detect_gpus(), '').split('\n\nLast log lines:')[0]
     lines = [head, 'Screen: %s' % _screen_size(), 'Install folder: %s' % redact(str(dest)), 'Included: %s' % ', '.join(sorted(list(text_members) + list(file_members)) + ['system.txt'])]
+    if failure: lines.append('Failure: %s' % redact(str(failure)))
+    state = read_state(dest) if dest.is_dir() else None          # an unfinished install: how far it got (the disc path inside is not copied)
+    if isinstance(state, dict):
+        done = [s for s in (state.get('done') or []) if isinstance(s, str) and s != 'check']
+        lines.append('Unfinished install: %d step(s) finished (%s); last step: %s' % (len(done), ', '.join(done) or '-', redact(str(state.get('last_title') or 'unknown'))))
     lines += ['Note: %s' % n for n in notes]
-    text_members['system.txt'] = '\n'.join(lines) + '\n'
+    if log_lines: lines += ['', 'Last log lines:'] + [redact(str(l)) for l in list(log_lines)[-80:]]
+    text_members['system.txt'] = redact('\n'.join(lines) + '\n')            # the notes name folders under the profile too
     import zipfile
     zip_path = out_dir / ('MA2-diagnostics-%s.zip' % time.strftime('%Y%m%d-%H%M%S'))
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:

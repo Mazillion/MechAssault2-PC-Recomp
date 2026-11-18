@@ -1367,7 +1367,7 @@ def main():
     ap = argparse.ArgumentParser(prog='"MechAssault 2 Recomp Installer.exe"', description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--xiso', help='MechAssault 2 disc image (.xiso/.iso)')
-    ap.add_argument('--dest', required=True, help='install folder (empty, or an existing install to add options)')
+    ap.add_argument('--dest', help='install folder (empty, or an existing install to add options); optional with --diagnostics')
     ap.add_argument('--textures', default='', help='enhanced texture packs to generate: 2x, 4x or 2x,4x')
     ap.add_argument('--videos', action='store_true', help='generate the 2x enhanced cutscene videos')
     ap.add_argument('--jobs', type=int, help='parallel compiles (default: from CPU threads and RAM)')
@@ -1394,10 +1394,13 @@ def main():
     if a.ffmpeg:                                  # a URL is passed as it is; a file or folder as a full path
         os.environ['MA2_FFMPEG_SOURCE'] = (a.ffmpeg.strip() if ffmpeg_fetch.is_url(a.ffmpeg.strip())
                                            else str(Path(precheck.clean_path(a.ffmpeg)).resolve()))
+    if not a.dest and (a.uninstall or not a.diagnostics): ap.error('the following arguments are required: --dest')
     if a.uninstall:
         sys.exit(run_uninstall(a))
     if a.diagnostics:
-        res = precheck.collect_diagnostics(precheck.clean_path(a.dest), known_folder('desktop'), PUBLIC_VERSION, BUILD, None, a.include_dump, a.include_botrec)
+        # Works with nothing installed: without --dest it looks at the folder this PC last installed to, else the default folder.
+        dest = precheck.clean_path(a.dest) if a.dest else (precheck.remembered_install() or precheck.default_install_folder())
+        res = precheck.collect_diagnostics(dest, known_folder('desktop'), PUBLIC_VERSION, BUILD, None, a.include_dump, a.include_botrec)
         print('Diagnostics written to %s' % res['path'])
         for n in res['notes']: print('Note: %s' % n)
         sys.exit(0)

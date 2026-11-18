@@ -2,8 +2,10 @@ MechAssault 2 PC recompilation - troubleshooting (version {{VERSION}})
 =====================================================================
 
 Logs, crash reports and hang reports are in %LOCALAPPDATA%\MechAssault2\Logs.
-For a report, run the installer and press Collect diagnostics: it puts one
-zip on your Desktop. Report problems at {{MA2_SUPPORT_URL}}.
+For a report, run the installer and press Collect diagnostics on its first
+page (it works with nothing installed, and the error screen of a failed
+install has the button too): it puts one zip on your Desktop. Report problems
+at {{MA2_SUPPORT_URL}}.
 
 
 INSTALLER
@@ -40,7 +42,8 @@ Microsoft's Build Tools will not install
 
 Compiling fails or the PC runs out of memory
   Close other programs and press Resume. The installer uses fewer parallel
-  jobs on PCs with less memory. If it fails again, send the log (Copy log).
+  jobs on PCs with less memory. If it fails again, press Collect diagnostics
+  and send the zip (or the log: Copy log).
 
 A download failed
   Check the connection and press Resume. Downloads are needed only for the
@@ -79,14 +82,14 @@ Controller not detected
 The game froze
   After 30 seconds without a new frame the game writes hang-<number>.dmp and
   a [HANG] section in its log; after 2 minutes it offers to close. Run the
-  installer again, press Collect diagnostics and attach the zip; add the hang
-  dump only if a maintainer asks for it.
+  installer, press Collect diagnostics on its first page and attach the zip;
+  add the hang dump only if a maintainer asks for it.
 
 The game crashed
-  The message says how to report it: run the installer again, press Collect
-  diagnostics and attach the zip. The crash-<number>.dmp in the Logs folder
-  can contain folder names and your Windows user name; add it (a tick box in
-  Collect diagnostics) only if a maintainer asks for it.
+  The message says how to report it: run the installer, press Collect
+  diagnostics on its first page and attach the zip. The crash-<number>.dmp in
+  the Logs folder can contain folder names and your Windows user name; add it
+  (a tick box in Collect diagnostics) only if a maintainer asks for it.
 
 The game keeps running or is silent in the background
   By default it pauses and goes silent when another window has focus. See

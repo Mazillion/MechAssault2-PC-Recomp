@@ -716,6 +716,69 @@ class Diagnostics(unittest.TestCase):
         m = self.zip_members(res['path']); self.assertEqual(sorted(m), ['system.txt'])
         self.assertTrue(any('no game logs' in n for n in res['notes'])); self.assertIn(b'Note: ', m['system.txt'])
 
+class DiagnosticsAnywhere(unittest.TestCase):
+    """1.1.1: Collect diagnostics works with nothing installed and on a failed or interrupted install; the user name never reaches a text member."""
+    def setUp(self):
+        self.base = Path(tempfile.mkdtemp(prefix='ma2ux-diag2-', dir=str(WORK / 'tmp')))
+        self.saved = {k: os.environ.get(k) for k in ('LOCALAPPDATA', 'USERNAME', 'USERPROFILE')}
+        os.environ['LOCALAPPDATA'] = str(self.base / 'LA')           # under C:\\Users\\<user>\\...: the notes name this folder
+        self.user = os.environ.get('USERNAME', 'someone')
+    def tearDown(self):
+        for k, v in self.saved.items():
+            if v is None: os.environ.pop(k, None)
+            else: os.environ[k] = v
+        shutil.rmtree(self.base, ignore_errors=True)
+    def members(self, res):
+        import zipfile
+        with zipfile.ZipFile(res['path']) as z: return {n: z.read(n) for n in z.namelist()}
+    def no_user(self, m):
+        if len(self.user) > 2:
+            for name, data in m.items(): self.assertNotIn(self.user.encode().lower(), data.lower(), name)
+
+    def test_nothing_installed_nothing_else(self):
+        """No folder, no logs, no settings, no LOCALAPPDATA folder at all: a zip with system.txt that says what was not found."""
+        for dest in (self.base / 'does-not-exist', self.base):
+            res = precheck.collect_diagnostics(dest, self.base / 'Desktop', '1.1.1', 'abcd1234', [])
+            m = self.members(res)
+            self.assertEqual(sorted(m), ['system.txt'])
+            txt = m['system.txt'].decode()
+            self.assertIn('MechAssault 2 Recomp 1.1.1 (build abcd1234)', txt); self.assertIn('Windows build', txt)
+            self.assertIn('recomp-install.json was not found', txt); self.assertIn('no game logs found', txt); self.assertIn('no pc_settings.ini', txt)
+            self.assertNotIn('Failure:', txt); self.assertNotIn('Unfinished install', txt)
+            self.no_user(m)                                          # the notes name %LOCALAPPDATA%, which is under the profile
+
+    def test_nothing_installed_but_logs_and_settings_exist(self):
+        me = self.base / 'LA' / 'MechAssault2'; (me / 'Logs').mkdir(parents=True)
+        (me / 'Logs' / '20261110-1.log').write_text('log of %s\n' % self.user); (me / 'pc_settings.ini').write_text('[Display]\nWidth=1280\n')
+        (self.base / 'empty').mkdir()
+        m = self.members(precheck.collect_diagnostics(self.base / 'empty', self.base / 'Desktop', '1', 'k', []))
+        self.assertEqual(sorted(m), ['logs/20261110-1.log', 'pc_settings.ini', 'system.txt']); self.no_user(m)
+
+    def test_failed_install_names_the_step_and_keeps_the_newest_install_log(self):
+        logs = self.base / 'LA' / 'MechAssault2' / 'Logs'; logs.mkdir(parents=True)
+        for i, name in enumerate(('install-20261110-100000.log', 'install-20261111-100000.log')):
+            (logs / name).write_text('installer log %d of %s\n' % (i, self.user)); os.utime(logs / name, (1000 + i, 1000 + i))
+        dest = self.base / 'inst'; (dest / '_work').mkdir(parents=True)
+        (dest / '_work' / 'state.json').write_text(json.dumps({'done': ['check', 'disc', 'extract'], 'last_title': 'Compiling the game', 'xiso': 'D:\\secret folder\\my disc.iso'}))
+        res = precheck.collect_diagnostics(dest, self.base / 'Desktop', '1.1.1', 'k', [], stage='build', failure='build_failed: Building the game failed in C:\\Users\\%s\\x' % self.user,
+                                           log_lines=['[3/9] compile', 'FAILED: C:\\Users\\%s\\y' % self.user])
+        m = self.members(res); txt = m['system.txt'].decode()
+        self.assertIn('logs/install-20261111-100000.log', m); self.assertNotIn('logs/install-20261110-100000.log', m, 'only the newest install log')
+        self.assertIn('Failed stage: build', txt); self.assertIn('Failure: build_failed: Building the game failed', txt)
+        self.assertIn('Unfinished install: 2 step(s) finished (disc, extract); last step: Compiling the game', txt)
+        self.assertIn('Last log lines:', txt); self.assertIn('FAILED: ', txt)
+        self.assertNotIn(b'secret folder', b''.join(m.values()), 'the disc path in state.json is not copied')
+        self.no_user(m)
+
+    def test_extras_only_when_something_exists(self):
+        self.assertEqual(precheck.diagnostics_extras(), {'dump': None, 'botrec': None})
+        logs = self.base / 'LA' / 'MechAssault2' / 'Logs'; logs.mkdir(parents=True)
+        self.assertEqual(precheck.diagnostics_extras(), {'dump': None, 'botrec': None})
+        for n, t in (('crash-1.dmp', 10), ('hang-2.dmp', 20), ('a.botrec', 5)):
+            (logs / n).write_bytes(b'x'); os.utime(logs / n, (t, t))
+        ex = precheck.diagnostics_extras()
+        self.assertEqual((ex['dump'].name, ex['botrec'].name), ('hang-2.dmp', 'a.botrec'))
+
 class FpuCheck(unittest.TestCase):
     """W-65: check_fpu.py passes on the assembled tree and fails when any of the five FPU C2 fixes is reverted."""
     def setUp(self):
