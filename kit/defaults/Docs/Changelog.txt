@@ -4,6 +4,14 @@ MechAssault 2 PC recompilation - changes
 You have version {{VERSION}} (build {{BUILD}}).
 
 
+1.1.3
+-----
+- With HD textures, some textures no longer show grey for a moment before
+  the HD version pops in the first time a level loads.
+- The installer works on more PCs and handles more problems on its own.
+- The optional enhanced cutscenes now also work on AMD and Intel graphics
+  cards. This is new and hasn't been tested on those cards yet.
+
 1.1.2
 -----
 Installer

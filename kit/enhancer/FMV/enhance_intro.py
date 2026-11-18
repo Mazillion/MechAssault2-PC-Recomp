@@ -45,6 +45,9 @@ def parser():
                         help="Also compare against a completed enhancement at a lower scale")
     result.add_argument("--encode-only", action="store_true", help="Verify and encode existing enhanced frames without AI")
     result.add_argument("--check", action="store_true", help="Validate setup only; do not extract or enhance")
+    result.add_argument("--engine", choices=["pytorch", "vulkan"], default="pytorch",
+                        help="vulkan: Real-ESRGAN frame by frame through realesrgan-ncnn-vulkan (graphics cards without CUDA)")
+    result.add_argument("--vulkan", help="The realesrgan-ncnn-vulkan folder (with --engine vulkan)")
     return result
 
 
@@ -83,6 +86,13 @@ def normalize_scale(scale):
 def main(argv=None):
     args = parser().parse_args(argv)
     config = json.loads(Path(args.config).read_text(encoding="utf-8"))
+    vulkan = args.engine == "vulkan"
+    if vulkan:
+        from video_engine_vulkan import CHUNK_SIZE, CONTEXT, model_sha256
+        if not args.vulkan or not Path(args.vulkan).is_dir():
+            raise FileNotFoundError("--engine vulkan needs --vulkan <realesrgan-ncnn-vulkan folder>")
+        config.update(device="vulkan", chunk_size=CHUNK_SIZE, context=CONTEXT)
+        args.device = None
     for name in ("scale", "strength", "chunk_size", "context", "device"):
         value = getattr(args, name)
         if value is not None:
@@ -106,10 +116,11 @@ def main(argv=None):
     source = resolve(args.source) if args.source else resolve(config["source"])
     ffmpeg, ffprobe, checkpoint = (resolve(config[k]) for k in
                                   ("ffmpeg", "ffprobe", "checkpoint"))
-    for path in (source, ffmpeg, ffprobe, checkpoint):
+    for path in (source, ffmpeg, ffprobe) + (() if vulkan else (checkpoint,)):
         if not path.is_file():
             raise FileNotFoundError(f"Missing {path}. Run FMV/Setup.cmd first.")
-    if digest(checkpoint) != CHECKPOINT_SHA256:
+    model_sha = model_sha256(args.vulkan) if vulkan else CHECKPOINT_SHA256
+    if not vulkan and digest(checkpoint) != CHECKPOINT_SHA256:
         raise ValueError("Checkpoint checksum does not match the official downloaded weights. Run Setup.cmd.")
     lock = nullcontext() if args.lock_held else run_lock(ROOT / ".run.lock")
     with lock:
@@ -138,10 +149,10 @@ def main(argv=None):
         chunks = plan_chunks(info["frames"], args.start_frame, count, config["chunk_size"],
                              config["context"], cuts)
         code_hash = inference_code_hash(ROOT, scale)
-        settings = {"source_sha256": info["sha256"], "model_sha256": CHECKPOINT_SHA256,
+        settings = {"source_sha256": info["sha256"], "model_sha256": model_sha,
                     "code_sha256": code_hash, "scale": scale, "strength": config["strength"],
                     "chunk_size": config["chunk_size"], "context": config["context"],
-                    "device": config["device"], "precision": "float32", "cuts": cuts,
+                    "device": config["device"], "precision": "fp16-ncnn" if vulkan else "float32", "cuts": cuts,
                     "start_frame": args.start_frame, "frames": count, "fps": info["fps"]}
         signature = json_digest(settings)
         job_name = f"{source.stem}-{scale}x-s{round(config['strength'] * 100):03d}-{signature[:12]}"
@@ -201,6 +212,10 @@ def main(argv=None):
         print(f"Temporal batches: {len(chunks):,}; detected scene boundaries: {len(cuts)}", flush=True)
 
         def engine_factory():
+            if vulkan:
+                from video_engine_vulkan import VulkanVideoEnhancer
+                print("Starting Real-ESRGAN through Vulkan (frame by frame)...", flush=True)
+                return VulkanVideoEnhancer(args.vulkan, config["strength"], scale, work=ROOT / "vulkan-work")
             from video_engine import VideoEnhancer
             print("Loading RealBasicVSR EMA weights in FP32...", flush=True)
             return VideoEnhancer(checkpoint, config["strength"], config["device"], scale=scale)

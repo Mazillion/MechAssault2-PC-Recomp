@@ -29,6 +29,8 @@ Microsoft's Build Tools will not install
   connection. Their log is buildtools-*.log in the Logs folder. You can also
   install "Build Tools for Visual Studio" yourself from Microsoft with the
   "Desktop development with C++" workload, then press Re-check.
+  If they finish with "Windows must restart", restart the PC, open the
+  installer again and press Resume.
 
 "The disc image was not recognised"
   Only the US (NTSC) retail disc is supported. Choose the .iso/.xiso file
@@ -46,8 +48,11 @@ Compiling fails or the PC runs out of memory
   and send the zip (or the log: Copy log).
 
 A download failed
-  Check the connection and press Resume. Downloads are needed only for the
-  Build Tools and the enhanced content.
+  Check the connection and press Resume. The installer downloads FFmpeg (for
+  the cutscenes) on every install, plus the Build Tools and the enhanced
+  content when they are needed. On a PC without internet, download the
+  FFmpeg zip named in the message on another PC and put it next to the
+  installer.
 
 A folder named MA2RecompBuild-xxxx is left on a drive
   It is the installer's work folder. The next installer run removes it if the

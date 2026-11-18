@@ -57,7 +57,8 @@ THE SEVEN PAGES
 3. Disc - choose your disc image (Choose disc image...) or a folder copied
    from the disc (Choose a folder...). The installer identifies the disc.
 4. Location - the install folder, by default C:\Games\MechAssault 2. It must
-   be empty or a previous install, and not a protected or temporary folder.
+   be empty or a previous install, and not a protected, temporary or network
+   folder; FAT32 drives are refused (use an NTFS drive).
    Free space on that drive is checked here.
 5. Loadout - optional enhanced textures and videos (see below), and
    shortcuts.
@@ -85,9 +86,9 @@ ENHANCED CONTENT (OPTIONAL)
 2x or 4x enhanced textures and 2x enhanced cutscene videos are made on your PC
 by AI upscaling. This needs an NVIDIA graphics card with 8 GB or more, an
 internet connection (several GB of AI software are downloaded) and hours of
-processing. The textures also work on AMD, Intel and other graphics cards,
-through Vulkan (new in 1.1.2; not yet tested on AMD or Intel cards); the
-videos need an NVIDIA card. 2x textures add 0.6 GB, 4x add 2.2 GB, videos add 3.5 GB (25 GB
+processing. The textures and the videos also work on AMD, Intel and other
+graphics cards, through Vulkan (new; not yet tested on AMD or Intel cards;
+the videos are made frame by frame there, so very slowly). 2x textures add 0.6 GB, 4x add 2.2 GB, videos add 3.5 GB (25 GB
 free while they are made). You can add them later by running the installer
 again.
 

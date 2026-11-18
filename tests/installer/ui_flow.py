@@ -749,7 +749,7 @@ def scenario_extras():
 
 def scenario_gpu():
     """1.1.2: the texture options follow the graphics card. NVIDIA: PyTorch (as before, videos too); AMD / Intel: the textures through
-    Vulkan with a short note, the videos locked; no card: everything locked."""
+    Vulkan with a short note, the videos too (1.1.3, frame by frame); no card: everything locked."""
     d = fresh_env(); root, app = rig.make(); walk_to_loadout(root, app, d)
     page = app.pages['loadout']; G = precheck.GB
     def show(gpus):
@@ -758,9 +758,9 @@ def scenario_gpu():
     for name, vendor in (('AMD Radeon RX 7800 XT', 'amd'), ('Intel(R) Arc(TM) A770 Graphics', 'intel'), ('Intel(R) Iris(R) Xe Graphics', 'intel')):
         states, vid, why = show([{'name': name, 'vram': 2 * G, 'vendor': vendor}])
         check('gpu[%s]: 2x and 4x offered' % vendor, states['2x'] == 'normal' and states['4x'] == 'normal', states)
-        check('gpu[%s]: cutscenes locked (NVIDIA only)' % vendor, vid == 'disabled', vid)
+        check('gpu[%s]: cutscenes offered through Vulkan (1.1.3)' % vendor, vid == 'normal', vid)
         check('gpu[%s]: note says Vulkan, new and untested on AMD/Intel' % vendor,
-              name in why and 'through Vulkan' in why and 'not yet tested on AMD or Intel cards' in why and 'cutscenes need an NVIDIA' in why, why)
+              name in why and 'through Vulkan' in why and 'not yet tested on AMD or Intel cards' in why and 'frame by frame, so they are very slow' in why, why)
         check('gpu[%s]: 2x/4x not recommended (untested); Original stays the advice' % vendor, not any('RECOMMENDED' in page.opts[k][1].cget('text') for k in ('2x', '4x')) and app.facts['reco']['rec'] == 'original')
     app.texture.set('2x'); app.refresh(); pump(root, 0.2)
     snap(root, SHOTS / 'gpu-vulkan-loadout.png')

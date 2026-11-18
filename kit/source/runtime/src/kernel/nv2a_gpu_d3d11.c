@@ -1430,6 +1430,10 @@ static ID3D11RasterizerState *raster_state(const Nv2aGpuState *g)
     return s.rasters[i].state;
 }
 
+/* Level start (2026-11-18): draws of this frame whose vertex program was still compiling (drawn
+ * through the CPU fallback). nv2a_texture_pack_hold keeps such a frame off screen at a level start. */
+static unsigned frame_programs_pending;
+int nv2a_texture_pack_hold(unsigned programs_pending);   /* nv2a_texture_pack.cpp */
 static uint64_t texture_hash(const Nv2aGpuTexture *t)
 {
     uint32_t key[]={t->offset,t->width,t->height,t->depth,t->dimensionality,
@@ -2373,7 +2377,7 @@ static int program_draw(const Nv2aGpuState *g,const Nv2aGpuRawVertex *vertices,u
         ID3DBlob *code=NULL,*errors=NULL;ID3D11InputLayout *layout=NULL;Nv2aShaderKey disk={0};
         HRESULT hr=job?nv2a_shader_poll(job,&code,&errors):S_OK;
         if(job)nv2a_shader_job_key(job,&disk);
-        if(hr==NV2A_SHADER_PENDING){s.program_pending=1;nv2a_gpu_cpu_count(NV2A_CPU_PROGRAM_PENDING,1);nv2a_gpu_cpu_end(NV2A_CPU_PROGRAM_MISS,miss_start,0);return 0;}
+        if(hr==NV2A_SHADER_PENDING){s.program_pending=1;frame_programs_pending++;nv2a_gpu_cpu_count(NV2A_CPU_PROGRAM_PENDING,1);nv2a_gpu_cpu_end(NV2A_CPU_PROGRAM_MISS,miss_start,0);return 0;}
         if(!job) {
         char *body=nv2a_gpu_vsh_source(program);
         if(!body){nv2a_gpu_cpu_end(NV2A_CPU_PROGRAM_MISS,miss_start,0);return 0;}
@@ -2399,7 +2403,7 @@ static int program_draw(const Nv2aGpuState *g,const Nv2aGpuRawVertex *vertices,u
                               "vs_5_0",hash,pulling?3:2,&code,&errors);
         free(source);
         }
-        if(hr==NV2A_SHADER_PENDING){s.program_pending=1;nv2a_gpu_cpu_count(NV2A_CPU_PROGRAM_PENDING,1);nv2a_gpu_cpu_end(NV2A_CPU_PROGRAM_MISS,miss_start,0);return 0;}
+        if(hr==NV2A_SHADER_PENDING){s.program_pending=1;frame_programs_pending++;nv2a_gpu_cpu_count(NV2A_CPU_PROGRAM_PENDING,1);nv2a_gpu_cpu_end(NV2A_CPU_PROGRAM_MISS,miss_start,0);return 0;}
         if(FAILED(hr)) {
             if(errors)fprintf(stderr,"[GPU-D3D11] %s\n",(char *)ID3D10Blob_GetBufferPointer(errors));
             RELEASE(errors);nv2a_gpu_cpu_end(NV2A_CPU_PROGRAM_MISS,miss_start,0);return gpu_failure("guest vertex program compile",hr);
@@ -2805,6 +2809,9 @@ int nv2a_gpu_present(uint32_t va,void *window)
         nv2a_gpu_recovery_poll(&lifetime.recovery,now);
     }
     if(nv2a_gpu_discard_frame())return recover_at_frame_boundary(window);
+    /* Level start: a frame drawn while the level's HD replacements or vertex programs were still
+     * loading is not shown; the screen keeps the previous frame (bounded, see the hold). */
+    int hold=nv2a_texture_pack_hold(frame_programs_pending);frame_programs_pending=0;
     nv2a_texture_pack_frame();
     GpuTarget *target=NULL;
     static int readback=-1;
@@ -2832,6 +2839,7 @@ int nv2a_gpu_present(uint32_t va,void *window)
             RELEASE(s.present_sampler);s.present_sampler=replacement;s.previous_filter=filter;
         }
     }
+    if(hold)goto pace;
     RECT client;
     if(!GetClientRect((HWND)window,&client)){g_present_reason=7;return 0;}
     UINT width=(UINT)client.right,height=(UINT)client.bottom;
@@ -2898,6 +2906,7 @@ int nv2a_gpu_present(uint32_t va,void *window)
        nv2a_gpu_recovery_presented(&lifetime.recovery,GetTickCount64()))
         fprintf(stderr,"[GPU-RECOVERY] healthy generation=%llu after %u consecutive presentations\n",
             (unsigned long long)lifetime.generation,NV2A_GPU_RECOVERY_HEALTHY_FRAMES);
+pace:
     {
         static LARGE_INTEGER frequency;
         static int high_res_pacing=-1;

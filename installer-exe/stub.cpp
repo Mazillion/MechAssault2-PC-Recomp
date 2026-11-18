@@ -26,6 +26,8 @@
 #include <thread>
 #include <vector>
 #include <atomic>
+#include <algorithm>
+#include <share.h>
 #include <cmath>
 
 #pragma comment(lib, "cabinet.lib")
@@ -52,7 +54,9 @@ static std::wstring self_path() {
     return p;
 }
 
+static void slog(std::wstring line);
 static void fail(const std::wstring &message, bool console) {
+    slog(L"stopped: " + message);
     if (console) fwprintf(stderr, L"%s\n", message.c_str());
     else MessageBoxW(nullptr, message.c_str(), TITLE, MB_ICONERROR | MB_OK);
 }
@@ -65,7 +69,41 @@ struct Unpack {
     uint64_t total = 1;
     std::atomic<bool> cancel{false}, finished{false};
     std::wstring error;
+    DWORD code = 0;                               // the Win32 error behind `error`, when there is one
 };
+
+// ---------------------------------------------------------------- the stub's own log
+// %LOCALAPPDATA%\MechAssault2\Logs\stub-<time>.log: what happened before Python ran (unpack errors with their Win32 code, the
+// command line, the child's exit code), so a report has something even when the installer window never opened. The user's profile
+// folder is written as %USERPROFILE%. The newest 10 are kept.
+static FILE *g_log = nullptr;
+static std::wstring g_profile;
+
+static void slog(std::wstring line) {
+    if (!g_log) return;
+    for (size_t at; !g_profile.empty() && (at = line.find(g_profile)) != std::wstring::npos;) line.replace(at, g_profile.size(), L"%USERPROFILE%");
+    SYSTEMTIME st; GetLocalTime(&st);
+    fwprintf(g_log, L"%02d:%02d:%02d %ls\n", st.wHour, st.wMinute, st.wSecond, line.c_str()); fflush(g_log);
+}
+
+static void open_stub_log() {
+    std::vector<wchar_t> buf(32768);
+    DWORD n = GetEnvironmentVariableW(L"USERPROFILE", buf.data(), (DWORD)buf.size());
+    if (n && n < buf.size()) g_profile.assign(buf.data(), n);
+    n = GetEnvironmentVariableW(L"LOCALAPPDATA", buf.data(), (DWORD)buf.size());
+    if (!n || n >= buf.size()) return;
+    std::error_code ec; fs::path d = fs::path(std::wstring(buf.data(), n)) / L"MechAssault2" / L"Logs"; fs::create_directories(d, ec);
+    std::vector<fs::path> old;
+    for (fs::directory_iterator it(d, ec), end; !ec && it != end; it.increment(ec)) {
+        std::wstring f = it->path().filename().wstring();
+        if (f.rfind(L"stub-", 0) == 0 && f.size() > 4 && f.substr(f.size() - 4) == L".log") old.push_back(it->path());
+    }
+    std::sort(old.begin(), old.end());
+    for (size_t i = 0; i + 9 < old.size(); i++) fs::remove(old[i], ec);
+    SYSTEMTIME st; GetLocalTime(&st); wchar_t name[64];
+    swprintf(name, 64, L"stub-%04d%02d%02d-%02d%02d%02d.log", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+    g_log = _wfsopen((d / name).c_str(), L"a, ccs=UTF-8", _SH_DENYWR);
+}
 
 static bool read_at(HANDLE f, uint64_t offset, void *buf, size_t n) {
     LARGE_INTEGER li; li.QuadPart = (LONGLONG)offset;
@@ -162,7 +200,7 @@ static void unpack(Unpack *u, Trailer t) {
         fs::path target = fs::path(u->dest) / fs::path(widen(e.path));
         std::error_code ec; fs::create_directories(target.parent_path(), ec);
         HANDLE o = CreateFileW(target.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (o == INVALID_HANDLE_VALUE) return finish(L"Cannot write to the temporary folder. If your antivirus is blocking it, allow %TEMP%\\MA2RecompInstaller-* and run the installer again.");
+        if (o == INVALID_HANDLE_VALUE) { u->code = GetLastError(); return finish(L"Cannot write to the temporary folder. If your antivirus is blocking it, allow %TEMP%\\MA2RecompInstaller-* and run the installer again."); }
         uint64_t left = e.size; const uint8_t *p = bytes; bool ok = true;
         while (left && ok) {
             DWORD chunk = (DWORD)std::min<uint64_t>(left, 1u << 30), wrote = 0;
@@ -170,7 +208,7 @@ static void unpack(Unpack *u, Trailer t) {
             p += chunk; left -= chunk;
         }
         CloseHandle(o);
-        if (!ok) return finish(L"Cannot write to the temporary folder (disk full?).");
+        if (!ok) { u->code = GetLastError(); return finish(L"Cannot write to the temporary folder (disk full?)."); }
         u->done += e.size;
     }
     // Marks a complete unpack so a second run of the same installer can reuse it.
@@ -316,11 +354,20 @@ static bool run_splash(Unpack &u, int fixed_pct, const wchar_t *shot_path) {
 
 static bool unpack_kit(Unpack &u, const Trailer &t, bool console) {
     // Reuse an earlier unpack only if it is complete (a killed run or an antivirus may have left holes).
+    // The files a start needs (an antivirus quarantining one of them is a common "the installer does not open").
+    static const wchar_t *critical[] = {L"python\\python.exe", L"python\\pythonw.exe", L"python\\python313.dll", L"python\\DLLs\\_tkinter.pyd",
+        L"python\\DLLs\\tcl86t.dll", L"python\\DLLs\\tk86t.dll", L"python\\tcl\\tcl8.6\\init.tcl", L"toolkit\\vendor\\capstone\\lib\\capstone.dll",
+        L"installer\\install.py", L"installer\\gui.py"};
+    std::error_code ec;
     if (fs::exists(fs::path(u.dest) / L".unpacked")) {
-        if (fs::exists(fs::path(u.dest) / L"python" / L"python.exe") && fs::exists(fs::path(u.dest) / L"python" / L"pythonw.exe") &&
-            fs::exists(fs::path(u.dest) / L"installer" / L"install.py") && fs::exists(fs::path(u.dest) / L"installer" / L"gui.py")) return true;
+        const wchar_t *gone = nullptr;
+        for (const wchar_t *f : critical) if (!fs::exists(fs::path(u.dest) / f)) { gone = f; break; }
+        if (!gone) { slog(L"reusing the unpacked kit"); return true; }
+        slog(std::wstring(L"the unpacked kit lacks ") + gone + L": unpacking again");
     }
-    std::error_code ec; fs::remove_all(u.dest, ec); fs::create_directories(u.dest, ec);
+    fs::remove(fs::path(u.dest) / L".unpacked", ec);           // the marker goes first: a half-deleted kit is never taken as complete
+    fs::remove_all(u.dest, ec); fs::create_directories(u.dest, ec);
+    slog(L"unpacking to " + u.dest);
     std::thread worker(unpack, &u, t);
     if (console) {
         int last = -1;
@@ -347,7 +394,8 @@ static bool unpack_kit(Unpack &u, const Trailer &t, bool console) {
     }
     worker.join();
     if (!u.error.empty()) {
-        fs::remove_all(u.dest, ec);
+        slog(L"unpack failed: " + u.error + L" (Win32 error " + std::to_wstring(u.code) + L")");
+        fs::remove(fs::path(u.dest) / L".unpacked", ec); fs::remove_all(u.dest, ec);
         if (u.error != L"Cancelled.") fail(u.error, console);
         return false;
     }
@@ -383,8 +431,13 @@ static DWORD run(const std::wstring &cmd, const std::wstring &cwd, bool console)
     }
     PROCESS_INFORMATION pi = {};
     std::wstring line = cmd;
-    if (!CreateProcessW(nullptr, line.data(), nullptr, nullptr, inherit, 0, nullptr, cwd.c_str(), &si, &pi)) {
+    slog(L"starting: " + cmd);
+    // A command-line run with redirected output has no console (the stub is a window program), so Windows would
+    // give python.exe a new, visible console window: start it without one. A console run keeps its console.
+    DWORD flags = console && !GetConsoleWindow() ? CREATE_NO_WINDOW : 0;
+    if (!CreateProcessW(nullptr, line.data(), nullptr, nullptr, inherit, flags, nullptr, cwd.c_str(), &si, &pi)) {
         DWORD e = GetLastError();
+        slog(L"could not start it: Win32 error " + std::to_wstring(e));
         if (e == 2 || e == 3 || e == 5 || e == 225)
             fail(L"Your antivirus removed or blocked a file the installer needs (error " + std::to_wstring(e) + L"). Restore it from quarantine, "
                  L"or allow %TEMP%\\MA2RecompInstaller-*, then run the installer again.", console);
@@ -395,6 +448,8 @@ static DWORD run(const std::wstring &cmd, const std::wstring &cwd, bool console)
     WaitForSingleObject(pi.hProcess, INFINITE);
     DWORD code = 1; GetExitCodeProcess(pi.hProcess, &code);
     CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
+    wchar_t hex[16]; swprintf(hex, 16, L"0x%08X", (unsigned)code);
+    slog(L"it ended with exit code " + std::to_wstring(code) + L" (" + hex + L")");
     return code;
 }
 
@@ -425,6 +480,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
         return 0;
     }
     INITCOMMONCONTROLSEX icc = {sizeof icc, ICC_PROGRESS_CLASS}; InitCommonControlsEx(&icc);
+    open_stub_log();
+    slog(std::wstring(L"MechAssault 2 Recomp Installer starting (") + (console ? L"command line" : L"window") + L")");
 
     std::wstring caller_cwd(32768, L'\0');        // console runs keep the folder they were started in: relative paths mean what the user meant
     caller_cwd.resize(GetCurrentDirectoryW((DWORD)caller_cwd.size(), caller_cwd.data()));
@@ -434,7 +491,14 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     Unpack u; u.exe = self_path();
     Trailer t;
     if (!read_trailer(u.exe, t)) { fail(L"The installer file is damaged or incomplete. Download it again.", console); return 1; }
-    wchar_t temp[MAX_PATH]; GetTempPathW(MAX_PATH, temp);
+    std::wstring temp(GetTempPathW(0, nullptr) + 1, L'\0');   // any length: no fixed MAX_PATH buffer
+    DWORD tn = GetTempPathW((DWORD)temp.size(), temp.data());
+    if (!tn || tn >= temp.size()) {
+        DWORD e = GetLastError(); slog(L"no temporary folder: Win32 error " + std::to_wstring(e));
+        fail(L"Windows did not give the installer a temporary folder (error " + std::to_wstring(e) + L"). Check the TEMP setting, then try again.", console);
+        return 1;
+    }
+    temp.resize(tn);
     u.dest = std::wstring(temp) + L"MA2RecompInstaller-" + widen(std::string(t.id, 16));
     {   // The mutex above proves no other installer is running, so unpacked kits of other versions (left by killed runs, several hundred MB each) are dead weight.
         std::error_code ec; const wchar_t *prefix = L"MA2RecompInstaller-";
@@ -468,6 +532,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
 
     // Leave nothing behind: the unpacked kit goes when the installer closes.
     std::error_code ec;
+    fs::remove(kit / L".unpacked", ec);           // the marker first: a kit only partly deleted is unpacked again next time
     for (int attempt = 0; attempt < 10 && fs::exists(kit); attempt++) { fs::remove_all(kit, ec); if (fs::exists(kit)) Sleep(500); }
     ReleaseMutex(single);
     // The window closes with 0, or with 3 after it has shown its own "could not start" box. Anything else is a crash with nobody watching.

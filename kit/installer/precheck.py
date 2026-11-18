@@ -257,6 +257,31 @@ def drive_type(path):
     except Exception:
         return 3
 
+def volume_fs(path):
+    """The file system of the volume holding `path` ('NTFS', 'ReFS', 'FAT32', 'exFAT', ...), or '' if unknown."""
+    try:
+        buf = ctypes.create_unicode_buffer(64)
+        root = os.path.splitdrive(os.path.abspath(str(_nearest_existing(path))))[0] + '\\'
+        if ctypes.windll.kernel32.GetVolumeInformationW(root, None, 0, None, None, None, buf, 64): return buf.value
+    except Exception:
+        pass
+    return ''
+
+def long_paths_enabled():
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'SYSTEM\CurrentControlSet\Control\FileSystem') as k:
+            return bool(winreg.QueryValueEx(k, 'LongPathsEnabled')[0])
+    except OSError:
+        return False
+
+def user_folder(path):
+    """'Documents', 'Desktop' or 'Downloads' when `path` is inside one (Controlled Folder Access guards them; they often sync), else ''."""
+    home = Path(os.environ.get('USERPROFILE') or Path.home())
+    for name in ('Documents', 'Desktop', 'Downloads'):
+        if _under(str(path), str(home / name)): return name
+    return ''
+
 def check_folder(text, need_bytes=0, enhanced=False, kit=None):
     """Everything worth saying about an install folder, as a FolderReport (never raises)."""
     r = FolderReport()
@@ -264,6 +289,8 @@ def check_folder(text, need_bytes=0, enhanced=False, kit=None):
     add = lambda level, code, msg, fix=None: r.findings.append(Finding(level, code, msg, fix))
     if not raw:
         add('error', 'empty', 'Choose an install folder.'); return r
+    if raw.startswith('\\\\') or raw.startswith('//'):
+        add('error', 'unc', 'The C++ tools cannot build in a network folder (\\\\server\\share). Choose a folder on this PC, e.g. C:\\Games\\MechAssault 2.'); return r
     if not is_absolute(raw):
         add('error', 'relative', 'Enter a full folder path, e.g. C:\\Games\\MechAssault 2'); return r
     p = Path(raw)
@@ -278,7 +305,15 @@ def check_folder(text, need_bytes=0, enhanced=False, kit=None):
     if _under(raw, temp) or 'Temp1_' in raw or (kit and _under(raw, kit)):
         add('error', 'temp', 'This folder is temporary: Windows or the installer deletes it. Choose a normal folder such as C:\\Games\\MechAssault 2.'); return r
     ty = drive_type(raw)
-    if raw.startswith('\\\\') or ty == 4:
+    fs =volume_fs(raw).upper()
+    if fs.startswith('FAT'):
+        add('error', 'fat', 'This drive uses %s, which cannot hold files over 4 GB or the build. Choose an NTFS drive (most internal drives).' % fs); return r
+    if fs == 'EXFAT':
+        add('warn', 'exfat', 'This drive uses exFAT: the install works, but NTFS (most internal drives) is more reliable.')
+    if user_folder(raw):
+        add('warn', 'userfolder', 'Your %s folder can be guarded by Controlled Folder Access or synced, which can block the build or the game. '
+            'A folder such as C:\\Games\\MechAssault 2 is better.' % user_folder(raw))
+    if ty == 4:
         add('warn', 'network', 'Network folders are slow and may fail during the build.')
     elif ty == 5:
         add('error', 'cdrom', 'That is a CD/DVD drive. Choose a folder on a hard drive.'); return r
@@ -289,7 +324,7 @@ def check_folder(text, need_bytes=0, enhanced=False, kit=None):
     od = [os.environ.get(v) for v in ('OneDrive', 'OneDriveConsumer', 'OneDriveCommercial')]
     if any(_under(raw, b) for b in od) or re.search(r'(?i)[\\/]OneDrive(\s-\s[^\\/]*)?([\\/]|$)', raw):
         add('warn', 'onedrive', 'This folder syncs to OneDrive; 4 GB of game files would upload. Choose a folder outside OneDrive, e.g. C:\\Games\\MechAssault 2.')
-    if len(raw) > 150 or (enhanced and len(raw) > 80):
+    if (len(raw) > 150 and not long_paths_enabled()) or (enhanced and len(raw) > 80):
         add('warn', 'long', 'Long folder paths can break the compiler%s. Choose a shorter path.' % (' and the AI tools' if enhanced else ''))
     if not plain_path(os.path.normpath(raw)):
         add('info', 'tempbuild', 'Fine. The compiler uses a temporary folder such as C:\\MA2RecompBuild-xxxx during the build, removed afterwards.')
@@ -435,15 +470,15 @@ def detect_gpus():
 
 def recommend_textures(gpus):
     """Advice only (the default stays Original). {'rec': 'original'|'2x'|'4x', 'can': bool (the enhanced textures can be made),
-    'videos': bool (the enhanced cutscenes can be made: NVIDIA only), 'engine': 'pytorch'|'vulkan', 'reason', 'gpu'}
-    Without an NVIDIA GPU the textures are made through Vulkan (realesrgan-ncnn-vulkan) on any other graphics card."""
+    'videos': bool (the enhanced cutscenes can be made), 'engine': 'pytorch'|'vulkan', 'reason', 'gpu'}
+    Without an NVIDIA GPU the textures and the cutscenes are made through Vulkan (realesrgan-ncnn-vulkan) on any other graphics card."""
     nv = [g for g in gpus if g['vendor'] == 'nvidia']
     if not nv:
         other = max(gpus, key=lambda g: g['vram'], default=None)
         if other:
-            why = ('%s: the enhanced textures use your GPU through Vulkan (new in 1.1.2; not yet tested on AMD or Intel cards). '
-                   'The enhanced cutscenes need an NVIDIA GPU.' % other['name'])
-            return {'rec': 'original', 'can': True, 'videos': False, 'engine': 'vulkan', 'reason': why, 'gpu': other['name']}
+            why = ('%s: the enhanced textures and cutscenes use your GPU through Vulkan (new; not yet tested on AMD or Intel cards). '
+                   'The cutscenes are made frame by frame, so they are very slow.' % other['name'])
+            return {'rec': 'original', 'can': True, 'videos': True, 'engine': 'vulkan', 'reason': why, 'gpu': other['name']}
         return {'rec': 'original', 'can': False, 'reason': 'No graphics card was identified; enhanced content needs an NVIDIA GPU with 8 GB or more.',
                 'gpu': None}
     best = max(nv, key=lambda g: g['vram'])
@@ -523,8 +558,17 @@ def fmt_duration(seconds):
     return '%d h %02d min' % (seconds // 3600, seconds % 3600 // 60) if seconds >= 3600 else \
            '%d min %02d s' % (seconds // 60, seconds % 60) if seconds >= 60 else '%d s' % seconds
 
+REDACT = [   # (pattern, replacement): network host names, URL queries and anything that looks like a credential
+    (re.compile(r'\\\\(?![?.]\\)[^\\/\s"\'<>|]+(?=\\)'), r'\\\\<host>'),                     # \\server\share -> \\<host>\share
+    (re.compile(r'(?i)\b((?:https?|ftp)://)[^/\s:@"\']+:[^/\s@"\']+@'), r'\1<hidden>@'),           # user:password@ in a URL
+    (re.compile(r'(?i)\b((?:https?|ftp)://[^\s?#"\']+)\?[^\s"\'#]*'), r'\1?<query>'),
+    (re.compile(r'(?i)\b(authorization|proxy-authorization)\s*:\s*\S+(\s+\S+)?'), r'\1: <hidden>'),
+    (re.compile(r'(?i)\b(password|passwd|pwd|token|secret|api[_-]?key|access[_-]?key|client[_-]?secret|sig)\s*[=:]\s*[^\s&;,"\']+'), r'\1=<hidden>'),
+]
+
 def redact(text):
-    """Replace this user's name and profile folder, so a pasted log doesn't carry them. Disc certificate keys
+    """Replace this user's name and profile folder, network host names, URL query strings and anything that looks like a
+    credential, so a pasted log or a diagnostics zip doesn't carry them. Disc certificate keys
     and the studio build path (printed by older installers' xbe_parser step) are dropped too."""
     text = re.sub(r'(?im)^[ \t]*(LAN Key|Signature Key|Alternate Signature Keys?|Debug Path)[ \t]*:.*$', '  [line removed]', text)
     for var in ('LOCALAPPDATA', 'APPDATA', 'USERPROFILE'):      # longest first: both live under the profile
@@ -536,6 +580,7 @@ def redact(text):
     value = os.environ.get('USERNAME')
     if value and len(value) > 2:
         text = re.sub(r'(?<![\w%])' + re.escape(value) + r'(?![\w%])', '%USERNAME%', text, flags=re.I)
+    for pattern, repl in REDACT: text = pattern.sub(repl, text)       # network hosts, URL queries, credentials
     return text
 
 def support_bundle(lines, stage='', hide_user=True, version='', kit_id='', gpus=None, vs=''):
@@ -576,7 +621,7 @@ def collect_diagnostics(dest, out_dir, version='', kit_id='', gpus=None, include
     dest = Path(dest); out_dir = Path(out_dir)
     logs = logs_dir(); notes = []
     newest = lambda files, n=1: sorted((f for f in files if f.is_file()), key=lambda f: f.stat().st_mtime, reverse=True)[:n]
-    own = ('install-', 'installer-ui-', 'buildtools-')
+    own = ('install-', 'installer-ui-', 'buildtools-', 'stub-')
     text_members, file_members = {}, {}
     def add_text(arc, path):
         try: text_members[arc] = redact(Path(path).read_text(encoding='utf-8', errors='replace'))
@@ -589,7 +634,7 @@ def collect_diagnostics(dest, out_dir, version='', kit_id='', gpus=None, include
     game_logs = newest([f for f in logs.glob('*.log') if not f.name.startswith(own)], 3) if logs.is_dir() else []
     for f in game_logs: add_text('logs/' + f.name, f)
     if not game_logs: notes.append('no game logs found in %s' % logs)
-    for pattern in ('install-*.log', 'installer-ui-*.log', 'buildtools-*.log'):          # buildtools: the Systems page's Build Tools install
+    for pattern in ('install-*.log', 'installer-ui-*.log', 'buildtools-*.log', 'stub-*.log'):   # buildtools: the Systems page; stub: the exe's own start log
         for f in newest(list(logs.glob(pattern))) if logs.is_dir() else []: add_text('logs/' + f.name, f)
     if include_dump and logs.is_dir():
         dumps = newest(list(logs.glob('crash-*.dmp')) + list(logs.glob('hang-*.dmp')))
@@ -600,10 +645,13 @@ def collect_diagnostics(dest, out_dir, version='', kit_id='', gpus=None, include
         rec = newest(list(logs.glob('*.botrec')))
         if rec: file_members['botrec/' + rec[0].name] = rec[0]
         else: notes.append('a bot recording was asked for but none exists')
-    head = support_bundle([], stage, True, version, kit_id, gpus if gpus is not None else detect_gpus(), '').split('\n\nLast log lines:')[0]
+    state = read_state(dest) if dest.is_dir() else None          # an unfinished install: how far it got (the disc path inside is not copied)
+    known = read_json(local_dir() / 'installer.json'); known = known if isinstance(known, dict) else {}
+    vs = (state or {}).get('toolchain') if isinstance(state, dict) else None
+    head = support_bundle([], stage or (isinstance(state, dict) and state.get('last_title')) or '', True, version, kit_id,
+                          gpus if gpus is not None else detect_gpus(), vs or known.get('toolchain') or '').split('\n\nLast log lines:')[0]
     lines = [head, 'Screen: %s' % _screen_size(), 'Install folder: %s' % redact(str(dest)), 'Included: %s' % ', '.join(sorted(list(text_members) + list(file_members)) + ['system.txt'])]
     if failure: lines.append('Failure: %s' % redact(str(failure)))
-    state = read_state(dest) if dest.is_dir() else None          # an unfinished install: how far it got (the disc path inside is not copied)
     if isinstance(state, dict):
         done = [s for s in (state.get('done') or []) if isinstance(s, str) and s != 'check']
         lines.append('Unfinished install: %d step(s) finished (%s); last step: %s' % (len(done), ', '.join(done) or '-', redact(str(state.get('last_title') or 'unknown'))))

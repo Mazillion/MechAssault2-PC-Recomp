@@ -246,10 +246,13 @@ struct ReadQueue {
     bool started=false;
 };
 ReadQueue &reads=*new ReadQueue;   /* never destroyed: the detached worker may still wait on it at exit */
+std::atomic<int> level_start{0};   /* 1 while a level start waits for its replacements (nv2a_texture_pack_hold) */
 void read_worker() {
     pc_thread_role_enter(PC_ROLE_PACK);
-    /* T2-3 B6.6 (R8 E4): low CPU, I/O and memory priority; the original draws until it is done. */
-    SetThreadPriority(GetCurrentThread(),THREAD_MODE_BACKGROUND_BEGIN);
+    /* Low CPU, I/O and memory priority; the original draws until it is done.
+     * At a level start the frame waits for these reads (nv2a_texture_pack_hold), so they run at
+     * normal priority then. */
+    bool background=SetThreadPriority(GetCurrentThread(),THREAD_MODE_BACKGROUND_BEGIN)!=0;
     for(;;) {
         std::shared_ptr<PendingRead> job;
         {
@@ -258,6 +261,9 @@ void read_worker() {
             job=std::move(reads.queue.front());reads.queue.pop_front();
         }
         if(job.use_count()==1)continue;     /* evicted before its turn */
+        bool urgent=level_start.load(std::memory_order_relaxed)!=0;
+        if(urgent && background){if(SetThreadPriority(GetCurrentThread(),THREAD_MODE_BACKGROUND_END))background=false;}
+        else if(!urgent && !background){if(SetThreadPriority(GetCurrentThread(),THREAD_MODE_BACKGROUND_BEGIN))background=true;}
         try {job->bytes=read_verified(job->path,job->sha,job->kind);job->state.store(1,std::memory_order_release);}
         catch(const std::exception &e) {job->error=e.what();job->state.store(-1,std::memory_order_release);}
     }
@@ -325,6 +331,8 @@ extern "C" int nv2a_texture_pack_fingerprint(const Nv2aGpuTexture *t,Nv2aGpuTexe
     } catch(...) {return 0;}
 }
 static unsigned creates;   /* T2-3 B6.5 (R11 E5): replacement creates this frame, at most 8 */
+static unsigned create_limit=8;   /* 64 while a level start holds the frame (nothing is shown then) */
+static unsigned frame_waiting;    /* lookups this frame that drew the original because the replacement was not ready */
 /* T2-3b test hook: RECOMP_PACK_TQ_SCHEDULE="60:2,120:0,160:1" switches texture quality at those
  * seconds after the first frame, as the settings menu would (a TQ-switch run without UI input). */
 static int scheduled_quality(int selected) {
@@ -358,6 +366,51 @@ extern "C" void nv2a_texture_pack_frame(void) {
     stats.entries=active?(uint32_t)active->entries.size():0;
     fprintf(stderr,"[TEXTURE-PACK] active=%s matches=%u (frame boundary)\n",selected==1?"2x Enhanced":selected==2?"4x Enhanced":"Original",stats.entries);
 }
+/* Level start (2026-11-18). With an enhanced pack, a new level's first frames drew the original
+ * textures (and, on a first launch, vertex programs through the CPU fallback) for about a second
+ * while the replacements were read on the background worker and the shaders compiled: the level
+ * appeared washed out and grey, then popped to the enhanced textures. nv2a_texture_pack_level_begin
+ * (called when a level's Partition5 cache opens, i.e. during its loading screen) arms a level
+ * start. While armed, a frame that drew any replacement or vertex program that was not ready yet
+ * is not presented (nv2a_gpu_present keeps the previous frame on screen: the loading screen or
+ * its fade), the reads run at normal priority and held frames may create 64 replacements. The
+ * level start ends with the first complete frame of the level's scene (100 or more draws), after
+ * 6 s of holding (then it shows what it has, as before), or 120 s after arming. A warm launch reads
+ * from the OS file cache and the shader cache, so it waits a few frames at most.
+ * RECOMP_PACK_LEVEL_HOLD=0 turns it off. */
+static std::atomic<int> level_request{0};
+extern "C" void nv2a_texture_pack_level_begin(void){level_request.store(1,std::memory_order_release);}
+extern "C" int nv2a_texture_pack_hold(unsigned programs_pending) {
+    static int enabled=-1;
+    if(enabled<0){const char *e=getenv("RECOMP_PACK_LEVEL_HOLD");enabled=!(e && *e=='0');}
+    static ULONGLONG armed_at,hold_start;static unsigned held,peak_textures,peak_programs;
+    static uint64_t last_serial;uint64_t draws=serial-last_serial;last_serial=serial;
+    unsigned waiting=frame_waiting;frame_waiting=0;
+    ULONGLONG now=GetTickCount64();
+    if(level_request.exchange(0,std::memory_order_acq_rel) && enabled){
+        if(!level_start.load())held=peak_textures=peak_programs=0,hold_start=0;
+        level_start.store(1);armed_at=now;
+    }
+    create_limit=8;
+    if(!level_start.load())return 0;
+    if(waiting || programs_pending) {
+        if(!hold_start)hold_start=now;
+        held++;peak_textures=std::max(peak_textures,waiting);peak_programs=std::max(peak_programs,programs_pending);
+        if(now-hold_start<6000){create_limit=64;return 1;}   /* the next frame is not shown either: create more */
+        fprintf(stderr,"[TEXTURE-PACK] level start: still waiting after %llu ms (%u replacements, %u shaders); showing the level\n",
+            (unsigned long long)(now-hold_start),waiting,programs_pending);
+        level_start.store(0);hold_start=0;return 0;
+    }
+    if(hold_start) {
+        fprintf(stderr,"[TEXTURE-PACK] level start: held %u frames for %llu ms until %u replacements and %u shader draws were ready (%llu draws)\n",
+            held,(unsigned long long)(now-hold_start),peak_textures,peak_programs,(unsigned long long)draws);
+        hold_start=0;held=peak_textures=peak_programs=0;
+    }
+    /* The first complete frame of the level's scene (100+ draws; a loading screen has a few)
+     * ends the level start: later new textures and shaders appear as before, without a wait. */
+    if(draws>=100 || now-armed_at>120000)level_start.store(0);
+    return 0;
+}
 extern "C" void nv2a_texture_pack_device_lost(void) {
     for(auto &pack:packs)for(auto &r:pack.resources)evict(r);
     ++generation;
@@ -383,12 +436,12 @@ extern "C" ID3D11ShaderResourceView *nv2a_texture_pack_view(ID3D11Device *device
     r.used=serial;
     if(r.status<0)return nullptr;
     if(!r.gpu) {
-        if(!async_reads()) {if(creates>=8)return nullptr;creates++;if(!load_gpu(device,r))return nullptr;}
+        if(!async_reads()) {if(creates>=create_limit){frame_waiting++;return nullptr;}creates++;if(!load_gpu(device,r))return nullptr;}
         else {
-            if(!r.pending){queue_read(r);return nullptr;}   /* the original this frame */
+            if(!r.pending){queue_read(r);frame_waiting++;return nullptr;}   /* the original this frame */
             int state=r.pending->state.load(std::memory_order_acquire);
-            if(!state)return nullptr;
-            if(state>0 && creates>=8)return nullptr;   /* B6.5: next frame */
+            if(!state){frame_waiting++;return nullptr;}
+            if(state>0 && creates>=create_limit){frame_waiting++;return nullptr;}   /* Next frame */
             if(state>0)creates++;
             auto job=std::move(r.pending);
             if(state<0) {

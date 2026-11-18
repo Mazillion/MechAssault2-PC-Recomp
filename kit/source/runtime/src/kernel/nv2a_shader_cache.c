@@ -281,7 +281,11 @@ static int initialize_compiler(void)
     if(enabled && !atoi(enabled))return 0;
     compiler.wake=CreateEventW(NULL,FALSE,FALSE,NULL);
     if(!compiler.wake)return 0;
-    for(unsigned i=0;i<2;i++) {
+    /* 2026-11-18: a first launch compiles a level's vertex programs while its first frames wait
+     * (nv2a_texture_pack_hold); a quarter of the logical processors, 2 to 4 compilers. */
+    DWORD processors=GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+    unsigned workers=processors>=16?4:processors>=12?3:2;
+    for(unsigned i=0;i<workers;i++) {
         HANDLE thread=CreateThread(NULL,0,shader_worker,NULL,0,NULL);
         if(thread){CloseHandle(thread);compiler.enabled=1;}
     }

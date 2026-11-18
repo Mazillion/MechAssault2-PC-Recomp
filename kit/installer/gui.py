@@ -365,7 +365,13 @@ class App:
         elif what == 'open': open_path(path)
         else:
             try: subprocess.Popen([str(path)], cwd=str(Path(path).parent), close_fds=True)
-            except OSError: pass
+            except OSError as e:                     # Smart App Control (4551), quarantined (225) or removed (2): say so
+                self.show_error(install.launch_advice(path, e)); return False
+        return True
+
+    def show_error(self, text):
+        try: messagebox.showerror(TITLE, text)
+        except Exception: pass
 
     def params(self):
         """Installer arguments for the current choices."""
@@ -737,16 +743,17 @@ class Systems(Page):
         if st == 'ready':
             self.post('compiler', 'ready', '%s found.' % comp['name'])
         elif st == 'incomplete':
-            code = comp.get('code')
-            msg = {'cmake': 'The C++ CMake tools component is missing.', 'sdk': 'The Windows SDK is missing.', 'vcvars': 'The C++ tools are incomplete.'}.get(code, comp['detail'])
-            self.post('compiler', 'action', msg + ' Add it in the Visual Studio Installer, then re-check.',
+            names = [install.VS_PARTS[m][0] for m in comp.get('missing') or [] if m in install.VS_PARTS]
+            msg = ('Visual Studio is missing %s.' % ' and '.join(names)) if names else comp['detail']
+            self.post('compiler', 'action', msg + ' Add %s in the Visual Studio Installer, then re-check.' % ('them' if len(names) > 1 else 'it'),
                       [('Open Visual Studio Installer', self.open_vsi), ('Re-check', self.recheck_compiler)])
         else:
             self.post('compiler', 'action', BUILD_TOOLS_NOTICE,
                       [('Install for me', self.install_tools), ('I\'ll install them myself', self.manual_tools), ('Microsoft\'s licence terms', self.licence_terms)])
 
     def open_vsi(self):
-        install.open_vs_installer(self.app.facts.get('compiler', {}).get('vs'))
+        comp = self.app.facts.get('compiler', {})
+        install.open_vs_installer(comp.get('vs'), comp.get('add'))       # adds exactly the parts that are missing
 
     def manual_tools(self):
         import webbrowser
@@ -1031,7 +1038,7 @@ class Loadout(Page):
             tag['text'] = ('RECOMMENDED FOR YOUR GPU' if reco['rec'] == key and reco['can'] and not self.have.get(key) else
                            'installed' if self.have.get(key) else ('locked' if locked else ''))
             if locked and app.texture.get() == key: app.texture.set('original')
-        can_vid = reco.get('videos', reco['can'])        # the cutscenes need PyTorch with CUDA (NVIDIA); textures also work through Vulkan
+        can_vid = reco.get("videos", reco["can"])        # NVIDIA: RealBasicVSR; any other card: Real-ESRGAN through Vulkan (1.1.3)
         self.vid['state'] = 'disabled' if (not can_vid or self.have_videos) else 'normal'
         if (not can_vid or self.have_videos) and app.videos.get(): app.videos.set(False)
         self.why['text'] = reco['reason'] + ('' if reco['can'] else ' The enhanced options need an NVIDIA GPU with 8 GB or more.')
@@ -1419,8 +1426,8 @@ class Done(Page):
 
     def play(self):
         app = self.app
-        app.launch('play', Path(precheck.clean_path(app.dest.get())) / 'MechAssault 2.exe')
-        if app.close_on_play.get(): app.close()
+        ok = app.launch('play', Path(precheck.clean_path(app.dest.get())) / 'MechAssault 2.exe')
+        if ok is not False and app.close_on_play.get(): app.close()
 
     def editor(self):
         d = Path(precheck.clean_path(self.app.dest.get()))

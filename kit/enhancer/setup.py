@@ -4,7 +4,9 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import os
 import re
+import shutil
 import subprocess
 import sys
 import urllib.request
@@ -34,12 +36,26 @@ def explain(code):
     return "ended with Windows error status 0x%08X" % code if code >= 0xC0000000 else ""
 
 
+# pip: no user/global config, no cache, patient with slow connections. Inherited PIP_*, CONDA_* and PYENV_* settings never reach the tools.
+PIP = ["-m", "pip", "--isolated", "--no-cache-dir", "--disable-pip-version-check"]
+PIP_INSTALL = PIP + ["install", "--timeout", "120", "--retries", "10"]
+
+
+def child_env():
+    """The tools' environment: without PIP_*, CONDA_* and PYENV_* variables; TMP, TEMP and PIP_CACHE_DIR inside the work folder."""
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith(("PIP_", "CONDA_", "PYENV_"))}
+    tmp = ROOT / "tmp"
+    tmp.mkdir(parents=True, exist_ok=True)
+    env.update(TMP=str(tmp), TEMP=str(tmp), PIP_CACHE_DIR=str(tmp / "pip-cache"))
+    return env
+
+
 def run(args, what, capture=False):
     """Run a tool with no console of its own. capture=True: a quiet probe, returns the exit code. Otherwise a failure raises a readable error."""
     args = [str(a) for a in args]
     if capture:
-        return subprocess.run(args, capture_output=True, stdin=subprocess.DEVNULL, creationflags=NO_CONSOLE).returncode
-    code = subprocess.run(args, stdin=subprocess.DEVNULL, creationflags=NO_CONSOLE).returncode
+        return subprocess.run(args, capture_output=True, stdin=subprocess.DEVNULL, creationflags=NO_CONSOLE, env=child_env()).returncode
+    code = subprocess.run(args, stdin=subprocess.DEVNULL, creationflags=NO_CONSOLE, env=child_env()).returncode
     if code:
         meaning = explain(code)
         if meaning:
@@ -93,6 +109,8 @@ def digest(path):
 
 
 def download(relative, url, expected, recorded):
+    if relative.endswith(".pth"):                    # the models: the digest pinned in the shipped tools.lock.json, on every download
+        expected = expected or recorded.get(relative, {}).get("sha256")
     path = ROOT / relative
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
@@ -128,21 +146,24 @@ def main():
             raise RuntimeError("Run Setup.cmd first")
         run([python, "-c", "import torch,numpy,PIL; print('PyTorch',torch.__version__,'NumPy',numpy.__version__,'Pillow',PIL.__version__); print('CUDA available:',torch.cuda.is_available()); print('GPU:',torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU')"], "The check")
         return
+    if python.exists() and run([python, *PIP, "--version"], "", capture=True):
+        print("The .venv from an earlier run does not start pip; making it again...", flush=True)
+        shutil.rmtree(ROOT / ".venv", ignore_errors=True)
     if not python.exists():
-        print("Creating local .venv (reusing installed CUDA PyTorch where available)...", flush=True)
-        QuietEnvBuilder(with_pip=False, system_site_packages=True).create(ROOT / ".venv")     # pip below, with no console of its own
+        print("Creating local .venv...", flush=True)
+        QuietEnvBuilder(with_pip=False, system_site_packages=False).create(ROOT / ".venv")     # pip below, with no console of its own
     if not (ROOT / ".venv/Lib/site-packages/pip").is_dir():          # venv's own pip step, run here with no console
         print("Adding pip to the .venv...", flush=True)
         run([python, "-m", "ensurepip", "--upgrade", "--default-pip"], "Adding pip to the .venv")
     packages = (("numpy", "2.2.3", "numpy==2.2.3"), ("PIL", "11.1.0", "Pillow==11.1.0"))
     for module, version, requirement in packages:
         if run([python, "-c", f"import {module}; assert {module}.__version__ == '{version}'"], "", capture=True):
-            run([python, "-m", "pip", "install", requirement], f"pip install {requirement}")
+            run([python, *PIP_INSTALL, requirement], f"pip install {requirement}")
     names = [] if vulkan else nvidia_gpu_names()
     label, pip_args, expression = torch_plan(names)
     if not vulkan and run([python, "-c", expression], "", capture=True):
         print(f"Installing {label}...", flush=True)
-        run([python, "-m", "pip", "install", *pip_args], f"pip install {pip_args[0]}")
+        run([python, *PIP_INSTALL, *pip_args], f"pip install {pip_args[0]}")
     if names and run([python, "-c", "import torch; torch.zeros(1).cuda()"], "", capture=True):
         raise RuntimeError(f"PyTorch does not support this graphics card yet ({names[0]}). The enhanced content cannot be made on this PC; "
                            "the game itself is not affected.")

@@ -68,6 +68,60 @@ FFMPEG_DLLS = ['avcodec-63.dll', 'avformat-63.dll', 'avutil-61.dll', 'swresample
 GB = 1024 ** 3
 # Microsoft's Build Tools bootstrappers: VS 2026 (the PC release's compiler, MSVC 19.5x), then VS 2022.
 BUILD_TOOLS_URLS = ['https://aka.ms/vs/18/stable/vs_buildtools.exe', 'https://aka.ms/vs/17/release/vs_buildtools.exe']
+# The bootstrapper's own exit codes (and Windows' for a refused start), each with its own advice.
+BUILD_TOOLS_EXIT = {
+    1602: ('The Build Tools installation was cancelled.', 'cancelled'),
+    5004: ('The Build Tools installation was cancelled.', 'cancelled'),
+    1618: ('Another installation is running on this PC (Windows Update or another installer). Wait until it finishes, then try again.', 'compiler'),
+    1001: ('The Visual Studio Installer is already running. Close it, then try again.', 'compiler'),
+    740: ('The Build Tools installer needs administrator approval, and it was not given.', 'compiler'),
+    5: ('The Build Tools installer needs administrator approval, and it was not given (access denied).', 'compiler'),
+    5003: ('The Build Tools installer could not download its files. Check the internet connection, then try again.', 'network'),
+    5007: ("Microsoft's Build Tools say this PC does not meet their requirements.", 'compiler'),
+    8010: ("Microsoft's Build Tools say this version of Windows is not supported.", 'compiler'),
+}
+REBOOT = ("Microsoft's C++ Build Tools are installed, but Windows must restart before they can be used. Restart the PC, then open "
+          'the installer again and press Resume (or Install).')
+
+def build_tools_urls(build=None):
+    """Windows 10 (build < 22000) gets only the VS 2022 Build Tools: VS 2026 does not list Windows 10 as supported."""
+    build = build if build is not None else sys.getwindowsversion().build
+    return BUILD_TOOLS_URLS[1:] if build < 22000 else BUILD_TOOLS_URLS
+
+def microsoft_signed(path):
+    """WinVerifyTrust (Authenticode chain, no prompts) on `path`, then the signer certificate's organisation must be Microsoft
+    Corporation. No PowerShell (an apostrophe in TEMP broke the old check)."""
+    wt, crypt = ctypes.WinDLL('wintrust'), ctypes.WinDLL('crypt32')
+    class FILEINFO(ctypes.Structure):
+        _fields_ = [('cbStruct', ctypes.c_ulong), ('pcwszFilePath', ctypes.c_wchar_p), ('hFile', ctypes.c_void_p), ('pgKnownSubject', ctypes.c_void_p)]
+    class DATA(ctypes.Structure):
+        _fields_ = [('cbStruct', ctypes.c_ulong), ('pPolicyCallbackData', ctypes.c_void_p), ('pSIPClientData', ctypes.c_void_p),
+                    ('dwUIChoice', ctypes.c_ulong), ('fdwRevocationChecks', ctypes.c_ulong), ('dwUnionChoice', ctypes.c_ulong),
+                    ('pFile', ctypes.POINTER(FILEINFO)), ('dwStateAction', ctypes.c_ulong), ('hWVTStateData', ctypes.c_void_p),
+                    ('pwszURLReference', ctypes.c_wchar_p), ('dwProvFlags', ctypes.c_ulong), ('dwUIContext', ctypes.c_ulong), ('pSignatureSettings', ctypes.c_void_p)]
+    class PCERT(ctypes.Structure):
+        _fields_ = [('cbStruct', ctypes.c_ulong), ('pCert', ctypes.c_void_p)]
+    class SGNR(ctypes.Structure):
+        _fields_ = [('cbStruct', ctypes.c_ulong), ('ftVerifyAsOf', ctypes.c_ulong * 2), ('csCertChain', ctypes.c_ulong), ('pasCertChain', ctypes.POINTER(PCERT))]
+    action = _guid('{00AAC56B-CD44-11D0-8CC2-00C04FC295EE}')                   # WINTRUST_ACTION_GENERIC_VERIFY_V2
+    fi = FILEINFO(ctypes.sizeof(FILEINFO), str(path), None, None)
+    data = DATA(cbStruct=ctypes.sizeof(DATA), dwUIChoice=2, dwUnionChoice=1, pFile=ctypes.pointer(fi), dwStateAction=1)   # WTD_UI_NONE, FILE, VERIFY
+    wt.WinVerifyTrust.argtypes = [ctypes.c_void_p, ctypes.POINTER(_GUID), ctypes.POINTER(DATA)]; wt.WinVerifyTrust.restype = ctypes.c_long
+    wt.WTHelperProvDataFromStateData.argtypes = [ctypes.c_void_p]; wt.WTHelperProvDataFromStateData.restype = ctypes.c_void_p
+    wt.WTHelperGetProvSignerFromChain.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+    wt.WTHelperGetProvSignerFromChain.restype = ctypes.POINTER(SGNR)
+    crypt.CertGetNameStringW.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_char_p, ctypes.c_wchar_p, ctypes.c_ulong]
+    org = ''
+    ok = wt.WinVerifyTrust(None, ctypes.byref(action), ctypes.byref(data)) == 0
+    try:
+        if ok:
+            sg = wt.WTHelperGetProvSignerFromChain(wt.WTHelperProvDataFromStateData(data.hWVTStateData), 0, 0, 0)
+            if sg and sg.contents.csCertChain:
+                buf = ctypes.create_unicode_buffer(256)                      # CERT_NAME_ATTR_TYPE, szOID_ORGANIZATION_NAME
+                crypt.CertGetNameStringW(sg.contents.pasCertChain[0].pCert, 3, 0, b'2.5.4.10', buf, 256); org = buf.value
+    finally:
+        data.dwStateAction = 2; wt.WinVerifyTrust(None, ctypes.byref(action), ctypes.byref(data))      # WTD_STATEACTION_CLOSE
+    return ok and org == 'Microsoft Corporation'
 # Inherited variables that inject options into cl.exe / link.exe (set by other developer tools): never passed to the game build.
 BUILD_ENV_DROP = ('CL', '_CL_', 'LINK', '_LINK_')
 BUILD_TOOLS_ARGS = ['--passive', '--wait', '--norestart', '--nocache',
@@ -146,9 +200,19 @@ def compiler_error(tail):
         if COMPILER_ERROR.search(line): return line.strip()
     return ''
 
+# Numeric codes first (WinError, errno, NTSTATUS, MSVC / LNK): they read the same on every Windows language. The English text below is the fallback.
+CODE_KINDS = [
+    ('out_of_memory', r'\b(?:C1060|C1076|C3859|LNK1102)\b|\[WinError (?:8|14|1455)\]|\[Errno 12\]|0xC0000017|0xC000012D'),
+    ('disk_full', r'\[WinError (?:39|112)\]|\[Errno 28\]|\bLNK1106\b'),
+    ('access_denied', r'\[WinError (?:5|32|33|225|1224|4551)\]|\[Errno 13\]|\b(?:LNK1104|LNK1168|C1041)\b|0xC0000022'),
+    ('network', r'\[WinError (?:10051|10053|10054|10060|10061|10065|11001|11002|11004)\]|\[Errno 1100[124]\]|HTTP Error \d{3}'),
+]
+
 def classify(tail, title=''):
-    """The failure kind for a failed tool, from the end of its output."""
+    """The failure kind for a failed tool, from the end of its output: numeric codes first, then English words."""
     text = '\n'.join(tail)
+    for kind, pattern in CODE_KINDS:
+        if re.search(pattern, text) and not (kind == 'network' and 'CMake + Ninja' in title): return kind
     if re.search(r'(?i)C1060|LNK1102|out of (heap )?memory|not enough memory|std::bad_alloc', text): return 'out_of_memory'
     if re.search(r'(?i)no space left|not enough space on the disk|There is not enough space|disk full|C1083.*write|LNK1106', text): return 'disk_full'
     if re.search(r'(?i)access is denied|PermissionError|LNK1104|LNK1168|being used by another process|error C1041|Errno 13|WinError 5', text): return 'access_denied'
@@ -184,43 +248,76 @@ NO_COMPILER = ('The game is compiled on this PC with Microsoft\'s free C++ Build
                'Let the installer install them (on the Systems page, or pass --install-build-tools), '
                'or install Visual Studio 2022 or newer with "Desktop development with C++" yourself.')
 
+VC_X64 = 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64'
+# What a Visual Studio install can lack, as (words for the Systems page, the component the Visual Studio Installer adds).
+VS_PARTS = {'vcvars': ('the C++ x64 compiler (MSVC)', VC_X64),
+            'cmake': ('C++ CMake tools for Windows', 'Microsoft.VisualStudio.Component.VC.CMake.Project'),
+            'sdk': ('a Windows SDK', 'Microsoft.VisualStudio.Component.Windows11SDK.22621')}
+
+def _ver(text):
+    return tuple(int(x) for x in re.findall(r'\d+', str(text))[:4])
+
 def windows_sdk():
-    base = Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')) / 'Windows Kits' / '10' / 'Include'
-    return next(base.glob('*/um/windows.h'), None) if base.is_dir() else None
+    """windows.h of the newest Windows 10/11 SDK that also has the x64 kernel32.lib and rc.exe the game's link needs, else None."""
+    base = Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')) / 'Windows Kits' / '10'
+    try:
+        vers = sorted((d.name for d in (base / 'Lib').iterdir() if (d / 'um' / 'x64' / 'kernel32.lib').is_file()
+                       and (base / 'bin' / d.name / 'x64' / 'rc.exe').is_file() and (base / 'Include' / d.name / 'um' / 'windows.h').is_file()),
+                      key=_ver, reverse=True)
+    except OSError:
+        return None
+    return base / 'Include' / vers[0] / 'um' / 'windows.h' if vers else None
+
+def vs_instances():
+    """Every VS 2022-or-newer instance (stable and preview, complete or not) that has the x64 C++ tools, as vswhere's JSON."""
+    vswhere = Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')) / 'Microsoft Visual Studio/Installer/vswhere.exe'
+    if not vswhere.is_file(): return []
+    found = {}
+    for extra in ([], ['-prerelease']):
+        try:
+            r = subprocess.run([str(vswhere), '-all', '-products', '*', '-requires', VC_X64, '-version', '[17.0,)', '-format', 'json', '-utf8'] + extra,
+                               capture_output=True, timeout=60, stdin=subprocess.DEVNULL, creationflags=NO_CONSOLE)
+            for i in json.loads(r.stdout.decode('utf-8', errors='replace') or '[]'):
+                if i.get('installationPath'): found[os.path.normcase(i['installationPath'])] = i
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            pass
+    return list(found.values())
 
 def find_visual_studio(choose=None):
-    """(vcvars64.bat, cmake.exe, ninja.exe, VS folder) from the newest VS/Build Tools with x64 C++
-    (or the installation folder `choose`, e.g. to build with an older compiler)."""
-    vswhere = Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')) / 'Microsoft Visual Studio/Installer/vswhere.exe'
-    if choose:
-        out = [str(choose)]
-    else:
-        if not vswhere.is_file(): raise Stop(NO_COMPILER, 'compiler', 'missing')
-        out = subprocess.run([str(vswhere), '-latest', '-products', '*', '-version', '[17.0,', '-requires',      # VS 2022 and newer
-                              'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', '-property', 'installationPath'],
-                             capture_output=True, text=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)).stdout.strip().splitlines()
-    if not out: raise Stop(NO_COMPILER, 'compiler', 'missing')
-    vs = Path(out[0])
-    vcvars = vs / 'VC/Auxiliary/Build/vcvars64.bat'
-    cmake_dir = vs / 'Common7/IDE/CommonExtensions/Microsoft/CMake'
-    cmake = cmake_dir / 'CMake/bin/cmake.exe'
-    ninja = cmake_dir / 'Ninja/ninja.exe'
-    if not cmake.is_file(): cmake = Path(shutil.which('cmake') or '')
-    if not ninja.is_file(): ninja = Path(shutil.which('ninja') or '')
-    if not vcvars.is_file(): raise Stop('Visual Studio C++ is incomplete (no vcvars64.bat in %s).' % vs, 'compiler', 'vcvars')
-    if not cmake.is_file() or not ninja.is_file():
-        raise Stop('CMake/Ninja not found. In the Visual Studio Installer, add "C++ CMake tools for Windows".', 'compiler', 'cmake')
-    if not windows_sdk():
-        raise Stop('The Windows SDK is missing: in the Visual Studio Installer add "Windows 11 SDK" (or "Windows 10 SDK").',
-                   'compiler', 'sdk')
-    return vcvars, cmake, ninja, vs
+    """(vcvars64.bat, cmake.exe, ninja.exe, VS folder) of the newest COMPLETE VS/Build Tools instance with vcvars64.bat, cl.exe, CMake,
+    Ninja and a Windows SDK (stable releases before previews), or of the installation folder `choose`. Raises Stop naming what is missing."""
+    cands = [{'installationPath': str(choose)}] if choose else vs_instances()
+    if not cands: raise Stop(NO_COMPILER, 'compiler', 'missing')
+    cands.sort(key=lambda i: (i.get('isComplete', True) is not False, not i.get('isPrerelease'), _ver(i.get('installationVersion', '0'))), reverse=True)
+    first = None
+    for i in cands:
+        vs = Path(i['installationPath'])
+        vcvars = vs / 'VC/Auxiliary/Build/vcvars64.bat'
+        cmake_dir = vs / 'Common7/IDE/CommonExtensions/Microsoft/CMake'
+        cmake, ninja = cmake_dir / 'CMake/bin/cmake.exe', cmake_dir / 'Ninja/ninja.exe'
+        if not cmake.is_file(): cmake = Path(shutil.which('cmake') or '')
+        if not ninja.is_file(): ninja = Path(shutil.which('ninja') or '')
+        missing = []
+        if i.get('isComplete') is False or not vcvars.is_file() or not next((vs / 'VC/Tools/MSVC').glob('*/bin/Hostx64/x64/cl.exe'), None):
+            missing.append('vcvars')
+        if not cmake.is_file() or not ninja.is_file(): missing.append('cmake')
+        if not windows_sdk(): missing.append('sdk')
+        if not missing: return vcvars, cmake, ninja, vs
+        first = first or (vs, missing)
+    vs, missing = first
+    e = Stop('Visual Studio C++ in %s is incomplete: it lacks %s. In the Visual Studio Installer, add %s.' % (
+        vs, ' and '.join(VS_PARTS[m][0] for m in missing), ', '.join('"%s"' % VS_PARTS[m][0] for m in missing)), 'compiler', missing[0])
+    e.vs, e.missing = vs, missing
+    raise e
 
 def compiler_state(choose=None):
-    """{'state': ready|incomplete|missing, 'vs', 'name', 'detail', 'code'} for the Systems page."""
+    """{'state': ready|incomplete|missing, 'vs', 'name', 'detail', 'code', 'missing' (codes), 'add' (VS components)} for the Systems page."""
     try:
         _, _, _, vs = find_visual_studio(choose)
     except Stop as e:
-        return {'state': 'missing' if e.code == 'missing' else 'incomplete', 'detail': str(e), 'code': e.code, 'vs': None, 'name': ''}
+        miss = getattr(e, 'missing', [])
+        return {'state': 'missing' if e.code == 'missing' else 'incomplete', 'detail': str(e), 'code': e.code, 'name': '',
+                'vs': str(e.vs) if getattr(e, 'vs', None) else None, 'missing': miss, 'add': [VS_PARTS[m][1] for m in miss]}
     name = ''
     try:
         vsw = Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')) / 'Microsoft Visual Studio/Installer/vswhere.exe'
@@ -230,12 +327,12 @@ def compiler_state(choose=None):
         pass
     return {'state': 'ready', 'vs': str(vs), 'name': name or Path(str(vs)).name, 'detail': '', 'code': None}
 
-def open_vs_installer(vs=None, add=('Microsoft.VisualStudio.Component.VC.CMake.Project',)):
+def open_vs_installer(vs=None, add=None):
     """Start the Visual Studio Installer (its own window) to add a missing component. True if it started."""
     exe = Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')) / 'Microsoft Visual Studio/Installer/vs_installer.exe'
     if not exe.is_file(): return False
     args = [str(exe)]
-    if vs: args += ['modify', '--installPath', str(vs)] + [x for a in add for x in ('--add', a)]
+    if vs: args += ['modify', '--installPath', str(vs)] + [x for a in (add or [VS_PARTS['cmake'][1]]) for x in ('--add', a)]
     subprocess.Popen(args)
     return True
 
@@ -301,18 +398,20 @@ def texture_engine(nvidia, gpus, allow_cpu=False, force=''):
     return 'pytorch' if allow_cpu else None
 
 VULKAN_NOTE = 'new in 1.1.2; not yet tested on AMD or Intel cards'
+VIDEO_VULKAN_NOTE = 'new in 1.1.3; not yet tested on AMD or Intel cards'
 VULKAN_NOTICE = 'realesrgan-ncnn-vulkan.txt'      # enhancer/LICENSES: installed only when the Vulkan upscaler made textures
 
-def needed_space(opts, done, engine='pytorch'):
+def needed_space(opts, done, engine='pytorch', video_engine=None):
     """Bytes still to be written (game files and build) plus each option's output and temporary files.
-    engine: the texture upscaler ('vulkan' needs no PyTorch)."""
+    engine: the texture upscaler, video_engine: the cutscene one (default: the same); 'vulkan' needs no PyTorch."""
     need = 0
     if 'extract' not in done: need += 3.0 * GB
     if 'build' not in done: need += 1.5 * GB
     if '2x' in opts['textures'] and 'textures-2x' not in done: need += 4 * GB
     if '4x' in opts['textures'] and 'textures-4x' not in done: need += 9 * GB
     if (opts['textures'] or opts['videos']) and not ({'textures-2x', 'textures-4x', 'videos'} & done):
-        need += 6 * GB if (opts['videos'] or engine != 'vulkan') else 0.5 * GB      # PyTorch; the Vulkan tool and NumPy/Pillow
+        torch = (opts['textures'] and engine != 'vulkan') or (opts['videos'] and (video_engine or engine) != 'vulkan')
+        need += 6 * GB if torch else 0.5 * GB      # PyTorch; the Vulkan tool and NumPy/Pillow
     if opts['videos'] and 'videos' not in done: need += 25 * GB
     return need
 
@@ -333,7 +432,7 @@ def install_build_tools(work, log, cancelled=lambda: False):
         raise Stop('Microsoft\'s C++ Build Tools need about 8 GB free on %s (%.1f GB free). Free up space there and try again.'
                    % (sysdrive, free / GB), 'disk_full')
     boot = work / 'vs_buildtools.exe'
-    for url in BUILD_TOOLS_URLS:
+    for url in build_tools_urls():
         try:
             log('  downloading Microsoft C++ Build Tools installer: %s' % url)
             req = urllib.request.Request(url, headers={'User-Agent': 'MechAssault2-Recomp-Installer'})
@@ -343,10 +442,7 @@ def install_build_tools(work, log, cancelled=lambda: False):
             log('    not available (%s)' % e)
     else:
         raise Stop('Could not download the Microsoft C++ Build Tools (no internet connection?). ' + NO_COMPILER, 'network')
-    sig = subprocess.run(['powershell', '-NoProfile', '-Command',
-                          "$s = Get-AuthenticodeSignature -LiteralPath '%s'; $s.Status; $s.SignerCertificate.Subject" % boot],
-                         capture_output=True, text=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)).stdout
-    if 'Valid' not in sig or 'O=Microsoft Corporation' not in sig:
+    if not microsoft_signed(boot):
         raise Stop('The downloaded Build Tools installer is not signed by Microsoft; it was not run.', 'network')
     log('  installing Microsoft C++ Build Tools (about 6 GB; approve the administrator prompt; '
         'their own window shows progress, 10-30 minutes)')
@@ -360,19 +456,38 @@ def install_build_tools(work, log, cancelled=lambda: False):
     info = SEI(); info.cbSize = ctypes.sizeof(SEI); info.fMask = 0x40      # SEE_MASK_NOCLOSEPROCESS
     info.lpVerb = 'runas'; info.lpFile = str(boot); info.nShow = 1
     info.lpParameters = subprocess.list2cmdline(BUILD_TOOLS_ARGS)
-    shell32, kernel32 = ctypes.windll.shell32, ctypes.windll.kernel32
-    kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
-    kernel32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+    shell32 = ctypes.WinDLL('shell32', use_last_error=True); kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    shell32.ShellExecuteExW.argtypes = [ctypes.POINTER(SEI)]; shell32.ShellExecuteExW.restype = ctypes.c_int
+    kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_ulong]; kernel32.WaitForSingleObject.restype = ctypes.c_ulong
+    kernel32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]; kernel32.GetExitCodeProcess.restype = ctypes.c_int
     kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
-    if not shell32.ShellExecuteExW(ctypes.byref(info)):
-        raise Stop('The Build Tools installation was not started (administrator approval declined?). ' + NO_COMPILER, 'compiler')
-    while kernel32.WaitForSingleObject(info.hProcess, 1000) == 0x102:     # WAIT_TIMEOUT
-        if cancelled(): raise Stop('Cancelled (the Build Tools installer keeps running on its own).', 'cancelled')
-    code = ctypes.c_ulong(); kernel32.GetExitCodeProcess(info.hProcess, ctypes.byref(code)); kernel32.CloseHandle(info.hProcess)
+    if not shell32.ShellExecuteExW(ctypes.byref(info)) or not info.hProcess:
+        err = ctypes.get_last_error()
+        if err == 1223: raise Stop('The Build Tools installation was cancelled at the administrator prompt (Windows asks for approval; '
+                                   'choose Yes to install them). ' + NO_COMPILER, 'compiler', 'uac')
+        raise Stop('The Build Tools installer could not be started (Windows error %d). ' % err + NO_COMPILER, 'compiler')
+    try:                                          # the PC stays awake while the Build Tools install (as during the install steps)
+        kernel32.SetThreadExecutionState(0x80000001)
+        while True:
+            w = kernel32.WaitForSingleObject(info.hProcess, 1000)
+            if w == 0: break                                              # WAIT_OBJECT_0: it ended
+            if w != 0x102: raise Stop('Lost track of the Build Tools installer (Windows error %d).' % ctypes.get_last_error(), 'compiler')
+            if cancelled(): raise Stop('Cancelled (the Build Tools installer keeps running on its own).', 'cancelled')
+        code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(info.hProcess, ctypes.byref(code)):
+            raise Stop('The Build Tools installer ended, but its result could not be read (Windows error %d).' % ctypes.get_last_error(), 'compiler')
+    finally:
+        kernel32.CloseHandle(info.hProcess); kernel32.SetThreadExecutionState(0x80000000)
     boot.unlink(missing_ok=True)
-    if code.value not in (0, 3010):
-        raise Stop('The Microsoft C++ Build Tools installation did not finish (exit code %d).' % code.value, 'compiler')
-    log('  Microsoft C++ Build Tools installed%s' % (' (Windows asks for a restart later; not needed now)' if code.value == 3010 else ''))
+    code = code.value
+    log('  Build Tools installer exit code %d' % code)
+    if code in (3010, 1641):
+        mark_build_tools_installed(); log('  ' + REBOOT)
+        raise Stop(REBOOT, 'compiler', 'reboot')
+    if code != 0:
+        text, kind = BUILD_TOOLS_EXIT.get(code, ('The Microsoft C++ Build Tools installation did not finish (%s).' % exit_text(code), 'compiler'))
+        raise Stop('%s (Build Tools exit code %d.) ' % (text, code) + ('' if kind == 'cancelled' else NO_COMPILER), kind, code)
+    log('  Microsoft C++ Build Tools installed')
     mark_build_tools_installed()
 
 class _GUID(ctypes.Structure):
@@ -588,19 +703,52 @@ def clean_stale_build_folders(bases):
             if who and not Path(who).exists() and remove_build_folder(f): gone.append(f)
     return gone
 
+LOCK_CODES = (5, 32, 33)          # access denied / sharing / lock violation: Defender or the indexer holding a file for a moment
+BLOCKED_CODES = {225: 'Windows reported a virus or unwanted software in it and blocked it (WinError 225)',
+                 4551: 'Smart App Control blocked it (WinError 4551)'}
+
+def retry_io(fn, what, log=lambda s: None, owned=None):
+    """Run fn() (a copy, replace, rename, unlink or rmtree of an installer-owned file); on WinError 5/32/33 wait and try again,
+    0.2 s doubling up to 5 s (about 11 s in all). `owned`: a staged file of ours whose read-only flag may be cleared. WinError 225
+    (threat found) and 4551 (Smart App Control) stop at once as Stop('access_denied'); every retry is logged with its code."""
+    delay = 0.2
+    while True:
+        try:
+            return fn()
+        except OSError as e:
+            code = getattr(e, 'winerror', None)
+            if code in BLOCKED_CODES:
+                log('  %s: %s' % (what, BLOCKED_CODES[code]))
+                raise Stop('Could not %s: %s. Allow the install folder in your antivirus (or turn Smart App Control off), then try again.'
+                           % (what, BLOCKED_CODES[code]), 'access_denied', code) from e
+            if code not in LOCK_CODES or delay > 5: raise
+            log('  (%s: WinError %d, the file is busy; trying again in %.1f s)' % (what, code, delay))
+            if code == 5 and owned is not None:
+                try: os.chmod(owned, 0o666)
+                except OSError: pass
+            time.sleep(delay); delay = min(delay * 2, 5) if delay < 5 else 6
+
+def _rmtree_owned(path):
+    def clear(fn, p, exc):
+        os.chmod(p, 0o666); fn(p)
+    kw = {'onexc': clear} if sys.version_info >= (3, 12) else {'onerror': clear}
+    shutil.rmtree(path, **kw)
+
 def put_back(pairs, log=lambda s: None):
-    """Rename each kept <file>.previous back over the new file: the previous version again. Returns how many were put back."""
-    n = 0
+    """Rename each kept <file>.previous back over the new file: the previous version again. Returns the pairs that could NOT
+    be put back (they stay recorded, so a later run tries again; their .previous file is never deleted)."""
+    failed = []
     for orig, bak in pairs:
         orig, bak = Path(orig), Path(bak)
         if not bak.exists(): continue
         try:
-            if orig.is_dir(): shutil.rmtree(orig, ignore_errors=True)
-            elif orig.exists(): orig.unlink()
-            bak.rename(orig); n += 1
-        except OSError:
-            log('  could not restore %s' % orig.name)
-    return n
+            if orig.is_dir(): retry_io(lambda: shutil.rmtree(orig), 'remove %s' % orig.name, log)
+            elif orig.exists(): retry_io(orig.unlink, 'remove %s' % orig.name, log, owned=orig)
+            retry_io(lambda: bak.rename(orig), 'restore %s' % orig.name, log)
+        except (OSError, Stop) as e:
+            failed.append([str(orig), str(bak)])
+            log('  could not restore %s (%s)' % (orig.name, getattr(e, 'winerror', None) or e.strerror or e))
+    return failed
 
 def start_over(dest):
     """Delete the unfinished work of an install in `dest`: its _work folder and, if the build ran in an ASCII-path folder elsewhere, that one too.
@@ -724,29 +872,39 @@ class Installer:
         if not self.state.get('update') or not path.exists(): return
         bak = path.with_name(path.name + '.previous')
         if bak.exists(): return                   # an interrupted earlier attempt already kept the original
+        pair, pairs = [str(path), str(bak)], self.state.setdefault('previous', [])
+        if pair not in pairs: pairs.append(pair)
+        self.save()                               # recorded BEFORE the rename: a crash in between can never lose the backup
         try:
-            path.rename(bak)
-        except OSError as e:
+            retry_io(lambda: path.rename(bak), 'replace %s' % path.name, self.log)
+        except (OSError, Stop) as e:
+            pairs.remove(pair); self.save()
+            if isinstance(e, Stop): raise
             raise Stop('Can\'t replace %s (%s). Close MechAssault 2 and the Scenario Editor, then try again.' % (path.name, e.strerror), 'access_denied')
-        self.state.setdefault('previous', []).append([str(path), str(bak)]); self.save()
 
     def restore_previous(self):
         """Put the old game back after a failed or cancelled update."""
         pairs = self.state.get('previous') or []
-        put_back(pairs, self.log)
-        if pairs:
+        if not pairs: return
+        failed = put_back(pairs, self.log)
+        self.state['previous'] = failed               # what could not be put back stays recorded: the next run tries again
+        self.state['done'] = [s for s in self.state.get('done', []) if s not in ('assets', 'install')]
+        self.save()
+        if failed:
+            self.log('  the previous version was only partly restored: %d file(s) could not be put back (%s). Close MechAssault 2 and the '
+                     'Scenario Editor, then run the installer again: it finishes the install or tries the restore again.'
+                     % (len(failed), ', '.join(Path(o).name for o, _ in failed[:3])))
+            self.notes.append('The previous version was only partly restored; run the installer again.')
+        else:
             self.log('  the previous version was put back')
-            self.state['previous'] = []
-            self.state['done'] = [s for s in self.state.get('done', []) if s not in ('assets', 'install')]
-            self.save()
 
     def commit_previous(self):
         for orig, bak in self.state.get('previous') or []:
             bak = Path(bak)
             try:
-                shutil.rmtree(bak) if bak.is_dir() else bak.unlink(missing_ok=True)
-            except OSError:
-                pass
+                retry_io(lambda: _rmtree_owned(bak) if bak.is_dir() else bak.unlink(missing_ok=True), 'delete %s' % bak.name, self.log, owned=bak)
+            except (OSError, Stop) as e:
+                self.log('  (the old %s could not be deleted: %s; you can delete it)' % (bak.name, e))
         self.state['previous'] = []; self.save()
 
     def game_installed(self):
@@ -758,11 +916,11 @@ class Installer:
         .previous files go, the settings and the install stamp are written as for a finished install, and state['core_done'] makes a
         later Resume run only the optional steps. A failed or cancelled optional step can then never put the old game back."""
         self.log('  the game is installed; it stays installed whatever happens to the optional content')
-        self.settle()
-        self.state['core_done'] = True; self.save()
+        self.settle(core=True)
 
-    def settle(self):
-        """Settings, the end of an update and the stamp: run once the game is installed (finalize_core) and again by finish (idempotent)."""
+    def settle(self, core=False):
+        """Settings, the stamp and the end of an update: run once the game is installed (finalize_core, core=True) and again by finish
+        (idempotent). The stamp is written and core_done saved BEFORE the old version's .previous files are deleted."""
         ini = self.dest / 'pc_settings.ini'
         q = 2 if (self.dest / 'game_files/texture_packs/4x/index.json').is_file() else \
             1 if (self.dest / 'game_files/texture_packs/2x/index.json').is_file() else 0
@@ -779,8 +937,9 @@ class Installer:
             if new != text: ini.write_text(new, encoding='utf-8')
         if self.state.get('update') or self.switch_textures:
             self.update_live_settings(q, v)
-        self.commit_previous()
         self.write_stamp(ini)
+        if core: self.state['core_done'] = True; self.save()
+        self.commit_previous()
 
     # -- steps
     def game_files_ok(self):
@@ -891,20 +1050,25 @@ class Installer:
                     self.log(msg)
                     raise Stop(msg, 'extras', code=e.code, cause=e.kind) from e
                 raise
-            if self.state.get('update'): self.restore_previous()
-            if isinstance(e, Stop) and not self.state.get('done') and not self.state.get('update'):
+            if self.state.get('update'):
+                self.restore_previous()
+                if self.state.get('previous') and isinstance(e, Stop):      # never claim the old version is back when it is not
+                    raise Stop('%s The previous version was only partly restored (%d file(s) could not be put back): close MechAssault 2 '
+                               'and the Scenario Editor, then run the installer again.' % (e, len(self.state['previous'])),
+                               e.kind, code=e.code) from e
+            if isinstance(e, Stop) and not self.state.get('done') and not self.state.get('update') and e.code != 'reboot':   # (a restart: Resume continues)
                 self.logfile.close()              # stopped before anything was made: leave no trace in the install folder
                 shutil.rmtree(self.work, ignore_errors=True)
                 if created and not any(self.dest.iterdir()): self.dest.rmdir()
             raise
 
-    def remember_install(self):
+    def remember_install(self, **extra):
         r"""%LOCALAPPDATA%\MechAssault2\installer.json names this folder, so the next run can offer Resume or Update.
         Other keys in the file (build_tools_installed_by_us) are kept."""
         try:
             d = precheck.local_dir(); d.mkdir(parents=True, exist_ok=True)
             j = precheck.read_json(d / 'installer.json'); j = j if isinstance(j, dict) else {}
-            j.update(dest=str(self.dest), kit_id=KIT_ID, version=VERSION, public_version=PUBLIC_VERSION, time=time.strftime('%Y-%m-%dT%H:%M:%S'))
+            j.update(dest=str(self.dest), kit_id=KIT_ID, version=VERSION, public_version=PUBLIC_VERSION, time=time.strftime('%Y-%m-%dT%H:%M:%S'), **extra)
             (d / 'installer.json').write_text(json.dumps(j, indent=1), encoding='utf-8')
         except OSError:
             pass
@@ -914,6 +1078,7 @@ class Installer:
             try: ctypes.windll.kernel32.SetThreadExecutionState(0x80000001)      # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
             except Exception: pass
         try:
+            self.stale_done()
             steps = self.steps()
             self.on_plan([n for n, _, _ in steps])
             for index, (name, title, fn) in enumerate(steps, 1):
@@ -921,7 +1086,8 @@ class Installer:
                 if (name in OPTIONAL_STEPS or name == 'finish') and not self.game_installed() and 'install' in self.state.get('done', []):
                     self.stage = 'install'; self.finalize_core()          # before any optional step: the new game is final from here on
                 self.stage = name
-                skipped = name in self.state['done'] and name not in ('check', 'finish')
+                self.state['last_title'], self.state['last_step'] = title, name      # Collect diagnostics names the step that failed
+                skipped = (name in self.state['done'] and name not in ('check', 'finish')) or not self.wanted(name)
                 self.on_step(index, len(steps), title, name, skipped)
                 if skipped:
                     self.log('[%d/%d] %s: already done' % (index, len(steps), title)); continue
@@ -936,6 +1102,26 @@ class Installer:
                 try: ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
                 except Exception: pass
 
+    def stale_done(self):
+        """Steps marked done whose key output is gone (quarantined by antivirus, a folder cleaned by hand) run again instead of being
+        skipped. Returns their names."""
+        if self.game_installed(): return []
+        done = self.state.get('done', [])
+        outputs = {'extract': lambda: self.dest / 'game_files' / RELEASE['xbe'],
+                   'assets': lambda: self.dest / 'pc_assets',
+                   'install': lambda: self.dest / 'MechAssault 2.exe'}
+        if 'install' not in done: outputs['build'] = lambda: self.build_root() / 'build' / 'mechassault2_recomp.exe'
+        stale = []
+        for name in done:
+            try:
+                if name in outputs and not outputs[name]().exists(): stale.append(name)
+            except (OSError, Stop):
+                pass
+        if stale:
+            self.state['done'] = [n for n in done if n not in stale]; self.save()
+            for n in stale: self.log('  "%s" was marked done, but its result is missing; it runs again' % n)
+        return stale
+
     def check(self):
         if sys.version_info < (3, 10) or sys.maxsize < 2 ** 32:
             raise Stop('The installer needs 64-bit Python 3.10 or newer.', 'compiler')   # only when run outside the exe
@@ -949,25 +1135,39 @@ class Installer:
                 self.get_build_tools()
                 self.vcvars, self.cmake, self.ninja, self.vs = find_visual_studio()
             self.log('  C++ compiler: %s' % self.vs)
+            self.state['toolchain'] = str(self.vs); self.save()                 # named in Collect diagnostics
+            self.remember_install(toolchain=str(self.vs))
+            if 'install' not in self.state.get('done', []):
+                self.ffmpeg_dir()                  # FFmpeg now: a download problem shows in the first minute, not after the translation
             self.log('  CMake: %s\n  Ninja: %s' % (self.cmake, self.ninja))
         if self.opts['textures'] or self.opts['videos']:
-            self.epy = enhancer_python()
+            try:
+                self.epy = enhancer_python()
+            except Stop as e:
+                self.skip_extras(('textures', 'videos'), e)
+        if self.opts['textures'] or self.opts['videos']:
             self.log('  Enhancer Python: %s' % self.epy)
             gpu = nvidia_gpu()
             if gpu: self.log('  GPU: %s' % gpu)
-            if self.opts['videos'] and not gpu and not self.allow_cpu:
-                raise Stop('The enhanced cutscene videos need an NVIDIA GPU with CUDA (none was found). '
-                           'Untick that option; the game runs fine with the original videos.', 'compiler')
+            others = [] if gpu else precheck.detect_gpus()
+            if self.opts['videos']:                   # NVIDIA: RealBasicVSR (PyTorch); any other card: Real-ESRGAN through Vulkan
+                self.vid_engine = texture_engine(gpu, others, self.allow_cpu, os.environ.get('MA2_VIDEO_ENGINE'))
+                if not self.vid_engine:
+                    self.skip_extras(('videos',), Stop('The enhanced cutscene videos need a graphics card (an NVIDIA GPU with CUDA, or any '
+                                                       'graphics card with Vulkan), and none was found. Untick that option; the game runs fine '
+                                                       'with the original videos.', 'compiler'))
+                elif self.vid_engine == 'vulkan':
+                    card = gpu or ', '.join(g['name'] for g in others) or "this PC's graphics card"
+                    self.log('  Cutscenes: through Vulkan on %s, frame by frame (realesrgan-ncnn-vulkan; %s; very slow)' % (card, VIDEO_VULKAN_NOTE))
             if self.opts['textures']:
-                others = [] if gpu else precheck.detect_gpus()
                 self.tex_engine = texture_engine(gpu, others, self.allow_cpu, os.environ.get('MA2_TEXTURE_ENGINE'))
                 if not self.tex_engine:
-                    raise Stop('The enhanced textures need a graphics card (an NVIDIA GPU with CUDA, or any graphics card with '
-                               'Vulkan), and none was found. Untick that option; the game runs fine with the original textures.', 'compiler')
+                    self.skip_extras(('textures',), Stop('The enhanced textures need a graphics card (an NVIDIA GPU with CUDA, or any graphics card '
+                                                         'with Vulkan), and none was found. Untick that option; the game runs fine with the original textures.', 'compiler'))
                 if self.tex_engine == 'vulkan':
                     card = gpu or ', '.join(g['name'] for g in others) or "this PC's graphics card"
                     self.log('  Textures: through Vulkan on %s (realesrgan-ncnn-vulkan; %s)' % (card, VULKAN_NOTE))
-            if not gpu and self.allow_cpu and (self.opts['videos'] or getattr(self, 'tex_engine', None) == 'pytorch'):
+            if not gpu and self.allow_cpu and 'pytorch' in (getattr(self, 'vid_engine', None), getattr(self, 'tex_engine', None)):
                 self.log('  No NVIDIA GPU: enhancement runs on the CPU (extremely slow).')
         if precheck.smart_app_control() == 'enforce':
             self.log('  WARNING: Smart App Control is on. It may block the game this installer builds, because the build is not signed. '
@@ -975,11 +1175,46 @@ class Installer:
         done = set(self.state.get('done', []))
         if self.game_ok: done.add('extract')
         if self.game_installed(): done |= {'extract', 'build'}
+        if not self.game_installed():
+            if str(self.dest).startswith('\\\\'):
+                raise Stop('The C++ tools cannot build in a network folder (%s). Install to a folder on this PC, e.g. C:\\Games\\MechAssault 2.' % self.dest, 'access_denied')
+            fs = precheck.volume_fs(self.dest).upper()
+            if fs.startswith('FAT'):
+                raise Stop('%s uses %s, which cannot hold the game build (files over 4 GB). Install to an NTFS drive.' % (self.dest.anchor, fs), 'disk_full')
         free = shutil.disk_usage(self.dest).free
-        need = needed_space(self.opts, done, getattr(self, 'tex_engine', None) or 'pytorch')
+        engine = getattr(self, 'tex_engine', None) or 'pytorch'
+        need = needed_space(self.opts, done, engine, getattr(self, 'vid_engine', None) or 'pytorch')
         self.log('  Free space on the install drive: %.1f GB (needs about %.1f GB)' % (free / GB, need / GB))
+        core = needed_space({'textures': [], 'videos': False}, done)
+        if free < need and free >= core and not self.game_installed() and (self.opts['textures'] or self.opts['videos']):
+            self.skip_extras(('textures', 'videos'), Stop('Not enough free space for the enhanced content: %.1f GB free, about %.1f GB needed on %s.'
+                                                        % (free / GB, need / GB, self.dest.anchor), 'disk_full'))
+            need = core
         if free < need:
             raise Stop('Not enough free space: %.1f GB free, about %.1f GB needed on %s.' % (free / GB, need / GB, self.dest.anchor), 'disk_full')
+        temp = Path(os.environ.get('TEMP') or self.dest)        # pip and the AI tools unpack into TEMP (usually C:)
+        if (self.opts['textures'] or self.opts['videos']) and temp.anchor.lower() != self.dest.anchor.lower():
+            try: tfree = shutil.disk_usage(temp).free
+            except OSError: tfree = 2 * GB
+            if tfree < 2 * GB: self.log('  WARNING: only %.1f GB free on %s (the temporary folder); the enhanced content setup needs about 2 GB there.'
+                                        % (tfree / GB, temp.anchor))
+
+    def skip_extras(self, which, e):
+        """An optional item's prerequisite failed: untick it and go on with the game (never stop the core install for it). An add-ons-only
+        run (the game is already installed) stops, since the extras are all it does."""
+        if self.game_installed(): raise e
+        dropped = [w for w in which if (self.opts['textures'] if w == 'textures' else self.opts['videos'])]
+        if not dropped: return
+        for w in dropped: self.opts[w] = [] if w == 'textures' else False
+        self.state['options'] = self.opts; self.save()
+        msg = 'The %s will not be made: %s The game is installed without them; add them later with Add enhanced content.' % (
+            ' and '.join('enhanced ' + ('textures' if w == 'textures' else 'cutscene videos') for w in dropped), str(e).strip())
+        self.log('  ' + msg); self.notes.append(msg)
+
+    def wanted(self, name):
+        """Is this optional step still asked for (skip_extras may have unticked it after the plan was made)?"""
+        if name == 'videos': return bool(self.opts['videos'])
+        return name.split('-')[-1] in self.opts['textures'] if name.startswith('textures-') else True
 
     def get_build_tools(self):
         install_build_tools(self.work, self.log, lambda: self.cancelled)
@@ -1249,14 +1484,15 @@ class Installer:
         exe = self.dest / 'MechAssault 2.exe'
         self.keep_previous(exe)
         tmp = self.dest / 'MechAssault 2.exe.new'
-        shutil.copy2(build / 'mechassault2_recomp.exe', tmp); tmp.replace(exe)
+        self.copy_in(build / 'mechassault2_recomp.exe', tmp)
+        retry_io(lambda: tmp.replace(exe), 'replace MechAssault 2.exe', self.log, owned=exe)
         ff = self.ffmpeg_dir() / 'bin'
         for n in FFMPEG_DLLS:
-            self.keep_previous(self.dest / n); shutil.copy2(ff / n, self.dest / n)
+            self.keep_previous(self.dest / n); self.copy_in(ff / n, self.dest / n)
         crt = sorted((self.vs / 'VC' / 'Redist' / 'MSVC').glob('*/x64/Microsoft.VC*.CRT'))
         if crt:
             for dll in crt[-1].glob('*.dll'):
-                self.keep_previous(self.dest / dll.name); shutil.copy2(dll, self.dest / dll.name)
+                self.keep_previous(self.dest / dll.name); self.copy_in(dll, self.dest / dll.name)
             self.log('  MSVC runtime from %s' % crt[-1])
         else:
             self.log('  (no MSVC redistributable folder found; the Visual C++ runtime installed on this PC will be used)')
@@ -1274,9 +1510,13 @@ class Installer:
         self.install_defaults_ini()
         for f in sorted((KIT / 'editor').glob('*.exe')) if (KIT / 'editor').is_dir() else []:
             self.keep_previous(self.dest / f.name)
-            shutil.copy2(f, self.dest / f.name)        # MechAssault 2 Scenario Editor
+            self.copy_in(f, self.dest / f.name)        # MechAssault 2 Scenario Editor
             self.log('  %s' % f.name)
         self.make_shortcuts()
+
+    def copy_in(self, src, dst):
+        """Copy one installer-owned file into the install folder, retrying while a scanner holds it (retry_io)."""
+        retry_io(lambda: shutil.copy2(src, dst), 'copy %s' % Path(dst).name, self.log, owned=dst)
 
     def install_docs(self):
         """README.txt, Controls.txt and the Docs folder, with the {{VERSION}}, {{BUILD}} and {{MA2_SUPPORT_URL}} tokens filled in.
@@ -1425,20 +1665,33 @@ class Installer:
         sources = [p for p in movie.rglob('*.bik') if enhanced not in p.parents]
         if enhanced.is_dir() and len(list(enhanced.rglob('*.mkv'))) >= len(sources):
             self.log('  the enhanced cutscene videos are already installed'); return
-        enh, py = self.enhancer()                        # PyTorch (also after a Vulkan textures setup)
+        engine = getattr(self, 'vid_engine', None) or 'pytorch'
+        if engine == 'pytorch':
+            try:
+                enh, py = self.enhancer()                # PyTorch (also after a Vulkan textures setup)
+            except Stop as e:                            # PyTorch cannot use this card (setup.py says so): Vulkan instead
+                if e.kind != 'gpu' or os.environ.get('MA2_VIDEO_ENGINE'): raise
+                self.log('  PyTorch cannot use this graphics card; the cutscenes are made through Vulkan instead (%s)' % VIDEO_VULKAN_NOTE)
+                engine = self.vid_engine = 'vulkan'
+        if engine == 'vulkan':
+            enh, py = self.enhancer('vulkan')            # NumPy and Pillow only: no PyTorch, no RealBasicVSR model
+            vulkan = self.vulkan_dir()                   # the same checked realesrgan-ncnn-vulkan as the textures
         fmv = enh / 'FMV'
         ff = self.ffmpeg_dir() / 'bin'
         config = json.loads((fmv / 'config.json').read_text(encoding='utf-8'))
         config.update(source=str(movie / '60' / 'English' / 'SPIntro.bik'), ffmpeg=str(ff / 'ffmpeg.exe'), ffprobe=str(ff / 'ffprobe.exe'))
         (fmv / 'config.json').write_text(json.dumps(config, indent=2) + '\n', encoding='utf-8')
         env = dict(os.environ); env['PYTHONIOENCODING'] = 'utf-8'
-        if not self.state.get('fmv_setup'):
+        if engine == 'pytorch' and not self.state.get('fmv_setup'):
             self.run_cmd([py, '-B', fmv / 'setup_fmv.py'], cwd=fmv, env=env, title='FMV setup (RealBasicVSR model)', hint=ENHANCER_HINT)
             self.state['fmv_setup'] = True; self.save()
-        self.log('  2x videos: 8 distinct video streams, about 14,700 frames through RealBasicVSR, then encoding (many hours; resumes)')
-        self.run_cmd([py, '-B', fmv / 'enhance_all_fmvs.py', '--movie-root', movie, '--output-root', movie / 'Enhanced' / '2x',
-                      '--metadata-root', self.work / 'fmv-metadata', '--no-zip'], cwd=fmv, env=env, title='enhance all cutscenes 2x', hint=ENHANCER_HINT)
-        self.install_enhancer_licenses(videos=True)
+        self.log('  2x videos: 8 distinct video streams, about 14,700 frames through %s, then encoding (many hours; resumes)'
+                 % ('Real-ESRGAN (Vulkan, frame by frame)' if engine == 'vulkan' else 'RealBasicVSR'))
+        args = [py, '-B', fmv / 'enhance_all_fmvs.py', '--movie-root', movie, '--output-root', movie / 'Enhanced' / '2x',
+                '--metadata-root', self.work / 'fmv-metadata', '--no-zip']
+        if engine == 'vulkan': args += ['--engine', 'vulkan', '--vulkan', vulkan]
+        self.run_cmd(args, cwd=fmv, env=env, title='enhance all cutscenes 2x', hint=ENHANCER_HINT)
+        self.install_enhancer_licenses(videos=True, vulkan=(engine == 'vulkan'))
 
     def finish(self):
         self.settle()
@@ -1523,6 +1776,22 @@ class Installer:
             (self.dest / precheck.STAMP).write_text(json.dumps(stamp, indent=1), encoding='utf-8')
         except OSError as e:
             self.log('  (could not write %s: %s)' % (precheck.STAMP, e))
+
+def launch_advice(path, e):
+    """Plain words for a failed start of the game or the editor (an OSError from launching it), with its Windows code."""
+    code = getattr(e, 'winerror', None) or getattr(e, 'errno', None)
+    name = Path(str(path)).name
+    if code == 4551:
+        why = ('Windows Smart App Control blocked it, because the game is built on your PC and is not signed. Smart App Control can only be '
+               'turned off (Windows Security > App & browser control); the installer never changes it.')
+    elif code in (225, 2):
+        why = ('the file was quarantined or removed, most likely by antivirus software. Restore it from the antivirus quarantine and allow the '
+               'install folder, or run the installer again to repair the install.')
+    elif code == 5:
+        why = 'Windows refused access (antivirus software or folder protection). Allow the install folder in it, then try again.'
+    else:
+        why = str(getattr(e, 'strerror', None) or e)
+    return 'Could not start %s (Windows error %s): %s' % (name, code if code is not None else '?', why)
 
 def render_doc(data):
     """Fill the tokens of a shipped document (bytes in, bytes out; line endings untouched): {{VERSION}} the public version,

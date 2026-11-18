@@ -32,8 +32,9 @@ class EngineChoice(unittest.TestCase):
     def test_recommend(self):
         for gpus in (AMD, INTEL):
             r = precheck.recommend_textures(gpus)
-            self.assertTrue(r['can']); self.assertFalse(r['videos']); self.assertEqual((r['rec'], r['engine']), ('original', 'vulkan'))
-            self.assertIn('through Vulkan (new in 1.1.2; not yet tested on AMD or Intel cards)', r['reason'])
+            self.assertTrue(r['can']); self.assertTrue(r['videos']); self.assertEqual((r['rec'], r['engine']), ('original', 'vulkan'))
+            self.assertIn('textures and cutscenes use your GPU through Vulkan (new; not yet tested on AMD or Intel cards)', r['reason'])
+            self.assertIn('frame by frame, so they are very slow', r['reason'])
         r = precheck.recommend_textures([{'name': 'RTX 4070', 'vram': 12 * G, 'vendor': 'nvidia'}])
         self.assertEqual((r['rec'], r['can']), ('4x', True)); self.assertNotIn('Vulkan', r['reason']); self.assertTrue(r.get('videos', r['can']))
         r = precheck.recommend_textures([{'name': 'GTX 1650', 'vram': 4 * G, 'vendor': 'nvidia'}])
@@ -45,7 +46,8 @@ class EngineChoice(unittest.TestCase):
         self.assertEqual(install.needed_space(o, set()), install.needed_space(o, set(), 'pytorch'))    # default unchanged
         self.assertEqual(install.needed_space(o, set()) - install.needed_space(o, set(), 'vulkan'), 5.5 * G)
         v = {'textures': ['2x'], 'videos': True}
-        self.assertEqual(install.needed_space(v, set(), 'vulkan'), install.needed_space(v, set()))     # videos need PyTorch anyway
+        self.assertEqual(install.needed_space(v, set(), 'vulkan', 'pytorch'), install.needed_space(v, set()))     # NVIDIA videos need PyTorch
+        self.assertEqual(install.needed_space(v, set()) - install.needed_space(v, set(), 'vulkan'), 5.5 * G)    # Vulkan videos do not
 
 
 class Check(unittest.TestCase):
@@ -85,12 +87,23 @@ class Check(unittest.TestCase):
         inst, log = self.run_check(None, [], allow_cpu=True)
         self.assertEqual(inst.tex_engine, 'pytorch'); self.assertIn('runs on the CPU', log)
 
-    def test_videos_still_need_nvidia(self):
-        with self.assertRaises(install.Stop) as cm: self.run_check(None, AMD, textures=(), videos=True)
-        self.assertIn('cutscene videos need an NVIDIA GPU', str(cm.exception))
-        with self.assertRaises(install.Stop): self.run_check(None, AMD, textures=('2x',), videos=True)
-        inst, log = self.run_check(None, AMD, textures=('2x',), videos=True, allow_cpu=True)          # CPU mode: videos on the CPU, textures on Vulkan
-        self.assertEqual(inst.tex_engine, 'vulkan'); self.assertIn('runs on the CPU', log)
+    def test_videos_through_vulkan_without_nvidia(self):
+        for gpus in (AMD, INTEL):                                                                    # 1.1.3: videos also through Vulkan
+            inst, log = self.run_check(None, gpus, textures=('2x',), videos=True)
+            self.assertEqual((inst.vid_engine, inst.tex_engine), ('vulkan', 'vulkan'))
+            self.assertIn('Cutscenes: through Vulkan on', log); self.assertIn('very slow', log)
+        inst, log = self.run_check('NVIDIA GeForce RTX 3090, 24576 MiB', [], textures=(), videos=True)
+        self.assertEqual(inst.vid_engine, 'pytorch')                                                # NVIDIA keeps RealBasicVSR
+        os.environ['MA2_VIDEO_ENGINE'] = 'vulkan'
+        try:
+            inst, log = self.run_check('NVIDIA GeForce RTX 3090, 24576 MiB', [], textures=(), videos=True)
+        finally:
+            del os.environ['MA2_VIDEO_ENGINE']
+        self.assertEqual(inst.vid_engine, 'vulkan')
+        with self.assertRaises(install.Stop) as cm: self.run_check(None, [], textures=(), videos=True)    # no graphics card at all
+        self.assertIn('cutscene videos need a graphics card', str(cm.exception))
+        inst, log = self.run_check(None, [], textures=(), videos=True, allow_cpu=True)               # CPU mode: RealBasicVSR on the CPU
+        self.assertEqual(inst.vid_engine, 'pytorch'); self.assertIn('runs on the CPU', log)
 
     def test_forced_engine(self):
         inst, log = self.run_check('NVIDIA GeForce RTX 3090, 24576 MiB', [], force='vulkan')

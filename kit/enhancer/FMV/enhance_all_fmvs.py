@@ -31,6 +31,9 @@ def parser():
     result.add_argument("--context", type=int, help="Override extra frames around each temporal batch")
     result.add_argument("--scan-only", action="store_true", help="Inventory movie files without enhancing them")
     result.add_argument("--no-zip", action="store_true", help="Skip the separate distribution ZIP")
+    result.add_argument("--engine", choices=["pytorch", "vulkan"], default="pytorch",
+                        help="vulkan: Real-ESRGAN frame by frame through realesrgan-ncnn-vulkan (graphics cards without CUDA)")
+    result.add_argument("--vulkan", help="The realesrgan-ncnn-vulkan folder (with --engine vulkan)")
     return result
 
 
@@ -147,6 +150,12 @@ def main(argv=None):
     device = args.device or config["device"]
     chunk_size = args.chunk_size if args.chunk_size is not None else config["chunk_size"]
     context = args.context if args.context is not None else config["context"]
+    model_sha, precision, engine_args = CHECKPOINT_SHA256, "float32", ["--device", device]
+    if args.engine == "vulkan":                      # the child enforces the same values
+        from video_engine_vulkan import CHUNK_SIZE, CONTEXT, model_sha256
+        device, chunk_size, context, precision = "vulkan", CHUNK_SIZE, CONTEXT, "fp16-ncnn"
+        model_sha = model_sha256(args.vulkan)
+        engine_args = ["--engine", "vulkan", "--vulkan", str(Path(args.vulkan).resolve())]
     if chunk_size < 1 or context < 0:
         raise ValueError("Chunk size must be >=1 and context must be >=0")
     python = ROOT.parent / ".venv" / "Scripts" / "python.exe"
@@ -157,10 +166,10 @@ def main(argv=None):
                      else ROOT / "output" / "all-2x-metadata")
     enhanced_root = ROOT / "enhanced" / "2x"
     manifest_path = metadata_root / "manifest.json"
-    expected_settings = {"model_sha256": CHECKPOINT_SHA256,
+    expected_settings = {"model_sha256": model_sha,
                          "code_sha256": inference_code_hash(ROOT, 2), "scale": 2,
                          "strength": args.strength, "chunk_size": chunk_size,
-                         "context": context, "device": device, "precision": "float32",
+                         "context": context, "device": device, "precision": precision,
                          "start_frame": 0}
     status = {asset["relative"].as_posix(): "pending"
               for group in visual_groups for asset in group["members"]}
@@ -176,7 +185,7 @@ def main(argv=None):
                        "--metadata", str(representative_metadata),
                        "--title", source_title(representative), "--lock-held", "--scale", "2",
                        "--strength", str(args.strength), "--chunk-size", str(chunk_size),
-                       "--context", str(context), "--device", device]
+                       "--context", str(context)] + engine_args
             print(f"\nProcessing visual group {group['id']} from {relative}", flush=True)
             subprocess.run(command, cwd=ROOT, check=True)
 

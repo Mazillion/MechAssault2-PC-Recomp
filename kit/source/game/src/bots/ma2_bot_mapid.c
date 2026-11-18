@@ -17,6 +17,7 @@
 
 extern void (*g_xbox_path_hook)(const char *xbox_path);
 extern void nv2a_shader_level_begin(uint32_t level);   /* kernel/nv2a_shader_cache.c */
+extern void nv2a_texture_pack_level_begin(void);      /* kernel/nv2a_texture_pack.cpp: hold the first frames */
 static void (*previous_hook)(const char *xbox_path);
 
 typedef struct Ma2MapInfo {
@@ -73,6 +74,7 @@ static void ma2_bot_map_path(const char *path)
     if (starts_with(path, "\\Device\\Harddisk0\\Partition5\\") && level_cache(name, &hash)) {
         int found = -1;
         nv2a_shader_level_begin(hash);   /* every level: its shader list (shader preloading) */
+        nv2a_texture_pack_level_begin();   /* its first frames wait for HD textures and shaders */
         for (size_t i = 0; i < sizeof maps / sizeof maps[0]; i++)
             if (maps[i].cache == hash) { found = (int)i; break; }
         current = found;

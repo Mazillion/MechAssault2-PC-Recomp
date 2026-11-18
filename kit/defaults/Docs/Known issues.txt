@@ -70,6 +70,9 @@ INSTALLER
 - Enhanced textures on NVIDIA RTX 50-series cards have not been tested.
 - HD textures on AMD and Intel graphics cards are new and haven't been
   tested on those cards.
+- Enhanced cutscene videos on AMD and Intel graphics cards are new (1.1.3)
+  and haven't been tested on those cards. They are made frame by frame,
+  so they take much longer, and may flicker more than the NVIDIA version.
 - The cutscene player uses a full GPL build of FFmpeg, which the installer
   downloads during the install (about 245 MB unpacked; the game uses five of
   its DLLs). A small decoder-only build is planned.

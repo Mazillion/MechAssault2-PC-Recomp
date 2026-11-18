@@ -93,7 +93,9 @@ class Precheck(unittest.TestCase):
         r = c(str(self.tmp / ('José ' + 'x' * 5))); self.assertIn('tempbuild', r.codes())
         r = c(str(self.tmp / 'Lone Wolf (World) (En,Ja)' / 'MA2')); self.assertIn('tempbuild', r.codes()); self.assertTrue(r.ok, r.codes())
         self.assertNotIn('tempbuild', c(str(self.tmp / 'MechAssault 2 - plain_name.v2')).codes())
-        r = c(str(self.tmp / ('p' * 150))); self.assertIn('long', r.codes())
+        real_lp = precheck.long_paths_enabled; precheck.long_paths_enabled = lambda: False          # (Windows' long paths off: the default)
+        try: r = c(str(self.tmp / ('p' * 150))); self.assertIn('long', r.codes())
+        finally: precheck.long_paths_enabled = real_lp
         r = c(str(self.tmp / ('p' * 60)), enhanced=True)
         r = c(str(self.tmp / 'q'), need_bytes=10 ** 18); self.assertIn('space', r.codes())
         os.environ['OneDrive'] = str(self.tmp / 'OD'); r = c(str(self.tmp / 'OD' / 'Games' / 'MA2')); self.assertIn('onedrive', r.codes()); del os.environ['OneDrive']
@@ -171,7 +173,7 @@ class Precheck(unittest.TestCase):
         self.assertEqual(precheck.recommend_textures(mk('RTX 3060 Ti', 8))['rec'], '2x')
         r = precheck.recommend_textures(mk('GTX 1650', 4)); self.assertEqual((r['rec'], r['can']), ('original', False))
         # 1.1.2: other graphics cards make the textures through Vulkan (not the videos); Original stays the advice
-        r = precheck.recommend_textures(mk('Intel UHD 620', 1, 'intel')); self.assertEqual((r['rec'], r['can'], r['videos'], r['engine']), ('original', True, False, 'vulkan')); self.assertIn('Vulkan', r['reason'])
+        r = precheck.recommend_textures(mk('Intel UHD 620', 1, 'intel')); self.assertEqual((r['rec'], r['can'], r['videos'], r['engine']), ('original', True, True, 'vulkan')); self.assertIn('Vulkan', r['reason'])      # 1.1.3: videos through Vulkan too
         self.assertEqual(precheck.recommend_textures([])['rec'], 'original')
 
     def test_machine_facts(self):
@@ -582,8 +584,10 @@ class Engine(unittest.TestCase):
     def test_kit_mismatch_resume_drops_build_steps(self):
         d = self.tmp / 'r'; (d / '_work').mkdir(parents=True)
         (d / '_work' / 'state.json').write_text(json.dumps({'done': ['check', 'disc', 'extract', 'analyze', 'recompile'], 'kit_id': 'old'}))
+        (d / 'game_files').mkdir(); (d / 'game_files' / install.RELEASE['xbe']).write_text('x')      # extract's output exists (else it runs again)
         os.environ['LOCALAPPDATA'] = str(self.tmp / 'LA2')
         inst = install.Installer(self.tmp / 'x.iso', d, log=lambda s: None); inst.until = 'check'
+        inst.ffmpeg_dir = lambda: None                                    # (the requirements check fetches FFmpeg: not here)
         inst.run()
         st = json.loads((d / '_work' / 'state.json').read_text())
         self.assertEqual(st['done'], ['check', 'disc', 'extract'])
