@@ -44,6 +44,14 @@ class FakeInstaller:
         self.cancelled = True
 
     def run(self):
+        try:
+            self._run()
+        except install.Stop as e:
+            if self.stage in install.OPTIONAL_STEPS:     # as the engine: the game is installed, only the optional content failed
+                raise install.Stop(install.extras_message(self.stage, e, cancelled=(e.kind == 'cancelled')), 'extras', cause=e.kind) from e
+            raise
+
+    def _run(self):
         names = self.step_names(); total = len(names)
         self.on_plan(names)
         data = {n: d for n, d in zip([x for x in names if x not in self.extra], self.steps_data)}

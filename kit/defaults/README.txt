@@ -126,7 +126,10 @@ ENHANCED CONTENT (OPTIONAL)
 time: run "MechAssault 2 Recomp Installer.exe" again, choose this folder and
 tick the parts you want. Video Settings offers each one once it is installed.
 This needs an NVIDIA graphics card with 8 GB or more, an internet connection
-(several GB of AI software are downloaded) and hours of processing. 2x
+(several GB of AI software are downloaded) and hours of processing. The
+textures also work on AMD, Intel and other graphics cards, through Vulkan
+(new in 1.1.2; not yet tested on AMD or Intel cards); the videos need an
+NVIDIA card. 2x
 textures add 0.6 GB, 4x add 2.2 GB, videos add 3.5 GB (25 GB free while they
 are made).
 

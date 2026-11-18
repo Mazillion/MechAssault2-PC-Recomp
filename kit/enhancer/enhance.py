@@ -78,6 +78,39 @@ def valid_completed(output, previous, signature, expected_size):
         return False
 
 
+class FatalError(RuntimeError):
+    """Stops the whole run (the upscaler cannot work on this PC), not just one image."""
+
+
+PREFETCH_BATCH = 48
+
+
+def prefetch(engine, items, number, scale, config, model_hash, progress, force):
+    """Vulkan: send the next images that still need the model to the tool in one batch (each start loads the model).
+    Returns the index of the last job included; enhance() then finds its results ready."""
+    requests, count, last = [], 0, number
+    for index in range(number - 1, len(items)):
+        relative, job = items[index]
+        if count >= PREFETCH_BATCH:
+            break
+        last = index + 1
+        if job["processing"] == "resample_data":
+            continue
+        output = ROOT / f"enhanced/{scale}x" / Path(relative).relative_to("originals").with_suffix(".png")
+        expected = job["width"] * scale, job["height"] * scale
+        if not force and valid_completed(output, progress["jobs"].get(relative), job_signature(job, config, model_hash), expected):
+            continue
+        try:
+            with Image.open(ROOT / relative) as opened:
+                requests += engine.requests(opened.convert("RGBA"), job["processing"], job["edge_mode"])
+        except (OSError, ValueError):
+            continue                                 # this image reports its own failure when its turn comes
+        count += 1
+    if requests:
+        print(f"  Vulkan batch: {engine.prefetch(requests)} image(s) through {engine.gpu_name or 'the graphics card'}", flush=True)
+    return last
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scale", type=int, choices=(2, 4), help="Separate native model and output directory for each scale")
@@ -87,7 +120,12 @@ def main():
     parser.add_argument("--no-preview", action="store_true")
     parser.add_argument("--pack-only", action="store_true", help="Repackage existing enhanced PNGs without AI inference")
     parser.add_argument("--recover-dds", action="store_true", help="Recover complete DDS files from a run interrupted before its index was saved")
+    parser.add_argument("--engine", choices=("pytorch", "vulkan"), default="pytorch",
+                        help="pytorch: the .pth models with PyTorch (CUDA); vulkan: realesrgan-ncnn-vulkan, any graphics card with Vulkan")
+    parser.add_argument("--vulkan", type=Path, help="The folder holding realesrgan-ncnn-vulkan.exe and its models (with --engine vulkan)")
     args = parser.parse_args()
+    if args.engine == "vulkan" and not args.vulkan:
+        parser.error("--engine vulkan needs --vulkan <folder of realesrgan-ncnn-vulkan.exe>")
     config = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
     scale = args.scale or int(config["scale"])
     config["scale"] = scale
@@ -117,12 +155,22 @@ def main():
     failures, completed, skipped, elapsed = [], 0, 0, 0.0
     with run_lock(ROOT / f"logs/upscale-{scale}x.lock"):
         if not args.pack_only:
-            model = ROOT / config["models"][str(scale)]
-            if not model.is_file():
-                raise RuntimeError("Model weights are missing; run Setup.cmd")
-            model_hash = file_hash(model)
+            if args.engine == "vulkan":
+                from upscale_vulkan import MODEL, VulkanUpscaler
+                model = args.vulkan / "models" / f"{MODEL}.bin"
+                if not model.is_file():
+                    raise RuntimeError(f"The Vulkan upscaler's model is missing from {args.vulkan}")
+                # Not the PyTorch model: an image made by the other engine is never taken as completed.
+                model_hash = "vulkan:" + file_hash(model)
+            else:
+                model = ROOT / config["models"][str(scale)]
+                if not model.is_file():
+                    raise RuntimeError("Model weights are missing; run Setup.cmd")
+                model_hash = file_hash(model)
             engine = None
-            for number, (relative, job) in enumerate(jobs.items(), 1):
+            items = list(jobs.items())
+            fetched_to = 0                      # Vulkan: jobs before this index were sent to the tool in a batch
+            for number, (relative, job) in enumerate(items, 1):
                 source = ROOT / relative
                 output = output_root / Path(relative).relative_to("originals").with_suffix(".png")
                 expected = job["width"] * scale, job["height"] * scale
@@ -139,9 +187,17 @@ def main():
                     if job["processing"] == "resample_data":
                         result = Image.merge("RGBA", tuple(c.resize(expected, Image.Resampling.BILINEAR) for c in image.split()))
                     else:
+                        if engine is None and args.engine == "vulkan":
+                            # Outside the per-image failure path below: no working Vulkan stops the run with its reason.
+                            try:
+                                engine = VulkanUpscaler(args.vulkan, scale, config, ROOT / f"logs/vulkan-{scale}x")
+                            except Exception as error:
+                                raise FatalError(str(error)) from error
                         if engine is None:
                             from upscale_engine import Upscaler
                             engine = Upscaler(model, scale, config)
+                        if hasattr(engine, "prefetch") and number > fetched_to:
+                            fetched_to = prefetch(engine, items, number, scale, config, model_hash, progress, args.force)
                         result = engine.enhance(image, job["processing"], job["edge_mode"])
                     if result.size != expected or result.mode != "RGBA":
                         raise ValueError("Unexpected model output dimensions/mode")
@@ -154,13 +210,19 @@ def main():
                     completed += 1
                     elapsed += seconds
                     print(f"  Saved in {seconds:.1f}s", flush=True)
+                except FatalError:
+                    raise
                 except Exception as error:
+                    if getattr(error, "fatal", False):
+                        raise FatalError(str(error)) from error
                     progress["jobs"][relative] = {"status": "failed", "signature": signature, "error": str(error)}
                     failures.append(relative)
                     print(f"  FAILED: {error}", file=sys.stderr, flush=True)
-                    if engine is not None and engine.device.type == "cuda":
+                    if engine is not None and getattr(getattr(engine, "device", None), "type", None) == "cuda":
                         engine.torch.cuda.empty_cache()
                 write_json(progress_path, progress)
+            if engine is not None and hasattr(engine, "close"):
+                engine.close()
         print(f"PNG batch: {completed} newly completed, {skipped} skipped, {len(failures)} failed; {elapsed:.1f}s processing.", flush=True)
         pack_failures = []
         if config.get("generate_dds", True) and not args.no_pack:

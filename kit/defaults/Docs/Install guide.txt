@@ -85,7 +85,9 @@ ENHANCED CONTENT (OPTIONAL)
 2x or 4x enhanced textures and 2x enhanced cutscene videos are made on your PC
 by AI upscaling. This needs an NVIDIA graphics card with 8 GB or more, an
 internet connection (several GB of AI software are downloaded) and hours of
-processing. 2x textures add 0.6 GB, 4x add 2.2 GB, videos add 3.5 GB (25 GB
+processing. The textures also work on AMD, Intel and other graphics cards,
+through Vulkan (new in 1.1.2; not yet tested on AMD or Intel cards); the
+videos need an NVIDIA card. 2x textures add 0.6 GB, 4x add 2.2 GB, videos add 3.5 GB (25 GB
 free while they are made). You can add them later by running the installer
 again.
 

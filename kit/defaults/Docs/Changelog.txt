@@ -4,6 +4,32 @@ MechAssault 2 PC recompilation - changes
 You have version {{VERSION}} (build {{BUILD}}).
 
 
+1.1.2
+-----
+Installer
+- A failed or cancelled optional step (enhanced textures or videos) no
+  longer undoes the game install. The game stays installed at the new
+  version and ready to play, and Resume tries only the enhanced content
+  again. Before, a failed update went back to the previous version.
+- A clearer message when the texture tool is stopped by something outside
+  the installer (its window closed, or security software ended it), with
+  a hint that antivirus may be blocking Python. The tools it runs no
+  longer have a console of their own.
+- Installing to a folder with commas or brackets in its name (like a disc
+  dump folder) no longer stops the build at the final link: the build
+  then runs in a plain folder such as C:\MA2RecompBuild-xxxx, as it
+  already did for accented letters.
+- When compiling fails with a compiler or linker error, the message now
+  names that error (and suggests a simple install folder such as
+  C:\Games\MechAssault 2) instead of pointing at antivirus first.
+- HD textures now also work on AMD and Intel graphics cards, through
+  Vulkan (Real-ESRGAN's realesrgan-ncnn-vulkan, downloaded and checked
+  during the install). This is new and not yet tested on those cards.
+  NVIDIA cards keep the PyTorch upscaler; the enhanced cutscenes still
+  need an NVIDIA card.
+- More reliable startup and clearer reports when something blocks the
+  install.
+
 1.1.1
 -----
 Installer

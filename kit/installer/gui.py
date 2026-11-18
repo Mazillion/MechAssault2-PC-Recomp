@@ -3,22 +3,54 @@
 Welcome - Systems - Disc - Location - Loadout - Install - Done, plus a failure screen. Next stays disabled until the page is
 valid and the reason shows in the status line; there are no modal errors (only "Stop installing?" asks).
 """
-import ctypes, os, queue, shutil, subprocess, sys, threading, time, traceback
+import ctypes, faulthandler, os, sys, time, traceback               # the standard library only, until the start-up log is open
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
-import install, precheck, progress, ui_theme                         # noqa: E402
-from ui_theme import C                                                # noqa: E402
+TITLE = 'MechAssault 2 Recomp Installer'
+STARTUP_LOG = (None, None)
+
+def startup_log():
+    """Run as the installer window (pythonw.exe has no stdout/stderr): %LOCALAPPDATA%\\MechAssault2\\Logs\\installer-ui-<time>.log
+    becomes stdout and stderr, and faulthandler writes there, before anything that can fail (imports, Tcl/Tk) runs."""
+    try:
+        d = Path(os.environ.get('LOCALAPPDATA') or str(Path.home() / 'AppData' / 'Local')) / 'MechAssault2' / 'Logs'
+        d.mkdir(parents=True, exist_ok=True)
+        for f in sorted(d.glob('installer-ui-*.log'), key=lambda f: f.stat().st_mtime)[:-9]:
+            try: f.unlink()
+            except OSError: pass
+        path = d / ('installer-ui-%s.log' % time.strftime('%Y%m%d-%H%M%S'))
+        log = open(path, 'a', encoding='utf-8', buffering=1)
+    except OSError:
+        return None, None
+    sys.stdout = sys.stderr = log
+    try: faulthandler.enable(log)
+    except Exception: pass
+    return path, log
+
+if __name__ == '__main__':
+    STARTUP_LOG = startup_log()
+
+try:
+    import queue, shutil, subprocess, threading
+    import tkinter as tk
+    from tkinter import filedialog, messagebox, ttk
+    sys.path.insert(0, str(HERE))
+    import install, precheck, progress, ui_theme                     # noqa: E402
+    from ui_theme import C                                            # noqa: E402
+except Exception:
+    if __name__ != '__main__': raise
+    traceback.print_exc()
+    try: ctypes.windll.user32.MessageBoxW(None, 'The installer could not start (a part of it failed to load).\n\nDetails were saved to:\n%s'
+                                          % (STARTUP_LOG[0] or 'the installer could not write a log'), TITLE, 0x10)
+    except Exception: pass
+    sys.exit(3)
 
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(1)
 except Exception:
     pass
 
-TITLE = 'MechAssault 2 Recomp Installer'
 PAGES = ['welcome', 'systems', 'disc', 'location', 'loadout', 'install', 'done']
 RAIL = {'welcome': 'Welcome', 'systems': 'Systems', 'disc': 'Disc', 'location': 'Location', 'loadout': 'Loadout',
         'install': 'Install', 'done': 'Done'}
@@ -37,8 +69,11 @@ FAILURES = {
     'cancelled': ('Install paused.', 'Run the installer again and choose Resume.'),
     'disk_full': ('The drive ran out of space.', 'Free up space on {drive} and press Resume.'),
     'compiler': ('The C++ Build Tools are missing or incomplete.', 'Open the Systems page for the fix, or install Visual Studio with "Desktop development with C++".'),
-    'build_failed': ('Compiling the game failed.', 'This is usually caused by antivirus blocking a file, low memory, or a damaged Build Tools install. '
-                     'Try Resume once; if it fails again, {report}.'),
+    'build_failed': ('Compiling the game failed.', 'The build stopped without naming a compiler error. Low memory, a damaged Build Tools install, or '
+                     'antivirus removing a file can do this. Try Resume once; if it fails again, {report}.'),
+    'compile_error': ('Compiling the game failed.', 'The compiler or linker reported an error (below, and in the log). If the install folder\'s '
+                      'name has commas, brackets or other unusual characters, install to a simple folder such as C:\\Games\\MechAssault 2. '
+                      'Otherwise try Resume once; if it fails again, {report}.'),
     'access_denied': ('Windows or your antivirus blocked a file.', 'If your antivirus reported a threat in this folder, restore the file or '
                       'allow the folder, then Resume. Controlled Folder Access can also cause this.'),
     'out_of_memory': ('The PC ran out of memory while compiling.', 'Close other programs and press Resume.'),
@@ -48,6 +83,8 @@ FAILURES = {
     'gpu': ('PyTorch does not support this graphics card yet.', 'The enhanced content cannot be made on this PC; the game itself is not affected. Run the installer again without enhanced content.'),
     'disc': ('The disc image is damaged or could not be read.', 'Choose the image again (Choose disc image), or dump the disc again.'),
     'unexpected': ('Something unexpected went wrong.', 'Press Resume to try again. If it keeps happening, {report}.'),
+    'extras': ('MechAssault 2 is installed and ready to play.',
+               'Only the enhanced content was not finished. Close the installer and play, or press Resume to try the enhanced content again.'),
 }
 BUILD_TOOLS_NOTICE = ('Microsoft\'s free C++ Build Tools are needed to compile the game. "Install for me" downloads Microsoft\'s own installer (signed by Microsoft). '
                       'It asks for administrator approval and shows its own progress (about 6 GB, 10-30 minutes). By continuing you accept Microsoft\'s '
@@ -177,7 +214,8 @@ class App:
         if act in ('update', 'repair') and self.game_files_ok(): return False
         if act == 'resume':           # an interrupted install that never finished extracting still needs the disc (a failed extract: choose it again)
             st = precheck.read_state(precheck.clean_path(self.dest.get())) or {}
-            return not st.get('addons_only') and 'extract' not in st.get('done', []) and not (st.get('update') and self.game_files_ok())
+            return (not st.get('addons_only') and not st.get('core_done') and 'extract' not in st.get('done', [])
+                    and not (st.get('update') and self.game_files_ok()))
         return act in ('install', 'update', 'repair')
 
     def game_files_ok(self):
@@ -496,7 +534,14 @@ class Welcome(Page):
         rel = install.install_relation(d)
         stamp = precheck.read_stamp(d)
         text = None; buttons = []; one_row = False
-        if state is not None:
+        if state is not None and state.get('core_done') and install.is_install(d):
+            # The game was installed; only its enhanced content (textures, videos) did not finish.
+            text = ('MechAssault 2 Recomp is installed in %s and ready to play. Its enhanced content was not finished: Resume makes only that.'
+                    % precheck.short(d, 60))
+            buttons = [('Resume', lambda: self.choose(d, 'resume'), 'Primary.TButton'), ('Discard', lambda: self.start_over(d), 'TButton'),
+                       ('Collect diagnostics', lambda: self.diagnostics(d), 'Link.TButton')]
+            one_row = True
+        elif state is not None:
             done = [s for s in state.get('done', []) if s not in ('check',)]
             last = state.get('last_title') or 'an earlier step'
             text = 'An install was interrupted (%d steps finished) in %s.' % (len(done), precheck.short(d, 60))
@@ -542,7 +587,12 @@ class Welcome(Page):
             self.app.show('systems')
 
     def start_over(self, d):
-        if self.app.confirm(TITLE, 'Start over? This deletes only the unfinished work in %s\\_work. Your extracted game files are kept.' % d, 'Start over', 'Cancel'):
+        if (precheck.read_state(d) or {}).get('core_done'):
+            ask = ('Discard the unfinished enhanced content? This deletes its work in %s\\_work. The game stays installed; you can add the '
+                   'content later with Add enhanced content.' % d, 'Discard', 'Cancel')
+        else:
+            ask = ('Start over? This deletes only the unfinished work in %s\\_work. Your extracted game files are kept.' % d, 'Start over', 'Cancel')
+        if self.app.confirm(TITLE, *ask):
             install.start_over(d)
             self.detect_existing()
 
@@ -893,7 +943,8 @@ class Location(Page):
         self.choice.pack_forget()
         opts = []
         if r.existing == 'unfinished':
-            opts = [('resume', 'Resume the interrupted install (finished steps are kept)')]
+            opts = [('resume', 'Finish the enhanced content (the game is already installed)' if (r.state or {}).get('core_done') else
+                     'Resume the interrupted install (finished steps are kept)')]
             if app.action.get() not in ('resume',): app.action.set('resume')
         elif r.existing == 'install':
             rel = install.install_relation(precheck.clean_path(app.dest.get()))
@@ -980,8 +1031,9 @@ class Loadout(Page):
             tag['text'] = ('RECOMMENDED FOR YOUR GPU' if reco['rec'] == key and reco['can'] and not self.have.get(key) else
                            'installed' if self.have.get(key) else ('locked' if locked else ''))
             if locked and app.texture.get() == key: app.texture.set('original')
-        self.vid['state'] = 'disabled' if (not reco['can'] or self.have_videos) else 'normal'
-        if (not reco['can'] or self.have_videos) and app.videos.get(): app.videos.set(False)
+        can_vid = reco.get('videos', reco['can'])        # the cutscenes need PyTorch with CUDA (NVIDIA); textures also work through Vulkan
+        self.vid['state'] = 'disabled' if (not can_vid or self.have_videos) else 'normal'
+        if (not can_vid or self.have_videos) and app.videos.get(): app.videos.set(False)
         self.why['text'] = reco['reason'] + ('' if reco['can'] else ' The enhanced options need an NVIDIA GPU with 8 GB or more.')
         self.later.pack_forget() if reco['can'] and False else None
         self.update_summary()
@@ -991,7 +1043,7 @@ class Loadout(Page):
         opts = dict(textures=[] if app.texture.get() == 'original' else [app.texture.get()], videos=app.videos.get())
         act = app.action.get()
         done = {'extract', 'build'} if act == 'addons' else ({'extract'} if app.game_files_ok() and act in ('update', 'repair') else set())
-        need = install.needed_space(opts, done) / precheck.GB
+        need = install.needed_space(opts, done, (app.facts.get('reco') or {}).get('engine', 'pytorch')) / precheck.GB
         mins = app.facts.get('minutes', 15)
         mins = 1 if act == 'addons' else mins
         extra = '  +  hours for the enhanced content' if (opts['textures'] or opts['videos']) else ''
@@ -1056,6 +1108,7 @@ class Install(Page):
         self.fail_panel.bind('<Configure>', self.wrap_failure)
 
     def kicker(self):
+        if self.failed and self.failed[0] == 'extras': return ('INSTALLED', 'The extras were not finished')
         return ('SYSTEM FAULT', 'The install stopped') if self.failed else KICKER['install']
 
     # -- stage list
@@ -1223,6 +1276,7 @@ class Install(Page):
         head, advice = FAILURES.get(kind, FAILURES['unexpected'])
         drive = os.path.splitdrive(precheck.clean_path(app.dest.get()))[0] or 'the drive'
         self.fail_head['text'] = head
+        if kind == 'extras' and msg.startswith('MechAssault 2 is installed. '): msg = msg[len('MechAssault 2 is installed. '):]   # the headline says it
         self.fail_msg['text'] = advice.format(drive=drive, report=precheck.report_hint()) + ('\n\n' + msg if kind not in ('cancelled',) and msg and msg != head else '')
         self.detail['text'] = ''
         self.place()                                   # room for the explanation: no ring; the stage list keeps the failed row if it fits (fit)
@@ -1394,7 +1448,7 @@ def open_ui_log():
         return None, None
 
 def main():
-    log_path, log = open_ui_log()
+    log_path, log = STARTUP_LOG if STARTUP_LOG[1] else open_ui_log()     # opened at the top of this file when run as the window
     if log: sys.stdout = sys.stderr = log
     try:
         if os.environ.get('MA2_UI_CRASH_TEST'): raise RuntimeError('MA2_UI_CRASH_TEST: simulated start-up failure')
@@ -1408,6 +1462,8 @@ def main():
         message_box('The installer could not start.\n\nDetails were saved to:\n%s' % (log_path or 'the installer could not write a log'))
         sys.exit(3)
     if log and log_path and log_path.is_file() and log_path.stat().st_size == 0:      # nothing went wrong: no empty log left behind
+        try: faulthandler.disable()
+        except Exception: pass
         log.close()
         try: log_path.unlink()
         except OSError: pass

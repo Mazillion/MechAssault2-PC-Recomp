@@ -20,7 +20,7 @@ The whole single-player campaign is here with the things you'd want from a PC ve
 - The menus work with the mouse, so you can point and click your way through them
 - Extended draw distance
 - Cutscenes that fill a widescreen display and run at 60 FPS
-- Optional 2x/4x upscaled textures, generated on your own PC (needs an NVIDIA card and takes hours)
+- Optional 2x/4x upscaled textures, generated on your own PC (takes hours; works on NVIDIA cards, and since 1.1.2 on AMD and Intel cards through Vulkan, which hasn't been tested on those cards yet)
 
 | | |
 |:-:|:-:|

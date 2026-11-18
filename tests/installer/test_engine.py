@@ -91,6 +91,8 @@ class Precheck(unittest.TestCase):
         (self.tmp / 'full').mkdir(); (self.tmp / 'full' / 'x.txt').write_text('x')
         r = c(str(self.tmp / 'full')); self.assertIn('notempty', r.codes()); self.assertTrue(r.suggest.endswith('MechAssault 2'))
         r = c(str(self.tmp / ('José ' + 'x' * 5))); self.assertIn('tempbuild', r.codes())
+        r = c(str(self.tmp / 'Lone Wolf (World) (En,Ja)' / 'MA2')); self.assertIn('tempbuild', r.codes()); self.assertTrue(r.ok, r.codes())
+        self.assertNotIn('tempbuild', c(str(self.tmp / 'MechAssault 2 - plain_name.v2')).codes())
         r = c(str(self.tmp / ('p' * 150))); self.assertIn('long', r.codes())
         r = c(str(self.tmp / ('p' * 60)), enhanced=True)
         r = c(str(self.tmp / 'q'), need_bytes=10 ** 18); self.assertIn('space', r.codes())
@@ -168,7 +170,8 @@ class Precheck(unittest.TestCase):
         self.assertEqual(precheck.recommend_textures(mk('RTX 4070', 12))['rec'], '4x')
         self.assertEqual(precheck.recommend_textures(mk('RTX 3060 Ti', 8))['rec'], '2x')
         r = precheck.recommend_textures(mk('GTX 1650', 4)); self.assertEqual((r['rec'], r['can']), ('original', False))
-        r = precheck.recommend_textures(mk('Intel UHD 620', 1, 'intel')); self.assertFalse(r['can']); self.assertIn('NVIDIA', r['reason'])
+        # 1.1.2: other graphics cards make the textures through Vulkan (not the videos); Original stays the advice
+        r = precheck.recommend_textures(mk('Intel UHD 620', 1, 'intel')); self.assertEqual((r['rec'], r['can'], r['videos'], r['engine']), ('original', True, False, 'vulkan')); self.assertIn('Vulkan', r['reason'])
         self.assertEqual(precheck.recommend_textures([])['rec'], 'original')
 
     def test_machine_facts(self):
@@ -306,6 +309,15 @@ class Engine(unittest.TestCase):
         self.assertEqual(install.classify(['fatal error C1060: compiler is out of heap space'], 'CMake + Ninja'), 'out_of_memory')
         self.assertEqual(install.classify(['LINK : fatal error LNK1104: cannot open file x.exe'], 'CMake + Ninja'), 'access_denied')
         self.assertEqual(install.classify(['FAILED: foo.obj'], 'CMake + Ninja'), 'build_failed')
+        # 1.1.2: a compiler / linker error is named (not blamed on antivirus); access problems keep their own kind
+        lnk = ["LINK : fatal error LNK1117: syntax error in option 'MANIFESTINPUT:E:/MechAssault 2 - Lone Wolf (World) (En,Ja,Fr,De,Es,It)/x/app.manifest'",
+               'ninja: build stopped: subcommand failed.']
+        self.assertEqual(install.classify(lnk, 'CMake + Ninja'), 'compile_error')
+        self.assertTrue(install.compiler_error(lnk).startswith('LINK : fatal error LNK1117'))
+        self.assertEqual(install.classify(['x.c(3): error C2065: y: undeclared identifier', 'FAILED: x.obj'], 'CMake + Ninja'), 'compile_error')
+        self.assertEqual(install.classify(['CMake Error at CMakeLists.txt:5 (project):'], 'CMake + Ninja'), 'compile_error')
+        self.assertEqual(install.classify(['LINK : fatal error LNK1168: cannot open x.exe for writing'], 'CMake + Ninja'), 'access_denied')
+        self.assertEqual(install.classify(['fatal error C1060: compiler is out of heap space'], 'CMake + Ninja'), 'out_of_memory')
         self.assertEqual(install.classify(['There is not enough space on the disk'], 'unpack'), 'disk_full')
 
     def test_relation_and_stamp(self):
@@ -408,7 +420,7 @@ class Engine(unittest.TestCase):
         d = self.tmp / 'inst'; d.mkdir(); inst = install.Installer(None, d, log=lambda s: None)
         inst.install_enhancer_licenses(videos=False)
         names = sorted(p.name for p in (d / 'Licenses' / 'Enhancer').iterdir())
-        self.assertEqual(names, sorted(p.name for p in (KIT / 'enhancer' / 'LICENSES').iterdir()))
+        self.assertEqual(names, sorted(p.name for p in (KIT / 'enhancer' / 'LICENSES').iterdir() if p.name != install.VULKAN_NOTICE))   # 1.1.2: that one only for Vulkan textures
         self.assertTrue(names, 'the kit carries the enhancer licence texts')
         inst.install_enhancer_licenses(videos=True)
         self.assertEqual((d / 'Licenses' / 'Enhancer' / 'FMV-NOTICE.txt').read_bytes(), (KIT / 'enhancer' / 'FMV' / 'NOTICE.txt').read_bytes())
@@ -531,10 +543,13 @@ class Engine(unittest.TestCase):
         self.assertFalse((d / 'MechAssault 2.exe.previous').exists()); self.assertEqual((d / 'MechAssault 2.exe').read_text(), 'new2')
 
     def test_build_root_special_chars(self):
-        for name, ascii_ok in (('MA2 plain', True), ('100% MA2', False), ('a;b', False), ('wow!x', False), ('MA2 Jos\u00e9', False)):
+        for name, ascii_ok in (('MA2 plain', True), ('100% MA2', False), ('a;b', False), ('wow!x', False), ('MA2 Jos\u00e9', False),
+                               ('MechAssault 2 - Lone_Wolf v1.2', True), ('Test (World) (En,Ja)', False), ('MA2 & co', False),
+                               ('Test (World) (En,Ja)/MA2 & co', False), ('a,b', False), ('a(b)', False), ("O'Neil", False)):
             inst = install.Installer(None, self.tmp / name, log=lambda s: None)
             root = inst.build_root()
             self.assertEqual(root == inst.work, ascii_ok, name)
+            self.assertTrue(install.plain_path(root), root)                # every build runs under a plain path
             if root != inst.work: shutil.rmtree(root, ignore_errors=True)
 
     def test_shortcut(self):
@@ -634,6 +649,148 @@ class Engine(unittest.TestCase):
         self.assertEqual((live / 'pc_settings.ini').read_text(), '[Display]\nTextureQuality=0\nWindowWidth=2000\n')   # live settings untouched
         inst._stop_logs()
 
+    # -- 1.1.2: optional content never undoes the game install
+    def _xbe_into(self, d):
+        if not XBE: self.skipTest('set MA2_TEST_XBE to your own ma2.xbe')
+        xbe = XBE
+        (d / 'game_files').mkdir(parents=True, exist_ok=True); shutil.copy2(xbe, d / 'game_files' / 'ma2.xbe')
+
+    def _resume_state(self, d, done, update):
+        (d / '_work').mkdir(parents=True, exist_ok=True)
+        (d / '_work' / 'state.json').write_text(json.dumps({'update': update, 'done': done, 'kit_id': install.KIT_ID,
+                                                            'release': install.RELEASE['release_executable_sha256'],
+                                                            'options': {'textures': ['2x'], 'videos': False}}))
+
+    def _runner(self, d, update, fail=None, logs=None):
+        """A real Installer.run() on `d` with the compiler check and the optional step replaced (no compile, no download)."""
+        inst = install.Installer(None, d, textures=['2x'], update=update, log=(logs.append if logs is not None else lambda s: None),
+                                 shortcuts=('desktop', 'start', 'editor'))
+        inst.vcvars, inst.cmake, inst.ninja, inst.vs = install.find_visual_studio()
+        inst.check = lambda: None
+        def textures(scale):
+            if fail: raise fail
+            p = d / 'game_files' / 'texture_packs' / scale; p.mkdir(parents=True, exist_ok=True); (p / 'index.json').write_text('{}')
+        inst.textures = textures
+        return inst
+
+    def test_update_optional_failure_keeps_the_new_game(self):
+        d, fx, live = self._update_fixture('optfail'); fx._stop_logs(); fx.logfile.close()
+        self._resume_state(d, ['check', 'verify', 'analyze', 'recompile', 'generate', 'patch', 'build', 'assets'], True)
+        logs = []
+        stop = install.Stop('Enhancer setup failed (exit code 1). A program it started stopped from outside: its window was closed or '
+                            'security software ended it.', 'unexpected')
+        inst = self._runner(d, True, fail=stop, logs=logs)
+        with self.assertRaises(install.Stop) as cm: inst.run()
+        e = cm.exception
+        self.assertEqual(e.kind, 'extras'); self.assertEqual(e.cause, 'unexpected')
+        self.assertTrue(str(e).startswith('MechAssault 2 is installed. The 2x enhanced textures could not be made: Enhancer setup failed'), str(e))
+        self.assertIn('try again later with Resume or Add enhanced content', str(e))
+        # the new game stays: no restore, no .previous left, the stamp says this version
+        self.assertEqual((d / 'MechAssault 2.exe').read_text(), 'new-exe'); self.assertFalse(list(d.glob('*.previous')))
+        self.assertFalse(any('previous version was put back' in l for l in logs), logs)
+        stamp = precheck.read_stamp(d)
+        self.assertEqual(stamp['kit_id'], install.KIT_ID); self.assertEqual(stamp['version'], install.VERSION)
+        self.assertEqual(stamp['built_sha256'], install.sha256(d / 'MechAssault 2.exe')); self.assertEqual(stamp['options']['textures'], [])
+        self.assertTrue(stamp.get('shortcuts')); self.assertEqual(install.install_relation(d), 'same')
+        self.assertIn('[Bots]', (live / 'pc_settings.ini').read_text())                 # the update's new settings keys are in
+        st = precheck.read_state(d)
+        self.assertTrue(st['core_done']); self.assertIn('install', st['done']); self.assertNotIn('textures-2x', st['done']); self.assertEqual(st['previous'], [])
+        # Resume: only the optional step (and finish) run; the game is not rebuilt or reinstalled
+        plan, ran = [], []
+        inst2 = self._runner(d, True)
+        inst2.on_plan = plan.extend; inst2.on_step = lambda i, n, title, name, skipped: ran.append(name)
+        inst2.install = lambda: self.fail('the game must not be installed again')
+        inst2.run()
+        self.assertEqual(plan, ['check', 'textures-2x', 'finish']); self.assertEqual(ran, plan)
+        stamp2 = precheck.read_stamp(d)
+        self.assertEqual(stamp2['options']['textures'], ['2x']); self.assertEqual(stamp2['built_sha256'], stamp['built_sha256'])
+        self.assertEqual(stamp2['installed'], stamp['installed']); self.assertEqual(stamp2['version'], install.VERSION)
+        self.assertIsNone(precheck.read_state(d), 'finished: no Resume offered any more')
+        self.assertEqual((d / 'MechAssault 2.exe').read_text(), 'new-exe')
+
+    def test_update_core_failure_still_puts_the_old_game_back(self):
+        d, fx, live = self._update_fixture('corefail'); fx._stop_logs(); fx.logfile.close()
+        self._resume_state(d, ['check', 'verify', 'analyze', 'recompile', 'generate', 'patch', 'build', 'assets'], True)
+        inst = self._runner(d, True)
+        def blocked(): raise install.Stop('Can\'t write a shortcut.', 'access_denied')
+        inst.make_shortcuts = blocked                                     # the last thing install() does: the exe and DLLs are already swapped
+        with self.assertRaises(install.Stop) as cm: inst.run()
+        self.assertEqual(cm.exception.kind, 'access_denied')
+        self.assertEqual((d / 'MechAssault 2.exe').read_text(), 'old-exe'); self.assertEqual((d / 'avcodec-63.dll').read_text(), 'old-dll')
+        self.assertFalse(list(d.glob('*.previous')))
+        self.assertEqual(precheck.read_stamp(d)['kit_id'], 'oldkit')
+        st = precheck.read_state(d); self.assertNotIn('install', st['done']); self.assertFalse(st.get('core_done'))
+
+    def test_fresh_install_optional_failure_or_cancel_keeps_the_game(self):
+        for kind in ('network', 'cancelled'):
+            d = WORK / 'tmp' / ('fresh-opt-' + kind); shutil.rmtree(d, ignore_errors=True)
+            (d / 'pc_assets').mkdir(parents=True); (d / 'pc_assets' / 'common.mgf').write_text('assets')
+            self._xbe_into(d)
+            self._resume_state(d, ['check', 'disc', 'extract', 'analyze', 'recompile', 'generate', 'patch', 'build', 'assets'], False)
+            (d / '_work' / 'build').mkdir(); (d / '_work' / 'build' / 'mechassault2_recomp.exe').write_text('new-exe')
+            inst = self._runner(d, False, fail=install.Stop('Cancelled.' if kind == 'cancelled' else 'A download failed.', kind))
+            with self.assertRaises(install.Stop) as cm: inst.run()
+            self.assertEqual(cm.exception.kind, 'extras'); self.assertEqual(cm.exception.cause, kind)
+            if kind == 'cancelled': self.assertIn('were not made: the install was stopped', str(cm.exception))
+            else: self.assertIn('could not be made: A download failed.', str(cm.exception))
+            self.assertTrue(precheck.is_install(d)); self.assertEqual(install.install_relation(d), 'same')
+            self.assertEqual(precheck.read_stamp(d)['version'], install.VERSION)
+            self.assertIn('TextureQuality=0', (d / 'pc_settings.ini').read_text(encoding='utf-8'))
+            self.assertEqual(precheck.read_stamp(d)['defaults_sha256'], install.sha256(d / 'pc_settings.ini'))
+            self.assertTrue(precheck.read_state(d)['core_done'])
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_addons_failure_says_the_game_is_installed(self):
+        d = WORK / 'tmp' / 'addon-opt'; shutil.rmtree(d, ignore_errors=True)
+        for f in ('MechAssault 2.exe', 'pc_assets/common.mgf'): (d / f).parent.mkdir(parents=True, exist_ok=True); (d / f).write_text('x')
+        self._xbe_into(d)
+        (d / precheck.STAMP).write_text(json.dumps({'kit_id': install.KIT_ID, 'version': install.VERSION}))
+        inst = self._runner(d, False, fail=install.Stop('PyTorch does not support this graphics card yet.', 'gpu'))
+        with self.assertRaises(install.Stop) as cm: inst.run()
+        self.assertEqual(cm.exception.kind, 'extras'); self.assertEqual(cm.exception.cause, 'gpu')
+        self.assertTrue(precheck.read_state(d)['addons_only']); self.assertEqual((d / 'MechAssault 2.exe').read_text(), 'x')
+        shutil.rmtree(d, ignore_errors=True)
+
+    def test_exit_code_meanings(self):
+        self.assertIn('stopped from outside: its window was closed or security software ended it', install.exit_meaning(3221225786))
+        self.assertEqual(install.exit_meaning(-1073741510), install.exit_meaning(3221225786))           # the same code, signed
+        self.assertEqual(install.exit_text(3221225786)[:35], 'exit code 3221225786 = 0xC000013A: ')
+        self.assertEqual(install.exit_meaning(1), ''); self.assertEqual(install.exit_text(1), 'exit code 1')
+        self.assertTrue(install.explain_codes("Setup failed: Command '['python.exe', '-m', 'pip']' returned non-zero exit status 3221225786."))
+        # a real child stopped with STATUS_CONTROL_C_EXIT: readable reason + the antivirus hint
+        lines = []
+        inst = install.Installer(None, self.tmp / 'rc', log=lines.append)
+        with self.assertRaises(install.Stop) as cm:
+            inst.run_cmd([sys.executable, '-c', 'import os; os._exit(-1073741510)'], title='Enhancer setup', hint=install.ENHANCER_HINT)
+        msg = str(cm.exception)
+        self.assertIn('exit code 3221225786 = 0xC000013A: stopped from outside', msg); self.assertIn('Antivirus', msg); self.assertEqual(cm.exception.code, 3221225786)
+        self.assertTrue(any('stopped from outside' in l for l in lines))
+        # a tool that reports its child's code in its output (setup.py) gets the meaning too
+        with self.assertRaises(install.Stop) as cm:
+            inst.run_cmd([sys.executable, '-c', 'import sys; print("pip install numpy==2.2.3 stopped from outside (exit code 3221225786 = 0xC000013A)."); sys.exit(1)'],
+                         title='Enhancer setup', hint=install.ENHANCER_HINT)
+        self.assertIn('A program it started stopped from outside', str(cm.exception)); self.assertIn('Antivirus', str(cm.exception))
+        # an ordinary failure keeps the plain text (no hint)
+        with self.assertRaises(install.Stop) as cm:
+            inst.run_cmd([sys.executable, '-c', 'import sys; sys.exit(3)'], title='tool', hint=install.ENHANCER_HINT)
+        self.assertIn('(exit code 3)', str(cm.exception)); self.assertNotIn('Antivirus', str(cm.exception))
+
+    def test_enhancer_setup_runs_tools_without_a_console(self):
+        import importlib.util
+        src = KIT / 'enhancer' / 'setup.py'
+        text = src.read_text(encoding='utf-8')
+        self.assertEqual(text.count('subprocess.run('), text.count('creationflags=NO_CONSOLE'), 'every tool setup.py starts gets NO_CONSOLE')
+        self.assertIn('with_pip=False', text); self.assertNotIn('with_pip=True', text)                                                 # venv's own pip step would start a console tool
+        spec = importlib.util.spec_from_file_location('ma2_enhancer_setup', src); mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+        self.assertTrue(mod.NO_CONSOLE & subprocess.CREATE_NO_WINDOW and mod.NO_CONSOLE & subprocess.CREATE_NEW_PROCESS_GROUP)
+        self.assertIn('stopped from outside', mod.explain(3221225786))
+        with self.assertRaises(RuntimeError) as cm: mod.run([sys.executable, '-c', 'import os; os._exit(-1073741510)'], 'pip install numpy==2.2.3')
+        self.assertIn('pip install numpy==2.2.3 stopped from outside', str(cm.exception)); self.assertIn('exit code 3221225786 = 0xC000013A', str(cm.exception))
+        self.assertIn('Antivirus', str(cm.exception)); self.assertIn('game itself is installed', str(cm.exception))
+        self.assertEqual(install.explain_codes(str(cm.exception)), [install.exit_meaning(3221225786)])    # install.py reads it from setup.py's output
+        self.assertEqual(mod.run([sys.executable, '-c', 'import sys; sys.exit(5)'], '', capture=True), 5)
+        self.assertEqual(install.NO_CONSOLE & subprocess.CREATE_NO_WINDOW, subprocess.CREATE_NO_WINDOW)
+
     def test_patch_after_a_stopped_run_translates_again(self):
         """N4: a run stopped inside 'patch' left part-patched code; the resume translates the program again first."""
         import gen_patch
@@ -691,7 +848,8 @@ class Diagnostics(unittest.TestCase):
         res = precheck.collect_diagnostics(self.dest, self.base / 'Desktop', '1.0.2', 'abcd1234', [])
         self.assertTrue(res['path'].name.startswith('MA2-diagnostics-') and res['path'].suffix == '.zip')
         m = self.zip_members(res['path'])
-        self.assertEqual(sorted(m), ['logs/20261112-102.log', 'logs/20261113-103.log', 'logs/20261114-104.log', 'logs/install-20261110-100000.log',
+        self.assertEqual(sorted(m), ['logs/20261112-102.log', 'logs/20261113-103.log', 'logs/20261114-104.log', 'logs/buildtools-20261110-100000.log',   # 1.1.2: the Build Tools log too
+                                     'logs/install-20261110-100000.log',
                                      'logs/installer-ui-20261110-100000.log', 'pc_settings.ini', 'recomp-install.json', 'system.txt'])
         if len(self.user) > 2:
             for name, data in m.items(): self.assertNotIn(self.user.encode(), data, name)

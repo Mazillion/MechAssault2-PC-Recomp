@@ -33,7 +33,8 @@ BUILT WITH
 - The installer runs on Python 3.13 and uses Capstone; its window uses the
   Rajdhani and Share Tech Mono fonts (SIL Open Font Licence).
 - Optional enhanced content uses Real-ESRGAN, BasicSR, RealBasicVSR, PyTorch
-  and texconv, downloaded during the install.
+  and texconv, downloaded during the install; without an NVIDIA card the
+  textures use Real-ESRGAN's realesrgan-ncnn-vulkan (MIT, built on ncnn).
 
 Every component with its version, licence and licence file is listed in
 Licenses\THIRD-PARTY.txt; the licence texts are in the Licenses folder.

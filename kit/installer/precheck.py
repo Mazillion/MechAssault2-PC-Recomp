@@ -47,6 +47,14 @@ def local_dir():
 def logs_dir():
     return local_dir() / 'Logs'
 
+PLAIN_CHARS = frozenset('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 _.-\\:')
+
+def plain_path(path):
+    """Can the C++ build run under this path? A whitelist: letters, digits, spaces, - _ . and the drive / folder separators.
+    Anything else (accented letters, commas, brackets, & % ; # ! ^ $ ' ...) can break cmd.exe, CMake or link.exe options
+    (link.exe splits options at commas), so the build then runs in a plain folder such as C:\\MA2RecompBuild-xxxx."""
+    return all(c in PLAIN_CHARS for c in str(path))
+
 def is_install(dest):
     dest = Path(dest)
     return all((dest / p).is_file() for p in ('MechAssault 2.exe', 'game_files/ma2.xbe', 'pc_assets/common.mgf'))
@@ -283,7 +291,7 @@ def check_folder(text, need_bytes=0, enhanced=False, kit=None):
         add('warn', 'onedrive', 'This folder syncs to OneDrive; 4 GB of game files would upload. Choose a folder outside OneDrive, e.g. C:\\Games\\MechAssault 2.')
     if len(raw) > 150 or (enhanced and len(raw) > 80):
         add('warn', 'long', 'Long folder paths can break the compiler%s. Choose a shorter path.' % (' and the AI tools' if enhanced else ''))
-    if not raw.isascii() or set(raw) & set('%;#!^&$'):
+    if not plain_path(os.path.normpath(raw)):
         add('info', 'tempbuild', 'Fine. The compiler uses a temporary folder such as C:\\MA2RecompBuild-xxxx during the build, removed afterwards.')
     # what is already there
     if p.exists():
@@ -334,8 +342,10 @@ def memory_info():
     return 16 * GB, 8 * GB
 
 def build_jobs(cpus, avail, total=None):
-    """Parallel compiles: CPU threads, capped by total RAM (2.5 GB each) and by what is free now (1.2 GB each)."""
-    return max(1, min(cpus or 4, int((total or avail * 2) / (2.5 * GB)), int(avail / (1.2 * GB))))
+    """Parallel compiles: CPU threads, capped by total RAM (2.5 GB each) and by what is free now (1.2 GB each); at most 2 on a PC
+    with less than 12 GB (8 GB PCs got 3 and could run out of memory; a 12 GB PC reports about 11.8 GB, so the line is 11.5)."""
+    jobs = max(1, min(cpus or 4, int((total or avail * 2) / (2.5 * GB)), int(avail / (1.2 * GB))))
+    return min(jobs, 2) if (total or avail * 2) < 11.5 * GB else jobs
 
 def estimate_minutes(cpus, avail, total=None):
     """Minutes for a typical install. Measured on 10 parallel compiles: analyse 85 s, translate 335 s, build 540 s."""
@@ -424,13 +434,18 @@ def detect_gpus():
     return gpus
 
 def recommend_textures(gpus):
-    """Advice only (the default stays Original). {'rec': 'original'|'2x'|'4x', 'can': bool, 'reason', 'gpu'}"""
+    """Advice only (the default stays Original). {'rec': 'original'|'2x'|'4x', 'can': bool (the enhanced textures can be made),
+    'videos': bool (the enhanced cutscenes can be made: NVIDIA only), 'engine': 'pytorch'|'vulkan', 'reason', 'gpu'}
+    Without an NVIDIA GPU the textures are made through Vulkan (realesrgan-ncnn-vulkan) on any other graphics card."""
     nv = [g for g in gpus if g['vendor'] == 'nvidia']
     if not nv:
         other = max(gpus, key=lambda g: g['vram'], default=None)
-        why = ('%s: fine for the game; enhanced content needs an NVIDIA GPU with 8 GB or more.' % other['name']) if other else \
-              'No graphics card was identified; enhanced content needs an NVIDIA GPU with 8 GB or more.'
-        return {'rec': 'original', 'can': False, 'reason': why, 'gpu': other['name'] if other else None}
+        if other:
+            why = ('%s: the enhanced textures use your GPU through Vulkan (new in 1.1.2; not yet tested on AMD or Intel cards). '
+                   'The enhanced cutscenes need an NVIDIA GPU.' % other['name'])
+            return {'rec': 'original', 'can': True, 'videos': False, 'engine': 'vulkan', 'reason': why, 'gpu': other['name']}
+        return {'rec': 'original', 'can': False, 'reason': 'No graphics card was identified; enhanced content needs an NVIDIA GPU with 8 GB or more.',
+                'gpu': None}
     best = max(nv, key=lambda g: g['vram'])
     gb = best['vram'] / GB
     label = '%s, %.0f GB' % (best['name'], gb)
@@ -558,7 +573,7 @@ def collect_diagnostics(dest, out_dir, version='', kit_id='', gpus=None, include
     Works with nothing installed (dest missing or empty): then the zip holds system.txt and whatever logs and settings exist, and system.txt says what was not found.
     A failed install passes `stage` (the step that failed), `failure` (the reason) and `log_lines` (the last lines the window showed).
     Returns {'path', 'members', 'notes'}."""
-    dest = Path(dest); out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
+    dest = Path(dest); out_dir = Path(out_dir)
     logs = logs_dir(); notes = []
     newest = lambda files, n=1: sorted((f for f in files if f.is_file()), key=lambda f: f.stat().st_mtime, reverse=True)[:n]
     own = ('install-', 'installer-ui-', 'buildtools-')
@@ -574,7 +589,7 @@ def collect_diagnostics(dest, out_dir, version='', kit_id='', gpus=None, include
     game_logs = newest([f for f in logs.glob('*.log') if not f.name.startswith(own)], 3) if logs.is_dir() else []
     for f in game_logs: add_text('logs/' + f.name, f)
     if not game_logs: notes.append('no game logs found in %s' % logs)
-    for pattern in ('install-*.log', 'installer-ui-*.log'):
+    for pattern in ('install-*.log', 'installer-ui-*.log', 'buildtools-*.log'):          # buildtools: the Systems page's Build Tools install
         for f in newest(list(logs.glob(pattern))) if logs.is_dir() else []: add_text('logs/' + f.name, f)
     if include_dump and logs.is_dir():
         dumps = newest(list(logs.glob('crash-*.dmp')) + list(logs.glob('hang-*.dmp')))
@@ -596,9 +611,19 @@ def collect_diagnostics(dest, out_dir, version='', kit_id='', gpus=None, include
     if log_lines: lines += ['', 'Last log lines:'] + [redact(str(l)) for l in list(log_lines)[-80:]]
     text_members['system.txt'] = redact('\n'.join(lines) + '\n')            # the notes name folders under the profile too
     import zipfile
-    zip_path = out_dir / ('MA2-diagnostics-%s.zip' % time.strftime('%Y%m%d-%H%M%S'))
-    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
-        for arc, text in sorted(text_members.items()): z.writestr(arc, text.encode('utf-8'))
-        for arc, f in sorted(file_members.items()): z.write(f, arc)
+    name = 'MA2-diagnostics-%s.zip' % time.strftime('%Y%m%d-%H%M%S')
+    def write(folder):
+        folder.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(folder / name, 'w', zipfile.ZIP_DEFLATED) as z:
+            for arc, text in sorted(text_members.items()): z.writestr(arc, text.encode('utf-8'))
+            for arc, f in sorted(file_members.items()): z.write(f, arc)
+        return folder / name
+    try:
+        zip_path = write(out_dir)
+    except PermissionError:                     # Controlled Folder Access (or similar) guards the Desktop: our own folder instead
+        try: (out_dir / name).unlink()
+        except OSError: pass
+        zip_path = write(local_dir() / 'Diagnostics')
+        notes.append('the Desktop could not be written to (Controlled Folder Access?), so the zip was saved in %s' % redact(str(zip_path.parent)))
     return {'path': zip_path, 'members': sorted(list(text_members) + list(file_members)), 'notes': notes}
 

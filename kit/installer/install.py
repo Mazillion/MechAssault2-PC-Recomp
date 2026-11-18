@@ -21,7 +21,8 @@ toolkit, the way the PC release itself was made:
    9 assets     pc_assets: the PC menu overlay built from the disc's common.mgf (checked against
                 the release), the shader seed and level shader lists
   10 install    MechAssault 2.exe, FFmpeg and MSVC runtime DLLs, licenses, controls, defaults
-  11 textures   optional: Enhancer 2x and/or 4x texture packs (CUDA GPU, hours)
+  11 textures   optional: Enhancer 2x and/or 4x texture packs (NVIDIA GPU with CUDA, or any other graphics
+                card through Vulkan with realesrgan-ncnn-vulkan, downloaded and checked; hours)
   12 videos     optional: Enhancer 2x cutscene videos (CUDA GPU, many hours)
   13 finish     remove the work folder: the install folder holds only the game
 
@@ -33,6 +34,10 @@ run again with the same folders. Running it again on a finished install adds opt
         [--update] [--shortcuts desktop,start,editor] [--no-merge-settings] [--switch-textures] [--low-priority]
         [--ffmpeg <ffmpeg-9.0.2-full_build-shared.zip, for a PC without internet>]
   --update      update an existing install in place (no disc needed when its game_files are intact); keeps settings
+  --upscaler    the Vulkan texture upscaler, if this PC has no internet: realesrgan-ncnn-vulkan-20220424-windows.zip,
+                a folder with it extracted, or a URL (MA2_TEXTURE_ENGINE=vulkan|pytorch picks the texture upscaler)
+  Exit code 0: installed. 1: stopped (an update puts the previous version back). 2: the game is installed, but optional
+  content (enhanced textures or videos) failed; running the installer again resumes only that.
   Paths may be relative to the folder you run it from, and may be quoted.
   (from cmd.exe use: start /wait "" "MechAssault 2 Recomp Installer.exe" ...)
 """
@@ -44,6 +49,7 @@ KIT = HERE.parent                                 # the unpacked kit
 sys.path.insert(0, str(HERE))
 import precheck                                   # noqa: E402  (shared checks: disc image, folder, settings merge)
 import ffmpeg_fetch                               # noqa: E402  (FFmpeg: downloaded on this PC, every file checked)
+import upscaler_fetch                             # noqa: E402  (the Vulkan texture upscaler: downloaded, every file checked)
 RELEASE = json.loads((HERE / 'data' / 'release.json').read_text(encoding='utf-8'))
 VERSION = RELEASE.get('date', 'dev')              # the release date string (KITSRC/VERSION line 2); install_relation compares it
 PUBLIC_VERSION = RELEASE.get('version', 'dev')    # the public version (KITSRC/VERSION line 1), e.g. 1.0.2
@@ -62,6 +68,8 @@ FFMPEG_DLLS = ['avcodec-63.dll', 'avformat-63.dll', 'avutil-61.dll', 'swresample
 GB = 1024 ** 3
 # Microsoft's Build Tools bootstrappers: VS 2026 (the PC release's compiler, MSVC 19.5x), then VS 2022.
 BUILD_TOOLS_URLS = ['https://aka.ms/vs/18/stable/vs_buildtools.exe', 'https://aka.ms/vs/17/release/vs_buildtools.exe']
+# Inherited variables that inject options into cl.exe / link.exe (set by other developer tools): never passed to the game build.
+BUILD_ENV_DROP = ('CL', '_CL_', 'LINK', '_LINK_')
 BUILD_TOOLS_ARGS = ['--passive', '--wait', '--norestart', '--nocache',
                     '--add', 'Microsoft.VisualStudio.Workload.VCTools',
                     '--add', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
@@ -71,10 +79,72 @@ BUILD_TOOLS_ARGS = ['--passive', '--wait', '--norestart', '--nocache',
 
 class Stop(Exception):
     """A problem the user can act on; the message says what. `kind` picks the wizard's failure advice:
-    cancelled, disk_full, compiler, build_failed, access_denied, network, ffmpeg_mismatch, disc, gpu, out_of_memory, unexpected."""
-    def __init__(self, message, kind='unexpected', code=None):
+    cancelled, disk_full, compiler, build_failed, access_denied, network, ffmpeg_mismatch, disc, gpu, out_of_memory, unexpected,
+    compile_error (the compiler or linker named the error), and extras (the game is installed; only optional content failed or was cancelled; `cause` is the original kind)."""
+    def __init__(self, message, kind='unexpected', code=None, cause=None):
         super().__init__(message)
-        self.kind, self.code = kind, code
+        self.kind, self.code, self.cause = kind, code, cause
+
+# Optional content: its failure never undoes or invalidates the game install.
+OPTIONAL_STEPS = ('textures-2x', 'textures-4x', 'videos')
+OPTIONAL_NAMES = {'textures-2x': 'The 2x enhanced textures', 'textures-4x': 'The 4x enhanced textures', 'videos': 'The enhanced cutscene videos'}
+NO_CONSOLE = getattr(subprocess, 'CREATE_NO_WINDOW', 0) | getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)   # no window to close, no shared Ctrl+C
+
+ENHANCER_HINT = ('Antivirus software may be blocking Python, which makes the enhanced content: allow the install folder in it, then try again. '
+                 'The game itself is installed and not affected.')
+
+NTSTATUS = {
+    0xC000013A: 'stopped from outside: its window was closed or security software ended it',
+    0x40010004: 'ended from outside (another program or security software stopped it)',
+    0xC0000005: 'crashed (access violation)',
+    0xC0000409: 'crashed (stack buffer overrun)',
+    0xC00000FD: 'crashed (stack overflow)',
+    0xC0000017: 'ran out of memory',
+    0xC000012D: 'ran out of memory (the page file is too small)',
+    0xC0000135: 'could not start: a DLL it needs is missing',
+    0xC0000142: 'could not start: a DLL failed to initialise (security software can cause this)',
+    0xC0000022: 'was refused access (security software can cause this)',
+}
+
+def exit_meaning(code):
+    """A readable meaning for a Windows process exit code that is an NTSTATUS (3221225786 = 0xC000013A), else ''."""
+    try:
+        code = int(code) & 0xFFFFFFFF
+    except (TypeError, ValueError):
+        return ''
+    if code in NTSTATUS: return NTSTATUS[code]
+    if code >= 0xC0000000: return 'ended with Windows error status 0x%08X' % code
+    return ''
+
+def exit_text(code):
+    """'exit code 3221225786 = 0xC000013A: stopped from outside: ...' or 'exit code 1'."""
+    meaning = exit_meaning(code)
+    return 'exit code %d = 0x%08X: %s' % (int(code) & 0xFFFFFFFF, int(code) & 0xFFFFFFFF, meaning) if meaning else 'exit code %d' % code
+
+def explain_codes(text):
+    """Meanings for NTSTATUS exit codes quoted in a tool's own output (e.g. pip's 'returned non-zero exit status 3221225786')."""
+    out = []
+    for m in re.finditer(r'(?i)exit (?:status|code)[ :=]*(-?\d{6,11})\b', text):
+        meaning = exit_meaning(m.group(1))
+        if meaning and meaning not in out: out.append(meaning)
+    return out
+
+def extras_message(name, reason, cancelled=False):
+    """The failure text when only optional content failed: the game itself is installed and playable."""
+    what = OPTIONAL_NAMES.get(name, 'The enhanced content')
+    if cancelled:
+        return ('MechAssault 2 is installed. %s were not made: the install was stopped. You can make them later with Resume or '
+                'Add enhanced content.' % what)
+    return ('MechAssault 2 is installed. %s could not be made: %s You can try again later with Resume or Add enhanced content.'
+            % (what, str(reason).strip()))
+
+COMPILER_ERROR = re.compile(r'(?i)\b(?:fatal )?error (?:LNK|C|RC|CVT)\d{4}\b|\bCMake Error\b')
+
+def compiler_error(tail):
+    """The first compiler / linker / CMake error line in a tool's output, else ''."""
+    for line in tail:
+        if COMPILER_ERROR.search(line): return line.strip()
+    return ''
 
 def classify(tail, title=''):
     """The failure kind for a failed tool, from the end of its output."""
@@ -84,6 +154,7 @@ def classify(tail, title=''):
     if re.search(r'(?i)access is denied|PermissionError|LNK1104|LNK1168|being used by another process|error C1041|Errno 13|WinError 5', text): return 'access_denied'
     if re.search(r'(?i)does not support this graphics card', text): return 'gpu'
     if 'CMake + Ninja' not in title and re.search(r'(?i)URLError|getaddrinfo|timed out|ConnectionReset|HTTP Error|Could not find a version|No matching distribution|Could not download', text): return 'network'
+    if 'CMake + Ninja' in title and compiler_error(tail): return 'compile_error'     # the compiler or linker said what is wrong
     if 'CMake + Ninja' in title or re.search(r'(?i)ninja: build stopped|FAILED:', text): return 'build_failed'
     if re.search(r'(?i)xiso|XisoError', title + text): return 'disc'
     return 'unexpected'
@@ -184,13 +255,24 @@ def repair_venv_home(cfg, python_dir):
     if changed: cfg.write_text('\n'.join(lines) + '\n', encoding='utf-8')
     return changed
 
+def console_python(exe):
+    """The console python.exe beside a pythonw.exe (the installer window runs under pythonw.exe). A windowless parent's console
+    children (venv, pip) each get a new visible console window from Windows; closing it stops them (0xC000013A)."""
+    p = Path(str(exe))
+    if p.name.lower() == 'pythonw.exe' and (p.parent / 'python.exe').is_file(): return str(p.parent / 'python.exe')
+    return str(exe)
+
 def enhancer_python():
-    """A Python 3.11-3.13 (64-bit) for the Enhancer's PyTorch: the installer's own (3.13), else py -3.13..3.11."""
+    """A Python 3.11-3.13 (64-bit) for the Enhancer's PyTorch: the installer's own (3.13), else py -3.13..3.11. Never pythonw.exe
+    when its python.exe exists (console_python)."""
+    return console_python(_enhancer_python())
+
+def _enhancer_python():
     if (3, 11) <= sys.version_info[:2] <= (3, 13) and sys.maxsize > 2 ** 32: return sys.executable
     for v in ('3.13', '3.12', '3.11'):
         try:
             r = subprocess.run(['py', '-' + v, '-c', 'import sys,struct;print(sys.executable);print(struct.calcsize("P"))'],
-                               capture_output=True, text=True, timeout=30)
+                               capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL, creationflags=NO_CONSOLE)
         except (OSError, subprocess.TimeoutExpired):
             break
         lines = r.stdout.split()
@@ -202,19 +284,35 @@ def enhancer_python():
 def nvidia_gpu():
     smi = shutil.which('nvidia-smi') or r'C:\Windows\System32\nvidia-smi.exe'
     try:
-        r = subprocess.run([smi, '--query-gpu=name,memory.total', '--format=csv,noheader'], capture_output=True, text=True, timeout=30)
+        r = subprocess.run([smi, '--query-gpu=name,memory.total', '--format=csv,noheader'], capture_output=True, text=True, timeout=30,
+                           stdin=subprocess.DEVNULL, creationflags=NO_CONSOLE)
         return r.stdout.strip().splitlines()[0] if r.returncode == 0 and r.stdout.strip() else None
     except (OSError, subprocess.TimeoutExpired):
         return None
 
-def needed_space(opts, done):
-    """Bytes still to be written (game files and build) plus each option's output and temporary files."""
+def texture_engine(nvidia, gpus, allow_cpu=False, force=''):
+    """Which upscaler makes the enhanced textures: 'pytorch' (an NVIDIA GPU with CUDA; or the CPU with --allow-cpu),
+    'vulkan' (realesrgan-ncnn-vulkan on any other graphics card: AMD, Intel, ...), or None (no graphics card found).
+    `force` (MA2_TEXTURE_ENGINE) picks one outright."""
+    force = (force or '').strip().lower()
+    if force in ('pytorch', 'vulkan'): return force
+    if nvidia: return 'pytorch'
+    if gpus: return 'vulkan'
+    return 'pytorch' if allow_cpu else None
+
+VULKAN_NOTE = 'new in 1.1.2; not yet tested on AMD or Intel cards'
+VULKAN_NOTICE = 'realesrgan-ncnn-vulkan.txt'      # enhancer/LICENSES: installed only when the Vulkan upscaler made textures
+
+def needed_space(opts, done, engine='pytorch'):
+    """Bytes still to be written (game files and build) plus each option's output and temporary files.
+    engine: the texture upscaler ('vulkan' needs no PyTorch)."""
     need = 0
     if 'extract' not in done: need += 3.0 * GB
     if 'build' not in done: need += 1.5 * GB
     if '2x' in opts['textures'] and 'textures-2x' not in done: need += 4 * GB
     if '4x' in opts['textures'] and 'textures-4x' not in done: need += 9 * GB
-    if (opts['textures'] or opts['videos']) and not ({'textures-2x', 'textures-4x', 'videos'} & done): need += 6 * GB   # PyTorch
+    if (opts['textures'] or opts['videos']) and not ({'textures-2x', 'textures-4x', 'videos'} & done):
+        need += 6 * GB if (opts['videos'] or engine != 'vulkan') else 0.5 * GB      # PyTorch; the Vulkan tool and NumPy/Pillow
     if opts['videos'] and 'videos' not in done: need += 25 * GB
     return need
 
@@ -455,6 +553,7 @@ def uninstall(dest, delete_user_data=False, log=print):
     return {'removed': removed, 'failed': failed, 'text': text}
 
 BUILD_PREFIX = 'MA2RecompBuild-'
+plain_path = precheck.plain_path                 # can the C++ build run under this path (a whitelist of characters)
 
 def build_bases(anchor):
     """Where build_root() may put an ASCII-path build folder, in order: the install drive's root, ProgramData, Public."""
@@ -489,11 +588,27 @@ def clean_stale_build_folders(bases):
             if who and not Path(who).exists() and remove_build_folder(f): gone.append(f)
     return gone
 
+def put_back(pairs, log=lambda s: None):
+    """Rename each kept <file>.previous back over the new file: the previous version again. Returns how many were put back."""
+    n = 0
+    for orig, bak in pairs:
+        orig, bak = Path(orig), Path(bak)
+        if not bak.exists(): continue
+        try:
+            if orig.is_dir(): shutil.rmtree(orig, ignore_errors=True)
+            elif orig.exists(): orig.unlink()
+            bak.rename(orig); n += 1
+        except OSError:
+            log('  could not restore %s' % orig.name)
+    return n
+
 def start_over(dest):
     """Delete the unfinished work of an install in `dest`: its _work folder and, if the build ran in an ASCII-path folder elsewhere, that one too.
     The extracted game files and everything else in the install folder are kept."""
     dest = Path(dest)
     state = precheck.read_state(dest) or {}
+    if state.get('previous') and not state.get('core_done'):     # an update stopped mid-install (crash, power cut): the old game back first
+        put_back(state['previous'])
     shutil.rmtree(dest / '_work', ignore_errors=True)
     if state.get('build_root'): remove_build_folder(state['build_root'], owner=dest)
 
@@ -536,11 +651,12 @@ class Installer:
         if name not in self.state['done']: self.state['done'].append(name)
         self.save()
 
-    def run_cmd(self, args, cwd=None, env=None, quiet_pattern=None, title=None):
-        """Run a tool, streaming its output to the log (and the install log file)."""
+    def run_cmd(self, args, cwd=None, env=None, quiet_pattern=None, title=None, hint=None):
+        """Run a tool, streaming its output to the log (and the install log file). The tool gets no console window a user could close and
+        no shared Ctrl+C (its own process group). `hint` is added to the failure message when the tool was stopped from outside."""
         if self.cancelled: raise Stop('Cancelled.', 'cancelled')
         if title: self.log('> ' + title)
-        flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0) | (BELOW_NORMAL if self.low_priority else 0)
+        flags = NO_CONSOLE | (BELOW_NORMAL if self.low_priority else 0)
         self.proc = subprocess.Popen([str(a) for a in args], cwd=str(cwd) if cwd else None, env=env,
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                      creationflags=flags)
@@ -553,9 +669,17 @@ class Installer:
         code = self.proc.wait(); self.proc = None
         if self.cancelled: raise Stop('Cancelled.', 'cancelled')
         if code:
-            raise Stop('%s failed (exit code %d). The last lines are above; the full log is %s.' % (
-                title or Path(str(args[0])).name, code, self.session_log or self.work / 'install.log'),
-                classify(tail, title or ''))
+            meanings = [m for m in [exit_meaning(code)] + explain_codes('\n'.join(tail)) if m]
+            meanings = [m for i, m in enumerate(meanings) if m not in meanings[:i]]
+            for m in meanings: self.log('  (the tool %s)' % m)
+            extra = ''
+            if meanings and not exit_meaning(code): extra = ' A program it started %s.' % meanings[0]
+            if meanings and hint: extra += ' ' + hint
+            kind = classify(tail, title or '')
+            if kind == 'compile_error': extra += ' The first error: %s' % compiler_error(tail)[:300]
+            raise Stop('%s failed (%s).%s The last lines are above; the full log is %s.' % (
+                title or Path(str(args[0])).name, exit_text(code), extra, self.session_log or self.work / 'install.log'),
+                kind, code=code)
 
     def toolkit_env(self):
         env = dict(os.environ)
@@ -609,15 +733,7 @@ class Installer:
     def restore_previous(self):
         """Put the old game back after a failed or cancelled update."""
         pairs = self.state.get('previous') or []
-        for orig, bak in pairs:
-            orig, bak = Path(orig), Path(bak)
-            if not bak.exists(): continue
-            try:
-                if orig.is_dir(): shutil.rmtree(orig, ignore_errors=True)
-                elif orig.exists(): orig.unlink()
-                bak.rename(orig)
-            except OSError:
-                self.log('  could not restore %s' % orig.name)
+        put_back(pairs, self.log)
         if pairs:
             self.log('  the previous version was put back')
             self.state['previous'] = []
@@ -633,6 +749,39 @@ class Installer:
                 pass
         self.state['previous'] = []; self.save()
 
+    def game_installed(self):
+        """Is the game itself installed and final in this run (only optional content can still be missing)?"""
+        return bool(self.state.get('addons_only') or self.state.get('core_done'))
+
+    def finalize_core(self):
+        """The game steps through 'install' are done: make the new game final before any optional step runs. The old version's
+        .previous files go, the settings and the install stamp are written as for a finished install, and state['core_done'] makes a
+        later Resume run only the optional steps. A failed or cancelled optional step can then never put the old game back."""
+        self.log('  the game is installed; it stays installed whatever happens to the optional content')
+        self.settle()
+        self.state['core_done'] = True; self.save()
+
+    def settle(self):
+        """Settings, the end of an update and the stamp: run once the game is installed (finalize_core) and again by finish (idempotent)."""
+        ini = self.dest / 'pc_settings.ini'
+        q = 2 if (self.dest / 'game_files/texture_packs/4x/index.json').is_file() else \
+            1 if (self.dest / 'game_files/texture_packs/2x/index.json').is_file() else 0
+        v = 1 if (self.dest / 'game_files/Movie/Enhanced/2x').is_dir() else 0
+        if getattr(self, 'ini_ours', None) is None and ini.is_file():
+            # This run did not copy the ini (add-on or resumed run): it is ours while it still matches what the stamp recorded.
+            recorded = (precheck.read_stamp(self.dest) or {}).get('defaults_sha256')
+            self.ini_ours = recorded is None or recorded == sha256(ini)
+        if ini.is_file() and getattr(self, 'ini_ours', True):
+            # First-launch defaults: the best installed textures and the enhanced videos when present.
+            text = ini.read_text(encoding='utf-8')
+            new = re.sub(r'(?m)^TextureQuality=.*$', 'TextureQuality=%d' % q, text)
+            new = re.sub(r'(?m)^FMVQuality=.*$', 'FMVQuality=%d' % v, new)
+            if new != text: ini.write_text(new, encoding='utf-8')
+        if self.state.get('update') or self.switch_textures:
+            self.update_live_settings(q, v)
+        self.commit_previous()
+        self.write_stamp(ini)
+
     # -- steps
     def game_files_ok(self):
         xbe = self.dest / 'game_files' / RELEASE['xbe']
@@ -643,12 +792,12 @@ class Installer:
 
     def need_disc(self):
         """Does this run read the disc image? Not when only adding content, nor when updating over intact game files."""
-        if self.state.get('addons_only') or 'extract' in self.state.get('done', []): return False
+        if self.game_installed() or 'extract' in self.state.get('done', []): return False
         return not (self.state.get('update') and self.game_ok)
 
     def steps(self):
         core = [('check', 'Checking requirements', self.check)]
-        if not self.state.get('addons_only'):
+        if not self.game_installed():                 # a Resume after the game was made final runs only the optional steps
             if self.state.get('update') and self.game_ok:
                 core += [('verify', 'Checking the installed game files', self.verify)]
             else:
@@ -696,7 +845,7 @@ class Installer:
                 self.state = {'done': []}
             self.log('Resuming the install in %s (finished steps are kept).' % self.dest)
             if not self.xiso and self.state.get('xiso'): self.xiso = Path(self.state['xiso'])
-            if not self.state.get('addons_only') and (self.state.get('kit_id') != KIT_ID or
+            if not self.game_installed() and (self.state.get('kit_id') != KIT_ID or
                                                       self.state.get('release') != RELEASE['release_executable_sha256']):
                 keep = {'check', 'disc', 'extract', 'verify', 'textures-2x', 'textures-4x', 'videos'}
                 dropped = [s for s in self.state.get('done', []) if s not in keep]
@@ -734,6 +883,14 @@ class Installer:
             self.run_steps()
         except BaseException as e:
             self.log('INSTALL STOPPED at "%s" (%s): %s' % (self.stage, getattr(e, 'kind', type(e).__name__), e))
+            if self.game_installed():
+                # Only optional content failed or was cancelled (or the finishing touches): the game stays installed at this version.
+                # Never roll back; the stamp is already written; state.json stays so Resume runs only the optional steps.
+                if isinstance(e, Stop) and self.stage in OPTIONAL_STEPS:
+                    msg = extras_message(self.stage, e, cancelled=(e.kind == 'cancelled'))
+                    self.log(msg)
+                    raise Stop(msg, 'extras', code=e.code, cause=e.kind) from e
+                raise
             if self.state.get('update'): self.restore_previous()
             if isinstance(e, Stop) and not self.state.get('done') and not self.state.get('update'):
                 self.logfile.close()              # stopped before anything was made: leave no trace in the install folder
@@ -761,6 +918,8 @@ class Installer:
             self.on_plan([n for n, _, _ in steps])
             for index, (name, title, fn) in enumerate(steps, 1):
                 if self.cancelled: raise Stop('Cancelled.', 'cancelled')
+                if (name in OPTIONAL_STEPS or name == 'finish') and not self.game_installed() and 'install' in self.state.get('done', []):
+                    self.stage = 'install'; self.finalize_core()          # before any optional step: the new game is final from here on
                 self.stage = name
                 skipped = name in self.state['done'] and name not in ('check', 'finish')
                 self.on_step(index, len(steps), title, name, skipped)
@@ -782,7 +941,7 @@ class Installer:
             raise Stop('The installer needs 64-bit Python 3.10 or newer.', 'compiler')   # only when run outside the exe
         if self.need_disc() and (not self.xiso or not self.xiso.exists()):
             raise Stop('Choose your MechAssault 2 disc image (.xiso/.iso), or the folder copied from the disc.', 'disc')
-        if not self.state.get('addons_only'):
+        if not self.game_installed():
             try:
                 self.vcvars, self.cmake, self.ninja, self.vs = find_visual_studio(self.vs_choice)
             except Stop:
@@ -796,18 +955,28 @@ class Installer:
             self.log('  Enhancer Python: %s' % self.epy)
             gpu = nvidia_gpu()
             if gpu: self.log('  GPU: %s' % gpu)
-            elif not self.allow_cpu:
-                raise Stop('The enhanced textures and videos need an NVIDIA GPU with CUDA (none was found). '
-                           'Untick those options; the game runs fine with the original content.', 'compiler')
-            else:
+            if self.opts['videos'] and not gpu and not self.allow_cpu:
+                raise Stop('The enhanced cutscene videos need an NVIDIA GPU with CUDA (none was found). '
+                           'Untick that option; the game runs fine with the original videos.', 'compiler')
+            if self.opts['textures']:
+                others = [] if gpu else precheck.detect_gpus()
+                self.tex_engine = texture_engine(gpu, others, self.allow_cpu, os.environ.get('MA2_TEXTURE_ENGINE'))
+                if not self.tex_engine:
+                    raise Stop('The enhanced textures need a graphics card (an NVIDIA GPU with CUDA, or any graphics card with '
+                               'Vulkan), and none was found. Untick that option; the game runs fine with the original textures.', 'compiler')
+                if self.tex_engine == 'vulkan':
+                    card = gpu or ', '.join(g['name'] for g in others) or "this PC's graphics card"
+                    self.log('  Textures: through Vulkan on %s (realesrgan-ncnn-vulkan; %s)' % (card, VULKAN_NOTE))
+            if not gpu and self.allow_cpu and (self.opts['videos'] or getattr(self, 'tex_engine', None) == 'pytorch'):
                 self.log('  No NVIDIA GPU: enhancement runs on the CPU (extremely slow).')
         if precheck.smart_app_control() == 'enforce':
             self.log('  WARNING: Smart App Control is on. It may block the game this installer builds, because the build is not signed. '
                      'Turning Smart App Control off is a one-way Windows setting; the installer never changes it.')
         done = set(self.state.get('done', []))
         if self.game_ok: done.add('extract')
+        if self.game_installed(): done |= {'extract', 'build'}
         free = shutil.disk_usage(self.dest).free
-        need = needed_space(self.opts, done)
+        need = needed_space(self.opts, done, getattr(self, 'tex_engine', None) or 'pytorch')
         self.log('  Free space on the install drive: %.1f GB (needs about %.1f GB)' % (free / GB, need / GB))
         if free < need:
             raise Stop('Not enough free space: %.1f GB free, about %.1f GB needed on %s.' % (free / GB, need / GB, self.dest.anchor), 'disk_full')
@@ -1000,22 +1169,22 @@ class Installer:
         return self._ffmpeg
 
     def build_root(self):
-        """Where the C++ build runs: the work folder, or -- when its path is not plain ASCII (an
-        accented Windows user name) -- a folder with an ASCII path on the same drive. MSVC's linker
-        reads its response file in the ANSI code page: a build under C:/Users/José stopped at the
-        link, unable to open 'JosÃ©/.../avcodec.lib'. The same folder on every run (an interrupted
-        install resumes); removed with the work folder."""
-        if str(self.work).isascii() and not set(str(self.work)) & set('%;#!^&$'): return self.work
+        """Where the C++ build runs: the work folder, or -- when its path is not plain (see plain_path) -- a folder with a
+        plain path on the same drive. MSVC's linker reads its response file in the ANSI code page: a build under C:/Users/José
+        stopped at the link, unable to open 'JosÃ©/.../avcodec.lib'; and link.exe splits options at commas: a disc-dump folder
+        'MechAssault 2 - Lone Wolf (World) (En,Ja,Fr)' stopped it with LNK1117 (syntax error in option 'MANIFESTINPUT:...').
+        The same folder on every run (an interrupted install resumes); removed with the work folder."""
+        if plain_path(self.work): return self.work
         tag = BUILD_PREFIX + hashlib.sha256(str(self.work).encode('utf-8')).hexdigest()[:8]
         for base in build_bases(self.work.anchor):
             root = base / tag
-            if not str(root).isascii(): continue
+            if not plain_path(root): continue
             try:
                 root.mkdir(parents=True, exist_ok=True)
                 return root
             except OSError:
                 continue
-        raise Stop('No folder with a plain (ASCII) path could be created for the C++ build. Install to a '
+        raise Stop('No folder with a plain path (letters, digits, spaces, - _ .) could be created for the C++ build. Install to a '
                    'folder such as C:\\Games\\MechAssault 2.')
 
     def build(self):
@@ -1023,7 +1192,7 @@ class Installer:
         if not hasattr(self, 'vcvars'): self.vcvars, self.cmake, self.ninja, self.vs = find_visual_studio(self.vs_choice)
         root = self.build_root()
         if root != self.work:
-            self.log('  building in %s (the install path is not plain ASCII)' % root)
+            self.log('  building in %s (the install path has characters the C++ tools cannot take)' % root)
             (root / 'owner.txt').write_text(str(self.dest), encoding='utf-8')            # which install this folder belongs to (stale ones are cleaned up)
             self.state['build_root'] = str(root); self.save()
         src = root / 'src'
@@ -1053,8 +1222,11 @@ class Installer:
         env = dict(os.environ)                     # vcvars64.bat looks for vswhere.exe on PATH
         env['PATH'] = str(Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')) /
                           'Microsoft Visual Studio' / 'Installer') + os.pathsep + env.get('PATH', '')
+        for v in BUILD_ENV_DROP: env.pop(v, None)
         self.run_cmd(['cmd.exe', '/d', '/c', script], cwd=root, env=env, title='CMake + Ninja')
-        if not (build / 'mechassault2_recomp.exe').is_file(): raise Stop('The build produced no executable.')
+        if not (build / 'mechassault2_recomp.exe').is_file():
+            raise Stop('The build finished, but the game program it made (%s) is gone: antivirus software most likely removed '
+                       '(quarantined) it.' % (build / 'mechassault2_recomp.exe'), 'access_denied')
 
     def assets(self):
         sys.path.insert(0, str(HERE))
@@ -1089,11 +1261,12 @@ class Installer:
         else:
             self.log('  (no MSVC redistributable folder found; the Visual C++ runtime installed on this PC will be used)')
         lic = self.dest / 'Licenses'
+        had_vulkan = (lic / 'Enhancer' / VULKAN_NOTICE).is_file()      # textures made through Vulkan earlier: their notice stays
         if lic.exists(): shutil.rmtree(lic)
         shutil.copytree(KIT / 'defaults' / 'Licenses', lic)
         have_tex = any((self.dest / 'game_files' / 'texture_packs' / s / 'index.json').is_file() for s in ('2x', '4x'))
         have_vid = (self.dest / 'game_files' / 'Movie' / 'Enhanced' / '2x').is_dir()
-        if have_tex or have_vid: self.install_enhancer_licenses(videos=have_vid)
+        if have_tex or have_vid: self.install_enhancer_licenses(videos=have_vid, vulkan=had_vulkan and have_tex)
         ffreadme = self.ffmpeg_dir() / 'README.txt'     # the build's own notice: version, configuration, where the source is
         if ffreadme.is_file(): shutil.copy2(ffreadme, lic / 'FFmpeg-README.txt')
         else: self.log('  (the FFmpeg README is missing from the downloaded FFmpeg build)')
@@ -1162,7 +1335,9 @@ class Installer:
         self.state['shortcuts'] = made; self.save()
 
     # -- optional content (the Enhancer)
-    def enhancer(self):
+    def enhancer(self, engine='pytorch'):
+        """The Enhancer in the work folder, set up for `engine`: 'pytorch' (PyTorch with CUDA and the .pth models; also what the
+        videos need) or 'vulkan' (textures through realesrgan-ncnn-vulkan: only NumPy, Pillow and DirectXTex)."""
         enh = self.work / 'enhancer'
         if not (enh / 'setup.py').is_file():
             if enh.exists(): shutil.rmtree(enh)
@@ -1170,19 +1345,40 @@ class Installer:
         if not hasattr(self, 'epy'): self.epy = enhancer_python()
         venv = enh / '.venv' / 'Scripts' / 'python.exe'
         if repair_venv_home(enh / '.venv' / 'pyvenv.cfg', Path(self.epy).parent): self.log('  the Enhancer environment pointed at a Python that is gone; repaired')
-        if not self.state.get('enhancer_setup') or not venv.is_file():
+        setup = self.state.get('enhancer_setup')         # True: the full (PyTorch) setup; 'vulkan': the Vulkan textures setup
+        if engine == 'vulkan':
+            if not setup or not venv.is_file():
+                self.log('  Enhancer setup for the Vulkan upscaler: NumPy, Pillow and DirectXTex (no PyTorch)')
+                self.run_cmd([self.epy, enh / 'setup.py', '--engine', 'vulkan'], cwd=enh, title='Enhancer setup', hint=ENHANCER_HINT,
+                             quiet_pattern=r'^\s*\S*\s*\d+(\.\d+)? ?[kMG]?B/s|━')
+                self.state['enhancer_setup'] = 'vulkan'; self.save()
+            return enh, venv
+        if setup is not True or not venv.is_file():
             self.log('  Enhancer setup: PyTorch with CUDA, Real-ESRGAN models and DirectXTex (several GB of downloads)')
-            self.run_cmd([self.epy, enh / 'setup.py'], cwd=enh, title='Enhancer setup', quiet_pattern=r'^\s*\S*\s*\d+(\.\d+)? ?[kMG]?B/s|━')
+            self.run_cmd([self.epy, enh / 'setup.py'], cwd=enh, title='Enhancer setup', hint=ENHANCER_HINT, quiet_pattern=r'^\s*\S*\s*\d+(\.\d+)? ?[kMG]?B/s|━')
             self.state['enhancer_setup'] = True; self.save()
         return enh, venv
 
-    def install_enhancer_licenses(self, videos=False):
+    def vulkan_dir(self):
+        """realesrgan-ncnn-vulkan for the Vulkan textures: downloaded into the work folder, archive and files checked (upscaler_fetch.py)."""
+        exe = os.environ.get('MA2_INSTALLER_EXE')
+        look = [self.dest] + ([Path(exe).parent] if exe else [])     # the zip downloaded on another PC
+        try:
+            return upscaler_fetch.ensure(self.work / 'deps' / upscaler_fetch.SPEC['folder'], self.log, lambda: self.cancelled, look)
+        except upscaler_fetch.Cancelled:
+            raise Stop('Cancelled.', 'cancelled')
+        except upscaler_fetch.FetchError as e:
+            raise Stop(str(e), 'network')
+
+    def install_enhancer_licenses(self, videos=False, vulkan=False):
         """The AI tools behind the enhanced content have licences that must travel with their output: Licenses/Enhancer/*.txt
-        (enhancer/LICENSES) and, for the videos, FMV-NOTICE.txt (enhancer/FMV/NOTICE.txt)."""
+        (enhancer/LICENSES), for the videos FMV-NOTICE.txt (enhancer/FMV/NOTICE.txt), and for textures made through Vulkan
+        realesrgan-ncnn-vulkan.txt (the tool's MIT licence and the ncnn notice)."""
         dst = self.dest / 'Licenses' / 'Enhancer'
         try:
             dst.mkdir(parents=True, exist_ok=True)
             for f in sorted((KIT / 'enhancer' / 'LICENSES').glob('*')):
+                if f.name == VULKAN_NOTICE and not (vulkan or (dst / f.name).is_file()): continue
                 if f.is_file(): shutil.copy2(f, dst / f.name)
             notice = KIT / 'enhancer' / 'FMV' / 'NOTICE.txt'
             if videos and notice.is_file(): shutil.copy2(notice, dst / 'FMV-NOTICE.txt')
@@ -1192,15 +1388,27 @@ class Installer:
     def textures(self, scale):
         if (self.dest / 'game_files' / 'texture_packs' / scale / 'index.json').is_file():
             self.log('  the %s texture pack is already installed' % scale); return
-        enh, py = self.enhancer()
+        engine = getattr(self, 'tex_engine', None) or 'pytorch'
+        if engine == 'pytorch':
+            try:
+                enh, py = self.enhancer()
+            except Stop as e:                            # PyTorch cannot use this card (setup.py says so): Vulkan instead
+                if e.kind != 'gpu' or os.environ.get('MA2_TEXTURE_ENGINE'): raise
+                self.log('  PyTorch cannot use this graphics card; the textures are made through Vulkan instead (%s)' % VULKAN_NOTE)
+                engine = self.tex_engine = 'vulkan'
+        if engine == 'vulkan':
+            enh, py = self.enhancer('vulkan')
+            vulkan = self.vulkan_dir()
         env = dict(os.environ); env['PYTHONIOENCODING'] = 'utf-8'; env['ENHANCER_NO_ZIP'] = '1'
         if not self.state.get('textures_extracted'):
-            self.run_cmd([py, enh / 'extract_textures.py', '--all', '--game-dir', self.dest / 'game_files'], cwd=enh, env=env,
+            self.run_cmd([py, enh / 'extract_textures.py', '--all', '--game-dir', self.dest / 'game_files'], cwd=enh, env=env, hint=ENHANCER_HINT,
                          title='extract the original textures from the game archives')
             self.state['textures_extracted'] = True; self.save()
-        self.log('  %s textures: every texture through Real-ESRGAN, then DDS packing (this takes hours; it resumes if interrupted)' % scale)
-        self.run_cmd([py, enh / 'enhance.py', '--scale', scale[0], '--no-preview'], cwd=enh, env=env,
-                     title='enhance %s' % scale)
+        self.log('  %s textures: every texture through Real-ESRGAN%s, then DDS packing (this takes hours; it resumes if interrupted)'
+                 % (scale, ' (Vulkan)' if engine == 'vulkan' else ''))
+        args = [py, enh / 'enhance.py', '--scale', scale[0], '--no-preview']
+        if engine == 'vulkan': args += ['--engine', 'vulkan', '--vulkan', vulkan]
+        self.run_cmd(args, cwd=enh, env=env, hint=ENHANCER_HINT, title='enhance %s' % scale)
         pack = enh / 'packs' / scale
         if not (pack / 'index.json').is_file(): raise Stop('The %s texture pack was not completed.' % scale)
         target = self.dest / 'game_files' / 'texture_packs' / scale
@@ -1208,7 +1416,7 @@ class Installer:
         target.mkdir(parents=True)
         shutil.move(str(pack / 'textures'), str(target / 'textures'))
         shutil.copy2(pack / 'index.json', target / 'index.json')
-        self.install_enhancer_licenses(videos=(self.dest / 'game_files' / 'Movie' / 'Enhanced' / '2x').is_dir())
+        self.install_enhancer_licenses(videos=(self.dest / 'game_files' / 'Movie' / 'Enhanced' / '2x').is_dir(), vulkan=(engine == 'vulkan'))
         self.log('  installed %s' % target)
 
     def videos(self):
@@ -1217,7 +1425,7 @@ class Installer:
         sources = [p for p in movie.rglob('*.bik') if enhanced not in p.parents]
         if enhanced.is_dir() and len(list(enhanced.rglob('*.mkv'))) >= len(sources):
             self.log('  the enhanced cutscene videos are already installed'); return
-        enh, py = self.enhancer()
+        enh, py = self.enhancer()                        # PyTorch (also after a Vulkan textures setup)
         fmv = enh / 'FMV'
         ff = self.ffmpeg_dir() / 'bin'
         config = json.loads((fmv / 'config.json').read_text(encoding='utf-8'))
@@ -1225,28 +1433,15 @@ class Installer:
         (fmv / 'config.json').write_text(json.dumps(config, indent=2) + '\n', encoding='utf-8')
         env = dict(os.environ); env['PYTHONIOENCODING'] = 'utf-8'
         if not self.state.get('fmv_setup'):
-            self.run_cmd([py, '-B', fmv / 'setup_fmv.py'], cwd=fmv, env=env, title='FMV setup (RealBasicVSR model)')
+            self.run_cmd([py, '-B', fmv / 'setup_fmv.py'], cwd=fmv, env=env, title='FMV setup (RealBasicVSR model)', hint=ENHANCER_HINT)
             self.state['fmv_setup'] = True; self.save()
         self.log('  2x videos: 8 distinct video streams, about 14,700 frames through RealBasicVSR, then encoding (many hours; resumes)')
         self.run_cmd([py, '-B', fmv / 'enhance_all_fmvs.py', '--movie-root', movie, '--output-root', movie / 'Enhanced' / '2x',
-                      '--metadata-root', self.work / 'fmv-metadata', '--no-zip'], cwd=fmv, env=env, title='enhance all cutscenes 2x')
+                      '--metadata-root', self.work / 'fmv-metadata', '--no-zip'], cwd=fmv, env=env, title='enhance all cutscenes 2x', hint=ENHANCER_HINT)
         self.install_enhancer_licenses(videos=True)
 
     def finish(self):
-        ini = self.dest / 'pc_settings.ini'
-        q = 2 if (self.dest / 'game_files/texture_packs/4x/index.json').is_file() else \
-            1 if (self.dest / 'game_files/texture_packs/2x/index.json').is_file() else 0
-        v = 1 if (self.dest / 'game_files/Movie/Enhanced/2x').is_dir() else 0
-        if ini.is_file() and getattr(self, 'ini_ours', True):
-            # First-launch defaults: the best installed textures and the enhanced videos when present.
-            text = ini.read_text(encoding='utf-8')
-            text = re.sub(r'(?m)^TextureQuality=.*$', 'TextureQuality=%d' % q, text)
-            text = re.sub(r'(?m)^FMVQuality=.*$', 'FMVQuality=%d' % v, text)
-            ini.write_text(text, encoding='utf-8')
-        if self.state.get('update') or self.switch_textures:
-            self.update_live_settings(q, v)
-        self.commit_previous()
-        self.write_stamp(ini)
+        self.settle()
         try:
             self.log('  install log: %s' % self.session_log)
         except Exception:
@@ -1309,7 +1504,7 @@ class Installer:
                 self.log('  switched on: %s' % ', '.join(switched))
 
     def write_stamp(self, ini):
-        old = precheck.read_stamp(self.dest) if self.state.get('addons_only') else None
+        old = precheck.read_stamp(self.dest) if self.game_installed() else None      # add-ons, or the game was made final earlier (finalize_core)
         stamp = dict(old or {})
         if not old:
             editor = next(iter(sorted(self.dest.glob('MA2 Scenario Editor*.exe'))), None)
@@ -1373,6 +1568,8 @@ def main():
     ap.add_argument('--jobs', type=int, help='parallel compiles (default: from CPU threads and RAM)')
     ap.add_argument('--keep-work', action='store_true', help='keep the _work folder')
     ap.add_argument('--allow-cpu', action='store_true', help='allow enhancement without an NVIDIA GPU (extremely slow)')
+    ap.add_argument('--upscaler', metavar='ZIP|FOLDER|URL', help='the Vulkan texture upscaler, if this PC has no internet: the file %s '
+                    '(download exactly %s on another PC), a folder with it extracted, or a URL' % (upscaler_fetch.SPEC['archive'], upscaler_fetch.SPEC['urls'][0]))
     ap.add_argument('--install-build-tools', action='store_true',
                     help='if no C++ compiler is installed, download and install Microsoft\'s free C++ Build Tools')
     ap.add_argument('--update', action='store_true', help='update an existing install in place, keeping settings and saves')
@@ -1394,6 +1591,9 @@ def main():
     if a.ffmpeg:                                  # a URL is passed as it is; a file or folder as a full path
         os.environ['MA2_FFMPEG_SOURCE'] = (a.ffmpeg.strip() if ffmpeg_fetch.is_url(a.ffmpeg.strip())
                                            else str(Path(precheck.clean_path(a.ffmpeg)).resolve()))
+    if a.upscaler:                                # a URL is passed as it is; a file or folder as a full path
+        os.environ['MA2_UPSCALER_SOURCE'] = (a.upscaler.strip() if upscaler_fetch.is_url(a.upscaler.strip())
+                                             else str(Path(precheck.clean_path(a.upscaler)).resolve()))
     if not a.dest and (a.uninstall or not a.diagnostics): ap.error('the following arguments are required: --dest')
     if a.uninstall:
         sys.exit(run_uninstall(a))
@@ -1416,6 +1616,10 @@ def main():
     try:
         inst.run()
     except Stop as e:
+        if e.kind == 'extras':                     # the game is installed; only optional content failed: exit code 2
+            print('\n%s' % e, file=sys.stderr)
+            for note in inst.notes: print('Note: %s' % note)
+            sys.exit(2)
         print('\nINSTALL STOPPED: %s' % e, file=sys.stderr); sys.exit(1)
     except KeyboardInterrupt:
         inst.cancel(); print('\nCancelled; run again to resume.', file=sys.stderr); sys.exit(1)

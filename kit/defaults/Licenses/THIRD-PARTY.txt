@@ -53,6 +53,12 @@ Enhanced content (only if you choose it; downloaded during the install)
   Real-ESRGAN (BSD 3-clause), BasicSR (Apache 2.0), DirectXTex texconv (MIT)
   - AI upscaling of textures - Enhancer\Real-ESRGAN.txt, Enhancer\BasicSR.txt,
   Enhancer\DirectXTex.txt
+  realesrgan-ncnn-vulkan 20220424 (MIT) with ncnn (BSD 3-clause) and the
+  Microsoft OpenMP runtime vcomp140.dll - AI upscaling of textures through
+  Vulkan on graphics cards without CUDA - Enhancer\realesrgan-ncnn-vulkan.txt
+  (only when textures were made that way) - downloaded from
+  https://github.com/xinntao/Real-ESRGAN/releases during the install
+  (archive and files checked against their SHA-256)
   Video upscaling tools (RealBasicVSR and PyTorch, their own licences) -
   enhanced cutscene videos - Enhancer\FMV-NOTICE.txt
   The Enhancer folder is created only when enhanced content is made.

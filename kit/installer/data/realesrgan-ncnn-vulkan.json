@@ -1,0 +1,25 @@
+{
+ "_about": "Real-ESRGAN's own Windows build of realesrgan-ncnn-vulkan, which makes the enhanced textures on graphics cards without CUDA (AMD, Intel). The installer downloads it on the player's PC (it is not inside the installer), checks the archive and every file it uses against these SHA-256 values, and unpacks only those files.",
+ "version": "realesrgan-ncnn-vulkan 20220424 (Real-ESRGAN release v0.2.5.0)",
+ "licence": "MIT (realesrgan-ncnn-vulkan), BSD 3-clause (ncnn, and the Real-ESRGAN model)",
+ "source": "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan",
+ "archive": "realesrgan-ncnn-vulkan-20220424-windows.zip",
+ "archive_sha256": "abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d",
+ "archive_bytes": 45474481,
+ "urls": [
+  "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip"
+ ],
+ "folder": "realesrgan-ncnn-vulkan-20220424",
+ "files": {
+  "realesrgan-ncnn-vulkan.exe": "07e49f7cbb4ede01ae4dd4c399d3a7e5846e3d2085c3128eff881e55cb7b1a0c",
+  "vcomp140.dll": "8f72ef2e483465444b2059fc6744d6cb22cd8d8a27f6fa56befd2a42dcd0f78b",
+  "models/realesrgan-x4plus.bin": "713ee713b0353afaa27976f0563a64a5043bd70b9bd8936c2e26e25ebcdbcddf",
+  "models/realesrgan-x4plus.param": "35330ececcea33b6c397a72548e788d5d53becee4734c50b7fada36e89f10a86"
+ },
+ "sizes": {
+  "realesrgan-ncnn-vulkan.exe": 6161408,
+  "vcomp140.dll": 182704,
+  "models/realesrgan-x4plus.bin": 33424520,
+  "models/realesrgan-x4plus.param": 116029
+ }
+}

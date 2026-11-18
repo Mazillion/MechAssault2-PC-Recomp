@@ -6,8 +6,7 @@
  "archive": "ffmpeg-9.0.2-full_build-shared.zip",
  "archive_sha256": null,
  "urls": [
-  "https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-full_build-shared.zip",
-  "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.2-full_build-shared.zip"
+  "https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-full_build-shared.zip"
  ],
  "archive_root": "ffmpeg-9.0.2-full_build-shared",
  "dest": "kit/source/game/vendor/ffmpeg-9.0.2-full_build-shared",

@@ -1,5 +1,5 @@
 """Replays the wizard end to end against a recorded install log (no compile), checks each page and saves screenshots.
-  python -B ui_flow.py [scenario ...]      scenarios: happy fail cancel update resume dpi plain fonts
+  python -B ui_flow.py [scenario ...]      scenarios: happy fail cancel update resume dpi plain fonts extras gpu
 """
 import json, os, shutil, sys, tempfile, time
 from pathlib import Path
@@ -105,7 +105,7 @@ def scenario_happy():
 
 def scenario_fail():
     d = fresh_env(); root, app = rig.make()
-    kinds = ['build_failed', 'access_denied', 'out_of_memory', 'disk_full', 'compiler', 'network', 'disc', 'unexpected', 'cancelled']
+    kinds = ['build_failed', 'compile_error', 'access_denied', 'out_of_memory', 'disk_full', 'compiler', 'network', 'disc', 'unexpected', 'cancelled', 'extras']
     check('failure copy covers every kind', all(k in __import__('gui').FAILURES for k in kinds))
     os.environ['MA2_FAKE_FAIL'] = 'build:build_failed'
     walk_to_loadout(root, app, d)
@@ -695,6 +695,87 @@ def scenario_layout():
     finally:
         precheck.MA2_SUPPORT_URL = ''
 
+def scenario_extras():
+    """1.1.2: a failed optional step (enhanced textures) says the game is installed; Resume tries only the extras again."""
+    for kind in ('unexpected', 'cancelled'):
+        d = fresh_env(); root, app = rig.make()
+        os.environ['MA2_FAKE_EXTRA'] = 'textures-2x'; os.environ['MA2_FAKE_FAIL'] = 'textures-2x:%s' % kind
+        walk_to_loadout(root, app, d)
+        click(app, 'Install'); until(root, lambda: app.pages['install'].failed, 90)
+        p = app.pages['install']; pump(root, 0.4)
+        check('extras[%s]: failure kind is extras' % kind, p.failed and p.failed[0] == 'extras', p.failed)
+        check('extras[%s]: headline says the game is installed' % kind, p.fail_head.cget('text') == 'MechAssault 2 is installed and ready to play.', p.fail_head.cget('text'))
+        msg = p.fail_msg.cget('text')
+        check('extras[%s]: message names the extra, says it once, offers Resume' % kind, 'The 2x enhanced textures' in msg and 'Close the installer and play' in msg
+              and 'MechAssault 2 is installed' not in msg and 'Resume' in msg
+              and ('were not made: the install was stopped' in msg if kind == 'cancelled' else 'could not be made' in msg), msg)
+        check('extras[%s]: kicker is not SYSTEM FAULT' % kind, app.kicker_l.cget('text') == 'INSTALLED', app.kicker_l.cget('text'))
+        b = buttons(app)
+        check('extras[%s]: Resume and Close offered, no Systems check / Choose disc image' % kind, {'Resume', 'Close'} <= set(b)
+              and 'Systems check' not in b and 'Choose disc image' not in b, b)
+        if kind == 'unexpected': snap(root, SHOTS / 'fail-extras.png')
+        os.environ.pop('MA2_FAKE_FAIL'); click(app, 'Resume'); until(root, lambda: app.cur.key == 'done', 90)
+        check('extras[%s]: Resume runs to the end' % kind, app.cur.key == 'done', app.cur.key)
+        root.destroy(); os.environ.pop('MA2_FAKE_EXTRA', None)
+    # 1.1.2: a compiler / linker error points at the error and at a simple install folder, not at antivirus
+    d = fresh_env(); root, app = rig.make(); os.environ['MA2_FAKE_FAIL'] = 'build:compile_error'
+    walk_to_loadout(root, app, d)
+    click(app, 'Install'); until(root, lambda: app.pages['install'].failed, 90)
+    p = app.pages['install']; pump(root, 0.4); msg = p.fail_msg.cget('text')
+    check('compile error: names the compiler or linker error', p.failed and p.failed[0] == 'compile_error' and 'compiler or linker reported an error' in msg, msg)
+    check('compile error: suggests a simple folder, does not lead with antivirus', 'C:\\Games\\MechAssault 2' in msg and 'antivirus' not in msg.lower(), msg)
+    b = __import__('gui').FAILURES['build_failed'][1]
+    check('build failed (no compiler error): antivirus is not the first suspect', not b.startswith('This is usually caused by antivirus'), b)
+    os.environ.pop('MA2_FAKE_FAIL'); root.destroy()
+    # the Welcome banner of an install whose extras did not finish: installed, Resume makes only the extras, Discard keeps the game
+    d = fresh_env(); dest = d / 'Games' / 'MechAssault 2'
+    dummy_install(dest, {'kit_id': install.KIT_ID, 'version': install.VERSION},
+                  {'update': True, 'core_done': True, 'done': ['check', 'verify', 'build', 'install'], 'options': {'textures': ['4x'], 'videos': False}})
+    remember(dest)
+    root, app = rig.make(); pump(root, 0.6)
+    w = app.pages['welcome']; texts = [c.cget('text') for c in banner_buttons(w)]
+    label = ' '.join(c.cget('text') for c in w.banner.winfo_children() if c.winfo_class() == 'Label')
+    check('extras banner: says installed and ready to play', 'is installed in' in label and 'ready to play' in label and 'interrupted' not in label, label)
+    check('extras banner: Resume / Discard / Collect diagnostics', texts == ['Resume', 'Discard', 'Collect diagnostics'], texts)
+    check('extras banner: Resume needs no disc', not app.needs_disc() if (app.action.set('resume'), app.dest.set(str(dest))) else True)
+    snap(root, SHOTS / 'extras-banner.png')
+    app.answer = True
+    [c for c in banner_buttons(w) if c.cget('text') == 'Discard'][0].invoke(); pump(root, 0.4)
+    check('extras banner: Discard asks and says the game stays', app.confirms and 'The game stays installed' in app.confirms[-1], app.confirms)
+    check('extras banner: Discard keeps the game, drops the unfinished work', precheck.is_install(dest) and not (dest / '_work').exists())
+    texts2 = [c.cget('text') for c in banner_buttons(w)]
+    check('extras banner: then the up-to-date banner (Add enhanced content)', 'Add enhanced content' in texts2, texts2)
+    root.destroy()
+
+def scenario_gpu():
+    """1.1.2: the texture options follow the graphics card. NVIDIA: PyTorch (as before, videos too); AMD / Intel: the textures through
+    Vulkan with a short note, the videos locked; no card: everything locked."""
+    d = fresh_env(); root, app = rig.make(); walk_to_loadout(root, app, d)
+    page = app.pages['loadout']; G = precheck.GB
+    def show(gpus):
+        app.facts['reco'] = precheck.recommend_textures(gpus); page.on_gpus(); pump(root, 0.2)
+        return {k: str(rb.cget('state')) for k, (rb, tag) in page.opts.items()}, str(page.vid.cget('state')), page.why.cget('text')
+    for name, vendor in (('AMD Radeon RX 7800 XT', 'amd'), ('Intel(R) Arc(TM) A770 Graphics', 'intel'), ('Intel(R) Iris(R) Xe Graphics', 'intel')):
+        states, vid, why = show([{'name': name, 'vram': 2 * G, 'vendor': vendor}])
+        check('gpu[%s]: 2x and 4x offered' % vendor, states['2x'] == 'normal' and states['4x'] == 'normal', states)
+        check('gpu[%s]: cutscenes locked (NVIDIA only)' % vendor, vid == 'disabled', vid)
+        check('gpu[%s]: note says Vulkan, new and untested on AMD/Intel' % vendor,
+              name in why and 'through Vulkan' in why and 'not yet tested on AMD or Intel cards' in why and 'cutscenes need an NVIDIA' in why, why)
+        check('gpu[%s]: 2x/4x not recommended (untested); Original stays the advice' % vendor, not any('RECOMMENDED' in page.opts[k][1].cget('text') for k in ('2x', '4x')) and app.facts['reco']['rec'] == 'original')
+    app.texture.set('2x'); app.refresh(); pump(root, 0.2)
+    snap(root, SHOTS / 'gpu-vulkan-loadout.png')
+    check('gpu[amd]: summary space has no PyTorch download', install.needed_space({'textures': ['2x'], 'videos': False}, set(), 'vulkan') < install.needed_space({'textures': ['2x'], 'videos': False}, set()))
+    check('gpu[amd]: Install still offered with 2x picked', 'Install' in buttons(app) and buttons(app)['Install'] == 'normal', buttons(app))
+    states, vid, why = show([{'name': 'NVIDIA GeForce RTX 4070', 'vram': 12 * G, 'vendor': 'nvidia'}])
+    check('gpu[nvidia]: as before: 4x recommended, cutscenes offered, no Vulkan note', states['4x'] == 'normal' and vid == 'normal' and 'Vulkan' not in why
+          and 'RECOMMENDED' in page.opts['4x'][1].cget('text'), (states, vid, why))
+    states, vid, why = show([{'name': 'NVIDIA GeForce GTX 1650', 'vram': 4 * G, 'vendor': 'nvidia'}])
+    check('gpu[nvidia 4 GB]: as before: locked', states['2x'] == 'disabled' and vid == 'disabled' and 'NVIDIA GPU with 8 GB' in why, (states, vid, why))
+    states, vid, why = show([])
+    check('gpu[none]: everything locked', states['2x'] == 'disabled' and states['4x'] == 'disabled' and vid == 'disabled', (states, vid))
+    check('gpu[none]: the locked choice falls back to Original', app.texture.get() == 'original')
+    root.destroy()
+
 def scenario_plain():
     fresh_env(); root, app = rig.make(plain=True); pump(root, 0.5)
     snap(root, SHOTS / 'plain-welcome.png')
@@ -715,7 +796,7 @@ def scenario_fonts():
 
 if __name__ == '__main__':
     (WORK / 'tmp').mkdir(exist_ok=True)
-    names = sys.argv[1:] or ['happy', 'fail', 'cancel', 'update', 'resume', 'real', 'small', 'dpi', 'plain', 'fonts', 'disk', 'checks', 'crash', 'back', 'folder', 'work', 'uninstall', 'tools', 'diag', 'diag_none', 'diag_interrupted', 'diag_fail', 'layout']
+    names = sys.argv[1:] or ['happy', 'fail', 'cancel', 'update', 'resume', 'real', 'small', 'dpi', 'plain', 'fonts', 'disk', 'checks', 'crash', 'back', 'folder', 'work', 'uninstall', 'tools', 'diag', 'diag_none', 'diag_interrupted', 'diag_fail', 'layout', 'extras', 'gpu']
     for n in names:
         print('== %s' % n)
         try:

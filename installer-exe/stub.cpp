@@ -449,7 +449,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     if (!unpack_kit(u, t, console)) return 1;
 
     // A clean Python environment for the kit's runtime and everything it starts.
-    for (const wchar_t *v : {L"PYTHONHOME", L"PYTHONPATH", L"PYTHONSTARTUP", L"PYTHONEXECUTABLE", L"VIRTUAL_ENV"})
+    for (const wchar_t *v : {L"PYTHONHOME", L"PYTHONPATH", L"PYTHONSTARTUP", L"PYTHONEXECUTABLE", L"VIRTUAL_ENV",
+                           L"TCL_LIBRARY", L"TK_LIBRARY", L"TCLLIBPATH"})    // another Python's Tcl/Tk (Anaconda, MSYS2) crashes tk.Tk()
         SetEnvironmentVariableW(v, nullptr);
     SetEnvironmentVariableW(L"PYTHONNOUSERSITE", L"1");
     SetEnvironmentVariableW(L"PYTHONDONTWRITEBYTECODE", L"1");
