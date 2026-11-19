@@ -78,6 +78,7 @@ struct Unpack {
 // folder is written as %USERPROFILE%. The newest 10 are kept.
 static FILE *g_log = nullptr;
 static std::wstring g_profile;
+static std::wstring g_log_path;            // this run's stub log (the start-up report copies it)
 
 static void slog(std::wstring line) {
     if (!g_log) return;
@@ -103,6 +104,68 @@ static void open_stub_log() {
     SYSTEMTIME st; GetLocalTime(&st); wchar_t name[64];
     swprintf(name, 64, L"stub-%04d%02d%02d-%02d%02d%02d.log", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
     g_log = _wfsopen((d / name).c_str(), L"a, ccs=UTF-8", _SH_DENYWR);
+    if (g_log) g_log_path = (d / name).wstring();
+}
+
+// One id per installer run, carried through every log (this stub's, the window's, the install's, the Build Tools', the game's
+// environment) so the files of one report can be matched. Kept when a parent already set it.
+static std::wstring session_id() {
+    wchar_t have[64];
+    DWORD n = GetEnvironmentVariableW(L"MA2_SESSION_ID", have, 64);
+    if (n && n < 64) return std::wstring(have, n);
+    FILETIME ft; GetSystemTimeAsFileTime(&ft);
+    uint64_t v = ((uint64_t)ft.dwHighDateTime << 32 | ft.dwLowDateTime) ^ ((uint64_t)GetCurrentProcessId() << 40) ^ (GetTickCount64() * 2654435761ull);
+    wchar_t id[24]; swprintf(id, 24, L"%08X", (unsigned)(v ^ (v >> 32)));
+    SetEnvironmentVariableW(L"MA2_SESSION_ID", id);
+    return id;
+}
+
+// When the installer window could not start (or closed with a crash), a small text export of what is known goes to
+// %LOCALAPPDATA%\MechAssault2\Diagnostics\MA2-startup-<time>.txt: this run's stub log and the end of the newest window log, the profile
+// folder written as %USERPROFILE%. Returns its path ('' if it could not be written). Never throws.
+static std::wstring read_tail_utf8(const fs::path &p, size_t max_bytes) {
+    FILE *f = _wfsopen(p.c_str(), L"rb", _SH_DENYNO);
+    if (!f) return L"";
+    _fseeki64(f, 0, SEEK_END); long long size = _ftelli64(f);
+    long long from = size > (long long)max_bytes ? size - (long long)max_bytes : 0;
+    _fseeki64(f, from, SEEK_SET);
+    std::string data((size_t)(size > from ? size - from : 0), '\0');
+    data.resize(fread(data.data(), 1, data.size(), f)); fclose(f);
+    if (data.size() >= 3 && (unsigned char)data[0] == 0xEF && (unsigned char)data[1] == 0xBB && (unsigned char)data[2] == 0xBF) data.erase(0, 3);
+    return widen(data);
+}
+
+static std::wstring export_startup_logs(const std::wstring &why) {
+    try {
+        std::vector<wchar_t> buf(32768);
+        DWORD n = GetEnvironmentVariableW(L"LOCALAPPDATA", buf.data(), (DWORD)buf.size());
+        if (!n || n >= buf.size()) return L"";
+        fs::path base = fs::path(std::wstring(buf.data(), n)) / L"MechAssault2";
+        std::error_code ec; fs::create_directories(base / L"Diagnostics", ec);
+        if (g_log) fflush(g_log);
+        std::wstring text = L"MechAssault 2 Recomp Installer: start-up report\nReason: " + why + L"\n\n--- installer start log ---\n";
+        if (!g_log_path.empty()) text += read_tail_utf8(g_log_path, 64 * 1024);
+        fs::path newest; fs::file_time_type best{};
+        for (fs::directory_iterator it(base / L"Logs", ec), end; !ec && it != end; it.increment(ec)) {
+            std::wstring f = it->path().filename().wstring();
+            if (f.rfind(L"installer-ui-", 0) == 0) {
+                std::error_code tec; auto t = it->last_write_time(tec);
+                if (!tec && (newest.empty() || t > best)) { best = t; newest = it->path(); }
+            }
+        }
+        if (!newest.empty()) text += L"\n--- " + newest.filename().wstring() + L" (end) ---\n" + read_tail_utf8(newest, 64 * 1024);
+        for (size_t at; !g_profile.empty() && (at = text.find(g_profile)) != std::wstring::npos;) text.replace(at, g_profile.size(), L"%USERPROFILE%");
+        SYSTEMTIME st; GetLocalTime(&st); wchar_t name[64];
+        swprintf(name, 64, L"MA2-startup-%04d%02d%02d-%02d%02d%02d.txt", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+        fs::path out = base / L"Diagnostics" / name;
+        FILE *f = _wfsopen(out.c_str(), L"w, ccs=UTF-8", _SH_DENYWR);
+        if (!f) return L"";
+        fwprintf(f, L"%ls", text.c_str()); fclose(f);
+        slog(L"start-up report written: " + out.wstring());
+        return out.wstring();
+    } catch (...) {
+        return L"";
+    }
 }
 
 static bool read_at(HANDLE f, uint64_t offset, void *buf, size_t n) {
@@ -438,6 +501,7 @@ static DWORD run(const std::wstring &cmd, const std::wstring &cwd, bool console)
     if (!CreateProcessW(nullptr, line.data(), nullptr, nullptr, inherit, flags, nullptr, cwd.c_str(), &si, &pi)) {
         DWORD e = GetLastError();
         slog(L"could not start it: Win32 error " + std::to_wstring(e));
+        export_startup_logs(L"Python could not be started (Win32 error " + std::to_wstring(e) + L")");
         if (e == 2 || e == 3 || e == 5 || e == 225)
             fail(L"Your antivirus removed or blocked a file the installer needs (error " + std::to_wstring(e) + L"). Restore it from quarantine, "
                  L"or allow %TEMP%\\MA2RecompInstaller-*, then run the installer again.", console);
@@ -481,7 +545,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     }
     INITCOMMONCONTROLSEX icc = {sizeof icc, ICC_PROGRESS_CLASS}; InitCommonControlsEx(&icc);
     open_stub_log();
-    slog(std::wstring(L"MechAssault 2 Recomp Installer starting (") + (console ? L"command line" : L"window") + L")");
+    slog(std::wstring(L"MechAssault 2 Recomp Installer starting (") + (console ? L"command line" : L"window") + L"), session " + session_id());
 
     std::wstring caller_cwd(32768, L'\0');        // console runs keep the folder they were started in: relative paths mean what the user meant
     caller_cwd.resize(GetCurrentDirectoryW((DWORD)caller_cwd.size(), caller_cwd.data()));
@@ -536,8 +600,11 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     for (int attempt = 0; attempt < 10 && fs::exists(kit); attempt++) { fs::remove_all(kit, ec); if (fs::exists(kit)) Sleep(500); }
     ReleaseMutex(single);
     // The window closes with 0, or with 3 after it has shown its own "could not start" box. Anything else is a crash with nobody watching.
-    if (!console && code != 0 && code != 3)
-        fail(L"The installer closed unexpectedly (code " + std::to_wstring(code) + L"). A log may be in %LOCALAPPDATA%\\MechAssault2\\Logs.", false);
+    if (!console && code != 0 && code != 3) {
+        std::wstring report = export_startup_logs(L"the installer window closed with code " + std::to_wstring(code));
+        fail(L"The installer closed unexpectedly (code " + std::to_wstring(code) + L"). " + (report.empty() ?
+             std::wstring(L"A log may be in %LOCALAPPDATA%\\MechAssault2\\Logs.") : L"Details were saved to " + report + L"."), false);
+    }
     return (int)code;
 }
 #endif

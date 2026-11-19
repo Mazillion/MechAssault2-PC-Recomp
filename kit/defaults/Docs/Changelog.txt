@@ -4,6 +4,22 @@ MechAssault 2 PC recompilation - changes
 You have version {{VERSION}} (build {{BUILD}}).
 
 
+1.1.4
+-----
+- A new, simpler installer window: choose your disc image, press Install.
+- The installer fixes more problems on its own, such as low memory, a busy
+  file or an interrupted download.
+- When a download fails, the installer says why (no internet, a Wi-Fi
+  login page, a proxy).
+- After a restart needed by the Microsoft C++ tools, the installer carries
+  on by itself.
+- On a brand-new Windows PC, the FFmpeg download no longer stops with a
+  "check your internet" message.
+- In the menus, the difficulty list and its arrows work with the mouse,
+  and on the name entry screen Back and Enter can be clicked. With a
+  keyboard or mouse, Enter there is labelled "Done".
+- The scenario editor is the same as in 1.1.3.
+
 1.1.3
 -----
 - With HD textures, some textures no longer show grey for a moment before

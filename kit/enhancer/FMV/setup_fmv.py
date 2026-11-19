@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -35,6 +36,18 @@ def download_file(url: str, target: Path, sha256=None):
     temp = target.with_name(target.name + ".part")
     request = urllib.request.Request(url, headers={"User-Agent": "MechAssault2-FMV-Enhancer"})
     print(f"Downloading {target.name}...", flush=True)
+    folder = os.environ.get("MA2_INSTALLER_DIR")       # the installer's download helper: resume, retries, the cause named, a cache
+    if folder and (Path(folder) / "download.py").is_file():
+        if folder not in sys.path:
+            sys.path.insert(0, folder)
+        import download as helper
+        try:
+            helper.fetch(url, temp, lambda line: print(line, flush=True), digest=sha256)
+        except helper.DownloadError as error:
+            raise RuntimeError(f"Could not download {target.name} from {url} ({error}). Check your internet connection and press Resume; "
+                               "if the address no longer works, the model's host has moved or removed the file.") from error
+        temp.replace(target)
+        return
     try:
         with urllib.request.urlopen(request, timeout=60) as remote, temp.open("wb") as local:
             while block := remote.read(1024 * 1024):

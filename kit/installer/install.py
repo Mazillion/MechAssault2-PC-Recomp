@@ -50,6 +50,8 @@ sys.path.insert(0, str(HERE))
 import precheck                                   # noqa: E402  (shared checks: disc image, folder, settings merge)
 import ffmpeg_fetch                               # noqa: E402  (FFmpeg: downloaded on this PC, every file checked)
 import upscaler_fetch                             # noqa: E402  (the Vulkan texture upscaler: downloaded, every file checked)
+import download as dl                             # noqa: E402  (every download: resume, retries, causes named, per-user cache)
+os.environ.setdefault('MA2_INSTALLER_DIR', str(HERE))       # the Enhancer's setup scripts use the same download helper
 RELEASE = json.loads((HERE / 'data' / 'release.json').read_text(encoding='utf-8'))
 VERSION = RELEASE.get('date', 'dev')              # the release date string (KITSRC/VERSION line 2); install_relation compares it
 PUBLIC_VERSION = RELEASE.get('version', 'dev')    # the public version (KITSRC/VERSION line 1), e.g. 1.0.2
@@ -82,6 +84,53 @@ BUILD_TOOLS_EXIT = {
 }
 REBOOT = ("Microsoft's C++ Build Tools are installed, but Windows must restart before they can be used. Restart the PC, then open "
           'the installer again and press Resume (or Install).')
+
+def reboot_pending():
+    """{'windows': bool, 'vs': bool}: Windows (servicing / Windows Update) or a Visual Studio instance (vswhere isRebootRequired) waits for a
+    restart. Informational only: it never stops an install by itself. Any error counts as False."""
+    out = {'windows': False, 'vs': False}
+    try:
+        import winreg
+        for key in (r'SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending',
+                    r'SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired'):
+            try:
+                winreg.CloseKey(winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key)); out['windows'] = True
+            except OSError:
+                pass
+    except Exception:
+        pass
+    try:
+        out['vs'] = any(i.get('isRebootRequired') for i in vs_instances())
+    except Exception:
+        pass
+    return out
+
+RESUME_VALUE = 'MechAssault2RecompResume'
+RUNONCE = r'Software\Microsoft\Windows\CurrentVersion\RunOnce'
+
+def schedule_resume_after_restart(command):
+    r"""HKCU\...\RunOnce runs `command` once at the next sign-in (Windows removes the entry when it runs): the installer opens again by
+    itself after the restart the Build Tools asked for. True if written. (UI hook: the window decides when to call it.)"""
+    try:
+        import winreg
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, RUNONCE) as k:
+            winreg.SetValueEx(k, RESUME_VALUE, 0, winreg.REG_SZ, command)
+        return True
+    except Exception:
+        return False
+
+def clear_resume_after_restart():
+    """Remove our RunOnce entry (a resumed or finished install no longer needs it). True if one was removed."""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUNONCE, 0, winreg.KEY_SET_VALUE) as k:
+            winreg.DeleteValue(k, RESUME_VALUE)
+        return True
+    except Exception:
+        return False
+
+REBOOT_HINT = ('Windows is still waiting for the restart the C++ Build Tools asked for, which can stop the build: restart the PC, '
+               'then press Resume (finished steps are kept).')
 
 def build_tools_urls(build=None):
     """Windows 10 (build < 22000) gets only the VS 2022 Build Tools: VS 2026 does not list Windows 10 as supported."""
@@ -202,11 +251,20 @@ def compiler_error(tail):
 
 # Numeric codes first (WinError, errno, NTSTATUS, MSVC / LNK): they read the same on every Windows language. The English text below is the fallback.
 CODE_KINDS = [
-    ('out_of_memory', r'\b(?:C1060|C1076|C3859|LNK1102)\b|\[WinError (?:8|14|1455)\]|\[Errno 12\]|0xC0000017|0xC000012D'),
+    ('out_of_memory', r'\b(?:C1002|C1060|C1076|C3859|LNK1102)\b|\[WinError (?:8|14|1455)\]|\[Errno 12\]|0xC0000017|0xC000012D'),
     ('disk_full', r'\[WinError (?:39|112)\]|\[Errno 28\]|\bLNK1106\b'),
     ('access_denied', r'\[WinError (?:5|32|33|225|1224|4551)\]|\[Errno 13\]|\b(?:LNK1104|LNK1168|C1041)\b|0xC0000022'),
     ('network', r'\[WinError (?:10051|10053|10054|10060|10061|10065|11001|11002|11004)\]|\[Errno 1100[124]\]|HTTP Error \d{3}'),
 ]
+
+# A build or link that failed on the PATH it runs under (link.exe splits options at commas, an ANSI response file mangles accented
+# letters, cmd.exe chokes on & or %): retried once in a plain folder (Installer.build). C1083 / LNK1181 = a file it could not open.
+PATH_ERROR = re.compile(r'\b(?:LNK1117|LNK1181|C1083|RC1015|RC2135|RC1110)\b|(?i:filename, directory name, or volume label syntax is incorrect|'
+                        r'system cannot find the path specified|is not recognized as an internal or external command)')
+
+def path_error(tail):
+    """True when a failed build's output looks like a path problem (see PATH_ERROR)."""
+    return any(PATH_ERROR.search(line) for line in tail)
 
 def classify(tail, title=''):
     """The failure kind for a failed tool, from the end of its output: numeric codes first, then English words."""
@@ -415,13 +473,45 @@ def needed_space(opts, done, engine='pytorch', video_engine=None):
     if opts['videos'] and 'videos' not in done: need += 25 * GB
     return need
 
+def space_plan(dest, opts, done=(), engine='pytorch', video_engine=None, build_tools=False, temp=None):
+    """Free space on EVERY drive the install writes, for a live total while options change (UI hook; check() logs it):
+    the install drive (game files, the build, the extras and PyTorch: needed_space), the TEMP drive (about 2 GB while the extras' tools
+    unpack) and the system drive (about 8 GB when the Build Tools are still to be installed). Returns
+    {'drives': [{'drive', 'free', 'core', 'extras', 'what'}], 'core_fits', 'all_fit', 'short': [drive letters short of space]}.
+    Never raises: a drive whose free space cannot be read counts as fitting (as 1.1.3 did)."""
+    done = set(done)
+    drives = {}
+    def add(path, core, extras, what):
+        d = (os.path.splitdrive(os.path.abspath(str(path)))[0] or str(path)[:2]).upper()
+        e = drives.setdefault(d, {'drive': d, 'free': None, 'core': 0, 'extras': 0, 'what': [], 'path': str(path)})
+        e['core'] += core; e['extras'] += extras
+        if what not in e['what']: e['what'].append(what)
+    try:
+        core = needed_space({'textures': [], 'videos': False}, done)
+        total = needed_space(opts, done, engine, video_engine or engine)
+        add(dest, core, max(0, total - core), 'install')
+        if opts.get('textures') or opts.get('videos'):
+            add(temp or os.environ.get('TEMP') or dest, 0, 2 * GB, 'temp')
+        if build_tools:
+            add((os.environ.get('SystemDrive', 'C:') + '\\'), 8 * GB, 0, 'buildtools')
+        for e in drives.values():
+            try: e['free'] = shutil.disk_usage(str(precheck._nearest_existing(e['path']))).free
+            except OSError: e['free'] = None
+    except Exception:
+        return {'drives': list(drives.values()), 'core_fits': True, 'all_fit': True, 'short': []}
+    fits = lambda e, n: e['free'] is None or e['free'] >= n
+    short = [e['drive'] for e in drives.values() if not fits(e, e['core'] + e['extras'])]
+    return {'drives': list(drives.values()), 'core_fits': all(fits(e, e['core']) for e in drives.values()),
+            'all_fit': not short, 'short': short}
+
 # ---------------------------------------------------------------------------- Build Tools, shortcuts
 
 def install_build_tools(work, log, cancelled=lambda: False):
     """Download Microsoft's Build Tools bootstrapper, check its Microsoft signature, and run it
     (it asks for administrator approval and shows its own progress)."""
-    import urllib.request
     work = Path(work); work.mkdir(parents=True, exist_ok=True)
+    try: log('  session %s' % precheck.session_id())                  # the Build Tools log matches the other logs of this run
+    except Exception: pass
     need = 8 * GB
     sysdrive = os.environ.get('SystemDrive', 'C:') + '\\'
     try:
@@ -432,18 +522,24 @@ def install_build_tools(work, log, cancelled=lambda: False):
         raise Stop('Microsoft\'s C++ Build Tools need about 8 GB free on %s (%.1f GB free). Free up space there and try again.'
                    % (sysdrive, free / GB), 'disk_full')
     boot = work / 'vs_buildtools.exe'
+    why = ''
     for url in build_tools_urls():
         try:
             log('  downloading Microsoft C++ Build Tools installer: %s' % url)
-            req = urllib.request.Request(url, headers={'User-Agent': 'MechAssault2-Recomp-Installer'})
-            with urllib.request.urlopen(req, timeout=120) as r, open(boot, 'wb') as f: shutil.copyfileobj(r, f)
+            dl.fetch(url, boot, log, cancelled, max_bytes=64 << 20, magic=b'MZ', timeout=120, checked=True)   # checked: Microsoft signature below
             break
-        except OSError as e:
-            log('    not available (%s)' % e)
+        except dl.Cancelled:
+            raise Stop('Cancelled.', 'cancelled')
+        except dl.DownloadError as e:
+            log('    not available (%s)' % e); why = str(e)
     else:
-        raise Stop('Could not download the Microsoft C++ Build Tools (no internet connection?). ' + NO_COMPILER, 'network')
+        raise Stop('Could not download the Microsoft C++ Build Tools: %s. ' % (why or 'no internet connection') + NO_COMPILER, 'network')
     if not microsoft_signed(boot):
         raise Stop('The downloaded Build Tools installer is not signed by Microsoft; it was not run.', 'network')
+    pending = reboot_pending()
+    if pending['windows'] or pending['vs']:                      # logged only: the bootstrapper decides (it may answer 3010)
+        log('  (Windows is waiting for a restart: %s; the Build Tools may ask for one too)'
+            % ' and '.join(k for k in ('windows', 'vs') if pending[k]))
     log('  installing Microsoft C++ Build Tools (about 6 GB; approve the administrator prompt; '
         'their own window shows progress, 10-30 minutes)')
 
@@ -618,7 +714,7 @@ def uninstall_plan(dest, delete_user_data=False):
     stamp = precheck.read_stamp(dest) or {}
     ours = ('MechAssault 2 (Recomp).lnk', 'MA2 Scenario Editor.lnk')
     shortcuts = [Path(s) for s in stamp.get('shortcuts', []) if isinstance(s, str) and Path(s).name in ours and Path(s).is_file()]
-    caches = [p for p in (local / 'ShaderCache', local / 'NavCache', Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local') / 'xboxrecomp' / 'shader-cache')
+    caches = [p for p in (local / 'ShaderCache', local / 'NavCache', local / 'Cache', Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local') / 'xboxrecomp' / 'shader-cache')
               if p.exists()]
     return {'dest': dest, 'shortcuts': shortcuts, 'caches': caches, 'user_data': local if delete_user_data and local.exists() else None}
 
@@ -707,7 +803,58 @@ LOCK_CODES = (5, 32, 33)          # access denied / sharing / lock violation: De
 BLOCKED_CODES = {225: 'Windows reported a virus or unwanted software in it and blocked it (WinError 225)',
                  4551: 'Smart App Control blocked it (WinError 4551)'}
 
-def retry_io(fn, what, log=lambda s: None, owned=None):
+def lock_holders(paths):
+    """The programs holding any of these files open, as ['MechAssault 2 (MechAssault 2.exe, pid 123)', ...], from Windows' Restart
+    Manager (no admin needed). Empty when nothing holds them or the question cannot be asked (any error: the 1.1.3 message stays)."""
+    try:
+        return _lock_holders(paths)
+    except Exception:
+        return []
+
+def _lock_holders(paths):
+    files = [str(p) for p in paths if p and Path(p).exists()]
+    if not files: return []
+    class UNIQUE(ctypes.Structure):
+        _fields_ = [('pid', ctypes.c_ulong), ('start', ctypes.c_ulonglong)]
+    class INFO(ctypes.Structure):
+        _fields_ = [('Process', UNIQUE), ('AppName', ctypes.c_wchar * 256), ('ServiceName', ctypes.c_wchar * 64), ('AppType', ctypes.c_int),
+                    ('AppStatus', ctypes.c_ulong), ('Session', ctypes.c_ulong), ('Restartable', ctypes.c_int)]
+    try:
+        rm = ctypes.WinDLL('rstrtmgr')
+    except OSError:
+        return []
+    session, key = ctypes.c_ulong(), ctypes.create_unicode_buffer(64)
+    if rm.RmStartSession(ctypes.byref(session), 0, key) != 0: return []
+    out = []
+    try:
+        arr = (ctypes.c_wchar_p * len(files))(*files)
+        if rm.RmRegisterResources(session, len(files), arr, 0, None, 0, None) != 0: return []
+        needed, count, reason = ctypes.c_uint(), ctypes.c_uint(0), ctypes.c_ulong()
+        r = rm.RmGetList(session, ctypes.byref(needed), ctypes.byref(count), None, ctypes.byref(reason))
+        if r == 234 and needed.value:                                   # ERROR_MORE_DATA: the real call
+            procs = (INFO * needed.value)(); count.value = needed.value
+            if rm.RmGetList(session, ctypes.byref(needed), ctypes.byref(count), procs, ctypes.byref(reason)) == 0:
+                for i in range(count.value):
+                    p = procs[i]; exe = ''
+                    try:
+                        h = ctypes.windll.kernel32.OpenProcess(0x1000, False, p.Process.pid)
+                        if h:
+                            buf = ctypes.create_unicode_buffer(1024); n = ctypes.c_ulong(1024)
+                            if ctypes.windll.kernel32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n)): exe = Path(buf.value).name
+                            ctypes.windll.kernel32.CloseHandle(h)
+                    except Exception:
+                        pass
+                    out.append('%s (%spid %d)' % (p.AppName or exe or 'a program', exe + ', ' if exe and exe != p.AppName else '', p.Process.pid))
+    finally:
+        rm.RmEndSession(session)
+    return out
+
+def holders_text(holders, name):
+    """'MechAssault 2 Scenario Editor (pid 12) is using MA2 Scenario Editor.exe. Close it, then press Resume.'"""
+    return '%s %s using %s. Close %s, then press Resume (finished steps are kept).' % (
+        ' and '.join(holders[:3]), 'is' if len(holders) == 1 else 'are', name, 'it' if len(holders) == 1 else 'them')
+
+def retry_io(fn, what, log=lambda s: None, owned=None, path=None):
     """Run fn() (a copy, replace, rename, unlink or rmtree of an installer-owned file); on WinError 5/32/33 wait and try again,
     0.2 s doubling up to 5 s (about 11 s in all). `owned`: a staged file of ours whose read-only flag may be cleared. WinError 225
     (threat found) and 4551 (Smart App Control) stop at once as Stop('access_denied'); every retry is logged with its code."""
@@ -721,6 +868,11 @@ def retry_io(fn, what, log=lambda s: None, owned=None):
                 log('  %s: %s' % (what, BLOCKED_CODES[code]))
                 raise Stop('Could not %s: %s. Allow the install folder in your antivirus (or turn Smart App Control off), then try again.'
                            % (what, BLOCKED_CODES[code]), 'access_denied', code) from e
+            if code in LOCK_CODES and delay > 5 and path is not None:          # still locked after ~11 s: name who holds it
+                holders = lock_holders([path])
+                if holders:
+                    log('  %s: held by %s' % (what, ', '.join(holders)))
+                    raise Stop(holders_text(holders, Path(path).name), 'access_denied', code) from e
             if code not in LOCK_CODES or delay > 5: raise
             log('  (%s: WinError %d, the file is busy; trying again in %.1f s)' % (what, code, delay))
             if code == 5 and owned is not None:
@@ -743,7 +895,7 @@ def put_back(pairs, log=lambda s: None):
         if not bak.exists(): continue
         try:
             if orig.is_dir(): retry_io(lambda: shutil.rmtree(orig), 'remove %s' % orig.name, log)
-            elif orig.exists(): retry_io(orig.unlink, 'remove %s' % orig.name, log, owned=orig)
+            elif orig.exists(): retry_io(orig.unlink, 'remove %s' % orig.name, log, owned=orig, path=orig)
             retry_io(lambda: bak.rename(orig), 'restore %s' % orig.name, log)
         except (OSError, Stop) as e:
             failed.append([str(orig), str(bak)])
@@ -760,6 +912,52 @@ def start_over(dest):
     shutil.rmtree(dest / '_work', ignore_errors=True)
     if state.get('build_root'): remove_build_folder(state['build_root'], owner=dest)
 
+class JobObject:
+    """A Windows Job Object for the tools the installer starts: every process they start in turn joins it, cancel ends the whole tree
+    at once (TerminateJobObject), and KILL_ON_JOB_CLOSE ends anything still running when the installer itself exits (its handle closes).
+    Each tool starts suspended, joins the job, then runs, so not even its first child can slip out. Falls back to a plain start."""
+    def __init__(self):
+        k = self.k = ctypes.WinDLL('kernel32', use_last_error=True)
+        k.CreateJobObjectW.restype = ctypes.c_void_p; k.CreateJobObjectW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
+        k.SetInformationJobObject.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_ulong]
+        k.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        k.TerminateJobObject.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+        self.handle = k.CreateJobObjectW(None, None)
+        if not self.handle: raise OSError(ctypes.get_last_error(), 'CreateJobObject failed')
+
+        class BASIC(ctypes.Structure):
+            _fields_ = [('PerProcessUserTimeLimit', ctypes.c_int64), ('PerJobUserTimeLimit', ctypes.c_int64), ('LimitFlags', ctypes.c_uint32),
+                        ('MinimumWorkingSetSize', ctypes.c_size_t), ('MaximumWorkingSetSize', ctypes.c_size_t), ('ActiveProcessLimit', ctypes.c_uint32),
+                        ('Affinity', ctypes.c_size_t), ('PriorityClass', ctypes.c_uint32), ('SchedulingClass', ctypes.c_uint32)]
+        class EXTENDED(ctypes.Structure):
+            _fields_ = [('Basic', BASIC), ('Io', ctypes.c_uint64 * 6), ('ProcessMemoryLimit', ctypes.c_size_t), ('JobMemoryLimit', ctypes.c_size_t),
+                        ('PeakProcessMemoryUsed', ctypes.c_size_t), ('PeakJobMemoryUsed', ctypes.c_size_t)]
+        info = EXTENDED(); info.Basic.LimitFlags = 0x2000                  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not k.SetInformationJobObject(self.handle, 9, ctypes.byref(info), ctypes.sizeof(info)):      # JobObjectExtendedLimitInformation
+            raise OSError(ctypes.get_last_error(), 'SetInformationJobObject failed')
+
+    def popen(self, args, **kw):
+        kw['creationflags'] = kw.get('creationflags', 0) | 0x4             # CREATE_SUSPENDED
+        p = subprocess.Popen(args, **kw)
+        joined = bool(self.k.AssignProcessToJobObject(self.handle, int(p._handle)))
+        ntdll = ctypes.WinDLL('ntdll'); ntdll.NtResumeProcess.argtypes = [ctypes.c_void_p]
+        if ntdll.NtResumeProcess(int(p._handle)) != 0:
+            p.kill(); raise OSError('could not start %s' % Path(str(args[0])).name)
+        p.in_job = joined
+        return p
+
+    def terminate(self):
+        return bool(self.k.TerminateJobObject(self.handle, 1))
+
+def tool_job():
+    """The process-wide job for the installer's tools (None if Windows refuses one; then tools start normally)."""
+    global _TOOL_JOB
+    if _TOOL_JOB is None:
+        try: _TOOL_JOB = JobObject()
+        except (OSError, AttributeError): _TOOL_JOB = False
+    return _TOOL_JOB or None
+_TOOL_JOB = None
+
 class Installer:
     def __init__(self, xiso, dest, textures=(), videos=False, jobs=None, keep_work=False, allow_cpu=False,
                  log=print, step=lambda *args: None, install_build_tools=False, vs=None, update=False,
@@ -773,6 +971,7 @@ class Installer:
         self.merge_settings, self.switch_textures = merge_settings, switch_textures
         self.session_log = None; self.logfile = None; self._session = None; self.stage = ''
         self.failed_step = None; self.on_plan = lambda names: None
+        self.on_status = lambda text: None       # a recovery that adds noticeable time: the window adds it to the step line
         self.work = self.dest / '_work'
         self.opts = {'textures': sorted(set(textures)), 'videos': bool(videos)}
         self.jobs, self.keep_work, self.allow_cpu = jobs, keep_work, allow_cpu
@@ -787,7 +986,20 @@ class Installer:
         self.cancelled = True
         p = self.proc
         if p and p.poll() is None:
-            subprocess.run(['taskkill', '/T', '/F', '/PID', str(p.pid)], capture_output=True)
+            try:
+                if getattr(p, 'in_job', False) and tool_job() and tool_job().terminate():
+                    return                             # the whole tree ends at once (only one tool runs at a time)
+            except Exception:
+                pass                                   # the 1.1.3 way below
+            subprocess.run(['taskkill', '/T', '/F', '/PID', str(p.pid)], capture_output=True, creationflags=NO_CONSOLE)
+
+    def event(self, kind, text):
+        """History for Collect diagnostics (state['events'], newest 60): tool exit codes, recoveries, retries, rollbacks."""
+        ev = self.state.setdefault('events', [])
+        ev.append('%s %s: %s' % (time.strftime('%H:%M:%S'), kind, text)); del ev[:-60]
+        if self.work.is_dir():
+            try: self.save()
+            except OSError: pass
 
     def save(self):
         self.work.mkdir(parents=True, exist_ok=True)
@@ -805,9 +1017,18 @@ class Installer:
         if self.cancelled: raise Stop('Cancelled.', 'cancelled')
         if title: self.log('> ' + title)
         flags = NO_CONSOLE | (BELOW_NORMAL if self.low_priority else 0)
-        self.proc = subprocess.Popen([str(a) for a in args], cwd=str(cwd) if cwd else None, env=env,
-                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                     creationflags=flags)
+        kw = dict(cwd=str(cwd) if cwd else None, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                  creationflags=flags)
+        job = tool_job()
+        self.proc = None
+        if job:                                    # in the job: Cancel and the installer's exit end the whole tree
+            try:
+                self.proc = job.popen([str(a) for a in args], **kw)
+            except Exception as e:                 # never worse than 1.1.3: start it the plain way
+                self.log('  (tool not started in the job object: %s; starting it normally)' % e)
+        if self.proc is None:
+            self.proc = subprocess.Popen([str(a) for a in args], **kw)
+        t0 = time.monotonic()
         tail = []
         for raw in self.proc.stdout:
             line = raw.decode('utf-8', errors='replace').rstrip()
@@ -815,6 +1036,7 @@ class Installer:
             tail = (tail + [line])[-40:]
             if not quiet_pattern or not re.search(quiet_pattern, line): self.log('  ' + line)
         code = self.proc.wait(); self.proc = None
+        self.event('tool', '%s: %s (%s)' % (title or Path(str(args[0])).name, exit_text(code), duration(time.monotonic() - t0)))
         if self.cancelled: raise Stop('Cancelled.', 'cancelled')
         if code:
             meanings = [m for m in [exit_meaning(code)] + explain_codes('\n'.join(tail)) if m]
@@ -825,9 +1047,11 @@ class Installer:
             if meanings and hint: extra += ' ' + hint
             kind = classify(tail, title or '')
             if kind == 'compile_error': extra += ' The first error: %s' % compiler_error(tail)[:300]
-            raise Stop('%s failed (%s).%s The last lines are above; the full log is %s.' % (
+            e = Stop('%s failed (%s).%s The last lines are above; the full log is %s.' % (
                 title or Path(str(args[0])).name, exit_text(code), extra, self.session_log or self.work / 'install.log'),
                 kind, code=code)
+            e.tail = tail
+            raise e
 
     def toolkit_env(self):
         env = dict(os.environ)
@@ -876,7 +1100,7 @@ class Installer:
         if pair not in pairs: pairs.append(pair)
         self.save()                               # recorded BEFORE the rename: a crash in between can never lose the backup
         try:
-            retry_io(lambda: path.rename(bak), 'replace %s' % path.name, self.log)
+            retry_io(lambda: path.rename(bak), 'replace %s' % path.name, self.log, path=path)
         except (OSError, Stop) as e:
             pairs.remove(pair); self.save()
             if isinstance(e, Stop): raise
@@ -887,6 +1111,7 @@ class Installer:
         pairs = self.state.get('previous') or []
         if not pairs: return
         failed = put_back(pairs, self.log)
+        self.event('rollback', '%d file(s) put back, %d could not be' % (len(pairs) - len(failed), len(failed)))
         self.state['previous'] = failed               # what could not be put back stays recorded: the next run tries again
         self.state['done'] = [s for s in self.state.get('done', []) if s not in ('assets', 'install')]
         self.save()
@@ -992,6 +1217,8 @@ class Installer:
         created = not self.dest.exists()
         self.log('%s installer, release %s, kit %s, %s' % (build_label(), VERSION, KIT_ID, time.strftime('%Y-%m-%d %H:%M')))
         self.log('  log file: %s' % self.session_log)
+        try: self.log('  session %s' % precheck.session_id())          # the same id is in the stub's and the window's logs
+        except Exception: pass
         self.old_stamp = precheck.read_stamp(self.dest)
         try:
             for f in clean_stale_build_folders(build_bases(self.work.anchor)): self.log('  removed an old build folder: %s' % f)
@@ -1169,6 +1396,13 @@ class Installer:
                     self.log('  Textures: through Vulkan on %s (realesrgan-ncnn-vulkan; %s)' % (card, VULKAN_NOTE))
             if not gpu and self.allow_cpu and 'pytorch' in (getattr(self, 'vid_engine', None), getattr(self, 'tex_engine', None)):
                 self.log('  No NVIDIA GPU: enhancement runs on the CPU (extremely slow).')
+        try:                                      # B5: architecture and preview builds, for the log and diagnostics only
+            w = precheck.windows_info()
+            self.log('  Windows build %s, %s processor' % (w['build'], precheck.native_arch() or 'unknown'))
+            note = precheck.platform_note()
+            if note: self.log('  NOTE: ' + note)
+        except Exception:
+            pass
         if precheck.smart_app_control() == 'enforce':
             self.log('  WARNING: Smart App Control is on. It may block the game this installer builds, because the build is not signed. '
                      'Turning Smart App Control off is a one-way Windows setting; the installer never changes it.')
@@ -1192,6 +1426,12 @@ class Installer:
             need = core
         if free < need:
             raise Stop('Not enough free space: %.1f GB free, about %.1f GB needed on %s.' % (free / GB, need / GB, self.dest.anchor), 'disk_full')
+        try:                                                    # every drive this run writes, one log line each (diagnostics)
+            for e in space_plan(self.dest, self.opts, done, engine, getattr(self, 'vid_engine', None))['drives']:
+                if e['free'] is not None:
+                    self.log('  drive %s: %.1f GB free, needs about %.1f GB (%s)' % (e['drive'], e['free'] / GB, (e['core'] + e['extras']) / GB, ', '.join(e['what'])))
+        except Exception:
+            pass
         temp = Path(os.environ.get('TEMP') or self.dest)        # pip and the AI tools unpack into TEMP (usually C:)
         if (self.opts['textures'] or self.opts['videos']) and temp.anchor.lower() != self.dest.anchor.lower():
             try: tfree = shutil.disk_usage(temp).free
@@ -1408,8 +1648,9 @@ class Installer:
         plain path on the same drive. MSVC's linker reads its response file in the ANSI code page: a build under C:/Users/José
         stopped at the link, unable to open 'JosÃ©/.../avcodec.lib'; and link.exe splits options at commas: a disc-dump folder
         'MechAssault 2 - Lone Wolf (World) (En,Ja,Fr)' stopped it with LNK1117 (syntax error in option 'MANIFESTINPUT:...').
-        The same folder on every run (an interrupted install resumes); removed with the work folder."""
-        if plain_path(self.work): return self.work
+        The same folder on every run (an interrupted install resumes); removed with the work folder. state['plain_build']: a build
+        in the work folder failed on its path (build), so this install builds in the plain folder from then on."""
+        if plain_path(self.work) and not self.state.get('plain_build'): return self.work
         tag = BUILD_PREFIX + hashlib.sha256(str(self.work).encode('utf-8')).hexdigest()[:8]
         for base in build_bases(self.work.anchor):
             root = base / tag
@@ -1431,7 +1672,7 @@ class Installer:
             (root / 'owner.txt').write_text(str(self.dest), encoding='utf-8')            # which install this folder belongs to (stale ones are cleaned up)
             self.state['build_root'] = str(root); self.save()
         src = root / 'src'
-        if src.exists(): shutil.rmtree(src)
+        if src.exists(): retry_io(lambda: _rmtree_owned(src), 'remove the earlier source copy', self.log)
         self.log('  copying the source tree')
         shutil.copytree(KIT / 'source' / 'runtime', src / 'runtime')
         shutil.copytree(KIT / 'source' / 'game', src / 'game', ignore=shutil.ignore_patterns('bringup'))
@@ -1440,25 +1681,50 @@ class Installer:
         if gen.exists(): shutil.rmtree(gen)       # (an empty folder: the packed kit has none)
         shutil.copytree(self.project() / 'src' / 'recomp' / 'gen', gen)
         build = root / 'build'
-        if build.exists(): shutil.rmtree(build)
+        if build.exists():                         # every run starts a clean build (as 1.1.3); only the memory retry below keeps objects
+            retry_io(lambda: _rmtree_owned(build), 'remove the earlier build', self.log)      # (a scanner may still hold the old exe)
         cpus = os.cpu_count() or 4
         total, avail = precheck.memory_info()
         jobs = self.jobs or precheck.build_jobs(cpus, avail, total)
+        if self.state.get('oom_jobs'): jobs = max(1, min(jobs, self.state['oom_jobs']))      # an earlier attempt ran out of memory
         if avail < 6 * GB: self.log('  only %.1f GB of memory is free; close other programs if the build fails' % (avail / GB))
         self.log('  %d parallel compiles (%d CPU threads, %.0f GB RAM); usually 5-40 minutes' % (jobs, cpus, total / GB))
-        script = root / 'build.cmd'
-        script.write_text('\r\n'.join([
-            '@echo off',
-            'chcp 65001 >nul',                     # the script is UTF-8: paths under an accented user name
-            'call "%s" >nul || exit /b 1' % self.vcvars,
-            '"%s" -S "%s" -B "%s" -G Ninja -DCMAKE_BUILD_TYPE=Release "-DXBOXRECOMP_DIR=%s" "-DCMAKE_MAKE_PROGRAM=%s" || exit /b 1'
-            % (self.cmake, src / 'game', build, src / 'runtime', self.ninja.as_posix()),
-            '"%s" -C "%s" -j %d mechassault2_recomp || exit /b 1' % (self.ninja, build, jobs), '']), encoding='utf-8')
         env = dict(os.environ)                     # vcvars64.bat looks for vswhere.exe on PATH
         env['PATH'] = str(Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')) /
                           'Microsoft Visual Studio' / 'Installer') + os.pathsep + env.get('PATH', '')
         for v in BUILD_ENV_DROP: env.pop(v, None)
-        self.run_cmd(['cmd.exe', '/d', '/c', script], cwd=root, env=env, title='CMake + Ninja')
+        while True:
+            script = root / 'build.cmd'
+            script.write_text('\r\n'.join([
+                '@echo off',
+                'chcp 65001 >nul',                 # the script is UTF-8: paths under an accented user name
+                'call "%s" >nul || exit /b 1' % self.vcvars,
+                '"%s" -S "%s" -B "%s" -G Ninja -DCMAKE_BUILD_TYPE=Release "-DXBOXRECOMP_DIR=%s" "-DCMAKE_MAKE_PROGRAM=%s" || exit /b 1'
+                % (self.cmake, src / 'game', build, src / 'runtime', self.ninja.as_posix()),
+                '"%s" -C "%s" -j %d mechassault2_recomp || exit /b 1' % (self.ninja, build, jobs), '']), encoding='utf-8')
+            try:
+                self.run_cmd(['cmd.exe', '/d', '/c', script], cwd=root, env=env, title='CMake + Ninja')
+                break
+            except Stop as e:
+                if e.kind == 'out_of_memory' and jobs > 1:
+                    # Out of memory: the same build again with fewer parallel compiles (half, then one); finished objects are kept.
+                    jobs = max(1, jobs // 2) if jobs > 2 and not self.state.get('oom_jobs') else 1
+                    self.state['oom_jobs'] = jobs; self.save()
+                    self.log('  RECOVERY: the build ran out of memory; building again with %d parallel compile(s), keeping the finished files' % jobs)
+                    self.event('recovery', 'out of memory: build again with %d job(s)' % jobs)
+                    self.on_status('taking longer: low memory, building more slowly')
+                    continue
+                if root == self.work and not self.state.get('plain_build') and path_error(getattr(e, 'tail', [])):
+                    # A path the C++ tools cannot take (whitelist missed it): once more in a plain folder such as C:\MA2RecompBuild-xxxx.
+                    self.state['plain_build'] = True; self.save()
+                    self.log('  RECOVERY: the build failed on its folder path; building again in a plain folder')
+                    self.event('recovery', 'path error: build moved to a plain folder')
+                    for d in (src, build): shutil.rmtree(d, ignore_errors=True)
+                    return self.build()
+                if reboot_pending()['vs']:              # the same failure, with the likely cause named (text only)
+                    self.log('  (Visual Studio reports that a restart is still needed)')
+                    raise Stop('%s %s' % (e, REBOOT_HINT), e.kind, code=e.code) from e
+                raise
         if not (build / 'mechassault2_recomp.exe').is_file():
             raise Stop('The build finished, but the game program it made (%s) is gone: antivirus software most likely removed '
                        '(quarantined) it.' % (build / 'mechassault2_recomp.exe'), 'access_denied')
@@ -1485,7 +1751,7 @@ class Installer:
         self.keep_previous(exe)
         tmp = self.dest / 'MechAssault 2.exe.new'
         self.copy_in(build / 'mechassault2_recomp.exe', tmp)
-        retry_io(lambda: tmp.replace(exe), 'replace MechAssault 2.exe', self.log, owned=exe)
+        retry_io(lambda: tmp.replace(exe), 'replace MechAssault 2.exe', self.log, owned=exe, path=exe)
         ff = self.ffmpeg_dir() / 'bin'
         for n in FFMPEG_DLLS:
             self.keep_previous(self.dest / n); self.copy_in(ff / n, self.dest / n)
@@ -1516,7 +1782,7 @@ class Installer:
 
     def copy_in(self, src, dst):
         """Copy one installer-owned file into the install folder, retrying while a scanner holds it (retry_io)."""
-        retry_io(lambda: shutil.copy2(src, dst), 'copy %s' % Path(dst).name, self.log, owned=dst)
+        retry_io(lambda: shutil.copy2(src, dst), 'copy %s' % Path(dst).name, self.log, owned=dst, path=dst)
 
     def install_docs(self):
         """README.txt, Controls.txt and the Docs folder, with the {{VERSION}}, {{BUILD}} and {{MA2_SUPPORT_URL}} tokens filled in.
@@ -1695,6 +1961,7 @@ class Installer:
 
     def finish(self):
         self.settle()
+        if clear_resume_after_restart(): self.log('  (the after-restart resume entry was removed)')
         try:
             self.log('  install log: %s' % self.session_log)
         except Exception:

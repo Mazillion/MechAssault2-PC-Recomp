@@ -19,7 +19,11 @@ void ma2_barrel_arrows_pulse(uint32_t object,int ws_mode);
 void ma2_barrel_offset(int dx);   /* Custom Scenarios: barrels move right for the Editor button */
 int ma2_barrel_arrow_click(uint32_t object,int ws_mode,float nx,float ny,float *row_x,float *row_y);
 int ma2_barrel_row_hit(uint32_t object,int ws_mode,float nx,float ny);
+/* Vertical barrels (Select Difficulty): 1 = item row (step -1/0/+1 from the selection), 2 = arrow (step -1 up, +1 down). */
+int ma2_vbarrel_pointer(uint32_t object,int ws_mode,float nx,float ny,int *step,float box[4],float centre[2]);
 uint32_t ma2_gui_footer_at(uint32_t owner,float x,float y,float aspect,float rect[4]);
+uint32_t ma2_gui_footer_in_form(uint32_t form,float x,float y,float aspect,float rect[4]);
+void ma2_gui_legend_caption(uint32_t form,unsigned key,uint32_t wide);
 void ma2_gui_dump(uint32_t owner,const char *why);
 void ma2_menu_policy_pulse(uint32_t object,uint32_t vtable);
 void ma2_gui_text(uint32_t widget,uint32_t text);

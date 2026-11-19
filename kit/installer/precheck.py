@@ -44,6 +44,22 @@ def local_dir():
     base = os.environ.get('LOCALAPPDATA') or str(Path.home() / 'AppData' / 'Local')
     return Path(base) / 'MechAssault2'
 
+def session_id():
+    """The id of this installer run (MA2_SESSION_ID, set by the installer exe; made here when run without it). Every log names it, and
+    the processes the installer starts (the tools, the Build Tools, the game from Play) inherit it, so one report's files match."""
+    sid = os.environ.get('MA2_SESSION_ID', '').strip()
+    if not sid:
+        try:
+            sid = '%08X' % (int.from_bytes(os.urandom(4), 'little'))
+            os.environ['MA2_SESSION_ID'] = sid
+        except Exception:
+            return '-'
+    return sid
+
+def diagnostics_dir():
+    """%LOCALAPPDATA%\\MechAssault2\\Diagnostics: where diagnostics go by default from 1.1.4 (never a folder Controlled Folder Access guards)."""
+    return local_dir() / 'Diagnostics'
+
 def logs_dir():
     return local_dir() / 'Logs'
 
@@ -367,6 +383,40 @@ def windows_info():
     return {'build': v.build, 'name': 'Windows 11' if v.build >= 22000 else 'Windows 10', 'x64': sys.maxsize > 2 ** 32,
             'ok': v.major >= 10 and v.build >= 18362 and sys.maxsize > 2 ** 32}
 
+MACHINES = {0x8664: 'x64', 0xAA64: 'ARM64', 0x14C: 'x86'}
+
+def native_arch():
+    """The PC's own processor architecture ('x64', 'ARM64', ...), also when this x64 Python runs emulated on ARM; '' if unknown."""
+    try:
+        k = ctypes.windll.kernel32
+        proc, native = ctypes.c_ushort(), ctypes.c_ushort()
+        if k.IsWow64Process2(ctypes.c_void_p(k.GetCurrentProcess()), ctypes.byref(proc), ctypes.byref(native)):
+            return MACHINES.get(native.value, '0x%04X' % native.value)
+    except Exception:
+        pass
+    return ''
+
+def insider_build():
+    """True when the PC takes Windows Insider (preview) builds."""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'SOFTWARE\Microsoft\WindowsSelfHost\Applicability') as k:
+            return bool(str(winreg.QueryValueEx(k, 'BranchName')[0]).strip())
+    except Exception:
+        return False
+
+def platform_note():
+    """One plain line when this Windows is one the release was not verified on (Windows on ARM, an Insider build), else ''.
+    Informational only (logged, in diagnostics); it never stops an install."""
+    try:
+        arch, insider = native_arch(), insider_build()
+    except Exception:
+        return ''
+    parts = []
+    if arch and arch != 'x64': parts.append('Windows on %s (the game runs as x64 under emulation)' % arch)
+    if insider: parts.append('a Windows Insider preview build (%d)' % sys.getwindowsversion().build)
+    return ('This PC runs %s: not verified with this release; the install continues normally.' % ' and '.join(parts)) if parts else ''
+
 def memory_info():
     class S(ctypes.Structure):
         _fields_ = [('length', ctypes.c_ulong), ('load', ctypes.c_ulong), ('total', ctypes.c_ulonglong), ('avail', ctypes.c_ulonglong),
@@ -404,6 +454,17 @@ def smart_app_control():
     except OSError:
         return None
 
+SAC_NOTICE = ("Windows Smart App Control may block programs built on this PC, including this game. It can't be turned back on once off, "
+              "so check before installing.")
+
+def sac_notice():
+    """B2 (silent): the ONE plain notice to show before the long build, only when Smart App Control is enforcing; else None.
+    Antivirus and Controlled Folder Access are never shown (security_facts() puts them in diagnostics). Errors: None."""
+    try:
+        return SAC_NOTICE if smart_app_control() == 'enforce' else None
+    except Exception:
+        return None
+
 def d3d11_ok():
     """True/False: does a hardware D3D11 device with feature level 11.0 come up? None if the probe itself failed."""
     try:
@@ -419,8 +480,62 @@ def d3d11_ok():
     except Exception:
         return None
 
+VENDOR_IDS = {0x10DE: 'nvidia', 0x1002: 'amd', 0x1022: 'amd', 0x8086: 'intel'}
+
+def dxgi_adapters():
+    """The real graphics adapters from DXGI (what Direct3D and Vulkan drivers see): [{'name', 'vram' (dedicated bytes), 'vendor',
+    'vendor_id', 'device_id', 'source': 'dxgi'}], software / Basic Render adapters left out. Raises on any problem (the caller falls back)."""
+    class LUID(ctypes.Structure):
+        _fields_ = [('low', ctypes.c_ulong), ('high', ctypes.c_long)]
+    class DESC1(ctypes.Structure):
+        _fields_ = [('Description', ctypes.c_wchar * 128), ('VendorId', ctypes.c_uint), ('DeviceId', ctypes.c_uint), ('SubSysId', ctypes.c_uint),
+                    ('Revision', ctypes.c_uint), ('DedicatedVideoMemory', ctypes.c_size_t), ('DedicatedSystemMemory', ctypes.c_size_t),
+                    ('SharedSystemMemory', ctypes.c_size_t), ('AdapterLuid', LUID), ('Flags', ctypes.c_uint)]
+    class GUID(ctypes.Structure):
+        _fields_ = [('a', ctypes.c_ulong), ('b', ctypes.c_ushort), ('c', ctypes.c_ushort), ('d', ctypes.c_ubyte * 8)]
+    iid = GUID(0x770AAE78, 0xF26F, 0x4DBA, (ctypes.c_ubyte * 8)(0xA8, 0x29, 0x25, 0x3C, 0x83, 0xD1, 0xB3, 0x87))   # IDXGIFactory1
+    dxgi = ctypes.WinDLL('dxgi')
+    factory = ctypes.c_void_p()
+    hr = dxgi.CreateDXGIFactory1(ctypes.byref(iid), ctypes.byref(factory))
+    if hr < 0 or not factory.value: raise OSError('CreateDXGIFactory1 0x%08X' % (hr & 0xFFFFFFFF))
+    def call(obj, index, restype, argtypes, *args):
+        vt = ctypes.cast(ctypes.cast(obj, ctypes.POINTER(ctypes.c_void_p))[0], ctypes.POINTER(ctypes.c_void_p))
+        return ctypes.WINFUNCTYPE(restype, ctypes.c_void_p, *argtypes)(vt[index])(obj, *args)
+    out = []
+    try:
+        for i in range(16):
+            adapter = ctypes.c_void_p()
+            hr = call(factory, 12, ctypes.c_long, [ctypes.c_uint, ctypes.POINTER(ctypes.c_void_p)], i, ctypes.byref(adapter))   # EnumAdapters1
+            if hr < 0 or not adapter.value: break             # DXGI_ERROR_NOT_FOUND: no more adapters
+            try:
+                d = DESC1()
+                if call(adapter, 10, ctypes.c_long, [ctypes.POINTER(DESC1)], ctypes.byref(d)) >= 0:              # GetDesc1
+                    if d.Flags & 2 or d.VendorId == 0x1414: continue  # DXGI_ADAPTER_FLAG_SOFTWARE, Microsoft Basic Render
+                    if re.search(r'(?i)basic (display|render)|remote|virtual|hyper-v|parsec', d.Description): continue
+                    out.append({'name': d.Description, 'vram': int(d.DedicatedVideoMemory), 'vendor': VENDOR_IDS.get(d.VendorId, 'other'),
+                                'vendor_id': '%04X' % d.VendorId, 'device_id': '%04X' % d.DeviceId, 'source': 'dxgi'})
+            finally:
+                call(adapter, 2, ctypes.c_ulong, [])            # Release
+    finally:
+        call(factory, 2, ctypes.c_ulong, [])
+    return out
+
 def detect_gpus():
-    """[{'name','vram'(bytes),'vendor'}] -- registry (any vendor, no admin), refined by nvidia-smi for NVIDIA."""
+    """[{'name','vram'(bytes),'vendor', ...}]: DXGI's real adapters (dedicated memory, vendor ids; right on hybrid laptops), plus any
+    registry entry of a vendor DXGI did not list; the registry alone (the 1.1.3 way) when DXGI fails or lists nothing. nvidia-smi refines."""
+    reg = _registry_gpus()
+    try:
+        dx = dxgi_adapters()
+    except Exception:
+        dx = []
+    gpus = (dx + [g for g in reg if g['vendor'] not in {d['vendor'] for d in dx}]) if dx else reg
+    for g in gpus:                                            # the driver version (diagnostics), from the registry entry of that name
+        r = next((x for x in reg if x['name'] == g['name'] and x.get('driver')), None)
+        if r and not g.get('driver'): g['driver'] = r['driver']
+    return _nvidia_smi(gpus)
+
+def _registry_gpus():
+    """The 1.1.3 list: display adapters from the registry (any vendor, no admin)."""
     gpus = []
     try:
         import winreg
@@ -448,9 +563,15 @@ def detect_gpus():
             low = name.lower()
             vendor = 'nvidia' if 'nvidia' in low or 'geforce' in low else 'amd' if 'amd' in low or 'radeon' in low else \
                      'intel' if 'intel' in low else 'other'
-            gpus.append({'name': name, 'vram': vram, 'vendor': vendor})
+            g = {'name': name, 'vram': vram, 'vendor': vendor}
+            try: g['driver'] = str(winreg.QueryValueEx(k, 'DriverVersion')[0])
+            except OSError: pass
+            gpus.append(g)
     except Exception:
         pass
+    return gpus
+
+def _nvidia_smi(gpus):
     try:
         import subprocess
         smi = shutil.which('nvidia-smi') or r'C:\Windows\System32\nvidia-smi.exe'
@@ -610,6 +731,81 @@ def diagnostics_extras():
         pass
     return out
 
+_SECURITY = None
+
+def security_facts():
+    """{'antivirus': [names], 'cfa': 'on'|'off'|'audit'|'unknown', 'sac': ...} for diagnostics only (never shown as a dashboard, never
+    blocking). Antivirus names from Windows Security Center (a hidden PowerShell CIM query, 10 s at most); cached per run."""
+    global _SECURITY
+    if _SECURITY is not None: return _SECURITY
+    out = {'antivirus': [], 'cfa': 'unknown', 'sac': 'unknown'}
+    try:
+        import subprocess
+        r = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command',
+                            'Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct | ForEach-Object { $_.displayName }'],
+                           capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        out['antivirus'] = [l.strip() for l in r.stdout.splitlines() if l.strip()][:5]
+    except Exception:
+        pass
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'SOFTWARE\Microsoft\Windows Defender\Windows Defender Exploit Guard\Controlled Folder Access') as k:
+            out['cfa'] = {0: 'off', 1: 'on', 2: 'audit'}.get(winreg.QueryValueEx(k, 'EnableControlledFolderAccess')[0], 'unknown')
+    except Exception:
+        pass
+    try: out['sac'] = smart_app_control() or 'not present'
+    except Exception: pass
+    _SECURITY = out
+    return out
+
+def _sdk_version():
+    try:
+        base = Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')) / 'Windows Kits' / '10' / 'Lib'
+        vers = sorted((d.name for d in base.iterdir() if (d / 'um' / 'x64' / 'kernel32.lib').is_file()),
+                      key=lambda v: tuple(int(x) for x in re.findall(r'\d+', v)))
+        return vers[-1] if vers else 'none'
+    except Exception:
+        return 'unknown'
+
+def diagnostics_facts(dest, state=None, gpus=None):
+    """The 1.1.4 lines of system.txt: session, architecture, platform note, SDK, drive headroom (install, system, TEMP), adapters with
+    driver and ids, security facts, recent downloads, and the run's history (retries, recoveries, rollbacks, tool exit codes).
+    Each part is optional: one that fails is left out (it can never stop a zip from being written)."""
+    lines = []
+    def part(fn):
+        try: fn()
+        except Exception as e: lines.append('(%s: %s)' % (getattr(fn, '__name__', 'part'), type(e).__name__))
+    def basics():
+        lines.append('Session: %s' % session_id())
+        lines.append('Processor: %s' % (native_arch() or 'unknown'))
+        note = platform_note()
+        if note: lines.append('Platform: %s' % note)
+        lines.append('Windows SDK: %s' % _sdk_version())
+    def drives():
+        seen = []
+        for p in (dest, os.environ.get('SystemDrive', 'C:') + '\\', os.environ.get('TEMP') or ''):
+            if not p: continue
+            d = os.path.splitdrive(os.path.abspath(str(p)))[0].upper()
+            if d in seen: continue
+            seen.append(d)
+            try: lines.append('Drive %s: %.1f GB free (%s)' % (d, shutil.disk_usage(str(_nearest_existing(p))).free / GB, volume_fs(p) or '?'))
+            except OSError: lines.append('Drive %s: not readable' % d)
+    def adapters():
+        for g in (gpus if gpus is not None else detect_gpus()):
+            lines.append('Adapter: %s, %.1f GB, vendor %s%s%s' % (g.get('name'), (g.get('vram') or 0) / GB, g.get('vendor_id') or g.get('vendor'),
+                         ' device %s' % g['device_id'] if g.get('device_id') else '', ', driver %s' % g['driver'] if g.get('driver') else ''))
+    def security():
+        s = security_facts()
+        lines.append('Security: antivirus %s; Controlled Folder Access %s; Smart App Control %s' % (', '.join(s['antivirus']) or 'unknown', s['cfa'], s['sac']))
+    def downloads():
+        f = logs_dir() / 'downloads.log'
+        if f.is_file():
+            for l in f.read_text(encoding='utf-8', errors='replace').splitlines()[-15:]: lines.append('Download: %s' % l)
+    def history():
+        for e in ((state or {}).get('events') or [])[-40:] if isinstance(state, dict) else []: lines.append('Event: %s' % e)
+    for fn in (basics, drives, adapters, security, downloads, history): part(fn)
+    return lines
+
 def collect_diagnostics(dest, out_dir, version='', kit_id='', gpus=None, include_dump=False, include_botrec=False, stage='', failure='', log_lines=None):
     r"""Write MA2-diagnostics-<time>.zip into out_dir (the Desktop) with what a developer needs and nothing else:
     recomp-install.json, the live pc_settings.ini, the newest three game logs, the newest installer log(s), system.txt (the support-bundle header, graphics
@@ -621,7 +817,7 @@ def collect_diagnostics(dest, out_dir, version='', kit_id='', gpus=None, include
     dest = Path(dest); out_dir = Path(out_dir)
     logs = logs_dir(); notes = []
     newest = lambda files, n=1: sorted((f for f in files if f.is_file()), key=lambda f: f.stat().st_mtime, reverse=True)[:n]
-    own = ('install-', 'installer-ui-', 'buildtools-', 'stub-')
+    own = ('install-', 'installer-ui-', 'buildtools-', 'stub-', 'downloads')    # downloads.log: summarised in system.txt
     text_members, file_members = {}, {}
     def add_text(arc, path):
         try: text_members[arc] = redact(Path(path).read_text(encoding='utf-8', errors='replace'))
@@ -656,6 +852,8 @@ def collect_diagnostics(dest, out_dir, version='', kit_id='', gpus=None, include
         done = [s for s in (state.get('done') or []) if isinstance(s, str) and s != 'check']
         lines.append('Unfinished install: %d step(s) finished (%s); last step: %s' % (len(done), ', '.join(done) or '-', redact(str(state.get('last_title') or 'unknown'))))
     lines += ['Note: %s' % n for n in notes]
+    try: lines += diagnostics_facts(dest, state, gpus)               # 1.1.4 facts; any failure leaves them out
+    except Exception: pass
     if log_lines: lines += ['', 'Last log lines:'] + [redact(str(l)) for l in list(log_lines)[-80:]]
     text_members['system.txt'] = redact('\n'.join(lines) + '\n')            # the notes name folders under the profile too
     import zipfile

@@ -549,7 +549,31 @@ static void shift_barrel(uint32_t b) {
         if (MEM32(c) != GUI_ARROW_VT) shift_widget(c);
 }
 
+/* A vertical barrel (Select Difficulty: the selected item in the middle row, its neighbours
+ * above and below, one arrow above the list and one below) has its two arrows one above the
+ * other. The PC arrows, row focus and Left/Right stepping are for the horizontal value rows
+ * only; a vertical barrel is handled by ma2_vbarrel_pointer. */
+static int barrel_vertical(uint32_t left, uint32_t right) {
+    int32_t dy = SMEM32(left + 0x50) - SMEM32(right + 0x50);
+    return dy > 24 || dy < -24;
+}
+
 static void place_one(uint32_t b, uint32_t left, uint32_t right, ArrowCtx *ctx) {
+    if (barrel_vertical(left, right)) {
+        /* Up/down arrows: centred on the list in both layouts, with the layout policy (+0x80)
+         * cleared as for the value-row arrows, so the drawn chevron and its hover/click box
+         * (ma2_vbarrel_pointer, from the same rectangle) coincide at every aspect. The authored
+         * policy drew them right of the list in widescreen. */
+        for (int k = 0; k < 2; k++) {
+            uint32_t a = k ? right : left;
+            for (uint32_t off = 0x4C; off <= 0x5C; off += 0x10) {
+                int32_t x = SMEM32(b + off) + SMEM32(b + off + 8) / 2 - SMEM32(a + off + 8) / 2;
+                SMEM32(a + off) = x;
+            }
+            MEM32(a + 0x80) = 0;
+        }
+        return;
+    }
     int32_t sel = SMEM32(b + 0x154);
     shift_barrel(b);
     uint32_t count = (MEM32(b + 0xB0) - MEM32(b + 0xAC)) / 0x1C;
@@ -584,7 +608,7 @@ static void place_one(uint32_t b, uint32_t left, uint32_t right, ArrowCtx *ctx) 
 }
 
 static void click_one(uint32_t b, uint32_t left, uint32_t right, ArrowCtx *ctx) {
-    if (ctx->click || !(MEM32(b + 0x74) & 2)) return;
+    if (ctx->click || !(MEM32(b + 0x74) & 2) || barrel_vertical(left, right)) return;
     float lx, ly = ctx->ny * LAYOUT_H;
     uint32_t off = ctx->ws ? 0x5C : 0x4C;
     lx = ctx->ws ? ctx->nx * LAYOUT_W - LAYOUT_X0 : ctx->nx * 640.0f;
@@ -609,8 +633,7 @@ static void click_one(uint32_t b, uint32_t left, uint32_t right, ArrowCtx *ctx) 
 /* A click inside a barrel's row (not on its arrows): the row takes focus only. Stepping is
  * the arrows' and Left/Right's job, confirming is Enter's or the select button's. */
 static void inside_one(uint32_t b, uint32_t left, uint32_t right, ArrowCtx *ctx) {
-    (void)left; (void)right;
-    if (ctx->click) return;
+    if (ctx->click || barrel_vertical(left, right)) return;
     uint32_t off = ctx->ws ? 0x5C : 0x4C;
     float lx = ctx->ws ? ctx->nx * LAYOUT_W - LAYOUT_X0 : ctx->nx * 640.0f, ly = ctx->ny * LAYOUT_H;
     float bx = (float)SMEM32(b + off), by = (float)SMEM32(b + off + 4), bw = (float)SMEM32(b + off + 8);
@@ -639,6 +662,88 @@ int ma2_barrel_arrow_click(uint32_t object, int ws_mode, float nx, float ny, flo
     if (!ctx.click) return 0;
     *row_x = ctx.row_x; *row_y = ctx.row_y;
     return ctx.dir;
+}
+
+/* Vertical barrels under the pointer. The barrel draws the selected item on its middle row and
+ * the items before and after it 29 units above and below (Select Difficulty: Green 211, Regular
+ * 240, Veteran 269 for a barrel at y 200, h 80); its arrows are its two arrow children, shown
+ * (+0x74 bit 1) only while there is more to scroll to. */
+#define VBARREL_PITCH 29.0f
+typedef struct { int ws; float nx, ny; int found, step; float box[4], centre[2]; } VBarrelCtx;
+static void vbarrel_visit(uint32_t w, int depth, VBarrelCtx *ctx, int *budget) {
+    for (; valid_widget(w) && *budget > 0 && !ctx->found; w = MEM32(w + 0x18)) {
+        (*budget)--;
+        if (!(MEM32(w + 0x74) & 2)) continue;   /* hidden: nor its children */
+        if (MEM32(w) == GUI_BARREL_VT) {
+            uint32_t a0, a1;
+            barrel_arrows(w, &a0, &a1);
+            if (valid_widget(a0) && valid_widget(a1) && barrel_vertical(a0, a1)) {
+                uint32_t off = ctx->ws ? 0x5C : 0x4C;
+                float lx = ctx->ws ? ctx->nx * LAYOUT_W - LAYOUT_X0 : ctx->nx * 640.0f, ly = ctx->ny * LAYOUT_H;
+                float to_nx = ctx->ws ? 1.0f / LAYOUT_W : 1.0f / 640.0f, x0 = ctx->ws ? LAYOUT_X0 : 0.0f;
+                float bx = (float)SMEM32(w + off), by = (float)SMEM32(w + off + 4);
+                float bw = (float)SMEM32(w + off + 8), bh = (float)SMEM32(w + off + 12);
+                ctx->centre[0] = (bx + bw * 0.5f + x0) * to_nx; ctx->centre[1] = (by + bh * 0.5f) / LAYOUT_H;
+                /* the arrows: the upper one steps back (Up), the lower one forward (Down) */
+                for (int k = 0; k < 2 && !ctx->found; k++) {
+                    uint32_t a = k ? a1 : a0;
+                    if (!(MEM32(a + 0x74) & 2)) continue;
+                    float ax = (float)SMEM32(a + off), ay = (float)SMEM32(a + off + 4);
+                    float aw = (float)SMEM32(a + off + 8), ah = (float)SMEM32(a + off + 12);
+                    if (lx >= ax - ARROW_SLOP && lx < ax + aw + ARROW_SLOP && ly >= ay - ARROW_SLOP && ly < ay + ah + ARROW_SLOP) {
+                        uint32_t other = k ? a0 : a1;
+                        ctx->step = SMEM32(a + off + 4) < SMEM32(other + off + 4) ? -1 : 1;
+                        ctx->box[0] = (ax + x0) * to_nx; ctx->box[1] = ay / LAYOUT_H;
+                        ctx->box[2] = aw * to_nx; ctx->box[3] = ah / LAYOUT_H;
+                        ctx->found = 2;
+                    }
+                }
+                if (ctx->found) return;
+                /* the rows: -1 above the selection, 0 the selection, +1 below; only rows with an item */
+                int32_t sel = SMEM32(w + 0x154);
+                uint32_t first = MEM32(w + 0xAC), end = MEM32(w + 0xB0);
+                int32_t count = end > first && end - first < 0x1C * 256 ? (int32_t)((end - first) / 0x1C) : 0;
+                float cy = by + bh * 0.5f;
+                if (sel >= 0 && sel < count && lx >= bx && lx < bx + bw) {
+                    for (int row = -1; row <= 1; row++) {
+                        float ry = cy + row * VBARREL_PITCH;
+                        if (sel + row < 0 || sel + row >= count) continue;
+                        if (ly >= ry - VBARREL_PITCH * 0.5f && ly < ry + VBARREL_PITCH * 0.5f) {
+                            ctx->step = row;
+                            /* the glow: as wide as the selection's lines (80 % of the barrel), centred */
+                            ctx->box[0] = (bx + bw * 0.1f + x0) * to_nx; ctx->box[1] = (ry - 11.0f) / LAYOUT_H;
+                            ctx->box[2] = bw * 0.8f * to_nx; ctx->box[3] = 22.0f / LAYOUT_H;
+                            ctx->found = 1;
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+        if (depth < 12) vbarrel_visit(MEM32(w + 0x1C), depth + 1, ctx, budget);
+    }
+}
+/* Returns 1 for an item row (step -1 = the item above the selection, 0 = the selection,
+ * +1 = the item below), 2 for a shown arrow (step -1 up, +1 down), 0 when the point is on no
+ * vertical barrel of the menu's active forms. box: the row or arrow, normalised; centre: the
+ * barrel's middle row, normalised (a point that focuses the barrel). */
+int ma2_vbarrel_pointer(uint32_t object, int ws_mode, float nx, float ny, int *step, float box[4], float centre[2]) {
+    VBarrelCtx ctx = {0};
+    ctx.ws = ws_mode; ctx.nx = nx; ctx.ny = ny;
+    if (!valid_widget(object)) return 0;
+    uint32_t begin = MEM32(object + 4), end = MEM32(object + 8);
+    if (end < begin || end - begin > 1024) return 0;
+    for (uint32_t e = begin; e < end && !ctx.found; e += 4) {
+        uint32_t form = MEM32(e);
+        if (!valid_widget(form) || (MEM32(form + 0x4C) & 3) != 3) continue;
+        int budget = 1500;
+        vbarrel_visit(MEM32(form + 0x38), 0, &ctx, &budget);
+    }
+    if (!ctx.found) return 0;
+    if (step) *step = ctx.step;
+    if (box) memcpy(box, ctx.box, sizeof ctx.box);
+    if (centre) memcpy(centre, ctx.centre, sizeof ctx.centre);
+    return ctx.found;
 }
 
 /* ============================ footer legends ============================ */
@@ -757,6 +862,36 @@ uint32_t ma2_gui_footer_at(uint32_t owner, float x, float y, float aspect, float
         if (hit) return hit;
     }
     return 0;
+}
+
+/* The same legend test on one form's tree: the name keyboard (MAKeyboardDlg) keeps its form at
+ * owner+0x23C, not in the modal record, so ma2_gui_footer_at(0, ...) cannot see its footer. */
+uint32_t ma2_gui_footer_in_form(uint32_t form, float x, float y, float aspect, float rect[4]) {
+    FooterQuery q = { x, y, 1.0f / (480.0f * aspect), rect, 1500 };
+    return valid_widget(form) ? footer_hit(MEM32(form + 0x38), 0, &q) : 0;
+}
+static uint32_t legend_find(uint32_t w, int depth, uint32_t text, int *budget) {
+    for (; valid_widget(w) && --*budget > 0; w = MEM32(w + 0x18)) {
+        if (MEM32(w + 0xE8) == text && (MEM32(w + 0x74) & 2)) return w;
+        if (depth < 12) { uint32_t f = legend_find(MEM32(w + 0x1C), depth + 1, text, budget); if (f) return f; }
+    }
+    return 0;
+}
+/* Caption of a form's PC legend (key text 0x70010000 + key): wide = a guest wide string to
+ * show, or 0 for the caption's own text id again. Writes only when the wanted text changes. */
+void ma2_gui_legend_caption(uint32_t form, unsigned key, uint32_t wide) {
+    static uint32_t last_caption, last_wide;
+    if (!valid_widget(form)) return;
+    int budget = 1500;
+    uint32_t w = legend_find(MEM32(form + 0x38), 0, 0x70010000u + key, &budget);
+    uint32_t c = w ? MEM32(w + 0x1C) : 0;
+    if (!valid_widget(c)) return;
+    if (c != last_caption) { last_caption = c; last_wide = 0; }   /* a new form shows its own text */
+    if (wide == last_wide) return;
+    uint32_t id = MEM32(c + 0xE8);
+    if (!wide && (!id || id >= 0x80000000u)) return;
+    ma2_gui_text(c, wide ? wide : guest_text(id));
+    last_wide = wide;
 }
 
 /* ============================ menu dump (RECOMP_MENU_DUMP) ============================ */

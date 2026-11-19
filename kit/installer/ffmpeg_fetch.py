@@ -11,11 +11,13 @@ Where the files come from, in order:
   3. ffmpeg-9.0.2-full_build-shared.zip in the install folder or beside the installer exe (downloaded on another PC)
   4. the published URLs in data/ffmpeg.json, first to last
 """
-import hashlib, json, os, shutil, urllib.parse, urllib.request, zipfile
+import hashlib, json, os, shutil, urllib.parse, zipfile
 from pathlib import Path
+import download as dl                    # the shared download helper (resume, retries, causes, cache)
 
 SPEC = json.loads((Path(__file__).resolve().parent / 'data' / 'ffmpeg.json').read_text(encoding='utf-8'))
 NAME = SPEC['archive_root']
+ZIP_MAGIC = b'PK' + bytes((3, 4))
 MAX_BYTES = 1 << 30                       # nothing near this size is expected; a bigger answer is not the build
 
 
@@ -114,37 +116,20 @@ def from_zip(zpath, target, cancelled=lambda: False):
     _replace_dir(tmp, target)
 
 
-class _HttpsOnlyRedirect(urllib.request.HTTPRedirectHandler):
-    """An https address is never redirected to plain http (the files are checked anyway; this is defence in depth)."""
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if req.full_url.lower().startswith('https:') and not newurl.lower().startswith('https:'):
-            raise FetchError('the server redirected %s to a non-HTTPS address' % req.full_url)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
 def download(url, out, log=print, cancelled=lambda: False):
-    """Download `url` to `out` (through out.part, so a stopped download never looks finished)."""
-    part = out.with_name(out.name + '.part')
-    req = urllib.request.Request(url, headers={'User-Agent': 'MechAssault2-Recomp-Installer'})
-    opener = urllib.request.build_opener(_HttpsOnlyRedirect)
+    """Download `url` to `out` with the shared helper (download.py: resume, retries, Wi-Fi login page / proxy / TLS named, size and
+    first-bytes checks, a progress line every 16 MB). Raises FetchError naming the cause, or Cancelled."""
     try:
-        with opener.open(req, timeout=60) as r, open(part, 'wb') as f:
-            total = int(r.headers.get('Content-Length') or 0)
-            if total > MAX_BYTES: raise FetchError('the server offers %d MB, far more than the FFmpeg build' % (total >> 20))
-            got, step = 0, 16 << 20
-            next_report = step
-            for block in iter(lambda: r.read(1 << 20), b''):
-                if cancelled(): raise Cancelled()
-                f.write(block); got += len(block)
-                if got > MAX_BYTES: raise FetchError('the download is far larger than the FFmpeg build')
-                if got >= next_report:
-                    log('    %d of %s MB' % (got >> 20, (total >> 20) or '?')); next_report += step
-        if total and got != total: raise FetchError('the download stopped early (%d of %d bytes)' % (got, total))
-        os.replace(part, out)
-    except BaseException:
-        try: part.unlink()
-        except OSError: pass
-        raise
+        dl.fetch(url, out, log, cancelled, max_bytes=MAX_BYTES, magic=ZIP_MAGIC)
+    except dl.Cancelled:
+        raise Cancelled()
+    except dl.DownloadError as e:
+        raise FetchError(str(e)) from e
+
+
+def cache_key():
+    """The download cache's key for the published archive: its name and the recorded file hashes (another build, another key)."""
+    return 'ffmpeg-%s-%s' % (hashlib.sha256(json.dumps(SPEC['files'], sort_keys=True).encode()).hexdigest()[:16], SPEC['archive'])
 
 
 def ensure(target, log=print, cancelled=lambda: False, look_in=()):
@@ -163,17 +148,19 @@ def ensure(target, log=print, cancelled=lambda: False, look_in=()):
     else:
         sources = [str(Path(d) / SPEC['archive']) for d in look_in if d and (Path(d) / SPEC['archive']).is_file()]
         sources += list(SPEC['urls'])
-    tried, mismatched = [], []
+    tried, mismatched, causes, tls = [], [], [], False
     for src in sources:
         try:
             if is_url(src):
                 log('    downloading %s' % src)
-                z = target.parent / SPEC['archive']
-                download(src, z, log, cancelled)
-                try:
-                    from_zip(z, target, cancelled)
-                finally:
-                    z.unlink(missing_ok=True)
+                try:                                     # the published archive is cached per user once its files checked out
+                    dl.fetch_and_use(src, target.parent / SPEC['archive'], lambda z: from_zip(z, target, cancelled), log, cancelled,
+                                     cache_key=cache_key(), max_bytes=MAX_BYTES, magic=ZIP_MAGIC)
+                except dl.Cancelled:
+                    raise Cancelled()
+                except dl.DownloadError as e:
+                    tls = e.cause == 'tls'
+                    causes.append(str(e)); raise FetchError(str(e)) from e
             elif Path(src).is_dir():
                 log('    from the folder %s' % src); from_folder(src, target)
             elif Path(src).is_file():
@@ -195,8 +182,14 @@ def ensure(target, log=print, cancelled=lambda: False, look_in=()):
             'copy): %s. Delete that file, then download exactly %s (it must be this version, %s) and put it in the '
             'install folder, or check the internet connection, then press Resume. Tried: %s'
             % ('; '.join(mismatched), url, SPEC['version'].split()[0], '; '.join(tried)))
+    if tls:                                             # the internet works; Windows couldn\'t verify the secure connection
+        raise FetchError(
+            'Could not get FFmpeg: %s. It plays the cutscenes and is downloaded during the install (it is not inside the '
+            'installer). The installer already tried Windows\' own connection. Without this download: on another PC, download exactly '
+            '%s, put %s in the install folder, and press Resume. Tried: %s'
+            % (dl.CAUSES['tls'], url, SPEC['archive'], '; '.join(tried)))
     raise FetchError(
-        'Could not get FFmpeg, which plays the cutscenes and is downloaded during the install (it is not inside the '
+        'Could not get FFmpeg%s. It plays the cutscenes and is downloaded during the install (it is not inside the '
         'installer). Check the internet connection and press Resume (finished steps are kept). Without internet on '
         'this PC: on another PC, download exactly %s, put %s in the install folder, and press Resume. Tried: %s'
-        % (url, SPEC['archive'], '; '.join(tried) or 'nothing'))
+        % (': ' + causes[-1] if causes else '', url, SPEC['archive'], '; '.join(tried) or 'nothing'))

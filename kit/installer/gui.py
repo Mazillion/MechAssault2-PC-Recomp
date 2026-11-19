@@ -1,13 +1,19 @@
-"""The MechAssault 2 Recomp Installer window: a seven-page wizard (install.py does the work; precheck.py does the checks).
+"""The MechAssault 2 PC Recomp Installer window (install.py does the work; precheck.py does the checks).
 
-Welcome - Systems - Disc - Location - Loadout - Install - Done, plus a failure screen. Next stays disabled until the page is
-valid and the reason shows in the status line; there are no modal errors (only "Stop installing?" asks).
+The common path is three screens: Setup (choose the disc, press Install), Installing, Done (LAUNCH). Everything else is a state of
+those: Install options and Troubleshooting pages, Update / Repair / Continue for an existing or interrupted install, and the
+"stop" screens for the few things only the player can do (approve the C++ tools, restart, free space, a blocked game).
+
+The window drives the engine exactly as the 1.1.3 window did: the same options give the same Installer(...) call. Every new
+mechanism (per-monitor DPI, file drop, taskbar progress and flash, the dark title bar) is optional and falls back on its own
+(ui_win.py). If this window cannot start at all, the classic 1.1.3 window (gui_legacy.py) opens instead.
 """
-import ctypes, faulthandler, os, sys, time, traceback               # the standard library only, until the start-up log is open
+import ctypes, faulthandler, json, os, sys, time, traceback      # the standard library only, until the start-up log is open
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-TITLE = 'MechAssault 2 Recomp Installer'
+TITLE = 'MechAssault 2 PC Recomp Installer'
+APP_ID = 'MechAssault2.PCRecomp.Installer'
 STARTUP_LOG = (None, None)
 
 def startup_log():
@@ -31,747 +37,1045 @@ def startup_log():
 if __name__ == '__main__':
     STARTUP_LOG = startup_log()
 
+sys.path.insert(0, str(HERE))
+IMPORT_ERROR = None
 try:
     import queue, shutil, subprocess, threading
     import tkinter as tk
-    from tkinter import filedialog, messagebox, ttk
-    sys.path.insert(0, str(HERE))
+    from tkinter import filedialog, ttk
     import install, precheck, progress, ui_theme                     # noqa: E402
-    from ui_theme import C                                            # noqa: E402
-except Exception:
+    import ui_kit, ui_win                                             # noqa: E402
+    from ui_kit import P, HexButton, Link, Toggle, Segment, Zone      # noqa: E402
+except Exception:                                                     # the classic window may still work (main() falls back)
     if __name__ != '__main__': raise
-    traceback.print_exc()
-    try: ctypes.windll.user32.MessageBoxW(None, 'The installer could not start (a part of it failed to load).\n\nDetails were saved to:\n%s'
-                                          % (STARTUP_LOG[0] or 'the installer could not write a log'), TITLE, 0x10)
-    except Exception: pass
-    sys.exit(3)
+    IMPORT_ERROR = traceback.format_exc()
+    try:
+        import tkinter                                                # the classic window needs Tcl/Tk too: without it, say so and stop
+    except Exception:
+        traceback.print_exc()
+        try: ctypes.windll.user32.MessageBoxW(None, 'The installer could not start (a part of it failed to load).\n\nDetails were saved to:\n%s'
+                                              % (STARTUP_LOG[0] or 'the installer could not write a log'), TITLE, 0x10)
+        except Exception: pass
+        sys.exit(3)
 
-try:
-    ctypes.windll.shcore.SetProcessDpiAwareness(1)
-except Exception:
-    pass
+# ---------------------------------------------------------------------------- words
 
-PAGES = ['welcome', 'systems', 'disc', 'location', 'loadout', 'install', 'done']
-RAIL = {'welcome': 'Welcome', 'systems': 'Systems', 'disc': 'Disc', 'location': 'Location', 'loadout': 'Loadout',
-        'install': 'Install', 'done': 'Done'}
-KICKER = {'welcome': ('PILOT BRIEFING', 'Build MechAssault 2 for PC'), 'systems': ('SYSTEMS CHECK', 'Checking this PC'),
-          'disc': ('LOAD DISC', 'Choose your disc image'), 'location': ('DROP ZONE', 'Where to install'),
-          'loadout': ('LOADOUT', 'Options'), 'install': ('POWERING UP', 'Building your PC version'),
-          'done': ('MISSION COMPLETE', 'Ready to play')}
+PHASES = [('read', 'Reading your disc', ('check', 'disc', 'extract', 'verify')),
+          ('setup', 'Setting things up', ('analyze', 'recompile', 'generate', 'patch')),
+          ('build', 'Building the game', ('build',)),
+          ('install', 'Installing', ('assets', 'install')),
+          ('textures-2x', 'HD textures', ('textures-2x',)),
+          ('textures-4x', 'Ultra HD textures', ('textures-4x',)),
+          ('videos', 'Upscaled movies', ('videos',)),
+          ('finish', 'Finishing up', ('finish',))]
+EXTRA_SECONDS = {'textures-2x': 2 * 3600, 'textures-4x': 5 * 3600, 'videos': 8 * 3600}
+TEX_NAMES = {'original': 'Original', '2x': 'HD', '4x': 'Ultra HD'}
+FAILED = {
+    'build_failed': ('Building the game didn\'t finish', 'Something stopped the build. Your progress is saved, so try again.'),
+    'compile_error': ('Building the game failed', 'The C++ tools reported an error. If the install folder\'s name has unusual characters, '
+                      'choose a simple one such as C:\\Games\\MechAssault 2. Otherwise try again.'),
+    'access_denied': ('Windows or your antivirus blocked a file', 'If your antivirus reported a threat in the install folder and you trust '
+                      'this game, restore the file from its protection history, then try again.'),
+    'out_of_memory': ('This PC ran out of memory', 'Close other programs, then try again. Your progress is saved.'),
+    'network': ('A download didn\'t finish', 'Check your internet connection, then try again.'),
+    'gpu': ('Your graphics card can\'t make the HD content', 'The game itself is fine. Turn the HD options off and try again.'),
+    'ffmpeg_mismatch': ('The cutscene player files aren\'t the expected build', 'Use exactly the file named in Details (a different version '
+                        'or a damaged download doesn\'t work), then try again.'),
+    'compiler': ('Microsoft\'s C++ tools didn\'t work', 'Try again. If it keeps happening, collect diagnostics from Help.'),
+    'unexpected': ('Something went wrong', 'Your progress is saved, so try again. If it keeps happening, collect diagnostics from Help.'),
+}
+DISC_HINTS = {'not_xbox': ('That isn\'t an Xbox disc image', 'Choose an .iso or .xiso made from the MechAssault 2 disc'),
+              'no_xbe': ('That isn\'t a MechAssault 2 disc image', 'It is a different game or an incomplete copy'),
+              'wrong_title': ('That isn\'t a MechAssault 2 disc image', 'It is a different Xbox game'),
+              'wrong_version': ('A different region or version', 'Only the US (NTSC) retail release is supported'),
+              'modified': ('This copy is modified', 'Use an unmodified copy of your retail disc'),
+              'truncated': ('This disc image is incomplete', 'Make the disc image again'),
+              'archive': ('That\'s a compressed archive', 'Extract the .iso or .xiso from it first'),
+              'compressed_image': ('Compressed images aren\'t supported', 'Use a plain .iso or .xiso'),
+              'missing': ('That file wasn\'t found', 'Choose the disc image again'),
+              'empty': ('That file is empty', 'Choose the disc image again'),
+              'read_error': ('Windows couldn\'t read that file', 'Choose the disc image again'),
+              'relative': ('Choose the file itself', 'Use Browse to pick it'),
+              'disc': ('The disc image couldn\'t be read', 'Choose it again, or make the disc image again')}
+SAC_TEXT = 'Windows Smart App Control is on. If it blocks the game, setup will help.'
+HELP_TEXT = [
+    ('Windows warned me about the installer', 'Windows SmartScreen warns about programs it does not recognize, and this installer is not '
+     'code-signed. If you downloaded it from where you expected, choose More info, then Run anyway. The installer never changes your '
+     'security settings.'),
+    ('Where do I get a disc image?', 'You need your own copy of MechAssault 2 for the original Xbox (the US / NTSC retail disc), copied to a '
+     'disc image (.iso or .xiso) or a folder. Tools that copy original Xbox discs are widely documented. This installer never links to '
+     'download sites and carries no game files: the game\'s program, art, sound and levels all come from your disc.'),
+    ('What does the installer do?', None),                  # TECH
+    ('How long does it take?', 'Usually 15 to 40 minutes, depending on the PC. HD textures and upscaled movies are made on your graphics '
+     'card afterwards and take hours. You can keep using the PC, play while they finish later, or add them any time by running the '
+     'installer again.'),
+    ('Smart App Control', 'If Windows Smart App Control is on, it can block programs that were built on this PC, including this game. If '
+     'it does, setup tells you. Smart App Control can be turned off in Windows Security, but it can\'t be turned back on afterwards, so '
+     'decide carefully. The installer never changes it.'),
+    ('Settings, saves and logs', 'They are kept in %LOCALAPPDATA%\\MechAssault2. Updating, repairing and uninstalling keep them unless '
+     'you ask otherwise. Your own scenarios in Documents\\MechAssault 2 are never deleted.'),
+    ('Something went wrong', 'Open Help > Collect diagnostics. It saves one .zip with the installer and game logs (your user name is '
+     'replaced) for a problem report on %s.'),
+]
+
 TECH = ('The installer reads your disc image, translates the original Xbox program to C with the open-source xboxrecomp toolkit, applies '
         'the PC release\'s fixes and features, compiles the game on this PC with Microsoft\'s C++ tools and builds its PC menus from '
-        'your disc. The result is a ready-to-play folder. ' + precheck.NO_GAME_DATA + ' ' + precheck.SHADER_LINE)
-SMARTSCREEN = ('Windows may have said "Windows protected your PC". That is SmartScreen: it warns about programs it does not recognise, and a new installer '
-               'that is not code-signed is one of those. This installer is not code-signed (certificates cost money). If you downloaded it from where you '
-               'expected, choose More info, then Run anyway. Windows Smart App Control, if it is on, can block an unsigned program outright, with no Run anyway '
-               'choice; the installer never turns it off. Antivirus programs may also ask about it.')
-FAILURES = {
-    'cancelled': ('Install paused.', 'Run the installer again and choose Resume.'),
-    'disk_full': ('The drive ran out of space.', 'Free up space on {drive} and press Resume.'),
-    'compiler': ('The C++ Build Tools are missing or incomplete.', 'Open the Systems page for the fix, or install Visual Studio with "Desktop development with C++".'),
-    'build_failed': ('Compiling the game failed.', 'The build stopped without naming a compiler error. Low memory, a damaged Build Tools install, or '
-                     'antivirus removing a file can do this. Try Resume once; if it fails again, {report}.'),
-    'compile_error': ('Compiling the game failed.', 'The compiler or linker reported an error (below, and in the log). If the install folder\'s '
-                      'name has commas, brackets or other unusual characters, install to a simple folder such as C:\\Games\\MechAssault 2. '
-                      'Otherwise try Resume once; if it fails again, {report}.'),
-    'access_denied': ('Windows or your antivirus blocked a file.', 'If your antivirus reported a threat in this folder, restore the file or '
-                      'allow the folder, then Resume. Controlled Folder Access can also cause this.'),
-    'out_of_memory': ('The PC ran out of memory while compiling.', 'Close other programs and press Resume.'),
-    'network': ('A download failed.', 'Check your connection and press Resume.'),
-    'ffmpeg_mismatch': ('The FFmpeg files are not the expected build.', 'Use exactly the file named below (a different FFmpeg version '
-                        'or a damaged download does not work), then press Resume.'),
-    'gpu': ('PyTorch does not support this graphics card yet.', 'The enhanced content cannot be made on this PC; the game itself is not affected. Run the installer again without enhanced content.'),
-    'disc': ('The disc image is damaged or could not be read.', 'Choose the image again (Choose disc image), or dump the disc again.'),
-    'unexpected': ('Something unexpected went wrong.', 'Press Resume to try again. If it keeps happening, {report}.'),
-    'extras': ('MechAssault 2 is installed and ready to play.',
-               'Only the enhanced content was not finished. Close the installer and play, or press Resume to try the enhanced content again.'),
-}
-BUILD_TOOLS_NOTICE = ('Microsoft\'s free C++ Build Tools are needed to compile the game. "Install for me" downloads Microsoft\'s own installer (signed by Microsoft). '
-                      'It asks for administrator approval and shows its own progress (about 6 GB, 10-30 minutes). By continuing you accept Microsoft\'s '
-                      'licence terms for the Build Tools.')
-BUILD_TOOLS_TERMS = 'https://visualstudio.microsoft.com/license-terms/'
-EXPECTED = {'2x': ('2x Enhanced', 'AI-upscaled on your GPU', '+0.6 GB', 'several hours'),
-            '4x': ('4x Enhanced', 'Sharpest', '+2.2 GB', 'longest')}
+        'your disc. The result is a ready-to-play folder. ' + precheck.NO_GAME_DATA + ' ' + precheck.SHADER_LINE) if IMPORT_ERROR is None else ''
+
+def __getattr__(name):
+    """FAILURES: the 1.1.3 window's failure texts (gui_legacy.py), for scripts and tests that read them. Loaded only when asked for."""
+    if name == 'FAILURES':
+        import gui_legacy
+        return gui_legacy.FAILURES
+    raise AttributeError(name)
+
+def short_path(p, n):
+    """A long path cut at folder boundaries: C:\\Users\\...\\Games\\MechAssault 2 (never in the middle of a name)."""
+    p = str(p)
+    if len(p) <= n: return p
+    parts = p.split('\\')
+    tail = []
+    for part in reversed(parts[1:]):
+        if len(parts[0]) + 5 + len('\\'.join([part] + tail)) > n and tail: break
+        tail.insert(0, part)
+    return parts[0] + '\\\u2026\\' + '\\'.join(tail)
+
+def elide(text, font, width):
+    """Cut text with an ellipsis so it fits `width` pixels in `font`."""
+    if font.measure(text) <= width: return text
+    while text and font.measure(text + '\u2026') > width: text = text[:-1]
+    return text.rstrip() + '\u2026'
 
 def open_path(p):
-    try:
-        os.startfile(str(p))
-    except OSError:
-        pass
+    try: os.startfile(str(p))
+    except OSError: pass
 
-class Page(tk.Frame):
-    key = ''
-    next_text = 'Next'
-    back = True
+def fmt_minutes(m):
+    m = int(round(m))
+    if m < 60: return '%d min' % max(1, m)
+    h, r = divmod(m, 60)
+    return '%d h %d min' % (h, r) if r else '%d h' % h
 
-    def __init__(self, app):
-        super().__init__(app.body, bg=C['bg'])
-        self.app, self.t = app, app.t
-        self.build()
+def fmt_left(sec):
+    if sec < 60: return 'Less than a minute left'
+    m = sec / 60.0
+    if m < 10: return 'About %d min left' % max(1, round(m))
+    if m < 60: return 'About %d min left' % (int(round(m / 5.0)) * 5)
+    m = int(round(m / 10.0)) * 10
+    return 'About %s left' % fmt_minutes(m)
 
-    def build(self): pass
-    def on_show(self): pass
-    def on_hide(self): pass
-    def valid(self): return True, ''
-    def kicker(self): return KICKER[self.key]
-
-    def buttons(self, ok):
-        i = [k for k in self.app.order() if PAGES.index(k) < PAGES.index(self.key)]
-        out = []
-        if self.back: out.append(('Back', self.app.go_back, 'TButton', bool(i)))
-        out.append((self.next_text, self.app.go_next, 'Primary.TButton', ok))
-        return out
-
-    def heading(self, text, sub=None):
-        self.t.label(self, text, 'h2', 'text').pack(anchor='w', pady=(0, 2))
-        if sub: self.t.label(self, sub, 'body', 'muted', wraplength=self.app.wrap, justify='left').pack(anchor='w', pady=(0, 8))
+# ---------------------------------------------------------------------------- the window
 
 class App:
-    def __init__(self, root, theme):
-        self.root, self.t = root, theme
-        S = theme.S
+    W, H = 880, 520                                 # logical client size
+
+    def __init__(self, root, scale=None, plain=None):
+        self.root = root
         self.q = queue.Queue(); self.worker = None; self.inst = None
-        self.launched = []                      # (what) -- tests replace launch()
-        self.facts = {'gpus': None, 'reco': None, 'compiler': None}
-        self.dest = tk.StringVar(); self.disc = tk.StringVar()
-        self.action = tk.StringVar(value='install')          # install | update | repair | addons | resume
-        self.texture = tk.StringVar(value='original'); self.videos = tk.BooleanVar()
-        self.sc = {k: tk.BooleanVar(value=v) for k, v in (('desktop', True), ('start', True), ('editor', False))}
-        self.awake = tk.BooleanVar(value=True); self.lowprio = tk.BooleanVar(); self.merge = tk.BooleanVar(value=True)
-        self.switch = tk.BooleanVar(value=True); self.close_on_play = tk.BooleanVar(value=True)
-        self.folder_report = None; self.image_result = None; self.started = None
-        self.wrap = S(600)
-        # a short screen (1366x768 at 125 %) gets the compact Welcome page
-        self.compact = (root.winfo_screenheight() - S(90)) / theme.scale < 640
+        self.launches_hook = None
+        self.facts = {'gpus': None, 'reco': None, 'compiler': None, 'minutes': None, 'sac': None, 'vs_list': None}
+        # choices (the same names and defaults as the 1.1.3 window)
+        self.disc = ''; self.image = None; self.disc_token = 0; self.disc_checking = False
+        self.dest = ''; self.folder = None; self.dest_token = 0; self.dest_chosen = False; self.tried_other = False
+        self.texture = 'original'; self.videos = False
+        self.sc = {'desktop': True, 'start': True, 'editor': False}
+        self.awake = True; self.lowprio = False; self.merge = True; self.switch = True
+        self.jobs = None; self.vs = None; self.keep_work = False; self.engine = 'auto'; self.upscaler = ''
+        self.mode = 'install'; self.screen = 'setup'; self.page = None; self.stop = None; self.confirm = None
+        self.notice = None; self.menu = None; self.failed = None; self.extras_failed = None
+        self.model = None; self.lines = []; self.step_title = ''; self.slow = ''; self.shown_frac = 0.0; self.shown_eta = None
+        self.started = None; self.show_details = False; self.tools_busy = False; self.tools_cancel = False
+        self.w = {}; self.primary = None; self.want_focus = None; self.prog = {}; self.scan_x = 0.0
+        self.closing = False; self.fallbacks = ui_win.FALLBACKS
+        self.forced_scale = scale is not None
+        # window
         root.title(TITLE)
         root.report_callback_exception = self.ui_error
-        root.configure(bg=C['bg'])
         try: root.iconbitmap(default=str(HERE / 'data' / 'app.ico'))
         except tk.TclError: pass
-        w, h = S(880), S(620)
-        sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-        w, h = min(w, sw - S(20)), min(h, sh - S(60))
-        off = os.environ.get('MA2_UI_OFFSCREEN')       # test rig: keep the window far off screen
-        root.geometry('%dx%d+%s+%s' % (w, h, '-32000' if off else max(0, (sw - w) // 2), '-32000' if off else max(0, (sh - h) // 3)))
-        root.minsize(min(S(780), w), min(S(560), h))
-        self.layout()
-        self.pages = {k: cls(self) for k, cls in (('welcome', Welcome), ('systems', Systems), ('disc', Disc), ('location', Location),
-                                                  ('loadout', Loadout), ('install', Install), ('done', Done))}
-        self.cur = None
-        self.dest.set(precheck.remembered_install() or precheck.default_install_folder())
+        root.resizable(False, False)
+        self.plain = ui_theme.high_contrast() if plain is None else plain
+        root.update_idletasks()
+        self.hwnd = ui_win.frame_hwnd(root)
+        self.dpi_seen = ui_win.window_dpi(self.hwnd)
+        self.k = ui_kit.Kit(root, self.pick_scale(scale), self.plain)
+        root.configure(bg=P['bg'])
+        self.k.style_ttk()
+        self.cv = tk.Canvas(root, bg=P['bg'], highlightthickness=0, bd=0)
+        self.cv.pack(fill='both', expand=True)
+        self.place_window()
+        self.draw_background()
+        ui_win.style_window(self.hwnd)
+        self.taskbar = ui_win.Taskbar(self.hwnd)
+        self.drop = ui_win.DropTarget(); self.drop.install(self.hwnd)
+        self.anim = ui_win.animations_on()
         root.protocol('WM_DELETE_WINDOW', self.close)
-        root.bind('<Return>', self.on_return)
-        self._root_w = 0; root.bind('<Configure>', self.on_root_configure)
+        root.bind('<Return>', self.on_return); root.bind('<KP_Enter>', self.on_return)
+        root.bind('<Escape>', self.on_escape)
+        # what is in the remembered folder decides the first screen (as 1.1.3's Welcome banner did)
+        self.dest = precheck.remembered_install() or precheck.default_install_folder()
+        self.mode = self.mode_for(self.dest)
+        self.load_installed_choices()
+        self.check_dest()
+        resume = self.read_resume_marker()
+        for fn in (self.detect_hardware, self.detect_compiler, self.detect_misc, self.find_disc):
+            threading.Thread(target=self.guarded(fn), daemon=True).start()
+        self.render()
         self._after = root.after(100, self.pump)
-        threading.Thread(target=self.detect_hardware, daemon=True).start()
-        self.show('welcome')
+        self._tick = 0
+        if resume: root.after(300, lambda: self.resume_after_restart(resume))
 
-    # -- window layout
-    def layout(self):
-        t, S, root = self.t, self.t.S, self.root
-        root.columnconfigure(1, weight=1); root.rowconfigure(0, weight=1)
-        self.rail = tk.Frame(root, bg=C['panel'], width=S(206)); self.rail.grid(row=0, column=0, sticky='ns'); self.rail.grid_propagate(False)
-        tk.Frame(root, bg=C['line'], width=1).grid(row=0, column=0, sticky='nse')
-        em = tk.Canvas(self.rail, width=S(206), height=S(104), bg=C['panel'], highlightthickness=0)
-        em.pack(); ui_theme.draw_emblem(em, S(36), S(54), S(24), fill=C['panel2'])
-        em.create_text(S(70), S(44), text='MECHASSAULT 2', anchor='w', font=t.fonts['rail'], fill=C['text'])
-        em.create_text(S(70), S(64), text='RECOMP INSTALLER', anchor='w', font=t.fonts['kicker'], fill=C['amber'])
-        self.rail_rows = {}
-        for k in PAGES:
-            row = tk.Frame(self.rail, bg=C['panel']); row.pack(fill='x', pady=S(1))
-            bar = tk.Frame(row, bg=C['panel'], width=S(3)); bar.pack(side='left', fill='y')
-            glyph = tk.Label(row, text='\u25cb', font=t.fonts['rail'], fg=C['steel'], bg=C['panel'], width=2); glyph.pack(side='left', padx=(S(10), 0), pady=S(6))
-            name = tk.Label(row, text=RAIL[k], font=t.fonts['rail'], fg=C['muted'], bg=C['panel'], anchor='w'); name.pack(side='left')
-            self.rail_rows[k] = (row, bar, glyph, name)
-        self.fan = tk.Label(self.rail, text='Unofficial fan project.\nNot affiliated with Microsoft,\nXbox or the MechAssault /\nBattleTech rights holders.',
-                            font=t.fonts['small'], fg=C['steel'], bg=C['panel'], justify='left', anchor='w')
-        self.fan.pack(side='bottom', anchor='w', padx=S(14), pady=S(12))
-        self.main = tk.Frame(root, bg=C['bg']); self.main.grid(row=0, column=1, sticky='nsew')
-        self.main.columnconfigure(0, weight=1); self.main.rowconfigure(1, weight=1)
-        head = tk.Frame(self.main, bg=C['bg'], height=S(92)); head.grid(row=0, column=0, sticky='ew'); head.grid_propagate(False)
-        art = tk.Canvas(head, width=S(250), height=S(92), bg=C['bg'], highlightthickness=0); art.pack(side='right', fill='y')
-        if not t.plain: ui_theme.draw_radar(art, S(250), S(92), t.scale)
-        txt = tk.Frame(head, bg=C['bg']); txt.pack(side='left', padx=S(28), pady=S(14), fill='y')
-        self.kicker_l = t.label(txt, '', 'kicker', 'amber', bg='bg'); self.kicker_l.pack(anchor='w')
-        self.title_l = t.label(txt, '', 'h1', 'text', bg='bg'); self.title_l.pack(anchor='w')
-        tk.Frame(self.main, bg=C['line'], height=1).grid(row=0, column=0, sticky='sew')
-        self.body = tk.Frame(self.main, bg=C['bg']); self.body.grid(row=1, column=0, sticky='nsew', padx=S(28), pady=(S(12), 0))
-        self.foot = tk.Frame(self.main, bg=C['bg']); self.foot.grid(row=2, column=0, sticky='ew', padx=S(28), pady=S(12))
-        self.foot.columnconfigure(0, weight=1)
-        self.status = t.label(self.foot, '', 'small', 'orange', bg='bg', anchor='w', justify='left', wraplength=S(380)); self.status.grid(row=0, column=0, sticky='w')
-        self.btns = tk.Frame(self.foot, bg=C['bg']); self.btns.grid(row=0, column=1, sticky='e')
-        self.wrap = S(612)
+    # -- scale and placement
+    def pick_scale(self, forced=None):
+        """One scale for everything: the monitor's DPI, clamped so the whole window fits the work area (1366x768 at 125 % and up)."""
+        sys_scale = forced if forced else ((self.dpi_seen / 96.0) if self.dpi_seen else self.root.winfo_fpixels('1i') / 96.0)
+        wa = self.work_area()
+        fit = min((wa[3] - 40) / (self.H + 31.0), (wa[2] - 40) / float(self.W))
+        return max(0.75, min(sys_scale, fit))
 
-    # -- navigation
-    def order(self):
-        o = ['welcome', 'systems']
-        if self.needs_disc(): o.append('disc')
-        return o + ['location', 'loadout', 'install', 'done']
+    def work_area(self):
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        wa = ui_win.work_area(self.hwnd) or (0, 0, sw, sh - 48)
+        return wa[0], wa[1], min(wa[2], sw), min(wa[3], sh - 40)
 
-    def needs_disc(self):
-        act = self.action.get()
-        if act == 'addons': return False
-        if act in ('update', 'repair') and self.game_files_ok(): return False
-        if act == 'resume':           # an interrupted install that never finished extracting still needs the disc (a failed extract: choose it again)
-            st = precheck.read_state(precheck.clean_path(self.dest.get())) or {}
-            return (not st.get('addons_only') and not st.get('core_done') and 'extract' not in st.get('done', [])
-                    and not (st.get('update') and self.game_files_ok()))
-        return act in ('install', 'update', 'repair')
+    def place_window(self):
+        dp = self.k.dp
+        w, h = dp(self.W), dp(self.H)
+        self.cv.configure(width=w, height=h)
+        if os.environ.get('MA2_UI_OFFSCREEN'):
+            self.root.geometry('%dx%d+-32000+-32000' % (w, h)); return
+        l, t, ww, wh = self.work_area()
+        x = l + max(0, (ww - w) // 2); y = t + max(0, (wh - h - dp(31)) // 3)
+        self.root.geometry('%dx%d+%d+%d' % (w, h, x, y))
+
+    def rescale(self, scale):
+        self.k.rescale(scale); self.k.style_ttk()
+        self.place_window(); self.draw_background(); self.render()
+
+    def draw_background(self):
+        self.cv.delete('hex')
+        self.hexes = [] if self.plain else ui_kit.hex_field(self.cv, self.k, self.k.dp(self.W), self.k.dp(self.H), self.k.dp(600))
+        self.cv.tag_lower('hex')
+
+    # -- helpers
+    def guarded(self, fn):
+        def run():
+            try: fn()
+            except Exception: print('ui: background check %s failed:\n%s' % (fn.__name__, traceback.format_exc()), flush=True)
+        return run
+
+    def bg(self, fn, cb):
+        def run():
+            try: res = fn()
+            except Exception as e: res = e
+            self.q.put(('call', lambda: cb(res)))
+        threading.Thread(target=run, daemon=True).start()
+
+    def ui_error(self, exc, val, tb):
+        """A Tk callback raised: the traceback goes to the installer log; the window stays usable."""
+        traceback.print_exception(exc, val, tb)
+
+    # -- what is installed where
+    def mode_for(self, dest):
+        d = precheck.clean_path(dest)
+        if not d: return 'install'
+        try:
+            if precheck.read_state(d) is not None: return 'resume'
+            rel = install.install_relation(d)
+        except Exception:
+            return 'install'
+        return 'update' if rel == 'older' else 'maintain' if rel in ('same', 'newer') else 'install'
+
+    def state(self):
+        return precheck.read_state(precheck.clean_path(self.dest)) or {}
+
+    def have(self):
+        d = Path(precheck.clean_path(self.dest) or '.')
+        if self.mode not in ('update', 'maintain'): return {'2x': False, '4x': False, 'videos': False}
+        return {'2x': (d / 'game_files/texture_packs/2x/index.json').is_file(), '4x': (d / 'game_files/texture_packs/4x/index.json').is_file(),
+                'videos': (d / 'game_files/Movie/Enhanced/2x').is_dir()}
+
+    def load_installed_choices(self):
+        """An update keeps the installed textures choice on the Textures line (nothing is re-made: those packs are already there)."""
+        if self.mode in ('update', 'maintain'):
+            self.texture = 'original'; self.videos = False
 
     def game_files_ok(self):
         try:
-            d = Path(precheck.clean_path(self.dest.get()))
+            d = Path(precheck.clean_path(self.dest))
             xbe = d / 'game_files' / install.RELEASE['xbe']
             return xbe.is_file() and xbe.stat().st_size == install.RELEASE['xbe_bytes']
         except OSError:
             return False
 
-    def show(self, key):
-        if self.cur: self.cur.on_hide(); self.cur.pack_forget()
-        self.cur = self.pages[key]
-        k, ti = self.cur.kicker()
-        self.kicker_l['text'], self.title_l['text'] = k, ti
-        self.cur.pack(fill='both', expand=True)
-        self.cur.on_show()
-        self.update_rail()
-        self.refresh()
+    def action(self):
+        if self.mode == 'install': return 'install'
+        if self.mode == 'update': return 'update'
+        if self.mode == 'resume': return 'resume'
+        return 'addons' if self.new_extras() else 'repair'
 
-    def go_next(self):
-        cur = PAGES.index(self.cur.key)
-        nxt = [k for k in self.order() if PAGES.index(k) > cur]
-        if nxt: self.show(nxt[0])
+    def new_extras(self):
+        h = self.have()
+        return (self.texture != 'original' and not h.get(self.texture)) or (self.videos and not h['videos'])
 
-    def go_back(self):
-        cur = PAGES.index(self.cur.key)
-        prev = [k for k in self.order() if PAGES.index(k) < cur]
-        if prev: self.show(prev[-1])
+    def needs_disc(self):
+        act = self.action()
+        if act == 'addons': return False
+        if act in ('update', 'repair') and self.game_files_ok(): return False
+        if act == 'resume':
+            st = self.state()
+            return (not st.get('addons_only') and not st.get('core_done') and 'extract' not in st.get('done', [])
+                    and not (st.get('update') and self.game_files_ok()))
+        return act in ('install', 'update', 'repair')
 
-    def on_return(self, event):
-        if isinstance(event.widget, (tk.Text, ttk.Button, tk.Button)): return
-        ok, _ = self.cur.valid()
-        if ok and any(b[0] == self.cur.next_text and b[3] for b in self.cur.buttons(ok)): self.cur.buttons(ok)[-1][1]()
+    def opts(self):
+        return dict(textures=[] if self.texture == 'original' else [self.texture], videos=self.videos)
 
-    def update_rail(self, fault=False):
-        order = self.order(); cur = self.cur.key
-        for k, (row, bar, glyph, name) in self.rail_rows.items():
-            hidden = k not in order
-            if hidden: row.pack_forget(); continue
-            row.pack(fill='x', pady=self.t.S(1), before=self.fan) if not row.winfo_ismapped() else None
-            i, ci = PAGES.index(k), PAGES.index(cur)
-            state = 'active' if k == cur else 'done' if i < ci else 'todo'
-            col = C['amber'] if state == 'active' else C['ok'] if state == 'done' else C['steel']
-            if fault and k == cur: col = C['danger']
-            glyph['text'] = '\u25b6' if state == 'active' else '\u2713' if state == 'done' else '\u25cb'
-            glyph['fg'] = col; name['fg'] = C['text'] if state == 'active' else C['muted']
-            bg = C['panel2'] if state == 'active' else C['panel']
-            for w in (row, glyph, name): w['bg'] = bg
-            bar['bg'] = col if state == 'active' else C['panel']
-        self.fan['text'] = 'Unofficial fan project.\nNot affiliated with Microsoft,\nXbox or the MechAssault /\nBattleTech rights holders.'
+    def done_set(self):
+        act = self.action()
+        return {'extract', 'build'} if act == 'addons' else ({'extract'} if self.game_files_ok() and act in ('update', 'repair') else set())
 
-    def refresh(self):
-        page = self.cur
-        if page is None: return
-        ok, why = page.valid()
-        self.status['text'] = why if (why and not ok) else (why or '')
-        self.status['fg'] = C['orange'] if not ok else C['muted']
-        for w in self.btns.winfo_children(): w.destroy()
-        self.btn_widgets = []
-        for text, cmd, style, enabled in page.buttons(ok):
-            b = ttk.Button(self.btns, text=text, command=cmd, style=style, state='normal' if enabled else 'disabled')
-            self.btn_widgets.append(b)
-            if style.startswith('Primary') and enabled: b.focus_set()
-        self.lay_buttons()
-        self.root.update_idletasks()
+    def need_bytes(self):
+        return install.needed_space(self.opts(), self.done_set(), (self.facts.get('reco') or {}).get('engine', 'pytorch'))
 
-    def lay_buttons(self):
-        """The footer buttons in one row, or in two or more right-aligned rows when they do not fit the window (the failure screen has up to
-        seven: Close, Open log folder, Copy log, Collect diagnostics, Systems check, Report a problem, Resume). The primary button stays in the last row."""
-        S = self.t.S; ws = [b for b in getattr(self, 'btn_widgets', []) if b.winfo_exists()]
-        if not ws: return
-        gap = S(8); rw = self.root.winfo_width()
-        avail = (rw - self.rail.winfo_reqwidth() - 2 * S(28)) if rw > 300 else 10 ** 6         # before the window is mapped: one row
-        widths = [b.winfo_reqwidth() + gap for b in ws]
-        rows, cur, used = [], [], 0
-        for i in reversed(range(len(ws))):
-            if cur and used + widths[i] > avail: rows.insert(0, cur); cur, used = [], 0
-            cur.insert(0, i); used += widths[i]
-        rows.insert(0, cur)
-        ncols = max(len(r) for r in rows)
-        for b in ws: b.grid_forget()
-        for r, idxs in enumerate(rows):
-            for c, i in enumerate(idxs):
-                ws[i].grid(row=r, column=ncols - len(idxs) + c, sticky='e', padx=(gap, 0), pady=(S(6) if r else 0, 0))
+    def minutes(self):
+        m = self.facts.get('minutes') or 15
+        return 1 if self.action() == 'addons' else m
 
-    def on_root_configure(self, event):
-        if event.widget is self.root and event.width != self._root_w:
-            self._root_w = event.width; self.root.after_idle(self.lay_buttons)
+    def extras_time(self):
+        o = self.opts()
+        if not (o['textures'] or o['videos']): return ''
+        return 'several hours' if (o['videos'] or '4x' in o['textures']) else 'a few hours'
 
-    # -- services
-    def bg(self, fn, cb):
-        def run():
-            try: res = fn()
-            except Exception as e:
-                res = e
-            self.q.put(('call', lambda: cb(res)))
-        threading.Thread(target=run, daemon=True).start()
+    def params(self):
+        """Installer arguments for the current choices (as the 1.1.3 window)."""
+        action = self.action()
+        tex = [] if self.texture == 'original' else [self.texture]
+        return dict(xiso=precheck.clean_path(self.disc) or None, dest=precheck.clean_path(self.dest),
+                    textures=tex, videos=self.videos, update=action in ('update', 'repair'),
+                    shortcuts=[k for k, v in self.sc.items() if v] if action in ('install', 'update', 'repair') else [],
+                    keep_awake=self.awake, low_priority=self.lowprio, merge_settings=self.merge, switch_textures=self.switch)
 
+    # -- background facts
     def detect_hardware(self):
         gpus = precheck.detect_gpus()
         self.facts['gpus'] = gpus; self.facts['reco'] = precheck.recommend_textures(gpus)
-        self.q.put(('call', lambda: self.pages['loadout'].on_gpus() if self.cur and self.cur.key == 'loadout' else None))
+        self.q.put(('call', self.after_facts))
 
-    def confirm(self, title, text, yes='Stop', no='Keep installing'):
-        return messagebox.askyesno(TITLE, text, icon='question')
+    def detect_compiler(self):
+        self.facts['compiler'] = install.compiler_state()
 
-    def ask_uninstall(self, dest):
-        """The Uninstall question: (go, also delete settings and saves). Tests replace this."""
-        win = tk.Toplevel(self.root); win.title(TITLE); win.configure(bg=C['bg']); win.transient(self.root); win.resizable(False, False)
-        S = self.t.S; wipe = tk.BooleanVar(value=False); answer = {'go': False}
-        self.t.label(win, 'Uninstall MechAssault 2 from %s?' % precheck.short(dest, 60), 'h2', 'text', bg='bg', wraplength=S(520), justify='left').pack(anchor='w', padx=S(20), pady=(S(16), S(6)))
-        self.t.label(win, 'This deletes the game folder, its Desktop and Start-menu shortcuts and the shader and route caches. Your own scenarios in Documents\\MechAssault 2\\Scenarios are never deleted.',
-                     'body', 'muted', bg='bg', wraplength=S(520), justify='left').pack(anchor='w', padx=S(20))
-        ttk.Checkbutton(win, text='Also delete my settings and saves', variable=wipe).pack(anchor='w', padx=S(20), pady=(S(10), S(4)))
-        row = tk.Frame(win, bg=C['bg']); row.pack(anchor='e', padx=S(20), pady=(S(8), S(16)))
-        def finish(go): answer['go'] = go; win.destroy()
-        ttk.Button(row, text='Cancel', command=lambda: finish(False)).pack(side='left', padx=(0, S(8)))
-        ttk.Button(row, text='Uninstall', style='Primary.TButton', command=lambda: finish(True)).pack(side='left')
-        win.protocol('WM_DELETE_WINDOW', lambda: finish(False)); win.grab_set(); self.root.wait_window(win)
-        return answer['go'], bool(wipe.get() and answer['go'])
+    def detect_misc(self):
+        total, avail = precheck.memory_info()
+        self.facts['minutes'] = precheck.estimate_minutes(os.cpu_count() or 4, avail, total)
+        sac = getattr(precheck, 'sac_notice', None)
+        self.facts['sac'] = ('enforce' if sac() else None) if sac else precheck.smart_app_control()
+        self.q.put(('call', self.after_facts))
 
-    def ask_diagnostics(self, dest):
-        """(go, include a crash or hang dump, include the newest bot recording); both boxes start off. Tests replace this."""
-        win = tk.Toplevel(self.root); win.title(TITLE); win.configure(bg=C['bg']); win.transient(self.root); win.resizable(False, False)
-        S = self.t.S; dump = tk.BooleanVar(value=False); rec = tk.BooleanVar(value=False); answer = {'go': False}
-        extras = precheck.diagnostics_extras()
-        self.t.label(win, 'Collect diagnostics for a problem report', 'h2', 'text', bg='bg', wraplength=S(520), justify='left').pack(anchor='w', padx=S(20), pady=(S(16), S(6)))
-        self.t.label(win, 'This saves one .zip on your Desktop with basic facts about this PC and whatever of these exists: the install record, your settings and the newest '
-                     'game and installer logs. It works even if nothing is installed. Your user name is replaced in every text file.',
-                     'body', 'muted', bg='bg', wraplength=S(520), justify='left').pack(anchor='w', padx=S(20))
-        if extras['dump']:
-            ttk.Checkbutton(win, text='Include the newest crash or hang dump (it can contain folder names and your Windows user name)', variable=dump).pack(anchor='w', padx=S(20), pady=(S(10), 0))
-        if extras['botrec']:
-            ttk.Checkbutton(win, text='Include the newest bot match recording', variable=rec).pack(anchor='w', padx=S(20), pady=(S(2), S(4)))
-        row = tk.Frame(win, bg=C['bg']); row.pack(anchor='e', padx=S(20), pady=(S(8), S(16)))
-        def finish(go): answer['go'] = go; win.destroy()
-        ttk.Button(row, text='Cancel', command=lambda: finish(False)).pack(side='left', padx=(0, S(8)))
-        ttk.Button(row, text='Collect', style='Primary.TButton', command=lambda: finish(True)).pack(side='left')
-        win.protocol('WM_DELETE_WINDOW', lambda: finish(False)); win.grab_set(); self.root.wait_window(win)
-        return answer['go'], bool(dump.get() and answer['go']), bool(rec.get() and answer['go'])
+    def after_facts(self):
+        if self.screen in ('setup', 'options'): self.check_dest(keep=True); self.render()
 
-    def launch(self, what, path):
-        if what == 'select':
-            try: subprocess.Popen(['explorer.exe', '/select,' + str(path)])
-            except OSError: pass
-        elif what == 'open': open_path(path)
+    def find_disc(self):
+        """A disc image the player already has (Downloads, Desktop, the last one used): Setup opens on "Disc ready". Read-only."""
+        env = os.environ.get('MA2_UI_DISC_SEARCH')
+        if env is not None: dirs = [Path(p) for p in env.split(os.pathsep) if p]
         else:
-            try: subprocess.Popen([str(path)], cwd=str(Path(path).parent), close_fds=True)
-            except OSError as e:                     # Smart App Control (4551), quarantined (225) or removed (2): say so
-                self.show_error(install.launch_advice(path, e)); return False
-        return True
+            home = Path(os.environ.get('USERPROFILE') or Path.home())
+            dirs = [home / 'Downloads', home / 'Desktop', home / 'Documents']
+        cands = []
+        last = (self.state() or {}).get('xiso')
+        if last and Path(last).is_file(): cands.append(Path(last))
+        for d in dirs:
+            try:
+                for f in sorted(d.iterdir()):
+                    if f.suffix.lower() in ('.iso', '.xiso') and f.is_file() and 1 * precheck.GB <= f.stat().st_size <= 10 * precheck.GB: cands.append(f)
+            except OSError:
+                continue
+        for f in cands[:8]:
+            if self.disc or self.closing: return
+            res = precheck.validate_image(str(f), install.RELEASE)
+            if res.ok:
+                print('ui: found the disc image %s' % f.name, flush=True)
+                self.q.put(('call', lambda f=f, res=res: self.found_disc(str(f), res))); return
 
-    def show_error(self, text):
-        try: messagebox.showerror(TITLE, text)
-        except Exception: pass
+    def found_disc(self, path, res):
+        if self.disc or self.screen not in ('setup', 'options'): return
+        self.disc = path; self.image = res; self.want_focus = 'primary'; self.render()
 
-    def params(self):
-        """Installer arguments for the current choices."""
-        action = self.action.get()
-        tex = [] if self.texture.get() == 'original' else [self.texture.get()]
-        return dict(xiso=precheck.clean_path(self.disc.get()) or None, dest=precheck.clean_path(self.dest.get()),
-                    textures=tex, videos=self.videos.get(), update=action in ('update', 'repair'),
-                    shortcuts=[k for k, v in self.sc.items() if v.get()] if action in ('install', 'update', 'repair') else [],
-                    keep_awake=self.awake.get(), low_priority=self.lowprio.get(), merge_settings=self.merge.get(),
-                    switch_textures=self.switch.get())
+    # -- choices
+    def set_disc(self, text):
+        text = precheck.clean_path(text)
+        self.disc = text; self.image = None; self.disc_token += 1; token = self.disc_token
+        if not text: self.disc_checking = False; self.render(); return
+        if not precheck.is_absolute(text):
+            self.image = precheck.ImageResult(False, 'relative', 'Enter a full path.', 'Not a full path'); self.render(); return
+        self.disc_checking = True; self.render()
+        self.bg(lambda: precheck.validate_image(text, install.RELEASE), lambda r: self.disc_checked(token, r))
 
-    def ui_error(self, exc, val, tb):
-        """A Tk callback raised: the traceback goes to the installer log (stderr), the status line says so, the window stays usable."""
-        traceback.print_exception(exc, val, tb)
-        try:
-            self.status['text'] = 'Internal error; details are in the installer log.'; self.status['fg'] = C['orange']
-        except Exception:
-            pass
-
-    # -- event pump
-    def pump(self):
-        try:
-            for _ in range(400):
-                kind, value = self.q.get_nowait()
-                if kind == 'call': value()
-                else: self.pages['install'].event(kind, value)
-        except queue.Empty:
-            pass
-        self.pages['install'].tick()
-        self._after = self.root.after(100, self.pump)
-
-    def stop_pump(self):
-        try: self.root.after_cancel(self._after)
-        except (tk.TclError, AttributeError): pass
-
-    def close(self):
-        if self.worker and self.worker.is_alive():
-            if not self.confirm(TITLE, 'Stop installing? Everything finished so far is kept. Run the installer again and choose Resume to continue.'): return
-            self.cancel_install(); self.worker.join(timeout=15)
-        ui_theme.unload_fonts()
-        self.stop_pump()
-        self.root.destroy()
-
-    def cancel_install(self):
-        if self.inst: threading.Thread(target=self.inst.cancel, daemon=True).start()
-
-# ---------------------------------------------------------------------------- pages
-
-class Welcome(Page):
-    key = 'welcome'
-    back = False
-
-    def build(self):
-        t, S = self.t, self.t.S
-        self.banner = t.panel(self, accent=True, bg='panel2')
-        self.notice_text = None
-        self.notice = t.panel(self, accent=True, bg='panel2')
-        self.notice_l = t.label(self.notice, '', 'body', 'text', bg='panel2', wraplength=self.app.wrap - S(40), justify='left')
-        self.notice_l.pack(anchor='w', padx=S(12), pady=S(8))
-        self.intro = t.label(self, 'This builds a PC version of MechAssault 2 from your own disc image. It takes about 15-40 minutes and needs about 5 GB of space.',
-                'body', 'text', wraplength=self.app.wrap, justify='left')
-        self.intro.pack(anchor='w')
-        legal = self.legal = t.panel(self, accent=True); legal.pack(fill='x', pady=(S(10), S(8)))
-        t.label(legal, 'YOUR DISC, YOUR COPY', 'kicker', 'amber', bg='panel').pack(anchor='w', padx=S(14), pady=(S(8), 0))
-        t.label(legal, 'You need your own, legally obtained copy of MechAssault 2 (original Xbox, US/NTSC retail disc), dumped to a disc image '
-                '(.iso / .xiso). The game\'s program, art, sound and levels all come from that disc; "How does this work?" below says what the installer itself carries.',
-                'body', 'text', bg='panel', wraplength=self.app.wrap - S(40), justify='left').pack(anchor='w', padx=S(14), pady=(0, S(10)))
-        steps = self.steps = tk.Frame(self, bg=C['bg'])
-        if not self.app.compact: steps.pack(fill='x')
-        for n, txt in (('1', 'Reads your disc image.'), ('2', 'Translates the Xbox program to C and compiles it with Microsoft\'s free C++ tools.'),
-                       ('3', 'Builds the PC menus and installs a ready-to-play folder.')):
-            r = tk.Frame(steps, bg=C['bg']); r.pack(anchor='w', pady=S(1))
-            t.label(r, n, 'chip', 'amber', width=2).pack(side='left')
-            t.label(r, txt, 'body', 'text').pack(side='left')
-        self.need = t.label(self, 'What you need:  64-bit Windows 10 (1903 or later) or 11  \u00b7  a DirectX 11 graphics card  \u00b7  about 5 GB free (plus about 8 GB on C: '
-                'if the C++ Build Tools are needed)  \u00b7  8 GB RAM recommended  \u00b7  a US/NTSC retail disc image.',
-                'small', 'muted', wraplength=self.app.wrap, justify='left')
-        if not self.app.compact: self.need.pack(anchor='w', pady=(S(10), S(4)))
-        links = self.links = tk.Frame(self, bg=C['bg']); links.pack(anchor='w')
-        self.how = tk.Label(self, text=TECH + ('\n\n' + self.need.cget('text') if self.app.compact else ''), font=t.fonts['small'], fg=C['muted'], bg=C['bg'], wraplength=self.app.wrap, justify='left')
-        self.smart = tk.Label(self, text=SMARTSCREEN, font=t.fonts['small'], fg=C['muted'], bg=C['bg'], wraplength=self.app.wrap, justify='left')
-        ttk.Button(links, text='How does this work?', style='Link.TButton', command=lambda: self.toggle(self.how)).pack(side='left')
-        ttk.Button(links, text='Windows warned me about this file', style='Link.TButton', command=lambda: self.toggle(self.smart)).pack(side='left', padx=S(12))
-        # Always available, even with nothing installed. When a banner below offers its own Collect diagnostics button this one steps aside (detect_existing).
-        self.diag_link = ttk.Button(links, text='Collect diagnostics', style='Link.TButton', command=lambda: self.diagnostics(self.diag_dest()))
-        self.diag_link.pack(side='left'); self.in_banner = False
-        self.ver = t.label(self, install.build_label(), 'small', 'steel')
-        if precheck.MA2_SUPPORT_URL: self.ver['text'] += ' · Help: %s' % precheck.MA2_SUPPORT_URL
-        if not self.app.compact: self.ver.pack(side='bottom', anchor='w')
-        t.label(self, precheck.FAN_LINE, 'small', 'steel', wraplength=self.app.wrap, justify='left').pack(side='bottom', anchor='w', pady=(0, S(2)))
-
-    def toggle(self, w):
-        for other in (self.how, self.smart):
-            if other is not w: other.pack_forget()
-        if w.winfo_ismapped(): w.pack_forget()
-        else: w.pack(anchor='w', pady=self.t.S(4))
-        self.app.refresh()
-
-    def on_show(self):
-        self.notice_text = None
-        self.detect_existing()
-
-    def diag_dest(self):
-        """The folder a diagnostics zip looks at: the install this PC remembers, else the folder chosen so far, else the default (it may not exist: that is fine)."""
-        return precheck.remembered_install() or precheck.clean_path(self.app.dest.get()) or precheck.default_install_folder()
-
-    def diagnostics(self, d):
-        go, dump, rec = self.app.ask_diagnostics(d)
-        if not go: return
-        self.notice_text = 'Collecting diagnostics...'; self.detect_existing()
-        def work():
-            return precheck.collect_diagnostics(d, install.known_folder('desktop'), install.PUBLIC_VERSION, install.BUILD, self.app.facts.get('gpus'), dump, rec)
-        self.app.bg(work, self.diagnostics_done)
-
-    def diagnostics_done(self, res):
+    def disc_checked(self, token, res):
+        if token != self.disc_token: return
         if isinstance(res, Exception):
-            self.notice_text = 'Could not collect diagnostics: %s' % res
-        else:
-            self.notice_text = 'Diagnostics saved to %s. Attach this file to your problem report (%s).' % (res['path'], precheck.support_where())
-            self.app.launch('select', res['path'])
-        self.detect_existing()
+            res = precheck.ImageResult(False, 'read_error', 'Couldn\'t read the file: %s.' % res, 'Can\'t read the file')
+        self.disc_checking = False; self.image = res
+        self.want_focus = 'primary' if res.ok else 'zone'
+        self.render()
 
-    def uninstall(self, d):
-        go, wipe = self.app.ask_uninstall(d)
-        if not go: return
-        self.notice_text = 'Uninstalling...'; self.detect_existing()
-        self.app.bg(lambda: install.uninstall(d, wipe), self.uninstalled)
+    def browse_disc(self):
+        p = filedialog.askopenfilename(parent=self.root, title='MechAssault 2 disc image',
+                                       filetypes=[('Xbox disc image', '*.iso *.xiso'), ('Game folder (ma2.xbe)', 'ma2.xbe'), ('All files', '*.*')])
+        if p: self.set_disc(os.path.normpath(p))
 
-    def uninstalled(self, res):
-        if isinstance(res, Exception): self.notice_text = 'The uninstall stopped: %s' % res
-        else: self.notice_text = res['text']
-        self.detect_existing()
+    def set_dest(self, text, chosen=True):
+        self.dest = precheck.clean_path(text); self.dest_chosen = self.dest_chosen or chosen
+        new = self.mode_for(self.dest)
+        if new != self.mode:
+            self.mode = new; self.confirm = None; self.load_installed_choices()
+        self.check_dest()
+        self.render()
 
-    def compact_banner(self, d):
-        """Will detect_existing show a banner for the remembered install `d`?"""
-        if not d: return False
-        return precheck.read_state(d) is not None or install.install_relation(d) in ('older', 'same', 'newer')
+    def browse_dest(self):
+        p = self.pick_folder()
+        if p: self.set_dest(p)
 
-    def detect_existing(self):
-        """A banner for an interrupted install (Resume) or an older version (Update) in the remembered folder.
-        One Collect diagnostics button is enough: the banner has its own, otherwise the links row below the intro shows it."""
-        self.in_banner = False
-        self._detect_existing()
-        if self.in_banner: self.diag_link.pack_forget()
-        elif not self.diag_link.winfo_ismapped(): self.diag_link.pack(side='left')
+    def pick_folder(self):
+        """The folder picker; a folder with other things in it gets a new "MechAssault 2" folder inside it. None = cancelled."""
+        p = filedialog.askdirectory(parent=self.root, title='Install folder', mustexist=False)
+        if not p: return None
+        p = os.path.normpath(p)
+        try:                       # a folder with other things in it: install into a new "MechAssault 2" folder inside it (no question asked)
+            pp = Path(p)
+            if pp.is_dir() and any(pp.iterdir()) and precheck.read_state(p) is None and not precheck.is_install(p) and pp.parent != pp:
+                p = str(pp / 'MechAssault 2')
+            elif pp.parent == pp:
+                p = str(pp / 'Games' / 'MechAssault 2')
+        except OSError:
+            pass
+        return p
 
-    def _detect_existing(self):
-        t, S, app = self.t, self.t.S, self.app
-        for w in self.banner.winfo_children(): w.destroy()
-        self.banner.pack_forget()
-        d = precheck.remembered_install()
-        if not self.app.compact: self.steps.pack(fill='x', after=self.legal)
-        self.notice.pack_forget()
-        shown = bool(self.notice_text) or self.compact_banner(d)
-        if self.app.compact:                          # a short screen: the banner replaces the one-line blurb
-            if shown: self.intro.pack_forget()
-            elif not self.intro.winfo_ismapped(): self.intro.pack(anchor='w', before=self.legal)
-        if self.notice_text:                          # what Uninstall just did
-            self.notice_l['text'] = self.notice_text
-            self.notice.pack(fill='x', pady=(0, S(8)), before=self.pack_slaves()[0])
-            self.steps.pack_forget(); self.need.pack_forget()
-        elif not self.app.compact and not self.need.winfo_ismapped():
-            self.need.pack(anchor='w', pady=(S(10), S(4)), before=self.links)
-        if not d: return
-        state, stamp = precheck.read_state(d), None
-        rel = install.install_relation(d)
-        stamp = precheck.read_stamp(d)
-        text = None; buttons = []; one_row = False
-        if state is not None and state.get('core_done') and install.is_install(d):
-            # The game was installed; only its enhanced content (textures, videos) did not finish.
-            text = ('MechAssault 2 Recomp is installed in %s and ready to play. Its enhanced content was not finished: Resume makes only that.'
-                    % precheck.short(d, 60))
-            buttons = [('Resume', lambda: self.choose(d, 'resume'), 'Primary.TButton'), ('Discard', lambda: self.start_over(d), 'TButton'),
-                       ('Collect diagnostics', lambda: self.diagnostics(d), 'Link.TButton')]
-            one_row = True
-        elif state is not None:
-            done = [s for s in state.get('done', []) if s not in ('check',)]
-            last = state.get('last_title') or 'an earlier step'
-            text = 'An install was interrupted (%d steps finished) in %s.' % (len(done), precheck.short(d, 60))
-            buttons = [('Resume', lambda: self.choose(d, 'resume'), 'Primary.TButton'), ('Start over', lambda: self.start_over(d), 'TButton'),
-                       ('Collect diagnostics', lambda: self.diagnostics(d), 'Link.TButton')]
-            one_row = True                            # the quiet link shares the row: the banner stays as tall as before
-        elif rel == 'older':
-            s = stamp or {}
-            have = ('%s (build %s)' % (s['public_version'], str(s.get('kit_id', ''))[:8]) if s.get('public_version') else
-                    'from %s' % s['version'] if s.get('version') else 'an earlier version')
-            text = 'MechAssault 2 Recomp %s is installed in %s. This installer is %s (build %s).' % (have, precheck.short(d, 60), install.PUBLIC_VERSION, install.BUILD)
-            buttons = [('Update it', lambda: self.choose(d, 'update'), 'Primary.TButton'), ('Add enhanced content', lambda: self.choose(d, 'addons'), 'TButton'),
-                       ('Install somewhere else', lambda: self.choose(precheck.default_install_folder(), 'install'), 'TButton'),
-                       ('Uninstall', lambda: self.uninstall(d), 'Link.TButton'),
-                       ('Collect diagnostics', lambda: self.diagnostics(d), 'Link.TButton')]
-        elif rel == 'same':
-            text = 'MechAssault 2 Recomp is already installed in %s and up to date.' % precheck.short(d, 60)
-            buttons = [('Add enhanced content', lambda: self.choose(d, 'addons'), 'Primary.TButton'), ('Repair', lambda: self.choose(d, 'repair'), 'TButton'),
-                       ('Uninstall', lambda: self.uninstall(d), 'Link.TButton'),
-                       ('Collect diagnostics', lambda: self.diagnostics(d), 'Link.TButton')]
-        elif rel == 'newer':
-            text = 'MechAssault 2 Recomp is installed in %s. It was made by a newer installer than this one.' % precheck.short(d, 60)
-            buttons = [('Add enhanced content', lambda: self.choose(d, 'addons'), 'Primary.TButton'), ('Uninstall', lambda: self.uninstall(d), 'Link.TButton'),
-                       ('Collect diagnostics', lambda: self.diagnostics(d), 'Link.TButton')]
-        if not text: return
-        self.banner.pack(fill='x', pady=(0, S(8)), before=self.pack_slaves()[0])
-        self.steps.pack_forget()                      # make room for the banner
-        t.label(self.banner, text, 'body', 'text', bg='panel2', wraplength=app.wrap - S(40), justify='left').pack(anchor='w', padx=S(12), pady=(S(8), S(4)))
-        row = tk.Frame(self.banner, bg=C['panel2']); row.pack(anchor='w', padx=S(10), pady=(0, S(8)))
-        for label, cmd, style in buttons:
-            if style != 'Link.TButton' or one_row: ttk.Button(row, text=label, command=cmd, style=style).pack(side='left', padx=(0, S(8)))
-        self.in_banner = any(b[0] == 'Collect diagnostics' for b in buttons)
-        more = [] if one_row else [b for b in buttons if b[2] == 'Link.TButton']          # Uninstall, Collect diagnostics: a quieter second row
-        if more:
-            row2 = tk.Frame(self.banner, bg=C['panel2']); row2.pack(anchor='w', padx=S(10), pady=(0, S(8)))
-            for label, cmd, style in more: ttk.Button(row2, text=label, command=cmd, style=style).pack(side='left', padx=(0, S(8)))
+    def check_dest(self, keep=False):
+        self.dest_token += 1; token = self.dest_token
+        if not keep: self.folder = None
+        text, need = self.dest, self.need_bytes()
+        enhanced = self.texture != 'original' or self.videos
+        self.bg(lambda: precheck.check_folder(text, need, enhanced, install.KIT), lambda r: self.dest_checked(token, r, need))
 
-    def choose(self, dest, action):
-        self.app.dest.set(dest); self.app.action.set(action)
-        if action == 'resume':
-            self.app.show('install')
-        else:
-            self.app.show('systems')
+    def dest_checked(self, token, r, need):
+        if token != self.dest_token or isinstance(r, Exception): return
+        self.folder = r
+        if 'space' in r.codes() and not self.dest_chosen and not self.tried_other and self.mode == 'install':
+            self.tried_other = True
+            other = self.other_drive(need)
+            if other: self.set_dest(other, chosen=False); return
+        if self.screen in ('setup', 'options'): self.render()
 
-    def start_over(self, d):
-        if (precheck.read_state(d) or {}).get('core_done'):
-            ask = ('Discard the unfinished enhanced content? This deletes its work in %s\\_work. The game stays installed; you can add the '
-                   'content later with Add enhanced content.' % d, 'Discard', 'Cancel')
-        else:
-            ask = ('Start over? This deletes only the unfinished work in %s\\_work. Your extracted game files are kept.' % d, 'Start over', 'Cancel')
-        if self.app.confirm(TITLE, *ask):
-            install.start_over(d)
-            self.detect_existing()
-
-class Systems(Page):
-    key = 'systems'
-
-    def build(self):
-        t, S = self.t, self.t.S
-        self.rows = {}
-        grid = tk.Frame(self, bg=C['bg']); grid.pack(fill='x')
-        grid.columnconfigure(2, weight=1)
-        for i, (k, name) in enumerate((('windows', 'Windows'), ('compiler', 'C++ Build Tools'), ('memory', 'Memory and CPU'), ('disk', 'Disk space'),
-                                       ('graphics', 'Graphics'), ('internet', 'Internet'), ('power', 'Power'), ('sac', 'Smart App Control'),
-                                       ('av', 'Antivirus'))):
-            pad = S(3) if self.app.compact else S(5)
-            chip = t.chip(grid, 'wait'); chip.grid(row=i, column=0, sticky='nw', pady=pad)
-            t.label(grid, name, 'bold', 'text', bg='bg', width=16, anchor='w').grid(row=i, column=1, sticky='nw', pady=pad)
-            cell = tk.Frame(grid, bg=C['bg']); cell.grid(row=i, column=2, sticky='nw', pady=pad)
-            detail = t.label(cell, 'Checking...', 'body', 'muted', bg='bg', wraplength=S(400), justify='left', anchor='w'); detail.pack(anchor='w')
-            acts = tk.Frame(cell, bg=C['bg']); acts.pack(anchor='w')
-            self.rows[k] = (chip, detail, acts)
-        self.state = {k: 'wait' for k in self.rows}
-        self.busy = False
-
-    def on_show(self):
-        self.recheck()
-
-    def recheck(self):
-        if self.busy: return
-        for k, (chip, detail, acts) in self.rows.items():
-            self.t.set_chip(chip, 'wait'); detail['text'] = 'Checking...'; self.state[k] = 'wait'
-        self.app.refresh()
-        addons = self.app.action.get() == 'addons'        # Tk variables are read here, on the UI thread
-        self.app.bg(lambda: self.run_checks(addons), self.checks_done)
-
-    def checks_done(self, result):
-        if not isinstance(result, Exception): return
-        print('systems checks failed:\n%s' % ''.join(traceback.format_exception(type(result), result, result.__traceback__)), flush=True)
-        for k, kind in list(self.state.items()):
-            if kind == 'wait': self.set_row(k, 'info', 'Could not check (see the log).')
-
-    def post(self, key, kind, text, actions=()):
-        self.app.q.put(('call', lambda: self.set_row(key, kind, text, actions)))
-
-    def set_row(self, key, kind, text, actions=()):
-        chip, detail, acts = self.rows[key]
-        self.t.set_chip(chip, kind); detail['text'] = text; self.state[key] = kind
-        for w in acts.winfo_children(): w.destroy()
-        for label, cmd in actions: ttk.Button(acts, text=label, command=cmd, style='TButton').pack(side='left', padx=(0, self.t.S(8)), pady=(self.t.S(4), 0))
-        self.app.refresh()
-
-    def guard(self, key, fn):
-        """One failing check must not leave its row on 'Checking...' or hide the others: it says so and the log has the traceback."""
+    def other_drive(self, need):
+        """A fixed drive with room for the install, when the default drive has too little (instead of a stop)."""
         try:
-            fn()
+            mask = ctypes.windll.kernel32.GetLogicalDrives()
         except Exception:
-            print('systems check %r failed:\n%s' % (key, traceback.format_exc()), flush=True)
-            self.post(key, 'info', 'Could not check (see the log).')
+            return None
+        cur = os.path.splitdrive(self.dest)[0].upper()
+        best = None
+        for i in range(26):
+            if not mask & (1 << i): continue
+            root = '%s:\\' % chr(65 + i)
+            if root[:2] == cur or precheck.drive_type(root) != 3: continue
+            try: free = shutil.disk_usage(root).free
+            except OSError: continue
+            if free > need * 1.3 and (best is None or free > best[1]): best = (root, free)
+        return str(Path(best[0]) / 'Games' / 'MechAssault 2') if best else None
 
-    def run_checks(self, addons):
-        comp = {'state': 'unknown'}
+    def set_texture(self, v):
+        self.texture = v; self.check_dest(keep=True); self.render()
 
-        def windows():
-            w = precheck.windows_info()
-            self.post('windows', 'ready' if w['ok'] else 'blocked', '%s %s, build %d.' % (w['name'], '64-bit' if w['x64'] else '32-bit', w['build']) if w['ok']
-                      else 'Windows 10 (1903 or later) or 11, 64-bit, is required.')
+    def set_videos(self, v):
+        self.videos = bool(v); self.check_dest(keep=True); self.render()
 
-        def compiler():
-            nonlocal comp
-            if addons:
-                self.post('compiler', 'info', 'Not needed to add content to an existing install.')
-                comp = {'state': 'ready'}
+    # -- navigation
+    def go(self, screen, page=None, focus=None):
+        if screen != self.screen: self.confirm = None
+        self.screen = screen; self.page = page; self.menu = None
+        self.want_focus = focus
+        self.render()
+
+    def on_return(self, e):
+        if isinstance(e.widget, (tk.Text, ttk.Combobox)): return
+        if self.primary is not None and self.primary.enabled and self.primary.winfo_exists():
+            self.primary.invoke(); return 'break'
+
+    def on_escape(self, e=None):
+        if self.menu: self.menu = None; self.want_focus = 'help'; self.render(); return 'break'
+        if self.confirm: self.confirm = None; self.render(); return 'break'
+        back = {'options': 'setup', 'trouble': 'options', 'page': self.page_back if self.screen == 'page' else None,
+                'diag': getattr(self, 'diag_back', 'setup'), 'uninstall': 'setup'}.get(self.screen)
+        if back: self.go(back); return 'break'
+
+    # -- rendering
+    def render(self):
+        if self.closing: return
+        cur = self.focus_now()
+        keep = getattr(cur, 'key', None) if cur is not None else None
+        for wdg in list(self.w.values()):
+            try: wdg.destroy()
+            except tk.TclError: pass
+        for c in self.cv.winfo_children():
+            try: c.destroy()
+            except tk.TclError: pass
+        self.cv.delete('s'); self.w = {}; self.primary = None; self.prog = {}
+        getattr(self, 'scr_' + self.screen)()
+        if self.primary is not None: self.root.tk.call('raise', self.primary._w)       # the primary is the last Tab stop on every screen
+        if self.menu: self.draw_menu()
+        self.cv.tag_raise('s')
+        want = self.want_focus; self.want_focus = None
+        target = self.w.get(want) if want else None
+        if target is None and want == 'primary': target = self.primary
+        if target is None and keep: target = self.w.get(keep)
+        if target is None and want is None and keep is None: target = self.default_focus()
+        if target is not None:
+            try:
+                if target.enabled: target.focus_set()
+            except (tk.TclError, AttributeError): pass
+        self.update_title()
+
+    def focus_now(self):
+        """The window's focus widget, also while another program is in front (Tk's focus_get is None then)."""
+        try: return self.root.nametowidget(self.root.tk.call('focus', '-lastfor', self.root))
+        except (tk.TclError, KeyError): return None
+
+    def default_focus(self):
+        if self.primary is not None and self.primary.enabled: return self.primary
+        for k in ('zone', 'browse'):
+            if k in self.w: return self.w[k]
+        return None
+
+    def T(self, x, y, text, font='body', fill='text', anchor='nw', width=None, px=False):
+        dp = (lambda v: v) if px else self.k.dp
+        return self.cv.create_text(dp(x), dp(y), text=text, font=self.k.fonts[font], fill=P.get(fill, fill), anchor=anchor,
+                                   width=dp(width) if width else 0, tags='s')
+
+    def put(self, widget, x, y, anchor='nw', px=False):
+        dp = (lambda v: v) if px else self.k.dp
+        self.cv.create_window(dp(x), dp(y), window=widget, anchor=anchor, tags='s')
+        if getattr(widget, 'key', None): self.w[widget.key] = widget
+        return widget
+
+    def link(self, key, text, cmd, bg='bg', **kw):
+        w = Link(self.cv, self.k, text, cmd, P[bg], key=key, **kw)
+        self.w[key] = w
+        return w
+
+    def button(self, key, text, cmd, enabled=True, big=False, bg='panel', primary=True):
+        b = HexButton(self.cv, self.k, text, cmd, P[bg], big=big, enabled=enabled, key=key)
+        self.w[key] = b
+        if primary: self.primary = b
+        return b
+
+    def footer(self, left=(), right=()):
+        """The footer bar: items are widgets or ('text', str, font, colour) or ('segs', [(str, colour)], font)."""
+        k, dp, cv = self.k, self.k.dp, self.cv
+        W, H = dp(self.W), dp(self.H); top = H - dp(64); cy = top + dp(32)
+        cv.create_rectangle(0, top, W, H, fill=P['panel'], outline='', tags='s')
+        cv.create_line(0, top, W, top, fill=P['line'], width=k.line(), tags='s')
+        def width(it):
+            if isinstance(it, tuple):
+                if it[0] == 'text': return k.fonts[it[2]].measure(it[1])
+                return sum(k.fonts[it[2]].measure(s) for s, _ in it[1])
+            return it.winfo_reqwidth()
+        def draw(it, x):
+            if isinstance(it, tuple):
+                if it[0] == 'text': cv.create_text(x, cy, text=it[1], font=k.fonts[it[2]], fill=P.get(it[3], it[3]), anchor='w', tags='s')
+                else:
+                    for s, c in it[1]:
+                        cv.create_text(x, cy, text=s, font=k.fonts[it[2]], fill=P.get(c, c), anchor='w', tags='s'); x += k.fonts[it[2]].measure(s)
             else:
-                comp = install.compiler_state()
-                self.app.facts['compiler'] = comp
-                self.show_compiler(comp)
+                cv.create_window(x, cy, window=it, anchor='w', tags='s')
+        x = dp(40) - dp(4)
+        for it in left: draw(it, x); x += width(it) + dp(14)
+        x = W - dp(24) + dp(5)
+        for it in reversed(right):
+            x -= width(it); draw(it, x); x -= dp(14)
 
-        def memory():
-            total, avail = precheck.memory_info(); cpus = os.cpu_count() or 4
-            jobs = precheck.build_jobs(cpus, avail, total); mins = precheck.estimate_minutes(cpus, avail, total)
-            low = avail < 6 * precheck.GB
-            self.post('memory', 'action' if low else 'ready', '%d threads, %.0f GB RAM (%.0f GB free), about %d parallel compiles. Estimated build time about %d min.%s' % (
-                cpus, total / precheck.GB, avail / precheck.GB, jobs, mins, ' Close other programs before installing.' if low else ''))
-            self.app.facts['minutes'] = mins
+    def kicker(self, x, y, text, colour='amber'):
+        dp = self.k.dp
+        ui_kit.small_hex(self.cv, dp(x), dp(y + 9), dp(12), P[colour], tags='s')
+        self.T(x + 20, y, text, 'kick', colour)
 
-        def disk():
-            sysdrive = os.environ.get('SystemDrive', 'C:') + '\\'
-            try: free = shutil.disk_usage(sysdrive).free
-            except OSError: free = None
-            missing = comp['state'] == 'missing'
-            if missing and free is not None and free < 8 * precheck.GB:
-                self.post('disk', 'blocked', "%.1f GB free on %s; Microsoft's Build Tools need about 8 GB there. Free up space on %s."
-                          % (free / precheck.GB, sysdrive, sysdrive))
-            elif free is not None and free < 1 * precheck.GB:
-                self.post('disk', 'action', 'Only %.1f GB free on %s. The game needs about 5 GB on the drive you install to '
-                          '(checked on the Location page).' % (free / precheck.GB, sysdrive))
-            else:
-                self.post('disk', 'info', 'About 5 GB is needed on the drive you install to; it is checked on the Location page.%s'
-                          % (' The Build Tools need about 8 GB on %s.' % sysdrive if missing else ''))
+    def strip(self, y, text, bad=False, links=(), width=560):
+        """A one-to-three line notice: grey bar (info) or red bar (a problem only the player can fix)."""
+        k, dp, cv = self.k, self.k.dp, self.cv
+        lw = sum(l.winfo_reqwidth() + dp(8) for l in links)
+        t = cv.create_text(dp(40 + 40), dp(y + 10), text=text, font=k.fonts['small'], fill=P['text'], anchor='nw', width=dp(width - 54) - lw, tags='s')
+        x0, y0, x1, y1 = cv.bbox(t)
+        h = max(y1 - dp(y), dp(24)) + dp(10)
+        r = cv.create_rectangle(dp(40), dp(y), dp(40 + width), dp(y) + h, fill=P['panel2'], outline='', tags='s')
+        bar = cv.create_rectangle(dp(40), dp(y), dp(43), dp(y) + h, fill=P['danger'] if bad else P['steel'], outline='', tags='s')
+        cv.tag_lower(r, t); cv.tag_lower(bar, t)
+        ui_kit.icon(cv, 'info', dp(40 + 22), dp(y + 19), dp(9), 's')
+        x = dp(40 + width) - dp(8)
+        for l in reversed(links):
+            cv.create_window(x, dp(y) + dp(5), window=l, anchor='ne', tags='s'); x -= l.winfo_reqwidth() + dp(8)
+        return h / k.scale
 
-        def graphics():
-            gpus = precheck.detect_gpus(); self.app.facts['gpus'] = gpus; reco = precheck.recommend_textures(gpus); self.app.facts['reco'] = reco
-            d3d = precheck.d3d11_ok()
-            if d3d is False:
-                self.post('graphics', 'action', 'This graphics card or session (Remote Desktop / virtual machine) can\'t run the game: it needs DirectX 11. '
-                          'You can still install, and play on this PC\'s own screen after updating the driver.')
-            else:
-                self.post('graphics', 'info', reco['reason'])
+    def row(self, y, label, value, small='', small_colour='muted', link=None, dim=False, first=False):
+        dp, cv = self.k.dp, self.cv
+        if first: cv.create_line(dp(40), dp(y), dp(600), dp(y), fill=P['line'], width=self.k.line(), tags='s')
+        cv.create_line(dp(40), dp(y + 50), dp(600), dp(y + 50), fill=P['line'], width=self.k.line(), tags='s')
+        c = (lambda n: 'dis_text') if dim else (lambda n: n)
+        self.T(40, y + 25, label, 'small', c('muted'), anchor='w')
+        t = self.T(160, y + 25, value, 'row', c('text'), anchor='w')
+        if small:
+            x1 = self.cv.bbox(t)[2]
+            self.cv.create_text(x1 + dp(8), dp(y + 26), text=small, anchor='w', font=self.k.fonts['small'], fill=P[c(small_colour)], tags='s')
+        if link is not None: self.put(link, 600 + 4, y + 25, anchor='e')
 
-        def internet():
-            ok = precheck.internet_ok()
-            if comp['state'] == 'missing':
-                self.post('internet', 'ready' if ok else 'action', 'Online: FFmpeg (cutscene playback) and the Build Tools can be downloaded.' if ok else
-                          'No internet connection was found. The installer downloads FFmpeg for the cutscenes and the Build Tools (about 6 GB).')
-            else:
-                self.post('internet', 'ready' if ok else 'action', 'Online: FFmpeg (cutscene playback) is downloaded during the install.' if ok else
-                          'No internet connection was found. The installer downloads FFmpeg for the cutscenes during the install '
-                          '(or put %s in the install folder).' % install.ffmpeg_fetch.SPEC['archive'])
+    def seg_total(self):
+        """('segs', ...) for the live total in the footer, or a red one when the drive is too small."""
+        need = self.need_bytes() * 1.1 / precheck.GB
+        r = self.folder
+        if r is not None and 'space' in r.codes():
+            return ('segs', [('Needs ', 'text'), ('%.1f GB' % need, 'danger'), (' \u00b7 ', 'text'), ('%.1f GB' % ((r.free or 0) / precheck.GB), 'danger'), (' free', 'text')], 'mono')
+        extra = self.extras_time()
+        segs = [('Needs ', 'text'), ('%.1f GB' % need, 'amber'), (' \u00b7 about ', 'text'), (fmt_minutes(self.minutes()), 'amber')]
+        if extra: segs += [(' + ', 'text'), (extra, 'amber')]
+        return ('segs', segs, 'mono')
 
-        def power():
-            batt = precheck.on_battery()
-            self.post('power', 'action' if batt else 'info', 'Running on battery: plug in your laptop; the build is CPU-heavy.' if batt else 'Plugged in. The installer keeps the PC awake while it works.')
+    def drive_line(self):
+        r = self.folder
+        drive = os.path.splitdrive(self.dest)[0] or '?'
+        if r is None: return 'Drive %s \u00b7 checking' % drive, 'muted'
+        if r.free is None: return 'Drive %s' % drive, 'muted'
+        return 'Drive %s \u00b7 %.0f GB free' % (drive, r.free / precheck.GB) if r.free >= 10 * precheck.GB else \
+               'Drive %s \u00b7 %.1f GB free' % (drive, r.free / precheck.GB), ('danger' if 'space' in r.codes() else 'muted')
 
-        def sac():
-            s = precheck.smart_app_control()
-            if s == 'enforce':
-                self.post('sac', 'action', 'Smart App Control is on. It may block the game this installer builds (it isn\'t signed). Turning it off is a one-way Windows '
-                          'setting, so decide carefully. The installer never changes it.')
-            else:
-                self.post('sac', 'info', 'Not blocking.' if s in ('off', None) else 'In evaluation mode.')
+    def tex_line(self):
+        h = self.have()
+        if self.mode in ('update', 'maintain') and self.texture == 'original' and not self.videos:
+            got = [TEX_NAMES[x] for x in ('4x', '2x') if h.get(x)]
+            return (got[0], 'already installed') if got else ('Original', '')
+        reco = self.facts.get('reco')
+        name = TEX_NAMES[self.texture] + (' + upscaled movies' if self.videos else '')
+        if self.texture == 'original' and not self.videos:
+            if reco is None: return 'Original', ''
+            if reco.get('can') and reco.get('rec') in ('2x', '4x'): return 'Original', '%s recommended for your graphics card' % TEX_NAMES[reco['rec']]
+            if reco.get('can'): return 'Original', 'HD available in Install options'
+            return 'Original', ''
+        return name, 'made after the game is ready'
 
-        def av():
-            self.post('av', 'info', 'Real-time antivirus scanning can slow the build. If your antivirus quarantines a file, the install stops with a clear message. '
-                      'You never need to turn protection off.')
+    # ------------------------------------------------------------------ screens
 
-        for key, fn in (('windows', windows), ('compiler', compiler), ('memory', memory), ('disk', disk), ('graphics', graphics),
-                        ('internet', internet), ('power', power), ('sac', sac), ('av', av)):
-            self.guard(key, fn)
+    def scr_setup(self):
+        if self.mode != 'install': return self.scr_existing()
+        k, dp = self.k, self.k.dp
+        self.T(40, 30, 'Install MechAssault 2', 'h1')
+        ready = bool(self.image and self.image.ok)
+        top = 86
+        zh = self.make_zone(top)
+        zb = top + zh + 18
+        dim = not ready
+        dim = False                                   # the rows work before the disc is chosen
+        ch1 = self.link('dest', 'Change', self.browse_dest)
+        dl, dc = self.drive_line()
+        self.row(zb, 'Install to', short_path(self.dest, 34), dl, dc, ch1, dim, first=True)
+        tl, ts = self.tex_line()
+        ch2 = self.link('tex', 'Change', lambda: self.go('options'))
+        self.row(zb + 50, 'Quality', tl, ts, 'muted', ch2, dim)
+        opt = self.link('options', 'Install options', lambda: self.go('options'), icon='gear')
+        self.put(opt, 36, zb + 112)
+        self.setup_strip(zb + 150, ready)
+        self.std_footer(self.install_primary(ready), diag=True)
 
-    def show_compiler(self, comp):
-        st = comp['state']
-        if st == 'ready':
-            self.post('compiler', 'ready', '%s found.' % comp['name'])
-        elif st == 'incomplete':
-            names = [install.VS_PARTS[m][0] for m in comp.get('missing') or [] if m in install.VS_PARTS]
-            msg = ('Visual Studio is missing %s.' % ' and '.join(names)) if names else comp['detail']
-            self.post('compiler', 'action', msg + ' Add %s in the Visual Studio Installer, then re-check.' % ('them' if len(names) > 1 else 'it'),
-                      [('Open Visual Studio Installer', self.open_vsi), ('Re-check', self.recheck_compiler)])
+    def install_primary(self, ready, label='INSTALL'):
+        """(total item, primary button) for Setup-type screens."""
+        r = self.folder
+        if not ready:
+            return ('text', 'Choose your disc to continue', 'small', 'muted'), self.button('primary', label, self.begin, enabled=False)
+        if r is None:
+            return ('text', 'Checking the install folder\u2026', 'small', 'muted'), self.button('primary', label, self.begin, enabled=False)
+        err = r.first_error()
+        if err and err.code == 'space':
+            return self.seg_total(), self.button('primary', 'CHOOSE DRIVE', self.browse_dest)
+        if err:
+            return ('text', 'Choose another install folder', 'small', 'muted'), self.button('primary', 'CHOOSE FOLDER', self.browse_dest)
+        return self.seg_total(), self.button('primary', label, self.begin)
+
+    def std_footer(self, total_primary, legal=True, diag=False):
+        total, prim = total_primary
+        hl = self.link('help', 'Help', self.open_menu, quiet=True, bg='panel')
+        left = [hl]
+        if diag:
+            left.append(self.link('f_diag', 'Collect diagnostics', self.open_diag, quiet=True, bg='panel'))
+        if legal:
+            left += [('text', 'Unofficial fan project', 'small', 'muted'), self.link('legal', 'Legal', lambda: self.show_page('legal'), quiet=True, bg='panel')]
+        self.footer(left, [total, prim])
+
+    def setup_strip(self, y, ready):
+        """At most one notice under the rows: a folder problem, then the space stop, then a note, then Smart App Control."""
+        r = self.folder
+        err = r.first_error() if r else None
+        if self.notice and not ready:
+            self.strip(y, self.notice[1], self.notice[0] == 'bad'); return
+        if not self.disc and not self.image and not self.disc_checking:
+            self.put(self.link('where', 'Where do I get a disc image?', lambda: self.show_page('help')), 36, y); return
+        if not ready: return
+        if err and err.code == 'space':
+            drive = os.path.splitdrive(self.dest)[0] or 'This drive'
+            self.strip(y, '%s needs %.1f GB free and has %.1f GB. Choose another drive or free up some space.'
+                       % (drive, self.need_bytes() * 1.1 / precheck.GB, (r.free or 0) / precheck.GB), bad=True)
+        elif err:
+            links = [self.link('fix', 'Use %s' % precheck.short(err.fix, 30), lambda f=err.fix: self.set_dest(f), bg='panel2')] if err.fix else []
+            self.strip(y, err.text, bad=True, links=links)
+        elif self.notice:
+            self.strip(y, self.notice[1], self.notice[0] == 'bad')
+        elif self.other_drive_short():
+            self.strip(y, self.other_drive_short())
+        elif r and any(f.level == 'warn' for f in r.findings):
+            self.strip(y, next(f.text for f in r.findings if f.level == 'warn'))
+        elif self.facts.get('sac') == 'enforce':
+            self.strip(y, SAC_TEXT, links=[self.link('sac', 'Learn more', lambda: self.show_page('help'), bg='panel2')])
+
+    def other_drive_short(self):
+        """The engine's live space plan (B1) for the drives other than the install drive: the C++ tools on the system drive, the HD
+        content's tools in TEMP. A note only (the install drive's own space is the CHOOSE DRIVE stop, as 1.1.3)."""
+        try:
+            comp = self.facts.get('compiler') or {}
+            plan = install.space_plan(precheck.clean_path(self.dest), self.opts(), self.done_set(), (self.facts.get('reco') or {}).get('engine', 'pytorch'),
+                                      None, build_tools=comp.get('state') == 'missing' and self.action() not in ('addons', 'resume'))
+            inst = (os.path.splitdrive(os.path.abspath(precheck.clean_path(self.dest)))[0] or '').upper()
+            for e in plan.get('drives', []):
+                if e['drive'] in plan.get('short', []) and e['drive'] != inst:
+                    why = "Microsoft's C++ tools" if 'buildtools' in e['what'] else "the HD content's tools while they unpack"
+                    return ('Drive %s needs about %.0f GB free for %s and has %.1f GB. Free up some space there before installing.'
+                            % (e['drive'], (e['core'] + e['extras']) / precheck.GB, why, (e['free'] or 0) / precheck.GB))
+        except Exception as ex:
+            print('ui: space plan not available (%s)' % ex, flush=True)
+        return ''
+
+    def make_zone(self, top, compact=False):
+        """The disc drop zone (Setup). Returns its logical height."""
+        k, dp = self.k, self.k.dp
+        img, empty = self.image, not self.disc and not self.image
+        h = 110 if (empty and not self.disc_checking) else 72
+        z = Zone(self.cv, k, self.browse_disc, P['panel'], dp(560), dp(h))
+        self.put(z, 40, top)
+        name = Path(self.disc).name if self.disc else ''
+        if self.disc_checking:
+            z.setup('checking', 'Checking your disc\u2026', name)
+        elif empty:
+            z.setup('empty', 'Drop your disc image here' if self.drop.ok else 'Choose your disc image', '')
+            pre = '.iso or .xiso file \u00b7 or '
+            b = Link(z, k, 'browse for it', self.browse_disc, P['panel'], key='browse', small=True); self.w['browse'] = b
+            pw = k.fonts['small'].measure(pre); tw = pw + b.winfo_reqwidth()
+            x0 = dp(280) - tw / 2
+            z.create_text(x0, dp(90), text=pre, anchor='w', font=k.fonts['small'], fill=P['muted'])
+            z.create_window(x0 + pw, dp(90), window=b, anchor='w')
+        elif img and img.ok:
+            info = img.info or {}
+            size = info.get('size')
+            sub = 'MechAssault 2 \u00b7 %s' % ('%.1f GB \u00b7 US retail' % (size / precheck.GB) if size else 'game folder \u00b7 US retail')
+            c = Link(z, k, 'Change', self.browse_disc, P['panel'], key='disc_change')
+            z.setup('ok', 'Disc ready', elide(sub, k.fonts['small'], dp(560 - 78 - 26) - c.winfo_reqwidth()))
+            self.w['disc_change'] = c
+            z.create_window(dp(560 - 14), dp(36), window=c, anchor='e')
         else:
-            self.post('compiler', 'action', BUILD_TOOLS_NOTICE,
-                      [('Install for me', self.install_tools), ('I\'ll install them myself', self.manual_tools), ('Microsoft\'s licence terms', self.licence_terms)])
+            code = img.code if img else 'missing'
+            head, hint = DISC_HINTS.get(code, ('That disc image can\'t be used', img.message if img else ''))
+            c = Link(z, k, 'Choose another file', self.browse_disc, P['panel'], key='disc_change')
+            z.setup('bad', head, elide(('%s \u00b7 %s' % (hint, name)) if name else hint, k.fonts['small'], dp(560 - 78 - 26) - c.winfo_reqwidth()))
+            self.w['disc_change'] = c
+            z.create_window(dp(560 - 14), dp(36), window=c, anchor='e')
+        return h
+
+    def scr_existing(self):
+        """Update, Repair / add content, and Continue (an interrupted install): the same layout."""
+        k, dp = self.k, self.k.dp
+        st = self.state(); stamp = precheck.read_stamp(precheck.clean_path(self.dest)) or {}
+        m = self.mode
+        core_done = m == 'resume' and st.get('core_done')
+        if m == 'update':
+            have = stamp.get('public_version')
+            self.kicker(40, 30, ('%s INSTALLED' % have) if have else 'AN EARLIER VERSION IS INSTALLED')
+            target = install.PUBLIC_VERSION if have != install.PUBLIC_VERSION else '%s (build %s)' % (install.PUBLIC_VERSION, install.BUILD)
+            self.T(40, 56, 'Update to %s' % target, 'h1')
+            self.T(40, 100, 'Your settings and saves stay as they are.', 'body', 'muted', width=560)
+        elif m == 'maintain':
+            rel = install.install_relation(precheck.clean_path(self.dest))
+            self.kicker(40, 30, 'INSTALLED BY A NEWER INSTALLER' if rel == 'newer' else 'VERSION %s INSTALLED' % (stamp.get('public_version') or install.PUBLIC_VERSION), 'ok')
+            self.T(40, 56, 'MechAssault 2 is installed', 'h1')
+            self.T(40, 100, 'Add HD content in Install options, or repair the game. Your settings and saves are kept.', 'body', 'muted', width=560)
+        else:
+            self.kicker(40, 30, 'INSTALLED \u00b7 HD CONTENT NOT FINISHED' if core_done else 'INSTALL INTERRUPTED', 'ok' if core_done else 'amber')
+            self.T(40, 56, 'Finish the HD content' if core_done else 'Continue installing', 'h1')
+            last = st.get('last_title')
+            self.T(40, 100, 'The game is ready to play. Continue makes only the HD content.' if core_done else
+                   ('It stopped while %s. Steps already finished are kept.' % self.stopped_while(st.get('last_step'))
+                    if st.get('last_step') else 'Steps already finished are kept.'), 'body', 'muted', width=560)
+        y = 150
+        dl, dc = self.drive_line()
+        self.row(y, 'Installed in' if m != 'resume' else 'Install to', short_path(self.dest, 34), dl, dc,
+                 self.link('dest', 'Change', self.install_elsewhere), first=True); y += 50     # another folder = a fresh install there
+        if self.needs_disc():
+            img = self.image
+            if self.disc_checking: self.row(y, 'Disc', 'Checking\u2026', Path(self.disc).name, 'muted', None)
+            elif img and img.ok: self.row(y, 'Disc', 'Disc ready', precheck.short(Path(self.disc).name, 26), 'muted', self.link('disc_change', 'Change', self.browse_disc))
+            elif img:
+                head, hint = DISC_HINTS.get(img.code, ('That disc image can\'t be used', ''))
+                self.row(y, 'Disc', head, '', 'muted', self.link('disc_change', 'Choose another', self.browse_disc))
+            else:
+                self.row(y, 'Disc', 'Choose your disc image', '', 'muted', self.link('browse', 'Browse\u2026', self.browse_disc))
+            y += 50
+        elif m in ('update', 'maintain'):
+            self.row(y, 'Disc', 'Not needed', 'your game files are reused', 'muted', None); y += 50
+        if m != 'resume':
+            tl, ts = self.tex_line()
+            self.row(y, 'Quality', tl, ts, 'muted', self.link('tex', 'Change', lambda: self.go('options'))); y += 50
+        y += 12
+        x = 36
+        items = []
+        if m != 'resume': items.append(self.link('options', 'Install options', lambda: self.go('options'), icon='gear'))
+        if m == 'resume':
+            items.append(self.link('startover', 'Discard the HD content' if core_done else 'Start over',
+                                   lambda: self.ask('startover'), quiet=True))
+        if m in ('update', 'maintain'):
+            items.append(self.link('uninstall', 'Uninstall', lambda: self.go('uninstall'), quiet=True))
+        for it in items: self.put(it, x, y); x += it.winfo_reqwidth() / k.scale + 18
+        if self.notice: self.strip(y + 44, self.notice[1], self.notice[0] == 'bad')
+        if self.confirm: return self.confirm_footer()
+        ok = (not self.needs_disc() or (self.image and self.image.ok))
+        label = {'update': 'UPDATE', 'resume': 'CONTINUE'}.get(m) or ('ADD CONTENT' if self.action() == 'addons' else 'REPAIR')
+        if m == 'resume':
+            tp = (('text', 'Finished steps are kept', 'small', 'muted'), self.button('primary', label, self.begin, enabled=bool(ok)))
+            if not ok: tp = (('text', 'Choose your disc to continue', 'small', 'muted'), tp[1])
+        else:
+            tp = self.install_primary(bool(ok), label)
+        exe = Path(precheck.clean_path(self.dest)) / 'MechAssault 2.exe'
+        if m in ('update', 'maintain') or (m == 'resume' and core_done):
+            if m in ('update', 'maintain') and tp[0][0] == 'segs': tp = (('segs', [('Rebuilds the game \u00b7 ', 'text')] + tp[0][1][1:], 'mono'), tp[1])
+            if exe.is_file():
+                play = self.button('play', 'PLAY', self.play, primary=False)
+                play.ghost = True; play.draw()
+                total, prim = tp
+                hl = self.link('help', 'Help', self.open_menu, quiet=True, bg='panel')
+                self.footer([hl], [total, play, prim]); return
+        self.std_footer(tp)
+
+    def stopped_while(self, step):
+        """The same plain step names as the Installing list ("building the game", "making the HD textures")."""
+        t = self.phase_title(step)
+        return ('making the ' + t) if step in EXTRA_SECONDS else t[:1].lower() + t[1:]
+
+    def install_elsewhere(self):
+        """Change on an installed / interrupted install: pick another folder for a fresh install there (the existing install is left
+        exactly as it is; picking it again keeps Update / Repair / Continue)."""
+        p = self.pick_folder()
+        if not p or os.path.normcase(os.path.abspath(p)) == os.path.normcase(os.path.abspath(precheck.clean_path(self.dest) or '.')): return
+        self.notice = None; self.confirm = None
+        self.set_dest(p)
+
+    # -- confirmation in the footer (Start over, Discard, Cancel)
+    def ask(self, what):
+        self.confirm = what; self.want_focus = 'safe'; self.render()
+
+    def confirm_footer(self):
+        what = self.confirm
+        if what == 'cancel':
+            q, go, safe = 'Cancel? Your progress is kept.', ('Cancel install', self.cancel_install), 'KEEP INSTALLING'
+        elif what == 'startover':
+            core = self.state().get('core_done')
+            q = 'Delete the unfinished HD content? The game stays.' if core else 'Delete the unfinished work? Your game files are kept.'
+            go, safe = ('Discard' if core else 'Start over', self.start_over), 'KEEP IT'
+        else:
+            return
+        d = self.link('confirm_go', go[0], go[1], bg='panel', danger=True)
+        b = self.button('safe', safe, lambda: self.ask(None))
+        self.footer([d], [('text', q, 'small', 'text'), b])
+
+    def start_over(self):
+        d = precheck.clean_path(self.dest)
+        try: install.start_over(d)
+        except Exception as e: print('ui: start over failed: %s' % e, flush=True)
+        self.confirm = None; self.mode = self.mode_for(d); self.notice = None; self.check_dest(); self.render()
+
+    # -- Install options and Troubleshooting
+    def scr_options(self):
+        k, dp, cv = self.k, self.k.dp, self.cv
+        cv.create_rectangle(0, 0, dp(self.W), dp(self.H), fill=P['panel'], outline='', tags='s')
+        self.T(40, 22, 'INSTALL OPTIONS', 'h1s')
+        y = 66
+        secs = []
+        def sec(title, subs, widget):
+            nonlocal y
+            n = len(subs)
+            h = 30 + 18 * n
+            self.T(40, y + 11, title, 'row')
+            for i, (s, c) in enumerate(subs): self.T(40, y + 34 + 18 * i, s, 'small', c, width=520)
+            if widget is not None: self.put(widget, 840 + (4 if isinstance(widget, Link) else 0), y + h / 2 + 4, anchor='e')
+            y += h + 8
+            secs.append(y)
+            cv.create_line(dp(40), dp(y - 4), dp(840), dp(y - 4), fill=P['line'], width=k.line(), tags='s')
+        dl, _ = self.drive_line()
+        need = self.need_bytes() * 1.1 / precheck.GB
+        loc = '%s \u00b7 %s \u00b7 needs %.1f GB' % (short_path(self.dest, 40), dl, need)
+        sec('Install location', [(loc, 'danger' if self.folder and 'space' in self.folder.codes() else 'muted')],
+            self.link('o_dest', 'Change', self.browse_dest if self.mode == 'install' else self.install_elsewhere, bg='panel'))
+        reco = self.facts.get('reco'); h = self.have()
+        if reco is None:
+            seg = Segment(cv, k, [('original', 'Original', True), ('2x', 'HD', False), ('4x', 'Ultra HD', False)], self.texture, self.set_texture, P['panel'], key='o_tex')
+            sec('Textures', [('Checking your graphics card\u2026', 'muted')], seg)
+        elif reco.get('can'):
+            opts = [('original', 'Original', True), ('2x', 'HD', not h['2x']), ('4x', 'Ultra HD', not h['4x'])]
+            seg = Segment(cv, k, opts, self.texture, self.set_texture, P['panel'], key='o_tex')
+            o = self.opts()
+            extra = (install.needed_space(o, self.done_set(), reco.get('engine', 'pytorch')) -
+                     install.needed_space({'textures': [], 'videos': o['videos']}, self.done_set(), reco.get('engine', 'pytorch'))) / precheck.GB
+            subs = [({'original': 'Original \u00b7 no extra space', '2x': 'HD (2x) \u00b7 +%.1f GB \u00b7 a few hours' % extra,
+                      '4x': 'Ultra HD (4x) \u00b7 +%.1f GB \u00b7 several hours' % extra}[self.texture], 'muted')]
+            if reco.get('engine') == 'vulkan':
+                subs.append(('Made on your graphics card through Vulkan (new, not yet tested on AMD or Intel cards).', 'muted'))
+            elif reco.get('rec') in ('2x', '4x'):
+                subs.append(('%s recommended for your graphics card.' % TEX_NAMES[reco['rec']], 'muted'))
+            got = [TEX_NAMES[x] for x in ('2x', '4x') if h.get(x)]
+            if got: subs.append(('Already installed: %s.' % ' and '.join(got), 'text'))
+            sec('Textures', subs, seg)
+        can_vid = reco is not None and reco.get('videos', reco.get('can'))
+        if can_vid:
+            tg = Toggle(cv, k, self.videos, self.set_videos, P['panel'], enabled=not h['videos'], key='o_vid')
+            subs = [('Already installed.', 'text')] if h['videos'] else [('Sharpens the game\'s pre-rendered movies. In-game cutscenes are unaffected.', 'text'), ('+3.5 GB \u00b7 needs 25 GB free while it runs \u00b7 many hours \u00b7 uses your graphics card', 'muted')]
+            sec('Upscaled movies', subs, tg)
+        if self.action() in ('install', 'update', 'repair'):
+            f = tk.Frame(cv, bg=P['panel'])
+            for key, label in (('desktop', 'Desktop'), ('start', 'Start menu'), ('editor', 'Scenario Editor')):
+                tk.Label(f, text=label, font=k.fonts['small'], fg=P['muted'], bg=P['panel']).pack(side='left', padx=(dp(14), dp(4)))
+                t = Toggle(f, k, self.sc[key], lambda v, key=key: self.sc.__setitem__(key, v), P['panel'], key='o_sc_' + key)
+                t.pack(side='left'); self.w[t.key] = t
+            sec('Shortcuts', [('Where to find the game', 'muted')], f)
+        self.put(self.link('trouble', 'Troubleshooting\u2026', lambda: self.go('trouble'), quiet=True, bg='panel'), 36, y + 4)
+        self.footer([], [self.seg_total(), self.button('done', 'DONE', lambda: self.go('setup', focus='options'))])
+
+    def scr_trouble(self):
+        k, dp, cv = self.k, self.k.dp, self.cv
+        cv.create_rectangle(0, 0, dp(self.W), dp(self.H), fill=P['panel'], outline='', tags='s')
+        self.T(40, 22, 'TROUBLESHOOTING', 'h1s')
+        self.T(40, 58, 'For when support asks. Automatic is right for almost everyone.', 'body', 'muted')
+        self.T(40, 98, 'While installing', 'row')
+        self.T(40, 120, '"Keep my PC responsive" builds more slowly in the background.', 'small', 'muted')
+        seg = Segment(cv, k, [(False, 'Normal', True), (True, 'Keep my PC responsive', True)], self.lowprio,
+                      lambda v: setattr(self, 'lowprio', v), P['panel'], key='t_prio')
+        self.put(seg, 840, 110, anchor='e')
+        cv.create_line(dp(40), dp(146), dp(840), dp(146), fill=P['line'], width=k.line(), tags='s')
+        y = 160
+        def kv(label, widget, note=''):
+            nonlocal y
+            self.T(40, y + 14, label, 'small', 'muted', anchor='w')
+            self.put(widget, 280, y + 14, anchor='w')
+            if note: self.T(560, y + 14, note, 'small', 'muted', anchor='w')
+            y += 34
+        def combo(key, values, current, on):
+            cb = ttk.Combobox(cv, values=[v[1] for v in values], state='readonly', style='Dark.TCombobox', font=k.fonts['mono_s'], width=24)
+            cb.set(next((v[1] for v in values if v[0] == current), values[0][1]))
+            cb.bind('<<ComboboxSelected>>', lambda e: on(values[[v[1] for v in values].index(cb.get())][0]))
+            cb.key = key; self.w[key] = cb
+            return cb
+        vs = [(None, 'Automatic')] + [(p, n) for p, n in (self.facts.get('vs_list') or [])]
+        if self.facts.get('vs_list') is None:
+            self.facts['vs_list'] = []
+            self.bg(lambda: [(i['installationPath'], i.get('displayName') or Path(i['installationPath']).name) for i in install.vs_instances()],
+                    lambda r: (self.facts.__setitem__('vs_list', [] if isinstance(r, Exception) else r), self.screen == 'trouble' and self.render()))
+        kv('C++ tools', combo('t_vs', vs, self.vs, lambda v: setattr(self, 'vs', v)))
+        kv('Parallel jobs', combo('t_jobs', [(None, 'Automatic')] + [(n, str(n)) for n in (1, 2, 4, 8, 16)], self.jobs, lambda v: setattr(self, 'jobs', v)))
+        kv('HD content made with', combo('t_engine', [('auto', 'Automatic'), ('pytorch', 'NVIDIA graphics card (CUDA)'), ('vulkan', 'Any graphics card (Vulkan)'),
+                                                      ('cpu', 'Processor only (very slow)')], self.engine, lambda v: setattr(self, 'engine', v)))
+        up = self.link('t_up', precheck.short(Path(self.upscaler).name, 26) if self.upscaler else 'Choose file\u2026', self.pick_upscaler, bg='panel')
+        kv('Offline upscaler files', up, 'for a PC without internet' if not self.upscaler else '')
+        kv('Keep the work folder', Toggle(cv, k, self.keep_work, lambda v: setattr(self, 'keep_work', v), P['panel'], key='t_keep'))
+        kv('Keep the PC awake', Toggle(cv, k, self.awake, lambda v: setattr(self, 'awake', v), P['panel'], key='t_awake'))
+        if self.action() in ('update', 'repair'):
+            kv('Add new settings', Toggle(cv, k, self.merge, lambda v: setattr(self, 'merge', v), P['panel'], key='t_merge'), 'a backup is kept')
+        if self.action() in ('update', 'repair', 'addons'):
+            kv('Use new HD content now', Toggle(cv, k, self.switch, lambda v: setattr(self, 'switch', v), P['panel'], key='t_switch'))
+        back = self.link('back', '\u2039 Back', lambda: self.go('options', focus='trouble'), quiet=True, bg='panel')
+        self.footer([back], [self.button('done', 'DONE', lambda: self.go('setup', focus='options'))])
+
+    def pick_upscaler(self):
+        p = filedialog.askopenfilename(parent=self.root, title='Upscaler files (zip)', filetypes=[('Zip file', '*.zip'), ('All files', '*.*')])
+        self.upscaler = os.path.normpath(p) if p else ''
+        self.render()
+
+    # -- Installing
+    def begin(self):
+        """Primary on Setup / Update / Repair / Continue: the checks the 1.1.3 Systems page did, then the install."""
+        self.notice = None
+        act = self.action()
+        if act == 'resume' or act == 'addons': return self.start()
+        try:
+            w = precheck.windows_info()
+        except Exception:
+            w = {'ok': True}
+        if not w.get('ok', True):
+            return self.show_stop(style='failed', icon='blocked', kicker='CAN\'T INSTALL', head='This PC needs a newer Windows',
+                                  body='MechAssault 2 PC Recomp needs 64-bit Windows 10 (version 1903 or later) or Windows 11.', primary=None)
+        comp = self.facts.get('compiler')
+        if comp is None:
+            self.waiting('Getting ready\u2026')
+            self.bg(install.compiler_state, self.after_compiler)
+        else:
+            self.after_compiler(comp)
+
+    def after_compiler(self, comp):
+        if isinstance(comp, Exception):
+            print('ui: compiler check failed (the install checks again): %s' % comp, flush=True); comp = {'state': 'ready'}
+        self.facts['compiler'] = comp
+        st = comp.get('state')
+        if st == 'ready': return self.start()
+        if st == 'incomplete':
+            names = [install.VS_PARTS[m][0] for m in comp.get('missing') or [] if m in install.VS_PARTS]
+            return self.show_stop(style='needs', icon='needs', kicker='ACTION NEEDED', head='Microsoft\'s C++ tools need a part',
+                                  body='Visual Studio is missing %s. Add it in the Visual Studio Installer, then press Check again.'
+                                       % (' and '.join(names) or 'a part the game needs'),
+                                  primary=('OPEN VS INSTALLER', self.open_vsi), links=[('Check again', self.recheck_compiler)], details=comp.get('detail'),
+                                  back=True, help=True)
+        sysdrive = os.environ.get('SystemDrive', 'C:') + '\\'
+        try: free = shutil.disk_usage(sysdrive).free
+        except OSError: free = None
+        if free is not None and free < 8 * precheck.GB:
+            return self.show_stop(style='needs', icon='needs', kicker='ACTION NEEDED', head='Free up space on %s' % sysdrive[:2],
+                                  body='Microsoft\'s C++ tools need about 8 GB free on %s, and it has %.1f GB. Free up some space, then press Check again.'
+                                       % (sysdrive[:2], free / precheck.GB), primary=('CHECK AGAIN', self.recheck_compiler))
+        self.show_stop(style='needs', icon='needs', kicker='ACTION NEEDED', head='Install Microsoft\'s C++ tools',
+                       body='The game is built on this PC with Microsoft\'s free C++ Build Tools (about 6 GB, 10-30 minutes). Windows will ask '
+                            'for permission. By continuing you accept Microsoft\'s license terms for the Build Tools.',
+                       primary=('INSTALL C++ TOOLS', self.install_tools), back=True, help=True,
+                       links=[('License terms', lambda: self.web('https://visualstudio.microsoft.com/license-terms/')),
+                              ('I\'ll install them myself', self.manual_tools)])
+
+    def web(self, url):
+        import webbrowser
+        webbrowser.open(url)
 
     def open_vsi(self):
-        comp = self.app.facts.get('compiler', {})
-        install.open_vs_installer(comp.get('vs'), comp.get('add'))       # adds exactly the parts that are missing
+        comp = self.facts.get('compiler') or {}
+        try: install.open_vs_installer(comp.get('vs'), comp.get('add'))
+        except Exception as e: print('ui: could not open the Visual Studio Installer: %s' % e, flush=True)
 
     def manual_tools(self):
-        import webbrowser
-        webbrowser.open('https://visualstudio.microsoft.com/visual-cpp-build-tools/')
-        self.set_row('compiler', 'action', 'Install "Desktop development with C++" from the page that opened, then press Re-check.',
-                     [('Re-check', self.recheck_compiler)])
+        self.web('https://visualstudio.microsoft.com/visual-cpp-build-tools/')
+        self.show_stop(style='needs', icon='needs', kicker='ACTION NEEDED', head='Install Microsoft\'s C++ tools',
+                       body='Install "Desktop development with C++" from the page that opened, then press Check again.',
+                       primary=('CHECK AGAIN', self.recheck_compiler))
 
     def recheck_compiler(self):
-        self.set_row('compiler', 'wait', 'Checking...')
-        self.app.bg(install.compiler_state, lambda comp: (self.app.facts.__setitem__('compiler', comp), self.show_compiler(comp)))
+        self.waiting('Checking Microsoft\'s C++ tools\u2026')
+        self.bg(install.compiler_state, self.after_compiler)
 
-    def licence_terms(self):
-        import webbrowser
-        webbrowser.open(BUILD_TOOLS_TERMS)
+    def waiting(self, text):
+        self.stop = None; self.model = None; self.step_title = text; self.slow = ''
+        self.go('progress')
 
     def install_tools(self):
-        self.busy = True
-        self.set_row('compiler', 'wait', 'Starting Microsoft\'s Build Tools installer: approve the administrator prompt when Windows asks; their own window shows progress (10-30 minutes).')
+        """The one-click Build Tools install, exactly as the 1.1.3 Systems page ran it, then on into the game install."""
+        self.tools_busy = True; self.tools_cancel = False
+        self.waiting('Installing Microsoft\'s C++ tools\u2026')
+        self.slow = 'Windows will ask for permission; Microsoft\'s own window shows its progress (10-30 minutes)'
+        self.render()
         work = Path(os.environ.get('TEMP', '.')) / 'MA2-buildtools'
         logf = None
         try:
@@ -780,662 +1084,720 @@ class Systems(Page):
         except OSError:
             pass
         def note(line):
-            """Every line goes to buildtools-<time>.log; the two long waits also change the row text."""
             if logf:
                 try: logf.write(line + '\n')
                 except (OSError, ValueError): pass
-            low = line.lower()
-            if 'downloading' in low: self.post('compiler', 'wait', 'Downloading Microsoft\'s installer...')
-            elif 'installing microsoft' in low: self.post('compiler', 'wait', 'Waiting for Microsoft\'s installer (approve the administrator prompt; their own window shows progress, 10-30 minutes)...')
+            self.q.put(('log', line))
+            if 'downloading' in line.lower(): self.q.put(('call', lambda: self.set_slow('Downloading Microsoft\'s installer')))
         def go():
             try:
                 note('MechAssault 2 Recomp installer, Build Tools one-click install, %s' % time.strftime('%Y-%m-%d %H:%M'))
-                install.install_build_tools(work, note, lambda: False)
+                install.install_build_tools(work, note, lambda: self.tools_cancel)
                 res = install.compiler_state()
                 note('compiler check afterwards: %s' % res.get('state'))
                 return res
             except Exception as e:
                 note('FAILED: %s' % e); raise
             finally:
-                shutil.rmtree(work, ignore_errors=True)                  # the downloaded bootstrapper (never needed again)
+                shutil.rmtree(work, ignore_errors=True)
                 if logf: logf.close()
         def done(res):
-            self.busy = False
+            self.tools_busy = False
             if isinstance(res, Exception):
-                self.set_row('compiler', 'action', '%s (details: the Build Tools log in the Logs folder)' % res, [('Install for me', self.install_tools), ('I\'ll install them myself', self.manual_tools)])
-            else:
-                self.app.facts['compiler'] = res; self.show_compiler(res)
-        self.app.bg(go, done)
+                if getattr(res, 'code', None) == 'reboot': return self.show_restart()
+                if getattr(res, 'kind', None) == 'cancelled': return self.go('setup')
+                return self.show_stop(style='failed', icon='bad', kicker='COULDN\'T FINISH', head='Microsoft\'s C++ tools didn\'t install',
+                                      body='Check your internet connection and try again, or install them yourself.', details=str(res),
+                                      primary=('TRY AGAIN', self.install_tools), links=[('I\'ll install them myself', self.manual_tools)])
+            self.facts['compiler'] = res
+            self.after_compiler(res)
+        self.bg(go, done)
 
-    def valid(self):
-        if 'wait' in self.state.values(): return False, 'Checking this PC...'
-        if self.busy: return False, 'Waiting for the Build Tools installer...'
-        if 'blocked' in self.state.values(): return False, 'Fix the items marked BLOCKED to continue.'
-        if self.state.get('compiler') == 'action': return False, 'The C++ Build Tools are needed. Use the buttons on that row.'
-        return True, ''
-
-class Disc(Page):
-    key = 'disc'
-
-    def build(self):
-        t, S = self.t, self.t.S
-        self.drop = t.panel(self, accent=True)
-        self.drop.pack(fill='x')
-        t.label(self.drop, 'Choose your MechAssault 2 disc image', 'h2', 'text', bg='panel').pack(pady=(S(16), S(2)))
-        t.label(self.drop, 'A .iso or .xiso, or a folder copied from the disc, made from your own US/NTSC retail disc. Both full-disc .iso and trimmed .xiso work.',
-                'body', 'muted', bg='panel', wraplength=self.app.wrap - S(40), justify='center').pack()
-        btns = tk.Frame(self.drop, bg=C['panel']); btns.pack(pady=(S(10), S(16)))
-        ttk.Button(btns, text='Browse...', command=self.pick, style='Primary.TButton').pack(side='left')
-        ttk.Button(btns, text='Choose a folder...', command=self.pick_folder, style='TButton').pack(side='left', padx=(S(8), 0))
-        row = tk.Frame(self, bg=C['bg']); row.pack(fill='x', pady=(S(10), 0))
-        self.entry = ttk.Entry(row, textvariable=self.app.disc); self.entry.pack(side='left', fill='x', expand=True)
-        self.result = t.panel(self, cut=False); self.result.pack(fill='x', pady=(S(10), 0))
-        self.chip = t.chip(self.result, 'info', 'WAITING'); self.chip.pack(side='left', padx=(S(10), 0), pady=S(10))
-        col = tk.Frame(self.result, bg=C['panel']); col.pack(side='left', fill='x', expand=True, padx=S(8))
-        self.head = t.label(col, 'No file chosen yet.', 'bold', 'text', bg='panel', anchor='w'); self.head.pack(anchor='w', pady=(S(8), 0))
-        self.msg = t.label(col, '', 'body', 'muted', bg='panel', wraplength=self.app.wrap - S(100), justify='left', anchor='w'); self.msg.pack(anchor='w', pady=(0, S(8)))
-        t.label(self, 'The installer never links to download sites. To make a disc image, dump your own disc.', 'small', 'steel').pack(anchor='w', pady=(S(8), 0))
-        self.skip = t.label(self, '', 'body', 'ok', wraplength=self.app.wrap, justify='left')
-        self.job = None; self.token = 0
-        self.app.disc.trace_add('write', lambda *a: self.changed())
-
-    def pick(self):
-        p = filedialog.askopenfilename(title='MechAssault 2 disc image', filetypes=[('Xbox disc image', '*.xiso *.iso'), ('All files', '*.*')])
-        if p: self.app.disc.set(os.path.normpath(p))
-
-    def pick_folder(self):
-        p = filedialog.askdirectory(title='Folder copied from the MechAssault 2 disc', mustexist=True)
-        if p: self.app.disc.set(os.path.normpath(p))
-
-    def on_show(self):
-        self.changed()
-
-    def changed(self):
-        if self.job: self.after_cancel(self.job)
-        self.job = self.after(300, self.validate)
-        self.t.set_chip(self.chip, 'wait'); self.head['text'] = 'Checking...' if self.app.disc.get().strip() else 'No file chosen yet.'; self.msg['text'] = ''
-        self.app.image_result = None
-        self.app.refresh()
-
-    def validate(self):
-        text = precheck.clean_path(self.app.disc.get())
-        self.job = None
-        if not text:
-            self.t.set_chip(self.chip, 'info', 'WAITING'); self.head['text'] = 'No file chosen yet.'; self.msg['text'] = ''; self.app.refresh(); return
-        if not precheck.is_absolute(text):
-            self.finish(text, precheck.ImageResult(False, 'relative', 'Enter a full path, e.g. D:\\Games\\MechAssault2.iso', 'Not a full path')); return
-        self.token += 1; token = self.token
-        self.app.bg(lambda: precheck.validate_image(text, install.RELEASE), lambda r: self.finish(text, r, token))
-
-    def finish(self, text, res, token=None):
-        if token is not None and token != self.token: return
-        if isinstance(res, Exception):
-            res = precheck.ImageResult(False, 'read_error', 'Couldn\'t read the file: %s.' % res, 'Can\'t read the file')
-        self.app.image_result = res
-        self.t.set_chip(self.chip, 'ok' if res.ok else 'error')
-        self.head['text'] = res.headline or ('Recognised' if res.ok else 'Problem'); self.msg['text'] = res.message
-        self.app.refresh()
-
-    def valid(self):
-        r = self.app.image_result
-        if r is None: return False, 'Choose your disc image.'
-        if not r.ok: return False, r.message
-        return True, ''
-
-class Location(Page):
-    key = 'location'
-
-    def build(self):
-        t, S = self.t, self.t.S
-        row = tk.Frame(self, bg=C['bg']); row.pack(fill='x')
-        self.entry = ttk.Entry(row, textvariable=self.app.dest); self.entry.pack(side='left', fill='x', expand=True)
-        ttk.Button(row, text='Browse...', command=self.pick).pack(side='left', padx=(S(8), 0))
-        self.gauge = tk.Canvas(self, height=S(10), bg=C['panel2'], highlightthickness=1, highlightbackground=C['line']); self.gauge.pack(fill='x', pady=(S(10), 0))
-        self.gtext = t.label(self, '', 'mono', 'muted', bg='bg', anchor='w'); self.gtext.pack(anchor='w', pady=(S(2), S(6)))
-        self.list = tk.Frame(self, bg=C['bg']); self.list.pack(fill='x')
-        self.choice = t.panel(self, accent=True, bg='panel2')
-        self.job = None; self.token = 0; self.report = None
-        self.app.dest.trace_add('write', lambda *a: self.changed())
-
-    def pick(self):
-        p = filedialog.askdirectory(title='Install folder', mustexist=False)
-        if p: self.app.dest.set(os.path.normpath(p))
-
-    def on_show(self):
-        self.changed(now=True)
-
-    def changed(self, now=False):
-        if self.job: self.after_cancel(self.job)
-        self.job = self.after(1 if now else 300, self.check)
-        self.report = None
-        self.app.refresh()
-
-    def need_bytes(self):
-        opts = dict(textures=[] if self.app.texture.get() == 'original' else [self.app.texture.get()], videos=self.app.videos.get())
-        done = {'extract', 'build'} if self.app.action.get() == 'addons' else ({'extract'} if self.app.game_files_ok() and self.app.action.get() in ('update', 'repair') else set())
-        return install.needed_space(opts, done)
-
-    def check(self):
-        self.job = None
-        self.token += 1; token = self.token
-        enhanced = self.app.texture.get() != 'original' or self.app.videos.get()
-        text, need = self.app.dest.get(), self.need_bytes()
-        self.app.bg(lambda: precheck.check_folder(text, need, enhanced, install.KIT), lambda r: self.show_report(r, token, need))
-
-    def show_report(self, r, token, need):
-        if token != self.token: return
-        if isinstance(r, Exception): return
-        t, S, app = self.t, self.t.S, self.app
-        self.report = r
-        for w in self.list.winfo_children(): w.destroy()
-        for f in r.findings:
-            row = tk.Frame(self.list, bg=C['bg']); row.pack(fill='x', pady=S(2))
-            t.chip(row, {'error': 'error', 'warn': 'warn', 'info': 'info'}[f.level]).pack(side='left', anchor='n')
-            t.label(row, f.text, 'body', 'text', bg='bg', wraplength=app.wrap - S(110), justify='left').pack(side='left', anchor='n')
-            if f.fix: ttk.Button(row, text='Use ...\\MechAssault 2 inside it', style='Link.TButton', command=lambda p=f.fix: app.dest.set(p)).pack(side='left')
-        if r.ok and r.existing in ('none', 'empty'):
-            row = tk.Frame(self.list, bg=C['bg']); row.pack(fill='x', pady=S(2))
-            t.chip(row, 'ready').pack(side='left', anchor='n')
-            t.label(row, 'This folder is fine%s.' % (' (it will be created)' if r.existing == 'none' else ''), 'body', 'text', bg='bg').pack(side='left', anchor='n')
-        # gauge
-        free = r.free or 0
-        w = max(1, self.gauge.winfo_width()); self.gauge.delete('all')
-        if free:
-            frac = min(1.0, need / float(free)) if need else 0
-            self.gauge.create_rectangle(0, 0, w * frac, S(10), fill=C['danger'] if need * 1.1 > free else C['amber'], outline='')
-        drive = os.path.splitdrive(precheck.clean_path(app.dest.get()))[0] or '?'
-        self.gtext['text'] = ('Needs %.1f GB \u00b7 %.0f GB free on %s' % (need / precheck.GB, free / precheck.GB, drive)) if free else ''
-        # existing install choices
-        for w2 in self.choice.winfo_children(): w2.destroy()
-        self.choice.pack_forget()
-        opts = []
-        if r.existing == 'unfinished':
-            opts = [('resume', 'Finish the enhanced content (the game is already installed)' if (r.state or {}).get('core_done') else
-                     'Resume the interrupted install (finished steps are kept)')]
-            if app.action.get() not in ('resume',): app.action.set('resume')
-        elif r.existing == 'install':
-            rel = install.install_relation(precheck.clean_path(app.dest.get()))
-            if rel == 'older': opts = [('update', 'Update to this version (about %d min, no disc needed; your settings and saves are kept)' % app.facts.get('minutes', 15)),
-                                       ('addons', 'Add enhanced content only')]
-            elif rel == 'same': opts = [('addons', 'Add enhanced content'), ('repair', 'Repair (rebuild the game)')]
-            else: opts = [('addons', 'Add enhanced content'), ('repair', 'Install anyway (the installed version is newer than this installer)')]
-            if app.action.get() not in [o[0] for o in opts]: app.action.set(opts[0][0])
-        else:
-            if app.action.get() in ('resume', 'update', 'repair', 'addons'): app.action.set('install')
-        if opts:
-            self.choice.pack(fill='x', pady=(S(8), 0))
-            t.label(self.choice, 'MechAssault 2 is already here', 'kicker', 'amber', bg='panel2').pack(anchor='w', padx=S(12), pady=(S(8), 0))
-            for val, label in opts:
-                ttk.Radiobutton(self.choice, text=label, value=val, variable=app.action, command=app.refresh, style='P2.TRadiobutton').pack(anchor='w', padx=S(12), pady=(0, S(2)))
-        app.update_rail(); app.refresh()
-
-    def valid(self):
-        if self.report is None: return False, 'Checking the folder...'
-        err = self.report.first_error()
-        if err: return False, err.text
-        if self.app.needs_disc() and not (self.app.image_result and self.app.image_result.ok):
-            return False, 'Choose your disc image first (Back).'
-        return True, ''
-
-class Loadout(Page):
-    key = 'loadout'
-    next_text = 'Install'
-
-    def build(self):
-        t, S, app = self.t, self.t.S, self.app
-        self.tex = tk.Frame(self, bg=C['bg']); self.tex.pack(fill='x')
-        t.label(self.tex, 'TEXTURE QUALITY', 'kicker', 'amber').pack(anchor='w')
-        self.opts = {}
-        for key, title, sub, size, when in (('original', 'Original', 'Ready right away', '0 GB', ''),
-                                            ('2x', EXPECTED['2x'][0], EXPECTED['2x'][1], EXPECTED['2x'][2], EXPECTED['2x'][3]),
-                                            ('4x', EXPECTED['4x'][0], EXPECTED['4x'][1], EXPECTED['4x'][2], EXPECTED['4x'][3])):
-            row = tk.Frame(self.tex, bg=C['bg']); row.pack(fill='x')
-            rb = ttk.Radiobutton(row, text='%s  \u2014  %s \u00b7 %s%s' % (title, sub, size, (' \u00b7 ' + when) if when else ''), value=key, variable=app.texture, command=app.refresh)
-            rb.pack(side='left')
-            tag = t.label(row, '', 'chip', 'amber', bg='bg'); tag.pack(side='left', padx=S(8))
-            self.opts[key] = (rb, tag)
-        self.why = t.label(self.tex, '', 'small', 'muted', wraplength=app.wrap, justify='left'); self.why.pack(anchor='w')
-        self.later = t.label(self.tex, 'Play now and add enhanced textures later: run this installer again and pick Add enhanced content.', 'small', 'muted',
-                             wraplength=app.wrap, justify='left')
-        self.later.pack(anchor='w')
-        self.vid = ttk.Checkbutton(self, text='Enhanced cutscenes (2x)  \u2014  +3.5 GB, needs 25 GB free while it runs, many hours', variable=app.videos, command=app.refresh)
-        self.vid.pack(anchor='w', pady=(S(6), 0))
-        cols = tk.Frame(self, bg=C['bg']); cols.pack(fill='x', pady=(S(8), 0))
-        left = tk.Frame(cols, bg=C['bg']); left.pack(side='left', anchor='n', fill='x', expand=True)
-        right = tk.Frame(cols, bg=C['bg']); right.pack(side='left', anchor='n', fill='x', expand=True)
-        t.label(left, 'SHORTCUTS', 'kicker', 'amber').pack(anchor='w')
-        self.sc_boxes = []
-        for k, label in (('desktop', 'Desktop shortcut'), ('start', 'Start menu entry "MechAssault 2 (Recomp)"'), ('editor', 'Scenario Editor shortcut')):
-            b = ttk.Checkbutton(left, text=label, variable=app.sc[k]); b.pack(anchor='w'); self.sc_boxes.append(b)
-        t.label(right, 'WHILE INSTALLING', 'kicker', 'amber').pack(anchor='w')
-        ttk.Checkbutton(right, text='Keep this PC awake while installing', variable=app.awake).pack(anchor='w')
-        ttk.Checkbutton(right, text='Lower priority (keep the PC responsive)', variable=app.lowprio, command=app.refresh).pack(anchor='w')
-        self.upd = tk.Frame(right, bg=C['bg']); self.upd.pack(anchor='w', fill='x')
-        self.merge_box = ttk.Checkbutton(self.upd, text='Add new settings from this version (backup kept)', variable=app.merge)
-        self.switch_box = ttk.Checkbutton(self.upd, text='Switch to the new enhanced textures now', variable=app.switch)
-        self.summary = t.panel(self, accent=True); self.summary.pack(side='bottom', fill='x', pady=(S(8), 0))
-        self.sum_l = t.label(self.summary, '', 'mono_mid', 'text', bg='panel', anchor='w', justify='left'); self.sum_l.pack(anchor='w', padx=S(12), pady=S(8))
-
-    def on_show(self):
-        app = self.app
-        act = app.action.get()
-        d = Path(precheck.clean_path(app.dest.get()))
-        have = {'2x': (d / 'game_files/texture_packs/2x/index.json').is_file(), '4x': (d / 'game_files/texture_packs/4x/index.json').is_file()}
-        self.have_videos = (d / 'game_files/Movie/Enhanced/2x').is_dir()
-        self.have = have if act in ('addons', 'update', 'repair') else {'2x': False, '4x': False}
-        for w in (self.merge_box, self.switch_box): w.pack_forget()
-        if act in ('update', 'repair'): self.merge_box.pack(anchor='w')
-        if act in ('update', 'repair', 'addons'): self.switch_box.pack(anchor='w')
-        for b in self.sc_boxes: b['state'] = 'normal' if act in ('install', 'update', 'repair') else 'disabled'
-        self.on_gpus()
-
-    def on_gpus(self):
-        app, S = self.app, self.t.S
-        reco = app.facts.get('reco') or {'rec': 'original', 'can': False, 'reason': 'Checking your graphics card...'}
-        for key, (rb, tag) in self.opts.items():
-            locked = key != 'original' and (not reco['can'] or self.have.get(key))
-            rb['state'] = 'disabled' if locked else 'normal'
-            tag['text'] = ('RECOMMENDED FOR YOUR GPU' if reco['rec'] == key and reco['can'] and not self.have.get(key) else
-                           'installed' if self.have.get(key) else ('locked' if locked else ''))
-            if locked and app.texture.get() == key: app.texture.set('original')
-        can_vid = reco.get("videos", reco["can"])        # NVIDIA: RealBasicVSR; any other card: Real-ESRGAN through Vulkan (1.1.3)
-        self.vid['state'] = 'disabled' if (not can_vid or self.have_videos) else 'normal'
-        if (not can_vid or self.have_videos) and app.videos.get(): app.videos.set(False)
-        self.why['text'] = reco['reason'] + ('' if reco['can'] else ' The enhanced options need an NVIDIA GPU with 8 GB or more.')
-        self.later.pack_forget() if reco['can'] and False else None
-        self.update_summary()
-
-    def update_summary(self):
-        app = self.app
-        opts = dict(textures=[] if app.texture.get() == 'original' else [app.texture.get()], videos=app.videos.get())
-        act = app.action.get()
-        done = {'extract', 'build'} if act == 'addons' else ({'extract'} if app.game_files_ok() and act in ('update', 'repair') else set())
-        need = install.needed_space(opts, done, (app.facts.get('reco') or {}).get('engine', 'pytorch')) / precheck.GB
-        mins = app.facts.get('minutes', 15)
-        mins = 1 if act == 'addons' else mins
-        extra = '  +  hours for the enhanced content' if (opts['textures'] or opts['videos']) else ''
-        verb = {'install': 'Install', 'update': 'Update', 'repair': 'Repair', 'addons': 'Add content to'}.get(act, 'Install')
-        self.sum_l['text'] = '%s %s\nabout %.1f GB \u00b7 about %d min%s' % (verb, precheck.short(precheck.clean_path(app.dest.get()), 46), need, mins, extra)
-
-    def buttons(self, ok):
-        self.update_summary()
-        b = super().buttons(ok)
-        verb = {'update': 'Update', 'repair': 'Repair', 'addons': 'Add content'}.get(self.app.action.get(), 'Install')
-        return [x if x[0] == 'Back' else (verb,) + x[1:] for x in b]
-
-    def valid(self):
-        app = self.app
-        if app.action.get() == 'addons' and app.texture.get() == 'original' and not app.videos.get():
-            return False, 'Tick the enhanced content you want to add.'
-        if app.needs_disc() and not (app.image_result and app.image_result.ok): return False, 'Choose your disc image first (go Back).'
-        return True, ''
-
-class Install(Page):
-    key = 'install'
-    back = False
-
-    def build(self):
-        t, S, app = self.t, self.t.S, self.app
-        self.failed = None; self.model = None; self.lines = []; self.finished = False; self.stage_rows = {}
-        self.top_mode = 'full'; self._fitting = False
-        # Packing order is priority order. The details row, the log and its note come first (at the bottom), so a short window
-        # squeezes the stage list above them and never hides the note ("Lines marked normal ...") or the Copy log row.
-        self.area = tk.Frame(self, bg=C['bg']); self.area.pack(side='bottom', fill='both', expand=True)
-        self.upper = tk.Frame(self, bg=C['bg']); self.upper.pack(side='top', fill='x')
-        top = self.top = tk.Frame(self.upper, bg=C['bg']); top.pack(fill='x')
-        left = self.left = tk.Frame(top, bg=C['bg']); left.pack(side='left', anchor='n')
-        self.ring = ui_theme.Reticle(left, t, 150); self.ring.pack()
-        self.eta = t.label(left, 'Estimating...', 'mono_mid', 'amber', bg='bg'); self.eta.pack(pady=(S(6), 0))
-        self.elapsed = t.label(left, 'Elapsed 0:00', 'mono', 'muted', bg='bg'); self.elapsed.pack()
-        self.right = tk.Frame(top, bg=C['bg']); self.right.pack(side='left', fill='x', expand=True, padx=(S(24), 0), anchor='n')
-        self.fail_panel = t.panel(self.upper, accent=True)
-        self.fail_head = t.label(self.fail_panel, '', 'h2', 'danger', bg='panel', anchor='w'); self.fail_head.pack(anchor='w', padx=S(14), pady=(S(8), 0))
-        self.fail_msg = t.label(self.fail_panel, '', 'body', 'text', bg='panel', wraplength=app.wrap - S(40), justify='left'); self.fail_msg.pack(anchor='w', padx=S(14), pady=(0, S(4)))
-        self.hide_user = tk.BooleanVar(value=True)
-        ttk.Checkbutton(self.fail_panel, text='Hide my user name in the copied log', variable=self.hide_user, style='Panel.TCheckbutton').pack(anchor='w', padx=S(10), pady=(0, S(8)))
-        self.fail_note = t.label(self.fail_panel, '', 'small', 'muted', bg='panel', wraplength=app.wrap - S(40), justify='left')     # shown after Collect diagnostics
-        self.detail = t.label(self.upper, '', 'body', 'muted', anchor='w'); self.detail.pack(fill='x', pady=(S(8), 0), side='top')
-        self.show_log = tk.BooleanVar(value=False)
-        bar = self.bar = tk.Frame(self.area, bg=C['bg']); bar.pack(fill='x', side='top')
-        ttk.Checkbutton(bar, text='Show details', variable=self.show_log, command=self.toggle_log).pack(side='left')
-        self.copy_b = ttk.Button(bar, text='Copy log', style='Link.TButton', command=self.copy_log); self.open_b = ttk.Button(bar, text='Open log folder', style='Link.TButton', command=self.open_logs)
-        self.copy_b.pack(side='left', padx=S(10)); self.open_b.pack(side='left')
-        self.logf = tk.Frame(self.area, bg=C['bg'])
-        # The note is packed before the box, so it always gets its row; the box takes what is left (it asks for 1 line and grows with the window).
-        self.note = t.label(self.logf, 'Lines marked normal are expected and don\'t mean something went wrong.', 'small', 'steel', bg='bg')
-        self.note.pack(side='top', anchor='w', pady=(0, S(2)))
-        box = tk.Frame(self.logf, bg=C['bg']); box.pack(side='top', fill='both', expand=True)
-        self.log = tk.Text(box, height=1, font=t.fonts['mono'], bg=C['panel'], fg=C['text'], bd=0, highlightthickness=1, highlightbackground=C['line'],
-                           state='disabled', wrap='none')
-        sb = ttk.Scrollbar(box, orient='vertical', command=self.log.yview); self.log['yscrollcommand'] = sb.set
-        sb.pack(side='right', fill='y'); self.log.pack(side='left', fill='both', expand=True)
-        self.log.tag_configure('dim', foreground=C['steel'])
-        self.rows_built = False
-        self.bind('<Configure>', lambda e: self.fit() if e.widget is self else None)
-        self.fail_panel.bind('<Configure>', self.wrap_failure)
-
-    def kicker(self):
-        if self.failed and self.failed[0] == 'extras': return ('INSTALLED', 'The extras were not finished')
-        return ('SYSTEM FAULT', 'The install stopped') if self.failed else KICKER['install']
-
-    # -- stage list
-    def build_rows(self, names):
-        t, S = self.t, self.t.S
-        for w in self.right.winfo_children(): w.destroy()
-        self.stage_rows = {}
-        self.model = progress.ProgressModel(names)
-        for sid, title, steps in self.model.stages:
-            row = tk.Frame(self.right, bg=C['bg']); row.pack(fill='x', pady=S(2))
-            bar = tk.Frame(row, bg=C['bg'], width=S(3)); bar.pack(side='left', fill='y')
-            glyph = tk.Label(row, text='\u25cb', font=t.fonts['rail'], fg=C['steel'], bg=C['bg'], width=2); glyph.pack(side='left')
-            name = tk.Label(row, text=title, font=t.fonts['rail'], fg=C['muted'], bg=C['bg'], anchor='w'); name.pack(side='left')
-            det = tk.Label(row, text='', font=t.fonts['mono'], fg=C['muted'], bg=C['bg'], anchor='e'); det.pack(side='right')
-            self.stage_rows[sid] = (row, bar, glyph, name, det)
-        self.render()
-
-    def render(self):
-        m = self.model
-        if not m: return
-        t = self.t
-        for sid, (row, bar, glyph, name, det) in self.stage_rows.items():
-            st = m.stage_status(sid)
-            col = {'active': C['amber'], 'done': C['ok'], 'kept': C['ok'], 'failed': C['danger']}.get(st, C['steel'])
-            glyph['text'] = {'active': '\u25b6', 'done': '\u2713', 'kept': '\u2713', 'failed': '\u2715'}.get(st, '\u25cb'); glyph['fg'] = col
-            name['fg'] = C['text'] if st in ('active', 'failed') else C['muted']
-            bar['bg'] = col if st in ('active', 'failed') else C['bg']
-            det['text'] = m.stage_detail(sid) if st == 'active' else ('kept from last time' if st == 'kept' else '')
-        frac = m.fraction()
-        self.ring.set(frac)
-        self.eta['text'] = progress.fmt_eta(m.eta()) if not self.finished and not self.failed else ('Done' if self.finished else 'Stopped')
-        self.elapsed['text'] = 'Elapsed ' + progress.fmt_elapsed(m.elapsed())
-
-    def tick(self):
-        if self.model and not self.finished and not self.failed and self.app.cur is self: self.render()
-
-    # -- running
-    def on_show(self):
-        app = self.app
-        if self.failed or self.finished or (app.worker and app.worker.is_alive()): return
-        self.start()
+    def set_slow(self, text):
+        self.slow = text
+        if self.screen == 'progress': self.update_progress()
 
     def start(self):
-        app = self.app
-        self.failed = None; self.finished = False; self.lines = []
-        self.fail_note['text'] = ''; self.fail_note.pack_forget()
-        self.top_mode = 'full'; self.place(); self.after_idle(self.fit)
-        self.log.configure(state='normal'); self.log.delete('1.0', 'end'); self.log.configure(state='disabled')
-        p = app.params()
-        if app.action.get() == 'resume':
-            st = precheck.read_state(p['dest']) or {}
-            opts = st.get('options') or {}
-            p.update(textures=opts.get('textures', []), videos=opts.get('videos', False), update=bool(st.get('update')), xiso=p['xiso'] or st.get('xiso'))
+        """Start the engine (or the recorded-log fake in tests) on a worker thread; the same call as the 1.1.3 window."""
+        self.failed = None; self.extras_failed = None; self.lines = []; self.model = None; self.step_title = 'Getting ready'; self.slow = ''
+        self.shown_frac = 0.0; self.shown_eta = None; self.stop = None; self.confirm = None
+        p = self.params()
+        if self.action() == 'resume':
+            st = self.state()
+            o = st.get('options') or {}
+            p.update(textures=o.get('textures', []), videos=o.get('videos', False), update=bool(st.get('update')), xiso=p['xiso'] or st.get('xiso'))
+        extra = {}
+        if self.jobs: extra['jobs'] = self.jobs
+        if self.vs: extra['vs'] = self.vs
+        if self.keep_work: extra['keep_work'] = True
+        if self.engine == 'cpu': extra['allow_cpu'] = True
+        for var in ('MA2_TEXTURE_ENGINE', 'MA2_VIDEO_ENGINE'):
+            if self.engine in ('pytorch', 'vulkan', 'cpu'): os.environ[var] = 'vulkan' if self.engine == 'vulkan' else 'pytorch'
+        if self.upscaler: os.environ['MA2_UPSCALER_SOURCE'] = self.upscaler
+        q = self.q
+        cb = dict(log=lambda s: q.put(('log', s)), step=lambda i, n, title, name, skipped=False: q.put(('step', (i, n, title, name, skipped))))
         fake = os.environ.get('MA2_INSTALLER_FAKE')
-        cb = dict(log=lambda s: app.q.put(('log', s)), step=lambda i, n, title, name, skipped=False: app.q.put(('step', (i, n, title, name, skipped))))
         if fake:
             import fakeinstall
             f = os.environ.get('MA2_FAKE_FAIL')
-            app.inst = fakeinstall.FakeInstaller(fake, speed=float(os.environ.get('MA2_FAKE_SPEED', '40')), fail=tuple(f.split(':')) if f else None,
-                                                 extra=[x for x in os.environ.get('MA2_FAKE_EXTRA', '').split(',') if x], dest=p['dest'], **cb)
-            app.inst.on_plan = lambda names: app.q.put(('plan', names))
+            self.inst = fakeinstall.FakeInstaller(fake, speed=float(os.environ.get('MA2_FAKE_SPEED', '40')), fail=tuple(f.split(':')) if f else None,
+                                                  extra=[x for x in os.environ.get('MA2_FAKE_EXTRA', '').split(',') if x], dest=p['dest'], **cb)
         else:
-            app.inst = install.Installer(p['xiso'], p['dest'], p['textures'], p['videos'], install_build_tools=False, update=p['update'],
-                                         shortcuts=p['shortcuts'], keep_awake=p['keep_awake'], low_priority=p['low_priority'],
-                                         merge_settings=p['merge_settings'], switch_textures=p['switch_textures'], **cb)
-            app.inst.on_plan = lambda names: app.q.put(('plan', names))
-            app.inst.until = os.environ.get('MA2_INSTALLER_UNTIL')          # maintainers: stop after this step
-        self.started = time.monotonic(); app.started = self.started
-        app.worker = threading.Thread(target=self.work, daemon=True); app.worker.start()
-        app.refresh()
+            self.inst = install.Installer(p['xiso'], p['dest'], p['textures'], p['videos'], install_build_tools=False, update=p['update'],
+                                          shortcuts=p['shortcuts'], keep_awake=p['keep_awake'], low_priority=p['low_priority'],
+                                          merge_settings=p['merge_settings'], switch_textures=p['switch_textures'], **extra, **cb)
+            self.inst.on_status = lambda text: q.put(('status', text))
+            self.inst.until = os.environ.get('MA2_INSTALLER_UNTIL')
+        self.inst.on_plan = lambda names: q.put(('plan', names))
+        self.last_params = p
+        self.started = time.monotonic()
+        self.worker = threading.Thread(target=self.work, daemon=True); self.worker.start()
+        self.go('progress')
+        self.taskbar.set('normal', 0.0)
 
     def work(self):
-        q, inst = self.app.q, self.app.inst
+        q, inst = self.q, self.inst
         try:
             inst.run(); q.put(('done', None))
         except install.Stop as e:
-            q.put(('stopped', (e.kind, str(e))))
+            q.put(('stopped', (e.kind, str(e), getattr(e, 'code', None))))
         except Exception:
-            q.put(('log', traceback.format_exc())); q.put(('stopped', ('unexpected', 'Unexpected error (details in the log).')))
+            q.put(('log', traceback.format_exc())); q.put(('stopped', ('unexpected', 'Unexpected error (details in the log).', None)))
 
     def event(self, kind, value):
         if kind == 'plan':
-            self.build_rows(list(value)); return
+            self.model = progress.ProgressModel(list(value))
+            if self.screen == 'progress': self.render()
+            return
         if kind == 'log':
-            self.lines.append(value)
+            self.lines.append(value); del self.lines[:-2000]
             if self.model: self.model.feed(value)
-            self.append(value); return
+            return
         if kind == 'step':
             i, n, title, name, skipped = value
-            if not self.model: self.build_rows([name])
-            self.model.step(name, skipped)
-            self.detail['text'] = title if not skipped else title + ' (kept from last time)'
-            self.render(); return
+            if not self.model: self.model = progress.ProgressModel([name])
+            self.model.step(name, skipped); self.step_title = self.phase_title(name); self.slow = ''
+            if self.screen == 'progress': self.update_progress(full=True)
+            return
+        if kind == 'status':
+            self.slow = value
+            if self.screen == 'progress': self.update_progress()
+            return
         if kind == 'done':
-            self.finished = True
+            self.worker = None
             if self.model: self.model.complete()
-            self.render(); self.flash()
-            self.app.pages['done'].prepare()
-            self.app.show('done'); return
+            self.finished()
+            return
         if kind == 'stopped':
-            self.fail(*value)
+            self.worker = None
+            self.stopped(*value)
 
-    def append(self, line):
-        dim = any(w in line for w in ('unimplemented', 'stubbed', 'warning C', 'unresolved'))
-        self.log.configure(state='normal')
-        self.log.insert('end', line + '\n', 'dim' if dim else '')
-        if int(self.log.index('end-1c').split('.')[0]) > 4000: self.log.delete('1.0', '1000.0')
-        self.log.see('end'); self.log.configure(state='disabled')
+    def phase_title(self, name):
+        return next((t for _, t, steps in PHASES if name in steps), 'Installing')
 
-    def toggle_log(self):
-        if self.show_log.get():
-            self.logf.pack(side='top', fill='both', expand=True, pady=(self.t.S(2), 0))
+    def phases(self):
+        m = self.model
+        if not m: return []
+        out = []
+        for pid, title, steps in PHASES:
+            ss = [s for s in steps if s in m.status]
+            if not ss: continue
+            sts = [m.status[s] for s in ss]
+            st = 'failed' if 'failed' in sts else 'active' if 'active' in sts else 'done' if all(x in ('done', 'kept') for x in sts) else \
+                 'active' if any(x in ('done', 'kept') for x in sts) else 'pending'
+            out.append((title, st))
+        return out
+
+    def overall(self):
+        """0..1 over the core and the extras together (never goes back)."""
+        m = self.model
+        if not m: return 0.0
+        tot = got = 0.0
+        for s in m.steps:
+            w = progress.STEP_SECONDS.get(s) or EXTRA_SECONDS.get(s) or 1
+            st = m.status.get(s)
+            if st in ('done', 'kept'): f = 1.0
+            elif st == 'active':
+                if s in EXTRA_SECONDS: f = m.sub.get(s, min(0.9, (m.clock() - m.start_at.get(s, m.clock())) / float(w)))
+                else: f = m._in_step(s)
+            else: f = 0.0
+            tot += w; got += w * f
+        self.shown_frac = max(self.shown_frac, got / tot if tot else 0.0)
+        return self.shown_frac
+
+    def eta(self):
+        """Seconds left, shown only once measured, never going up (it stretches instead)."""
+        m = self.model
+        if not m: return None
+        e = m.eta()
+        if e is None: return None
+        cur = m.current
+        if cur not in EXTRA_SECONDS:
+            e += sum(EXTRA_SECONDS[s] * (m.pace() or 1.0) for s in m.steps if s in EXTRA_SECONDS and m.status.get(s) == 'pending')
+        if self.shown_eta is None or e < self.shown_eta[0] - (time.monotonic() - self.shown_eta[1]):
+            self.shown_eta = (e, time.monotonic())
+        left = self.shown_eta[0] - (time.monotonic() - self.shown_eta[1])
+        return max(left, 30.0)
+
+    def scr_progress(self):
+        k, dp, cv = self.k, self.k.dp, self.cv
+        tools = self.model is None
+        frac = self.overall() if not tools else 0.0
+        self.prog['pct'] = self.T(40, 112, '' if tools else '%d%%' % int(frac * 100), 'pct', 'amber', anchor='sw')
+        tx = 40 if tools else 40 + k.fonts['pct'].measure('%d%%' % int(frac * 100)) / k.scale + 22
+        self.prog['title'] = self.T(tx, 101, (self.step_title or 'Installing') + '\u2026' if not self.step_title.endswith('\u2026') else self.step_title, 'h1m', anchor='sw')
+        y = 120
+        cv.create_rectangle(dp(40), dp(y), dp(840), dp(y + 26), fill=P['panel'], outline=P['steel'], width=k.line(), tags='s')
+        self.prog['fill'] = cv.create_rectangle(dp(43), dp(y + 3), dp(43), dp(y + 23), fill=P['amber'], outline='', tags='s')
+        self.prog['scan'] = cv.create_rectangle(dp(43), dp(y + 3), dp(48), dp(y + 23), fill=P['amber_hover'], outline='', tags='s',
+                                                state='normal' if self.anim else 'hidden')
+        self.prog['note'] = self.T(40, 170, '', 'body', 'muted', anchor='w', width=560)
+        self.prog['eta'] = self.T(840, 170, '', 'mono', 'text', anchor='e')
+        if not tools:
+            dl = self.link('details', ('\u25be Hide details' if self.show_details else '\u25b8 Show details'), self.toggle_details, quiet=True)
+            self.put(dl, 36, 196)
+            if self.show_details:
+                ph = self.phases()
+                hh = 18 + 22 * len(ph) + 30
+                cv.create_rectangle(dp(40), dp(230), dp(840), dp(230 + hh), fill=P['panel'], outline=P['line'], width=k.line(), tags='s')
+                self.prog['steps'] = []
+                for i, (t, st) in enumerate(ph):
+                    it = self.T(56, 240 + 22 * i, '', 'small', 'muted')
+                    self.prog['steps'].append(it)
+                self.put(self.link('openlog', 'Open log', self.open_log, quiet=True, bg='panel', small=True), 52, 236 + 22 * len(ph))
+        if self.confirm == 'cancel': self.confirm_footer()
+        elif self.tools_busy: self.footer([], [self.link('cancel', 'Cancel', self.cancel_tools, quiet=True, bg='panel')])
+        elif tools: self.footer([], [])
+        else: self.footer([], [self.link('cancel', 'Cancel', lambda: self.ask('cancel'), quiet=True, bg='panel')])
+        self.update_progress(full=True)
+
+    def toggle_details(self):
+        self.show_details = not self.show_details; self.want_focus = 'details'; self.render()
+
+    def cancel_tools(self):
+        self.tools_cancel = True; self.set_slow('Stopping (Microsoft\'s installer keeps running on its own)')
+
+    def update_progress(self, full=False):
+        if self.screen != 'progress' or not self.prog: return
+        cv, k, dp = self.cv, self.k, self.k.dp
+        m = self.model
+        if m:
+            frac = self.overall()
+            cv.itemconfigure(self.prog['pct'], text='%d%%' % int(frac * 100))
+            cv.coords(self.prog['title'], dp(40) + k.fonts['pct'].measure('%d%%' % int(frac * 100)) + dp(22), dp(101))
+            x1 = dp(43) + (dp(837) - dp(43)) * frac
+            cv.coords(self.prog['fill'], dp(43), dp(123), x1, dp(143))
+            self.scan_end = x1
         else:
-            self.logf.pack_forget()
-        self.app.refresh(); self.fit()
+            frac = None; self.scan_end = dp(837)
+        title = self.step_title if self.step_title.endswith('\u2026') else self.step_title + '\u2026'
+        cv.itemconfigure(self.prog['title'], text=title)
+        slow = self.slow[:1].upper() + self.slow[1:] if self.slow else ''          # the engine's own phrase ("taking longer: low memory, ...")
+        cv.itemconfigure(self.prog['note'], text=slow or 'You can keep using your PC.')
+        e = self.eta() if m else None
+        cv.itemconfigure(self.prog['eta'], text=fmt_left(e) if e is not None else ('Working out the time left\u2026' if m else ''))
+        if self.prog.get('steps'):
+            for it, (t, st) in zip(self.prog['steps'], self.phases()):
+                cv.itemconfigure(it, text={'done': '\u2713 ', 'active': '\u25b8 ', 'failed': '\u2715 '}.get(st, '\u25cb ') + t,
+                                 fill=P['ok'] if st == 'done' else P['amber'] if st == 'active' else P['danger'] if st == 'failed' else P['muted'])
+        if full or self._tick % 10 == 0: self.update_title(frac)
+        if frac is not None: self.taskbar.set('normal', frac)
 
-    def wrap_failure(self, event):
-        """The failure text wraps to the panel (the smallest window is narrower than the usual wrap width, which cut the left of the message)."""
-        S = self.t.S; w = max(S(300), min(self.app.wrap - S(40), event.width - S(40)))
-        if int(str(self.fail_msg.cget('wraplength'))) != w:
-            self.fail_msg['wraplength'] = w; self.fail_note['wraplength'] = w; self.after_idle(self.fit)
-
-    def place(self):
-        """(Re)pack the part above the log: the stage list (with the ring while it fits and nothing failed), then the failure message or the step line."""
-        S = self.t.S
-        for w in (self.top, self.fail_panel, self.detail, self.left): w.pack_forget()
-        if self.top_mode != 'none':
-            self.top.pack(fill='x')
-            if self.top_mode == 'full' and not self.failed: self.left.pack(side='left', anchor='n', before=self.right)
-        if self.failed: self.fail_panel.pack(fill='x', pady=(S(8), 0))
-        else: self.detail.pack(fill='x', pady=(S(8), 0))
-
-    def fit(self):
-        """Keep the log's note and the Copy log row on screen in a short window (a 720p laptop, the smallest window, a long failure message):
-        what gives way, in order, is the ring, then the stage list, then the log's own height (down to 1 line)."""
-        if self._fitting or not self.winfo_ismapped(): return
-        self._fitting = True
+    def animate(self):
+        """The scan line along the filled part of the bar, and the hexes it passes light up (off with Windows' animation effects)."""
+        if self.screen != 'progress' or not self.prog or not self.anim: return
         try:
-            S = self.t.S
-            self.update_idletasks()
-            used = self.bar.winfo_reqheight() + S(8)
-            used += (self.fail_panel.winfo_reqheight() if self.failed else self.detail.winfo_reqheight()) + S(8)
-            room = self.winfo_height() - used
-            line = self.t.fonts['mono'].metrics('linespace')
-            least = want = 0
-            if self.show_log.get():
-                least = self.note.winfo_reqheight() + S(8) + 3 * line + S(8)
-                want = self.note.winfo_reqheight() + S(8) + 6 * line + S(8)
-            right = self.right.winfo_reqheight()
-            modes = [('slim', right)] if self.failed else [('full', max(right, self.left.winfo_reqheight())), ('slim', right)]
-            pick = 'none'
-            for cost in (want, least):
-                for name, h in modes:
-                    if room - cost >= h: pick = name; break
-                if pick != 'none': break
-            if pick != self.top_mode:
-                self.top_mode = pick; self.place()
-        finally:
-            self._fitting = False
+            if self.root.state() == 'iconic': return
+        except tk.TclError:
+            return
+        dp = self.k.dp
+        end = getattr(self, 'scan_end', dp(43))
+        if end - dp(43) < dp(12): return
+        self.scan_x = (self.scan_x + dp(6)) if self.scan_x + dp(6) < end - dp(5) else dp(43)
+        self.cv.coords(self.prog['scan'], self.scan_x, dp(123), self.scan_x + dp(5), dp(143))
+        for it, cx, cy in self.hexes:
+            lit = abs(cx - self.scan_x) < dp(30) and dp(60) < cy < dp(200)
+            col = P['hexlit'] if lit else P['hexline']
+            if self.cv.itemcget(it, 'outline') != col: self.cv.itemconfigure(it, outline=col)
 
-    def fail(self, kind, msg):
-        app = self.app
+    def update_title(self, frac=None):
+        if self.screen == 'progress' and self.model and frac is not None:
+            t = '%d%% \u00b7 %s \u00b7 %s' % (int(frac * 100), self.step_title.rstrip('\u2026') + '\u2026', TITLE)
+        else:
+            t = TITLE
+        if self.root.title() != t: self.root.title(t)
+
+    def cancel_install(self):
+        self.confirm = None
+        if self.inst: threading.Thread(target=self.inst.cancel, daemon=True).start()
+        self.set_slow('Stopping\u2026'); self.render()
+
+    # -- the end of a run
+    def finished(self):
+        self.taskbar.set('none')
+        self.dest_installed = precheck.clean_path(self.dest)
+        self.go('done', focus='primary')
+        self.attention()
+
+    def stopped(self, kind, msg, code=None):
         self.failed = (kind, msg)
-        if self.model: self.model.fail(app.inst.stage if app.inst else None)
-        head, advice = FAILURES.get(kind, FAILURES['unexpected'])
-        drive = os.path.splitdrive(precheck.clean_path(app.dest.get()))[0] or 'the drive'
-        self.fail_head['text'] = head
-        if kind == 'extras' and msg.startswith('MechAssault 2 is installed. '): msg = msg[len('MechAssault 2 is installed. '):]   # the headline says it
-        self.fail_msg['text'] = advice.format(drive=drive, report=precheck.report_hint()) + ('\n\n' + msg if kind not in ('cancelled',) and msg and msg != head else '')
-        self.detail['text'] = ''
-        self.place()                                   # room for the explanation: no ring; the stage list keeps the failed row if it fits (fit)
-        app.kicker_l['text'], app.title_l['text'] = self.kicker()
-        self.render(); app.update_rail(fault=True); app.refresh(); self.fit(); self.flash()
+        if self.model: self.model.fail(self.inst.stage if self.inst else None)
+        if kind == 'cancelled':
+            self.taskbar.set('none')
+            self.mode = self.mode_for(self.dest); self.check_dest()
+            self.notice = ('info', 'Install paused. Finished steps are kept: press Continue when you\'re ready.') if self.mode == 'resume' else ('info', 'Install cancelled.')
+            return self.go('setup')
+        if kind == 'extras':
+            self.extras_failed = msg
+            return self.finished()
+        if kind == 'compiler' and code == 'reboot':
+            return self.show_restart()
+        if kind == 'compiler':
+            self.facts['compiler'] = None
+            self.waiting('Checking Microsoft\'s C++ tools\u2026')
+            return self.bg(install.compiler_state, lambda c: self.after_compiler(c) if not (isinstance(c, dict) and c.get('state') == 'ready') else self.show_failed(kind, msg))
+        if kind == 'disc':
+            self.taskbar.set('paused', self.shown_frac)
+            self.mode = self.mode_for(self.dest)
+            self.image = precheck.ImageResult(False, 'disc', msg, 'The disc image could not be read')
+            self.attention(); return self.go('setup', focus='zone' if self.mode == 'install' else 'disc_change')
+        if kind == 'disk_full':
+            drive = os.path.splitdrive(precheck.clean_path(self.dest))[0] or 'the install drive'
+            return self.show_stop(style='needs', icon='needs', kicker='ACTION NEEDED', head='Free up space on %s' % drive,
+                                  body='There isn\'t enough free space on %s to carry on. Free up some space, then press Try again. Finished steps are kept.' % drive,
+                                  primary=('TRY AGAIN', self.resume), close=True, details=msg)
+        self.show_failed(kind, msg)
 
-    def flash(self):
-        try:
-            class FW(ctypes.Structure):
-                _fields_ = [('cb', ctypes.c_uint), ('hwnd', ctypes.c_void_p), ('flags', ctypes.c_uint), ('count', ctypes.c_uint), ('timeout', ctypes.c_uint)]
-            f = FW(); f.cb = ctypes.sizeof(FW); f.hwnd = self.app.root.winfo_id(); f.flags = 0x0F; f.count = 3
-            ctypes.windll.user32.FlashWindowEx(ctypes.byref(f))
-        except Exception:
-            pass
-
-    # -- actions
-    def bundle(self):
-        app = self.app
-        return precheck.support_bundle(self.lines, (self.failed and app.inst and app.inst.stage) or '', self.hide_user.get(), install.PUBLIC_VERSION, install.BUILD,
-                                       app.facts.get('gpus') or [], (app.facts.get('compiler') or {}).get('vs') or '')
-
-    def copy_log(self):
-        self.app.root.clipboard_clear(); self.app.root.clipboard_append(self.bundle()); self.app.root.update()
-        self.app.status['text'] = 'Log copied to the clipboard.'; self.app.status['fg'] = C['ok']
-
-    def open_logs(self):
-        d = precheck.logs_dir(); d.mkdir(parents=True, exist_ok=True)
-        self.app.launch('open', d)
-
-    def diagnostics(self):
-        """Collect diagnostics from the failure screen: the zip names the step that failed and the reason, and holds the newest install log
-        (plus the last lines this window showed)."""
-        app = self.app
-        dest = precheck.clean_path(app.dest.get()) or precheck.default_install_folder()
-        go, dump, rec = app.ask_diagnostics(dest)
-        if not go: return
-        stage = (app.inst and app.inst.stage) or ''
-        failure = '%s: %s' % self.failed if self.failed else ''
-        lines = list(self.lines)
-        self.show_note('Collecting diagnostics...')
-        def work():
-            return precheck.collect_diagnostics(dest, install.known_folder('desktop'), install.PUBLIC_VERSION, install.BUILD, app.facts.get('gpus'), dump, rec, stage, failure, lines)
-        app.bg(work, self.diagnostics_done)
-
-    def diagnostics_done(self, res):
-        if isinstance(res, Exception):
-            self.show_note('Could not collect diagnostics: %s' % res)
-        else:
-            self.show_note('Diagnostics saved to %s. Attach this file to your problem report (%s).' % (res['path'], precheck.support_where()))
-            self.app.launch('select', res['path'])
-
-    def show_note(self, text):
-        self.fail_note['text'] = text
-        if not self.fail_note.winfo_manager(): self.fail_note.pack(anchor='w', padx=self.t.S(14), pady=(0, self.t.S(8)))
-        self.fit()
-
-    def leave(self, key):
-        """Back from the failure screen to a page where the cause can be fixed ('systems' for the compiler, 'disc' for the image)."""
-        self.failed = None; self.finished = False
-        self.app.worker = None
-        self.app.update_rail(); self.app.show(key)
-
-    def report_problem(self):
-        self.app.launch('open', precheck.MA2_SUPPORT_URL)
+    def show_failed(self, kind, msg):
+        head, body = FAILED.get(kind, FAILED['unexpected'])
+        if kind == 'network' and msg and 'couldn\'t verify the secure connection' in msg:     # TLS: the internet itself works
+            head = 'Windows couldn\'t verify the download site'
+            body = ('Windows couldn\'t verify the secure connection to the download site. The installer already tried Windows\' own '
+                    'connection. Details says how to get the file without this download (on another PC, for example).')
+        elif kind == 'network' and msg:          # the download's own one-line cause (A4), then what to do
+            first = msg.split('. ')[0].strip().rstrip('.')
+            if 0 < len(first) <= 170: body = first + '. Check your connection, then try again.'
+        self.show_stop(style='failed', icon='bad', kicker='COULDN\'T FINISH', head=head, body=body, primary=('TRY AGAIN', self.resume),
+                       details=msg, help=True)
 
     def resume(self):
-        self.app.worker = None
-        self.app.action.set('resume' if precheck.read_state(precheck.clean_path(self.app.dest.get())) is not None else self.app.action.get())
-        self.failed = None; self.finished = False
-        self.app.kicker_l['text'], self.app.title_l['text'] = self.kicker()
-        self.app.update_rail(); self.start()
+        """Try again after a stop: Continue with the finished steps kept (1.1.3's Resume)."""
+        self.mode = self.mode_for(self.dest)
+        self.start()
 
-    def stop(self):
-        if self.app.confirm(TITLE, 'Stop installing? Everything finished so far is kept. Run the installer again and choose Resume to continue.'):
-            self.app.cancel_install()
+    def show_stop(self, style, icon, kicker, head, body, primary=None, links=(), details='', close=False, help=False, note='', back=False):
+        self.stop = dict(style=style, icon=icon, kicker=kicker, head=head, body=body, primary=primary, links=list(links),
+                         details=details, close=close, help=help or style == 'failed', note=note, back=back)
+        if style == 'failed': self.taskbar.set('error', self.shown_frac or 1.0)
+        else: self.taskbar.set('paused', self.shown_frac or 1.0)
+        self.go('stop', focus='primary')
+        self.attention()
 
-    def buttons(self, ok):
-        if self.failed:
-            out = [('Close', self.app.close, 'TButton', True), ('Open log folder', self.open_logs, 'TButton', True), ('Copy log', self.copy_log, 'TButton', True),
-                   ('Collect diagnostics', self.diagnostics, 'TButton', True)]
-            kind = self.failed[0]
-            if kind == 'compiler': out.append(('Systems check', lambda: self.leave('systems'), 'TButton', True))
-            if kind == 'disc': out.append(('Choose disc image', lambda: self.leave('disc'), 'TButton', True))
-            if precheck.MA2_SUPPORT_URL: out.append(('Report a problem', self.report_problem, 'TButton', True))     # D-11: hidden until a URL is set
-            return out + [('Resume', self.resume, 'Primary.TButton', True)]
-        return [('Cancel', self.stop, 'TButton', not self.finished)]
+    def show_restart(self):
+        self.show_stop(style='needs', icon='restart', kicker='ACTION NEEDED', head='Restart to finish setting up',
+                       body='Windows needs to restart before setup can continue. Setup carries on by itself after you sign in.',
+                       primary=('RESTART NOW', self.restart_now), close=True, note='Save your work in other apps first.')
 
-class Done(Page):
-    key = 'done'
-    back = False
+    def scr_stop(self):
+        s = self.stop or {}
+        k, dp = self.k, self.k.dp
+        col = 'danger' if s.get('style') == 'failed' else 'amber'
+        ui_kit.icon(self.cv, s.get('icon', 'needs'), dp(40 + 30), dp(56 + 34), dp(30), 's')
+        self.kicker(126, 60, s.get('kicker', ''), col)
+        self.T(126, 88, s.get('head', ''), 'h1', width=700)
+        self.T(126, 136, s.get('body', ''), 'body', 'muted', width=620)
+        x = 122
+        for i, (label, fn) in enumerate(s.get('links') or []):
+            l = self.link('stop_link%d' % i, label, fn); self.put(l, x, 216); x += l.winfo_reqwidth() / k.scale + 18
+        left = []
+        if s.get('back'): left.append(self.link('back', '\u2039 Back', lambda: self.go('setup'), quiet=True, bg='panel'))
+        if s.get('help'): left.append(self.link('help', 'Help', self.open_menu, quiet=True, bg='panel'))
+        if s.get('details'): left.append(self.link('stop_details', 'Details', lambda: self.show_page('details'), quiet=True, bg='panel'))
+        if s.get('note'): left.append(('text', s['note'], 'small', 'muted'))
+        right = []
+        if s.get('close'): right.append(self.link('close', 'Close', self.close_for_later, quiet=True, bg='panel'))
+        if s.get('primary'): right.append(self.button('primary', s['primary'][0], s['primary'][1]))
+        self.footer(left, right)
 
-    def build(self):
-        t, S, app = self.t, self.t.S, self.app
-        top = tk.Frame(self, bg=C['bg']); top.pack(fill='x')
-        self.where = t.label(top, '', 'body', 'muted', anchor='w', wraplength=app.wrap, justify='left'); self.where.pack(anchor='w')
-        row = tk.Frame(self, bg=C['bg']); row.pack(fill='x', pady=(S(10), S(6)))
-        self.play_b = ttk.Button(row, text='\u25b6  PLAY', style='Big.Primary.TButton', command=self.play); self.play_b.pack(side='left')
-        ttk.Checkbutton(row, text='Close the installer when the game starts', variable=app.close_on_play).pack(side='left', padx=S(14))
-        row2 = tk.Frame(self, bg=C['bg']); row2.pack(fill='x', pady=(0, S(8)))
-        ttk.Button(row2, text='Open install folder', command=lambda: app.launch('open', precheck.clean_path(app.dest.get()))).pack(side='left')
-        self.ed_b = ttk.Button(row2, text='Open Scenario Editor', command=self.editor); self.ed_b.pack(side='left', padx=S(8))
-        self.ctl_b = ttk.Button(row2, text='Controls', command=lambda: app.launch('open', Path(precheck.clean_path(app.dest.get())) / 'Controls.txt')); self.ctl_b.pack(side='left')
-        self.good = t.panel(self); self.good.pack(fill='x')
-        self.notes = t.label(self, '', 'small', 'muted', wraplength=app.wrap, justify='left')
-        self.notes.pack(anchor='w', pady=(S(6), 0))
-        t.label(self, precheck.FAN_LINE, 'small', 'steel', wraplength=app.wrap, justify='left').pack(side='bottom', anchor='w')
+    def close_for_later(self):
+        if self.stop and self.stop.get('icon') == 'restart': self.save_resume(); self.set_resume_on_signin()
+        self.close()
 
-    def prepare(self):
-        t, S, app = self.t, self.t.S, self.app
-        dest = Path(precheck.clean_path(app.dest.get()))
-        el = time.monotonic() - (app.started or time.monotonic())
-        self.where['text'] = '%s  \u00b7  installed in %s  \u00b7  took %s' % (install.build_label(), precheck.short(dest, 50), precheck.fmt_duration(el))
-        for w in self.good.winfo_children(): w.destroy()
-        t.label(self.good, 'GOOD TO KNOW', 'kicker', 'amber', bg='panel').grid(row=0, column=0, sticky='w', padx=S(12), pady=(S(8), S(2)), columnspan=2)
-        local = precheck.local_dir()
-        rows = [('Settings', local / 'pc_settings.ini', 'Created on first launch; also in the game\'s Player Options'),
-                ('Saves and profiles', local / 'Saved Games', ''), ('Logs', precheck.logs_dir(), 'If the game ever closes unexpectedly, look here'),
-                ('Add more later', None, 'Run this installer again and choose Add enhanced content'),
-                ('Uninstall', None, 'Run this installer again and press Uninstall (your settings and saves are kept unless you tick the box)')]
-        for i, (what, path, note) in enumerate(rows, 1):
-            t.label(self.good, what, 'bold', 'text', bg='panel', anchor='w').grid(row=i, column=0, sticky='nw', padx=(S(12), S(10)), pady=1)
-            if path:
-                l = tk.Label(self.good, text=precheck.short(path, 44), font=t.fonts['mono'], fg=C['amber'], bg=C['panel'], cursor='hand2', anchor='w')
-                l.bind('<Button-1>', lambda e, p=path: app.launch('open', p if Path(p).exists() else Path(p).parent)); l.grid(row=i, column=1, sticky='w')
-                t.label(self.good, note, 'small', 'muted', bg='panel', anchor='w').grid(row=i, column=2, sticky='w', padx=S(8)) if note else None
-            else:
-                t.label(self.good, note, 'small', 'muted', bg='panel', anchor='w').grid(row=i, column=1, columnspan=2, sticky='w')
-        tk.Frame(self.good, bg=C['panel'], height=S(6)).grid(row=len(rows) + 1)
-        extra = []
-        for note in (app.inst.notes if app.inst else []): extra.append(note)
-        tex = (dest / 'game_files/texture_packs/2x/index.json').is_file() or (dest / 'game_files/texture_packs/4x/index.json').is_file()
-        if tex and not app.switch.get() and app.action.get() in ('addons', 'update', 'repair'): extra.append('Turn the new textures on in Video Settings.')
-        extra.append('The first match on each map may stutter briefly while shaders are prepared.')
-        self.notes['text'] = '\n'.join(extra)
-        self.ed_b['state'] = 'normal' if any(dest.glob('MA2 Scenario Editor*.exe')) else 'disabled'
-        self.ctl_b['state'] = 'normal' if (dest / 'Controls.txt').is_file() else 'disabled'
+    # -- restart and carry on after sign-in
+    def marker(self):
+        return precheck.local_dir() / 'installer-resume.json'
 
-    def kicker(self):
-        return KICKER['done']
+    def save_resume(self):
+        try:
+            d = dict(disc=self.disc, dest=self.dest, texture=self.texture, videos=self.videos, sc=self.sc, awake=self.awake, lowprio=self.lowprio,
+                     merge=self.merge, switch=self.switch, time=time.time())
+            self.marker().parent.mkdir(parents=True, exist_ok=True)
+            self.marker().write_text(json.dumps(d), encoding='utf-8')
+        except OSError as e:
+            print('ui: could not save the resume note: %s' % e, flush=True)
+
+    def read_resume_marker(self):
+        try:
+            p = self.marker()
+            if not p.is_file(): return None
+            d = json.loads(p.read_text(encoding='utf-8')); p.unlink()
+            return d if time.time() - d.get('time', 0) < 7 * 86400 else None
+        except (OSError, ValueError):
+            return None
+
+    def resume_after_restart(self, d):
+        print('ui: carrying on after the restart', flush=True)
+        self.clear_signin()
+        self.texture, self.videos = d.get('texture', 'original'), bool(d.get('videos'))
+        self.sc.update(d.get('sc') or {}); self.awake = d.get('awake', True); self.lowprio = d.get('lowprio', False)
+        self.merge = d.get('merge', True); self.switch = d.get('switch', True)
+        if d.get('dest'): self.set_dest(d['dest'])
+        if d.get('disc'): self.disc = d['disc']; self.image = precheck.validate_image(d['disc'], install.RELEASE)
+        self.facts['compiler'] = None
+        if not self.needs_disc() or (self.image and self.image.ok): self.begin()
+        else: self.render()
+
+    def set_resume_on_signin(self):
+        """The installer exe opens again once at the next sign-in (the engine's RunOnce entry; the window then finds the resume note).
+        Tests replace this."""
+        exe = os.environ.get('MA2_INSTALLER_EXE')
+        if not exe: print('ui: no installer exe path; setup will not start by itself after sign-in', flush=True); return False
+        ok = install.schedule_resume_after_restart('"%s"' % exe)
+        if not ok: print('ui: could not add the sign-in entry; the player starts the installer again', flush=True)
+        return ok
+
+    def clear_signin(self):
+        """Tests replace this."""
+        try: install.clear_resume_after_restart()
+        except Exception: pass
+
+    def restart_windows(self):
+        ui_win.restart_windows()
+
+    def restart_now(self):
+        self.save_resume(); self.set_resume_on_signin()
+        try: self.restart_windows()
+        except Exception as e: print('ui: restart failed: %s' % e, flush=True)
+
+    # -- Done
+    def shortcut_line(self):
+        st = getattr(self.inst, 'state', None) or {}
+        if 'shortcuts' not in st: return ''
+        made = [Path(p) for p in st.get('shortcuts') or [] if 'Editor' not in Path(p).name]
+        asked = any(self.sc.get(x) for x in ('desktop', 'start')) and self.action() in ('install', 'update', 'repair', 'resume')
+        try: desk = install.known_folder('desktop')
+        except Exception: desk = None
+        on_desk = any(desk and p.parent == Path(desk) for p in made)
+        in_start = any(not (desk and p.parent == Path(desk)) for p in made)
+        if on_desk and in_start: return 'Shortcuts are on your desktop and in the Start menu.'
+        if on_desk: return 'A shortcut is on your desktop.'
+        if in_start: return 'You\'ll find it in the Start menu.'
+        return 'Find it with Open install folder.' if asked else ''
+
+    def scr_done(self):
+        k, dp = self.k, self.k.dp
+        ui_kit.emblem(self.cv, k, dp(40), dp(28), 's')
+        self.kicker(40, 262, 'INSTALLED', 'ok')
+        self.T(40, 286, 'Ready to play', 'h1l')
+        act = self.action()
+        body = []
+        if act in ('update', 'repair'): body.append('Updated to %s. Your settings and saves were kept.' % install.PUBLIC_VERSION)
+        elif act == 'addons': body.append('The new HD content is installed.')
+        sl = self.shortcut_line()
+        if sl: body.append(sl)
+        if body: self.T(40, 336, ' '.join(body), 'body', 'muted', width=620)
+        notes = list(getattr(self.inst, 'notes', []) or [])
+        if self.extras_failed:
+            msg = self.extras_failed
+            if msg.startswith('MechAssault 2 is installed. '): msg = msg[len('MechAssault 2 is installed. '):]      # the headline says it
+            first = msg.split('. ')[0].split(': ')[0].rstrip('.') + '.'
+            for a, b in (('2x enhanced textures', 'HD textures'), ('4x enhanced textures', 'Ultra HD textures'), ('enhanced cutscene videos', 'upscaled movies')):
+                first = first.replace(a, b)
+            self.strip(372, first + ' You can play now and try again later.',
+                       links=[self.link('retry_extras', 'Try again', self.resume, bg='panel2'), self.link('notes', 'Details', lambda: self.show_page('notes'), bg='panel2')], width=800)
+        elif notes:
+            self.strip(372, notes[0] if len(notes[0]) < 160 else notes[0][:157] + '\u2026',
+                       links=[self.link('notes', 'Details', lambda: self.show_page('notes'), bg='panel2')], width=800)
+        of = self.link('open_folder', 'Open install folder', lambda: self.launch('open', precheck.clean_path(self.dest)), quiet=True, bg='panel')
+        self.footer([], [of, self.button('primary', 'LAUNCH', self.play, big=True)])
 
     def play(self):
-        app = self.app
-        ok = app.launch('play', Path(precheck.clean_path(app.dest.get())) / 'MechAssault 2.exe')
-        if ok is not False and app.close_on_play.get(): app.close()
+        exe = Path(precheck.clean_path(self.dest)) / 'MechAssault 2.exe'
+        ok = self.launch('play', exe)
+        if ok is False: return
+        self.close()
 
-    def editor(self):
-        d = Path(precheck.clean_path(self.app.dest.get()))
-        ed = next(iter(sorted(d.glob('MA2 Scenario Editor*.exe'))), None)
-        if ed: self.app.launch('play', ed)
+    def launch(self, what, path):
+        """Open a folder / select a file in Explorer / start the game. Tests replace this."""
+        if what == 'select':
+            try: subprocess.Popen(['explorer.exe', '/select,' + str(path)])
+            except OSError: pass
+        elif what == 'open': open_path(path)
+        else:
+            try: subprocess.Popen([str(path)], cwd=str(Path(path).parent), close_fds=True)
+            except OSError as e:
+                self.show_blocked(path, e); return False
+        return True
 
-    def buttons(self, ok):
-        return [('Close', self.app.close, 'Primary.TButton', True)]
+    def show_blocked(self, path, e):
+        code = getattr(e, 'winerror', None) or getattr(e, 'errno', None)
+        name = Path(str(path)).name
+        if code in (2, 225):
+            body = ('Your antivirus removed %s from %s. If you trust it, restore it from your antivirus\'s protection history, '
+                    'or run this installer again and choose Repair.' % (name, precheck.short(Path(str(path)).parent, 40)))
+        else:
+            body = ('Windows security or your antivirus stopped MechAssault 2 from starting. If you trust it, restore the game from your '
+                    'security app\'s protection history, then try again.')
+        self.show_stop(style='failed', icon='blocked', kicker='COULDN\'T START', head='Windows blocked the game', body=body,
+                       primary=('TRY AGAIN', self.play), details=install.launch_advice(path, e), help=True)
+
+    # -- text pages (Help & FAQ, Legal, Details, notes)
+    def show_page(self, which):
+        self.page_back = self.screen if self.screen != 'page' else getattr(self, 'page_back', 'setup')
+        self.go('page', page=which)
+
+    def page_text(self, which):
+        if which == 'legal':
+            fonts = ''
+            try: fonts = (HERE / 'data' / 'fonts' / 'FONTS.txt').read_text(encoding='utf-8')
+            except OSError: pass
+            return 'LEGAL', [('', precheck.FAN_LINE), ('Your copy', 'You need your own copy of the game. The installer carries no game files.'),
+                             ('Version', install.build_label()), ('Fonts', fonts.strip())]
+        if which == 'help':
+            return 'HELP & FAQ', [(t, TECH if b is None else b % precheck.support_where() if '%s' in b else b) for t, b in HELP_TEXT]
+        if which == 'notes':
+            out = []
+            if self.extras_failed: out.append(('Not finished', self.extras_failed))
+            for n in getattr(self.inst, 'notes', []) or []: out.append(('', n))
+            return 'NOTES', out
+        s = self.stop or {}
+        tail = '\n'.join(self.lines[-40:])
+        return 'DETAILS', [('', s.get('details') or (self.failed[1] if self.failed else ''))] + ([('Last lines of the log', tail)] if tail else [])
+
+    def scr_page(self):
+        k, dp, cv = self.k, self.k.dp, self.cv
+        cv.create_rectangle(0, 0, dp(self.W), dp(self.H), fill=P['panel'], outline='', tags='s')
+        title, parts = self.page_text(self.page)
+        self.T(40, 22, title, 'h1s')
+        f = tk.Frame(cv, bg=P['panel'])
+        txt = tk.Text(f, bg=P['panel'], fg=P['text'], font=k.fonts['small'], bd=0, highlightthickness=0, wrap='word',
+                      padx=0, pady=0, spacing1=dp(2), spacing3=dp(2), insertbackground=P['panel'], cursor='arrow', takefocus=1)
+        sb = ttk.Scrollbar(f, orient='vertical', command=txt.yview, style='Dark.Vertical.TScrollbar'); txt['yscrollcommand'] = sb.set
+        txt.tag_configure('h', font=k.fonts['bold'], foreground=P['text'], spacing1=dp(8))
+        txt.tag_configure('b', foreground=P['text'], font=k.fonts['body'])
+        txt.tag_configure('mono', font=k.fonts['mono_s'], foreground=P['muted'])
+        for head, body in parts:
+            if head: txt.insert('end', head + '\n', 'h')
+            txt.insert('end', (body or '') + '\n', 'mono' if head == 'Last lines of the log' else 'b')
+        txt.configure(state='disabled')
+        sb.pack(side='right', fill='y'); txt.pack(side='left', fill='both', expand=True)
+        cv.create_window(dp(40), dp(66), window=f, anchor='nw', width=dp(800), height=dp(370), tags='s')
+        txt.key = 'pagetext'; self.w['pagetext'] = txt
+        left = [self.link('back', '\u2039 Back', lambda: self.go(self.page_back), quiet=True, bg='panel')]
+        if self.page == 'details':
+            left.append(self.link('copy', 'Copy', self.copy_details, quiet=True, bg='panel'))
+            left.append(self.link('openlog', 'Open log folder', self.open_logs, quiet=True, bg='panel'))
+        self.footer(left, [self.button('done', 'DONE', lambda: self.go(self.page_back))])
+
+    def copy_details(self):
+        inst = self.inst
+        text = precheck.support_bundle(self.lines, (self.failed and inst and getattr(inst, 'stage', '')) or '', True, install.PUBLIC_VERSION, install.BUILD,
+                                       self.facts.get('gpus') or [], (self.facts.get('compiler') or {}).get('vs') or '')
+        self.root.clipboard_clear(); self.root.clipboard_append(text)
+
+    def open_logs(self):
+        d = precheck.logs_dir()
+        try: d.mkdir(parents=True, exist_ok=True)
+        except OSError: pass
+        self.launch('open', d)
+
+    def open_log(self):
+        log = getattr(self.inst, 'session_log', None)
+        if log and Path(log).is_file(): self.launch('open', log)
+        else: self.open_logs()
+
+    # -- Help menu
+    def open_menu(self):
+        self.menu = True; self.want_focus = 'm_help'; self.render()
+
+    def draw_menu(self):
+        k, dp = self.k, self.k.dp
+        f = tk.Frame(self.cv, bg=P['panel2'], highlightthickness=k.line(), highlightbackground=P['steel'])
+        items = [('m_help', 'Help & FAQ', lambda: self.menu_do(lambda: self.show_page('help'))),
+                 ('m_diag', 'Collect diagnostics\u2026', lambda: self.menu_do(self.open_diag)),
+                 ('m_log', 'Open log', lambda: self.menu_do(self.open_log))]
+        ws = []
+        for key, label, fn in items:
+            l = Link(f, k, label, fn, P['panel2'], quiet=False, key=key)
+            l.f = l.fu = k.fonts['body']; l.configure(width=dp(220)); l.colour = lambda l=l: P['text']
+            l.pack(fill='x', padx=dp(4), pady=(dp(2), 0)); l.draw(); ws.append(l); self.w[key] = l
+            l.bind('<Up>', lambda e: (e.widget.tk_focusPrev().focus_set(), 'break')[1])
+            l.bind('<Down>', lambda e: (e.widget.tk_focusNext().focus_set(), 'break')[1])
+            l.bind('<FocusOut>', lambda e: self.root.after(50, self.menu_focus_check), add='+')
+        tk.Frame(f, bg=P['panel2'], height=dp(4)).pack()
+        self.cv.create_window(dp(36), dp(self.H - 58), window=f, anchor='sw', tags='s')
+
+    def menu_focus_check(self):
+        if not self.menu: return
+        fw = self.focus_now()
+        if fw is None or not getattr(fw, 'key', '').startswith('m_'):
+            self.menu = None; self.render()
+
+    def menu_do(self, fn):
+        self.menu = None; fn()
+        if self.menu is None and self.screen not in ('page', 'diag'): self.render()
+
+    # -- Collect diagnostics (in the window; the zip goes to LocalAppData, never into guarded folders)
+    def open_diag(self):
+        self.diag_back = self.screen if self.screen not in ('diag', 'page') else 'setup'
+        self.diag = {'dump': False, 'rec': False, 'result': None, 'busy': False, 'preview': False}
+        self.go('diag')
+
+    def scr_diag(self):
+        k, dp, cv = self.k, self.k.dp, self.cv
+        cv.create_rectangle(0, 0, dp(self.W), dp(self.H), fill=P['panel'], outline='', tags='s')
+        self.T(40, 22, 'COLLECT DIAGNOSTICS', 'h1s')
+        self.T(40, 62, 'Saves one .zip for a problem report: basic facts about this PC, the install record, your settings and the newest '
+                       'installer and game logs. Your user name is replaced in every text file. It is saved in AppData\\Local\\MechAssault2\\Diagnostics '
+                       'on this PC and never sent anywhere.', 'body', 'muted', width=780)
+        try: extras = precheck.diagnostics_extras()
+        except Exception: extras = {}
+        y = 120
+        d = self.diag
+        if extras.get('dump'):
+            self.T(40, y + 14, 'Include the newest crash or hang dump (it can contain folder names and your user name)', 'small', 'text', anchor='w')
+            self.put(Toggle(cv, k, d['dump'], lambda v: d.__setitem__('dump', v), P['panel'], key='d_dump'), 840, y + 14, anchor='e'); y += 36
+        if extras.get('botrec'):
+            self.T(40, y + 14, 'Include the newest bot match recording', 'small', 'text', anchor='w')
+            self.put(Toggle(cv, k, d['rec'], lambda v: d.__setitem__('rec', v), P['panel'], key='d_rec'), 840, y + 14, anchor='e'); y += 36
+        self.put(self.link('d_preview', ('\u25be ' if d['preview'] else '\u25b8 ') + 'What goes in the zip', self.toggle_preview, quiet=True, bg='panel'), 36, y + 4)
+        y += 36
+        if d['preview']:
+            self.T(52, y, 'recomp-install.json (what is installed where)\npc_settings.ini (your settings)\nthe newest three game logs and the newest installer logs\n'
+                          'system.txt: Windows version, graphics cards, screen size, the C++ tools found, how far an unfinished install got'
+                          + ('\nthe last lines this window showed and the step that stopped' if self.failed else ''), 'small', 'muted', width=760)
+            y += 100
+        r = d.get('result')
+        if d['busy']: self.T(40, y + 10, 'Collecting\u2026', 'body', 'text')
+        elif isinstance(r, Exception): self.strip(y, 'Couldn\'t collect diagnostics: %s' % r, bad=True, width=800)
+        elif r:
+            self.strip(y, 'Saved %s in %s. Attach it to your problem report (%s).' % (Path(r['path']).name, precheck.short(Path(r['path']).parent, 44), precheck.support_where()),
+                       links=[self.link('d_show', 'Show file', lambda: self.launch('select', r['path']), bg='panel2')], width=800)
+        back = self.link('back', '\u2039 Back', lambda: self.go(self.diag_back), quiet=True, bg='panel')
+        prim = self.button('primary', 'DONE', lambda: self.go(self.diag_back)) if r and not isinstance(r, Exception) else \
+               self.button('primary', 'COLLECT', self.collect, enabled=not d['busy'])
+        self.footer([back], [prim])
+
+    def toggle_preview(self):
+        self.diag['preview'] = not self.diag['preview']; self.want_focus = 'd_preview'; self.render()
+
+    def collect(self):
+        d = self.diag; d['busy'] = True; d['result'] = None; self.render()
+        dest = precheck.remembered_install() or precheck.clean_path(self.dest) or precheck.default_install_folder()
+        stage = (self.failed and self.inst and getattr(self.inst, 'stage', '')) or ''
+        failure = '%s: %s' % self.failed if self.failed else ''
+        lines = list(self.lines); dump, rec = d['dump'], d['rec']
+        out = Path(precheck.diagnostics_dir()) if hasattr(precheck, 'diagnostics_dir') else precheck.local_dir() / 'Diagnostics'
+        def work():
+            out.mkdir(parents=True, exist_ok=True)
+            return precheck.collect_diagnostics(dest, out, install.PUBLIC_VERSION, install.BUILD, self.facts.get('gpus'), dump, rec, stage, failure, lines)
+        def done(res):
+            d['busy'] = False; d['result'] = res
+            if not isinstance(res, Exception): self.launch('select', res['path'])
+            if self.screen == 'diag': self.want_focus = 'primary'; self.render()
+        self.bg(work, done)
+
+    # -- Uninstall
+    def scr_uninstall(self):
+        k, dp, cv = self.k, self.k.dp, self.cv
+        cv.create_rectangle(0, 0, dp(self.W), dp(self.H), fill=P['panel'], outline='', tags='s')
+        self.T(40, 22, 'UNINSTALL', 'h1s')
+        self.T(40, 62, 'Removes the game folder, its shortcuts and its caches. This can\'t be undone. Your own scenarios in '
+                       'Documents\\MechAssault 2\\Scenarios are never deleted.', 'body', 'text', width=780)
+        self.wipe = getattr(self, 'wipe', False)
+        dl, dc = self.drive_line()
+        self.row(120, 'Installed in', short_path(self.dest, 52), '', 'muted', None, first=True)
+        self.T(40, 196, 'Also delete my settings and saves', 'row', anchor='w')
+        self.put(Toggle(cv, k, self.wipe, lambda v: setattr(self, 'wipe', v), P['panel'], key='u_wipe'), 840, 196, anchor='e')
+        if getattr(self, 'uninstalling', False): self.T(40, 240, 'Uninstalling\u2026', 'body')
+        back = self.link('back', '\u2039 Back', lambda: self.go('setup'), quiet=True, bg='panel')
+        b = self.button('primary', 'UNINSTALL', self.do_uninstall, enabled=not getattr(self, 'uninstalling', False))
+        b.danger = True; b.draw()
+        self.footer([back], [b])
+
+    def do_uninstall(self):
+        d = precheck.clean_path(self.dest); wipe = self.wipe
+        self.uninstalling = True; self.render()
+        def done(res):
+            self.uninstalling = False; self.wipe = False
+            if isinstance(res, Exception): self.notice = ('bad', 'The uninstall stopped: %s' % res)
+            else: self.notice = ('info', res['text'])
+            self.mode = self.mode_for(d)
+            if self.mode == 'install': self.dest = precheck.default_install_folder(); self.texture = 'original'; self.videos = False
+            self.check_dest(); self.go('setup')
+        self.bg(lambda: install.uninstall(d, wipe), done)
+
+    # -- a waiting / progress screen without a model uses scr_progress; attention when something needs the player
+    def attention(self):
+        """Bring a minimised window back and flash the taskbar button when a stop or Done appears with nobody looking."""
+        try:
+            if self.root.state() == 'iconic': self.root.deiconify()
+        except tk.TclError:
+            pass
+        if not ui_win.is_foreground(self.hwnd): ui_win.flash(self.hwnd)
+
+    # -- event pump
+    def pump(self):
+        try:
+            for _ in range(400):
+                kind, value = self.q.get_nowait()
+                if kind == 'call': value()
+                else: self.event(kind, value)
+        except queue.Empty:
+            pass
+        except Exception:
+            traceback.print_exc()
+        try:
+            for p in self.drop.take(): self.on_drop(p)
+        except Exception as e:
+            ui_win.degrade('drop', e)
+        self._tick += 1
+        if self.screen == 'progress' and self.model and self._tick % 5 == 0: self.update_progress()
+        if self._tick % 5 == 0 and not self.forced_scale: self.check_dpi()
+        self._after = self.root.after(100, self.pump)
+        if self.anim and self.screen == 'progress': self.animate()
+
+    def on_drop(self, path):
+        print('ui: a file was dropped on the window', flush=True)
+        if self.screen not in ('setup', 'options') or self.worker: return
+        if self.mode == 'install' or self.needs_disc():
+            self.screen = 'setup'; self.set_disc(path)
+
+    def check_dpi(self):
+        d = ui_win.window_dpi(self.hwnd)
+        if d and self.dpi_seen and d != self.dpi_seen:
+            self.dpi_seen = d
+            s = self.pick_scale()
+            if abs(s - self.k.scale) > 0.01: self.rescale(s)
+
+    def stop_pump(self):
+        try: self.root.after_cancel(self._after)
+        except (tk.TclError, AttributeError): pass
+
+    def close(self):
+        if self.worker and self.worker.is_alive():
+            self.attention()
+            if self.screen == 'progress': self.ask('cancel')
+            return
+        self.closing = True
+        try: self.taskbar.set('none')
+        except Exception: pass
+        self.drop.remove()
+        ui_theme.unload_fonts()
+        self.stop_pump()
+        self.root.destroy()
+
+# ---------------------------------------------------------------------------- start-up
 
 def message_box(text):
     """A plain Windows message box (the window may not exist yet). Tests replace this."""
@@ -1445,7 +1807,8 @@ def message_box(text):
 def open_ui_log():
     """%LOCALAPPDATA%\\MechAssault2\\Logs\\installer-ui-<time>.log; becomes stdout and stderr (pythonw has neither), so a crash leaves a trace."""
     try:
-        d = precheck.logs_dir(); d.mkdir(parents=True, exist_ok=True)
+        d = Path(os.environ.get('LOCALAPPDATA') or str(Path.home() / 'AppData' / 'Local')) / 'MechAssault2' / 'Logs'
+        d.mkdir(parents=True, exist_ok=True)
         for f in sorted(d.glob('installer-ui-*.log'), key=lambda f: f.stat().st_mtime)[:-9]:
             try: f.unlink()
             except OSError: pass
@@ -1454,19 +1817,62 @@ def open_ui_log():
     except OSError:
         return None, None
 
+_KEEP = []
+
+def start_new():
+    """The new window. Raises if it cannot be built (main() then opens the classic one)."""
+    if IMPORT_ERROR: raise RuntimeError('a part of the new window failed to load:\n' + IMPORT_ERROR)
+    if os.environ.get('MA2_UI_CRASH_TEST'): raise RuntimeError('MA2_UI_CRASH_TEST: simulated start-up failure')
+    if ui_win.faulted('startup'): raise RuntimeError('injected fault (MA2_UI_FAULT=startup)')
+    if os.environ.get('MA2_UI_LEGACY'): raise RuntimeError('MA2_UI_LEGACY is set: the classic window was asked for')
+    ui_win.set_dpi_awareness()
+    ui_win.set_app_id(APP_ID)
+    ui_theme.load_fonts()
+    root = tk.Tk()
+    _KEEP.append(root)          # never let a background check drop the last reference to Tk (Tcl must be deleted on this thread)
+    try:
+        root.withdraw()
+        app = App(root)
+        root.deiconify()
+        return root, app
+    except BaseException:
+        try: root.destroy()
+        except Exception: pass
+        raise
+
+def start_legacy():
+    """The classic 1.1.3 window (gui_legacy.py), when the new one could not start."""
+    import gui_legacy
+    gui_legacy.message_box = lambda text: message_box(text)
+    gui_legacy.main()
+
 def main():
     log_path, log = STARTUP_LOG if STARTUP_LOG[1] else open_ui_log()     # opened at the top of this file when run as the window
     if log: sys.stdout = sys.stderr = log
+    try: print('ui: installer window %s, session %s' % (install.build_label(), precheck.session_id()), flush=True)
+    except Exception: pass
     try:
-        if os.environ.get('MA2_UI_CRASH_TEST'): raise RuntimeError('MA2_UI_CRASH_TEST: simulated start-up failure')
-        ui_theme.load_fonts()
-        root = tk.Tk()
-        theme = ui_theme.Theme(root)
-        App(root, theme)
+        root, app = start_new()
+    except Exception:
+        traceback.print_exc()
+        print('ui: the new installer window could not start; opening the classic window instead', flush=True)
+        try:
+            ui_theme.unload_fonts()
+        except Exception:
+            pass
+        try:
+            return start_legacy()
+        except SystemExit:
+            raise
+        except Exception:
+            traceback.print_exc()
+            message_box('The installer could not start.\n\nDetails were saved to:\n%s' % (log_path or 'the installer could not write a log'))
+            sys.exit(3)
+    try:
         root.mainloop()
     except Exception:
         traceback.print_exc()
-        message_box('The installer could not start.\n\nDetails were saved to:\n%s' % (log_path or 'the installer could not write a log'))
+        message_box('The installer stopped unexpectedly.\n\nDetails were saved to:\n%s' % (log_path or 'the installer could not write a log'))
         sys.exit(3)
     if log and log_path and log_path.is_file() and log_path.stat().st_size == 0:      # nothing went wrong: no empty log left behind
         try: faulthandler.disable()

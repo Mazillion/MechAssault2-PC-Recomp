@@ -64,6 +64,47 @@ def run(args, what, capture=False):
     return 0
 
 
+TLS_FAILURE = re.compile(r"CERTIFICATE_VERIFY_FAILED|SSLError|certificate verify failed|self[- ]signed certificate", re.I)
+INTERCEPTED = ("This network intercepts secure (HTTPS) connections (a company proxy or security software that inspects them), so pip "
+               "could not verify the download servers. Try another network, or ask the network's administrator.")
+
+
+def pip_version(python):
+    """(major, minor) of the venv's pip, or (0, 0)."""
+    try:
+        out = subprocess.run([str(python), *PIP, "--version"], capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                             creationflags=NO_CONSOLE, env=child_env(), timeout=60).stdout
+        m = re.search(r"pip (\d+)\.(\d+)", out)
+        return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+    except Exception:
+        return (0, 0)
+
+
+def pip_install(python, args, what):
+    """pip install exactly as before; only if it FAILED on certificate verification: once more with the system certificate store
+    (--use-feature=truststore, for pip 23.3-24.1; newer pip uses it already), then a plain "your network intercepts HTTPS" message."""
+    cmd = [str(a) for a in [python, *PIP_INSTALL, *args]]
+    tail = []
+    no_console = NO_CONSOLE                          # (no console window of its own, as every tool here)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, creationflags=no_console, env=child_env())
+    for raw in proc.stdout:
+        line = raw.decode("utf-8", errors="replace").rstrip()
+        print(line, flush=True); tail = (tail + [line])[-60:]
+    code = proc.wait()
+    if not code:
+        return 0
+    if TLS_FAILURE.search("\n".join(tail)):
+        if (23, 3) <= pip_version(python) < (24, 2):
+            print("pip could not verify the servers' certificates; trying again with the Windows certificate store...", flush=True)
+            if run([python, *PIP_INSTALL, "--use-feature=truststore", *args], "", capture=True) == 0:
+                return 0
+        raise RuntimeError(f"{what} failed: {INTERCEPTED}")
+    meaning = explain(code)
+    if meaning:
+        raise RuntimeError(f"{what} {meaning} (exit code {code & 0xFFFFFFFF} = 0x{code & 0xFFFFFFFF:08X}). {ANTIVIRUS}")
+    raise RuntimeError(f"{what} failed (exit code {code}); its messages are above")
+
+
 class QuietEnvBuilder(venv.EnvBuilder):
     """venv's own child processes (ensurepip, upgrades) with no console of their own either; output still to this script's output."""
     def _call_new_python(self, context, *py_args, **kwargs):
@@ -108,6 +149,20 @@ def digest(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def download_helper():
+    """The installer's download.py (MA2_INSTALLER_DIR, set by the installer), or None when this script runs on its own."""
+    folder = os.environ.get("MA2_INSTALLER_DIR")
+    if not folder or not (Path(folder) / "download.py").is_file():
+        return None
+    if folder not in sys.path:
+        sys.path.insert(0, folder)
+    try:
+        import download as helper
+        return helper
+    except ImportError:
+        return None
+
+
 def download(relative, url, expected, recorded):
     if relative.endswith(".pth"):                    # the models: the digest pinned in the shipped tools.lock.json, on every download
         expected = expected or recorded.get(relative, {}).get("sha256")
@@ -121,11 +176,18 @@ def download(relative, url, expected, recorded):
         print(f"Present: {relative}", flush=True)
     else:
         print(f"Downloading: {relative}", flush=True)
-        request = urllib.request.Request(url, headers={"User-Agent": "MA2-Enhancer-Setup/1.0"})
         temp = path.with_suffix(path.suffix + ".part")
-        with urllib.request.urlopen(request, timeout=90) as response, temp.open("wb") as stream:
-            while chunk := response.read(1024 * 1024):
-                stream.write(chunk)
+        helper = download_helper()
+        if helper:                                   # the installer's helper: resume, retries, the cause named, a per-user cache
+            try:
+                helper.fetch(url, temp, lambda line: print(line, flush=True), digest=expected, timeout=90)
+            except helper.DownloadError as error:
+                raise RuntimeError(f"Could not download {relative}: {error}") from error
+        else:
+            request = urllib.request.Request(url, headers={"User-Agent": "MA2-Enhancer-Setup/1.0"})
+            with urllib.request.urlopen(request, timeout=90) as response, temp.open("wb") as stream:
+                while chunk := response.read(1024 * 1024):
+                    stream.write(chunk)
         actual = digest(temp)
         if expected and actual != expected:
             raise RuntimeError(f"Official release checksum mismatch for {relative}")
@@ -158,12 +220,12 @@ def main():
     packages = (("numpy", "2.2.3", "numpy==2.2.3"), ("PIL", "11.1.0", "Pillow==11.1.0"))
     for module, version, requirement in packages:
         if run([python, "-c", f"import {module}; assert {module}.__version__ == '{version}'"], "", capture=True):
-            run([python, *PIP_INSTALL, requirement], f"pip install {requirement}")
+            pip_install(python, [requirement], f"pip install {requirement}")
     names = [] if vulkan else nvidia_gpu_names()
     label, pip_args, expression = torch_plan(names)
     if not vulkan and run([python, "-c", expression], "", capture=True):
         print(f"Installing {label}...", flush=True)
-        run([python, *PIP_INSTALL, *pip_args], f"pip install {pip_args[0]}")
+        pip_install(python, pip_args, f"pip install {pip_args[0]}")
     if names and run([python, "-c", "import torch; torch.zeros(1).cuda()"], "", capture=True):
         raise RuntimeError(f"PyTorch does not support this graphics card yet ({names[0]}). The enhanced content cannot be made on this PC; "
                            "the game itself is not affected.")

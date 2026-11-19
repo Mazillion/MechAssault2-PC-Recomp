@@ -313,7 +313,9 @@ static void update_glow(uint32_t object){
     static const bool scripted=getenv("RECOMP_UI_LIVE")!=nullptr;
     if(window&&scripted){uint32_t m=mouse_position.load();p.x=GET_X_LPARAM(m);p.y=GET_Y_LPARAM(m);pointer=m!=0xFFFFFFFFu;}
     else if(window&&GetForegroundWindow()==window)pointer=GetCursorPos(&p)&&ScreenToClient(window,&p);
-    if(!pointer||pc_input_device()!=PC_INPUT_KEYBOARD_MOUSE||pc_input_camera_captured()||pc_input_text_captured()||
+    // The name keyboard (text capture) keeps its own form: its footer prompts glow too.
+    uint32_t kb_owner=0,kb_record=pc_input_text_captured()&&!opened?ma2_gui_keyboard_dialog(&kb_owner):0;
+    if(!pointer||pc_input_device()!=PC_INPUT_KEYBOARD_MOUSE||pc_input_camera_captured()||(pc_input_text_captured()&&!kb_record)||
        pc_display_movie_active()||!GetClientRect(window,&r)||p.x<0||p.y<0||p.x>=r.right||p.y>=r.bottom){publish_glow(false,nullptr);return;}
     if(opened){
         // Settings pages: the clickable "Esc: Back" end of the hint line (see ma2_pc_submenu_update).
@@ -326,7 +328,17 @@ static void update_glow(uint32_t object){
     }
     float aspect=pc_display_aspect(4.f/3.f),height=std::min((float)r.bottom,r.right/aspect),width=height*aspect;
     float ox=(r.right-width)*.5f,oy=(r.bottom-height)*.5f,n[4];
-    bool hover=ma2_gui_footer_at(modal_available()?0:object,(p.x-ox)/width,(p.y-oy)/height,aspect,n)!=0;
+    bool hover=kb_record?ma2_gui_footer_in_form(guest(kb_owner+0x23C),(p.x-ox)/width,(p.y-oy)/height,aspect,n)!=0:
+                         ma2_gui_footer_at(modal_available()?0:object,(p.x-ox)/width,(p.y-oy)/height,aspect,n)!=0;
+    if(!hover&&!kb_record&&!modal_available()&&!getenv("RECOMP_NO_BARREL_ARROWS")){
+        // A vertical barrel's neighbour rows and arrows glow like a footer prompt (the middle row is
+        // the game's own selection highlight).
+        int step=0;float centre[2];
+        if(ma2_vbarrel_pointer(object,aspect>4.f/3.f+.01f,(p.x-ox)/width,(p.y-oy)/height,&step,n,centre)&&step){
+            box[0]=ox+n[0]*width;box[1]=oy+n[1]*height;box[2]=ox+(n[0]+n[2])*width;box[3]=oy+(n[1]+n[3])*height;
+            publish_glow(true,box);return;
+        }
+    }
     if(getenv("RECOMP_MENU_TRACE")){static LONG lx=-1,ly=-1;if(p.x!=lx||p.y!=ly){lx=p.x;ly=p.y;
         fprintf(stderr,"[PC-GLOW] pointer %ld,%ld -> %.3f,%.3f owner=%08X modal=%d hover=%d\n",p.x,p.y,(p.x-ox)/width,(p.y-oy)/height,object,(int)modal_available(),(int)hover);}}
     if(hover){
@@ -526,6 +538,14 @@ extern "C" void ma2_pc_menu_pulse(uint32_t object,uint32_t vtable)
     if(object>=0x10000&&object<0x03FFF000)ma2_menu_policy_pulse(object,vtable);
     ma2_pc_input_context_update();
     sync_text_dialog();
+    {   // Name keyboard footer: on keyboard/mouse the confirm prompt reads "Done" (Enter = Done there);
+        // on a pad it keeps "Select" (A types the highlighted key).
+        uint32_t kb=0;
+        if(!opened&&pc_input_text_captured()&&ma2_gui_keyboard_dialog(&kb)&&kb){
+            static uint32_t done_text;if(!done_text)done_text=ma2_pc_wide(L"Done");
+            ma2_gui_legend_caption(guest(kb+0x23C),0,pc_input_device()==PC_INPUT_GAMEPAD?0:done_text);
+        }
+    }
     if(!opened){
         std::vector<Event> pending;AcquireSRWLockExclusive(&events_lock);pending.swap(events);ReleaseSRWLockExclusive(&events_lock);
         for(auto e:pending){
@@ -539,9 +559,17 @@ extern "C" void ma2_pc_menu_pulse(uint32_t object,uint32_t vtable)
                         ma2_gui_keyboard_action(record,owner,code,0);}
                 }else if(e.type==WM_MOUSEMOVE||e.type==WM_LBUTTONDOWN){
                     float x,y;menu_point(game_window,e.x,e.y,x,y);
-                    uint32_t hit=ma2_gui_keyboard_pointer(record,owner,x,y,e.type==WM_LBUTTONDOWN);
+                    // Footer prompts first, by their drawn text (as the hover glow shows them).
+                    float footer_box[4];
+                    uint32_t hit=ma2_gui_footer_in_form(guest(owner+0x23C),x,y,pc_display_aspect(4.f/3.f),footer_box);
+                    if(!hit)hit=ma2_gui_keyboard_pointer(record,owner,x,y,e.type==WM_LBUTTONDOWN);
                     if((hit&0x80000000u)&&e.type==WM_LBUTTONDOWN){
-                        if((hit&7)==1)text_cancel();else pc_input_menu_button(hit&7);
+                        // Back = cancel (Esc). The confirm prompt = the Done key, as Enter is on the
+                        // keyboard; the pad's A (type the highlighted key) stays on the pad.
+                        if((hit&7)==1)text_cancel();
+                        else if((hit&7)==0)ma2_gui_keyboard_action(record,owner,0x1000B,0);
+                        else pc_input_menu_button(hit&7);
+                        if(getenv("RECOMP_MENU_TRACE"))fprintf(stderr,"[PC-KEYBOARD] footer click button %u\n",hit&7);
                     }
                 }
                 sync_text_dialog();continue;
@@ -554,6 +582,24 @@ extern "C" void ma2_pc_menu_pulse(uint32_t object,uint32_t vtable)
                     continue;
                 }
                 if(e.type==WM_LBUTTONDOWN)editor_focus_set(false);   // a click on the row, arrows or footer
+                if(!modal_available()&&!getenv("RECOMP_NO_BARREL_ARROWS")){
+                    // Vertical barrel (Select Difficulty): the items above and below the selection and the
+                    // two arrows glow on hover (update_glow); a click focuses the barrel and steps it once
+                    // like Up/Down, which brings the clicked item to the middle. The middle item falls
+                    // through to the normal path: hover focuses, a click selects it like Enter.
+                    int step=0;float vbox[4],centre[2];
+                    int vb=ma2_vbarrel_pointer(object,pc_display_aspect(4.f/3.f)>4.f/3.f+.01f,x,y,&step,vbox,centre);
+                    if(vb&&step){
+                        if(e.type==WM_LBUTTONDOWN){
+                            ma2_gui_hover(object,centre[0],centre[1]);
+                            int key=step<0?VK_UP:VK_DOWN;
+                            if(getenv("RECOMP_MENU_TRACE"))fprintf(stderr,"[PC-VBARREL] click %s: step %d\n",vb==2?"arrow":"row",step);
+                            PostMessageA(game_window,WM_KEYDOWN,key,1);
+                            PostMessageA(game_window,WM_KEYUP,key,(LPARAM)3<<30);
+                        }
+                        continue;
+                    }
+                }
                 if(e.type==WM_LBUTTONDOWN&&!modal_available()&&!getenv("RECOMP_NO_BARREL_ARROWS")){
                     // New Game barrel arrows: focus the row, then step it like Left/Right.
                     float row_x,row_y;int dir=ma2_barrel_arrow_click(object,pc_display_aspect(4.f/3.f)>4.f/3.f+.01f,x,y,&row_x,&row_y);

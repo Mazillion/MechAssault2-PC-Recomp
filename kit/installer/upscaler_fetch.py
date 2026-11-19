@@ -12,8 +12,9 @@ Where it comes from, in order:
   3. the .zip in the install folder or beside the installer exe (downloaded on another PC)
   4. the published URL in data/realesrgan-ncnn-vulkan.json
 """
-import hashlib, json, os, shutil, urllib.parse, urllib.request, zipfile
+import hashlib, json, os, shutil, urllib.parse, zipfile
 from pathlib import Path
+import download as dl                    # the shared download helper (resume, retries, causes, cache)
 
 SPEC = json.loads((Path(__file__).resolve().parent / 'data' / 'realesrgan-ncnn-vulkan.json').read_text(encoding='utf-8'))
 MAX_BYTES = 256 << 20                     # the archive is about 45 MB; a far bigger answer is not it
@@ -110,34 +111,15 @@ def from_zip(zpath, target, cancelled=lambda: False):
     _replace_dir(tmp, target)
 
 
-class _HttpsOnlyRedirect(urllib.request.HTTPRedirectHandler):
-    """An https address is never redirected to plain http."""
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if req.full_url.lower().startswith('https:') and not newurl.lower().startswith('https:'):
-            raise FetchError('the server redirected %s to a non-HTTPS address' % req.full_url)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
 def download(url, out, log=print, cancelled=lambda: False):
-    """Download `url` to `out` (through out.part, so a stopped download never looks finished)."""
-    part = out.with_name(out.name + '.part')
-    req = urllib.request.Request(url, headers={'User-Agent': 'MechAssault2-Recomp-Installer'})
-    opener = urllib.request.build_opener(_HttpsOnlyRedirect)
+    """Download `url` to `out` with the shared helper (download.py: resume, retries, Wi-Fi login page / proxy / TLS named, size and
+    first-bytes checks). Raises FetchError naming the cause, or Cancelled."""
     try:
-        with opener.open(req, timeout=60) as r, open(part, 'wb') as f:
-            total = int(r.headers.get('Content-Length') or 0)
-            if total > MAX_BYTES: raise FetchError('the server offers %d MB, far more than the upscaler' % (total >> 20))
-            got = 0
-            for block in iter(lambda: r.read(1 << 20), b''):
-                if cancelled(): raise Cancelled()
-                f.write(block); got += len(block)
-                if got > MAX_BYTES: raise FetchError('the download is far larger than the upscaler')
-        if total and got != total: raise FetchError('the download stopped early (%d of %d bytes)' % (got, total))
-        os.replace(part, out)
-    except BaseException:
-        try: part.unlink()
-        except OSError: pass
-        raise
+        dl.fetch(url, out, log, cancelled, max_bytes=MAX_BYTES, magic=b'PK\x03\x04')
+    except dl.Cancelled:
+        raise Cancelled()
+    except dl.DownloadError as e:
+        raise FetchError(str(e)) from e
 
 
 def ensure(target, log=print, cancelled=lambda: False, look_in=()):
@@ -156,17 +138,19 @@ def ensure(target, log=print, cancelled=lambda: False, look_in=()):
     else:
         sources = [str(Path(d) / SPEC['archive']) for d in look_in if d and (Path(d) / SPEC['archive']).is_file()]
         sources += list(SPEC['urls'])
-    tried, mismatched = [], []
+    tried, mismatched, causes, tls = [], [], [], False
     for src in sources:
         try:
             if is_url(src):
                 log('    downloading %s' % src)
-                z = target.parent / SPEC['archive']
-                download(src, z, log, cancelled)
-                try:
-                    from_zip(z, target, cancelled)
-                finally:
-                    z.unlink(missing_ok=True)
+                try:                                     # the published archive is cached per user, keyed by its SHA-256
+                    dl.fetch_and_use(src, target.parent / SPEC['archive'], lambda z: from_zip(z, target, cancelled), log, cancelled,
+                                     cache_key='sha256-' + SPEC['archive_sha256'], max_bytes=MAX_BYTES, magic=b'PK\x03\x04')
+                except dl.Cancelled:
+                    raise Cancelled()
+                except dl.DownloadError as e:
+                    tls = e.cause == 'tls'
+                    causes.append(str(e)); raise FetchError(str(e)) from e
             elif Path(src).is_dir():
                 log('    from the folder %s' % src); from_folder(src, target)
             elif Path(src).is_file():
@@ -187,7 +171,12 @@ def ensure(target, log=print, cancelled=lambda: False, look_in=()):
             'The Vulkan texture upscaler was found, but it is not the expected build (a different version, or a damaged '
             'or altered copy): %s. Delete that file, then download exactly %s and put it in the install folder, or check '
             'the internet connection, then try again. Tried: %s' % ('; '.join(mismatched), url, '; '.join(tried)))
+    if tls:                                             # the internet works; Windows couldn\'t verify the secure connection
+        raise FetchError(
+            'Could not get the Vulkan texture upscaler: %s. It is downloaded while the enhanced textures are made. The installer '
+            'already tried Windows\' own connection. Without this download: on another PC, download exactly %s, put %s in the '
+            'install folder, and try again. Tried: %s' % (dl.CAUSES['tls'], url, SPEC['archive'], '; '.join(tried)))
     raise FetchError(
-        'Could not get the Vulkan texture upscaler, which is downloaded while the enhanced textures are made. Check the '
+        'Could not get the Vulkan texture upscaler%s. It is downloaded while the enhanced textures are made. Check the '
         'internet connection and try again. Without internet on this PC: on another PC, download exactly %s, put %s in '
-        'the install folder, and try again. Tried: %s' % (url, SPEC['archive'], '; '.join(tried) or 'nothing'))
+        'the install folder, and try again. Tried: %s' % (': ' + causes[-1] if causes else '', url, SPEC['archive'], '; '.join(tried) or 'nothing'))
