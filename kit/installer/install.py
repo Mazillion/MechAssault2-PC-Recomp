@@ -266,6 +266,71 @@ def path_error(tail):
     """True when a failed build's output looks like a path problem (see PATH_ERROR)."""
     return any(PATH_ERROR.search(line) for line in tail)
 
+# Low-memory build (1.1.5). Only after the build ran out of memory with ONE parallel compile (where 1.1.4 stopped):
+#   1. every file not compiled yet gets one code-generation thread (/cgthreads1: the same code, less memory);
+#   2. a file that still runs out of memory gets lighter optimisation, one step at a time (LOWMEM_STEPS); every other file keeps
+#      the normal settings. The settings go to the C++ build per file through a CMake include file (LOWMEM_FILE, passed to CMake only
+#      then), so a normal build's command lines are exactly 1.1.4's, and files already compiled are not compiled again.
+LOWMEM_ALL = ['/cgthreads1']
+LOWMEM_STEPS = [['/O1'], ['/O1', '/Ob0'], ['/Od']]
+LOWMEM_FILE = 'lowmem.cmake'
+LOWMEM_TARGET = 'mechassault2_recomp'
+LOWMEM_SOURCES = ('src', 'vendor/imgui-1.92.5')        # the game target's own source files (the runtime libraries are not changed)
+LOWMEM_FAILED = re.compile(r'FAILED: .*?CMakeFiles[\\/]%s\.dir[\\/](\S+?\.(?:c|cpp))\.obj\b' % LOWMEM_TARGET)
+LOWMEM_CL = re.compile(r'(?i)^\s*(\S.*?\.(?:c|cpp))\(\d+\)\s*:\s*fatal error C(?:1002|1060|1076|3859)\b')
+
+def lowmem_failed_units(tail, game):
+    """The game target's source files (paths relative to the game source folder, '/') that a failed build names: ninja's 'FAILED:'
+    lines first, then the compiler's own 'file(line): fatal error C1060' lines."""
+    out = []
+    for line in tail or []:
+        m = LOWMEM_FAILED.search(line)
+        if m:
+            rel = m.group(1).replace('\\', '/')
+            if rel not in out: out.append(rel)
+    if out: return out
+    game = Path(game)
+    for line in tail or []:
+        m = LOWMEM_CL.search(line)
+        if not m: continue
+        try:
+            rel = Path(m.group(1)).resolve().relative_to(game.resolve()).as_posix()
+        except (ValueError, OSError):
+            continue
+        if rel not in out: out.append(rel)
+    return out
+
+def lowmem_obj(build, rel):
+    return Path(build) / 'CMakeFiles' / (LOWMEM_TARGET + '.dir') / (rel + '.obj')
+
+def lowmem_unbuilt(game, build):
+    """The game target's C / C++ files (relative, '/') that have no object file yet in `build`."""
+    game, out = Path(game), []
+    for top in LOWMEM_SOURCES:
+        for p in sorted((game / top).rglob('*')):
+            if p.suffix.lower() in ('.c', '.cpp') and p.is_file():
+                rel = p.relative_to(game).as_posix()
+                if not lowmem_obj(build, rel).is_file(): out.append(rel)
+    return out
+
+def lowmem_step_of(flags):
+    """Which of LOWMEM_STEPS a file's flags are at (-1: only the LOWMEM_ALL flags)."""
+    extra = [f for f in flags if f not in LOWMEM_ALL]
+    return LOWMEM_STEPS.index(extra) if extra in LOWMEM_STEPS else -1
+
+def write_lowmem_cmake(path, units):
+    """The CMake include file (CMAKE_PROJECT_<target>_INCLUDE) that gives each listed file its low-memory flags. They are put in front of
+    the file's own options (e.g. chunk 57's /Ob0), after the release flags (/O2), at the end of the game's CMakeLists (deferred)."""
+    lines = ['# Written by the installer after the game build ran out of memory: lighter compiler settings for these files only.',
+             'function(_ma2_lowmem_apply)']
+    for rel in sorted(units):
+        flags = [f for f in units[rel] if re.fullmatch(r'/[A-Za-z0-9]+', f)]
+        if not flags or not re.fullmatch(r'[A-Za-z0-9_./+-]+', rel): continue
+        lines.append('  get_property(_o SOURCE "%s" PROPERTY COMPILE_OPTIONS)' % rel)
+        lines.append('  set_property(SOURCE "%s" PROPERTY COMPILE_OPTIONS %s ${_o})' % (rel, ' '.join(flags)))
+    lines += ['endfunction()', 'cmake_language(DEFER CALL _ma2_lowmem_apply)', '']
+    Path(path).write_text('\n'.join(lines), encoding='utf-8')
+
 def classify(tail, title=''):
     """The failure kind for a failed tool, from the end of its output: numeric codes first, then English words."""
     text = '\n'.join(tail)
@@ -972,6 +1037,7 @@ class Installer:
         self.session_log = None; self.logfile = None; self._session = None; self.stage = ''
         self.failed_step = None; self.on_plan = lambda names: None
         self.on_status = lambda text: None       # a recovery that adds noticeable time: the window adds it to the step line
+        self.on_wait = lambda info: None         # 1.1.5: {'free_gb': x} while the build waits for free memory, None when it carries on
         self.work = self.dest / '_work'
         self.opts = {'textures': sorted(set(textures)), 'videos': bool(videos)}
         self.jobs, self.keep_work, self.allow_cpu = jobs, keep_work, allow_cpu
@@ -1663,6 +1729,144 @@ class Installer:
         raise Stop('No folder with a plain path (letters, digits, spaces, - _ .) could be created for the C++ build. Install to a '
                    'folder such as C:\\Games\\MechAssault 2.')
 
+    # -- low-memory build (1.1.5): only after an out-of-memory stop with one parallel compile; any error here = 1.1.4's stop
+    LOWMEM_MAX = 40                                # retries in one build at most
+
+    def lowmem_reset(self, root):
+        """Back to 1.1.4: no low-memory settings (state and the include file)."""
+        try:
+            for k in ('lowmem', 'lowmem_keep', 'lowmem_waits'): self.state.pop(k, None)
+            self.save()
+        except Exception as x:
+            self.log('  (could not clear the low-memory settings: %s)' % x)
+        try:
+            (Path(root) / LOWMEM_FILE).unlink()
+        except OSError:
+            pass
+
+    def lowmem_keep(self, build):
+        """True when this run carries on with the files compiled before a low-memory stop (a Resume). Otherwise any low-memory settings
+        of an earlier attempt are dropped and the build starts clean, as in 1.1.4."""
+        try:
+            lm = self.state.get('lowmem')
+            if not lm and not self.state.get('lowmem_keep'): return False
+            if self.state.get('lowmem_keep') and (Path(build) / 'build.ninja').is_file():
+                n = sum(1 for _ in (Path(build) / 'CMakeFiles').rglob('*.obj'))
+                self.log('  carrying on with the %d file(s) compiled before the low-memory stop' % n)
+                self.event('recovery', 'resume after a low-memory stop: %d compiled file(s) kept' % n)
+                return True
+            self.lowmem_reset(Path(build).parent)
+        except Exception as x:
+            self.log('  (the earlier low-memory build is not used: %s)' % x)
+            self.lowmem_reset(Path(build).parent)
+        return False
+
+    def lowmem_include(self, root):
+        """The extra CMake argument that passes the low-memory include file, or '' (a normal build)."""
+        lm = self.state.get('lowmem')
+        if not lm or not lm.get('units'): return ''
+        try:
+            f = Path(root) / LOWMEM_FILE
+            write_lowmem_cmake(f, lm['units'])
+            return ' "-DCMAKE_PROJECT_%s_INCLUDE=%s"' % (LOWMEM_TARGET, f.as_posix())
+        except Exception as x:
+            self.log('  (the low-memory settings could not be written: %s)' % x)
+            return ''
+
+    def lowmem_next(self, e, game, build, root):
+        """After an out-of-memory stop with one parallel compile: the next lighter settings (see LOWMEM_ALL / LOWMEM_STEPS). True = build
+        again; False = nothing lighter left (then lowmem_wait); None = an error here: the build stops as in 1.1.4."""
+        try:
+            lm = dict(self.state.get('lowmem') or {})
+            units = dict(lm.get('units') or {})
+            if not lm.get('started'):
+                todo = lowmem_unbuilt(game, build)
+                if not todo: return False                    # every game file is compiled: the link or a runtime library ran short
+                for u in todo: units[u] = list(LOWMEM_ALL)
+                what = '%d file(s) not compiled yet use one code-generation thread (%s)' % (len(todo), ' '.join(LOWMEM_ALL))
+            else:
+                changed = []
+                for u in lowmem_failed_units(getattr(e, 'tail', None), game):
+                    i = lowmem_step_of(units.get(u) or list(LOWMEM_ALL)) + 1
+                    if i >= len(LOWMEM_STEPS): continue
+                    units[u] = LOWMEM_ALL + LOWMEM_STEPS[i]
+                    changed.append('%s %s' % (u, ' '.join(LOWMEM_STEPS[i])))
+                if not changed: return False
+                what = 'lighter optimisation for %s' % ', '.join(changed)
+            lm.update(units=units, started=True, retries=int(lm.get('retries') or 0) + 1)
+            if lm['retries'] > self.LOWMEM_MAX: return False
+            write_lowmem_cmake(Path(root) / LOWMEM_FILE, units)
+            self.state['lowmem'] = lm; self.save()
+            self.log('  RECOVERY: the build ran out of memory with one compile at a time; building again with less memory: %s. '
+                     'Finished files are kept.' % what)
+            self.event('recovery', 'out of memory at 1 job: %s' % what)
+            self.on_status('taking longer: low memory, building with lighter settings')
+            return True
+        except Exception as x:
+            self.log('  (the low-memory build is not available: %s)' % x)
+            self.lowmem_reset(root)
+            return None
+
+    LOWMEM_WAIT = 180                              # seconds between automatic retries while memory stays short
+    LOWMEM_RISE = 1.0                              # GB more free memory = retry at once
+    LOWMEM_POLL = 5                                # seconds between free-memory checks
+
+    def lowmem_wait(self):
+        """Out of memory even at the lightest settings (or in the link): no failure screen. The window shows a calm 'waiting for memory'
+        state; the build starts again by itself when free memory rises by LOWMEM_RISE GB or after LOWMEM_WAIT seconds, as often as needed,
+        keeping the compiled files (a Resume carries on the same way). Cancel works as always. True = build again; False (any error
+        here) = the 1.1.4 stop."""
+        shown = False
+        try:
+            self.state['lowmem_keep'] = True; self.state['lowmem_waits'] = int(self.state.get('lowmem_waits') or 0) + 1; self.save()
+            base = precheck.memory_info()[1]
+            self.log('  WAITING: the build ran out of memory at its lightest settings (%.1f GB free). Close other programs (web browsers, '
+                     'Discord); the build carries on by itself when memory frees up or in %d minutes (retry %d).'
+                     % (base / GB, max(1, self.LOWMEM_WAIT // 60), self.state['lowmem_waits']))
+            self.event('recovery', 'out of memory at the lightest settings: waiting for memory (retry %d)' % self.state['lowmem_waits'])
+            shown = True; self.on_wait({'free_gb': round(base / GB, 1)})
+            t0, last = time.monotonic(), 0.0
+            while True:
+                if self.cancelled: raise Stop('Cancelled.', 'cancelled')
+                now = time.monotonic() - t0
+                if now - last >= self.LOWMEM_POLL or now >= self.LOWMEM_WAIT:
+                    last = now
+                    avail = precheck.memory_info()[1]
+                    if avail >= base + self.LOWMEM_RISE * GB or now >= self.LOWMEM_WAIT:
+                        self.log('  building again (%.1f GB free)' % (avail / GB))
+                        break
+                time.sleep(1)
+        except Stop:
+            raise
+        except Exception as x:
+            self.log('  (waiting for memory is not available: %s)' % x)
+            try: self.state.pop('lowmem_keep', None); self.state.pop('lowmem_waits', None); self.save()
+            except Exception: pass
+            return False
+        finally:
+            if shown:
+                try: self.on_wait(None)
+                except Exception: pass
+        return True
+
+    def lowmem_summary(self):
+        """One log line after a successful low-memory build: what was built with which settings (also in recomp-install.json)."""
+        try:
+            units = (self.state.get('lowmem') or {}).get('units') or {}
+            if not units: return
+            lighter = ['%s (%s)' % (u, ' '.join(f for f in fl if f not in LOWMEM_ALL)) for u, fl in sorted(units.items()) if lowmem_step_of(fl) >= 0]
+            self.log('  built in low-memory mode: %d file(s) with %s%s' % (len(units), ' '.join(LOWMEM_ALL),
+                     '; lighter optimisation: ' + ', '.join(lighter) if lighter else ''))
+        except Exception:
+            pass
+
+    def lowmem_record(self):
+        """What the low-memory build changed, for recomp-install.json; None for a normal build."""
+        units = (self.state.get('lowmem') or {}).get('units') or {}
+        if not units: return None
+        return {'one_codegen_thread': len(units),
+                'lighter_optimisation': {u: ' '.join(f for f in fl if f not in LOWMEM_ALL) for u, fl in sorted(units.items()) if lowmem_step_of(fl) >= 0}}
+
     def build(self):
         ffmpeg = self.ffmpeg_dir()                 # first: a download problem shows before the long compile
         if not hasattr(self, 'vcvars'): self.vcvars, self.cmake, self.ninja, self.vs = find_visual_studio(self.vs_choice)
@@ -1681,7 +1885,9 @@ class Installer:
         if gen.exists(): shutil.rmtree(gen)       # (an empty folder: the packed kit has none)
         shutil.copytree(self.project() / 'src' / 'recomp' / 'gen', gen)
         build = root / 'build'
-        if build.exists():                         # every run starts a clean build (as 1.1.3); only the memory retry below keeps objects
+        try: kept = self.lowmem_keep(build)        # 1.1.5: a Resume after a low-memory stop carries on with the files compiled before
+        except Exception: kept = False             # (never worse than 1.1.4: a clean build)
+        if build.exists() and not kept:            # every run starts a clean build (as 1.1.3); only the memory retry below keeps objects
             retry_io(lambda: _rmtree_owned(build), 'remove the earlier build', self.log)      # (a scanner may still hold the old exe)
         cpus = os.cpu_count() or 4
         total, avail = precheck.memory_info()
@@ -1693,19 +1899,41 @@ class Installer:
         env['PATH'] = str(Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')) /
                           'Microsoft Visual Studio' / 'Installer') + os.pathsep + env.get('PATH', '')
         for v in BUILD_ENV_DROP: env.pop(v, None)
+        oom = None                                 # the out-of-memory stop the low-memory retries started from (1.1.4 stopped there)
         while True:
             script = root / 'build.cmd'
+            try: lowmem = self.lowmem_include(root)    # '' unless the low-memory retry is active
+            except Exception: lowmem = ''
             script.write_text('\r\n'.join([
                 '@echo off',
                 'chcp 65001 >nul',                 # the script is UTF-8: paths under an accented user name
                 'call "%s" >nul || exit /b 1' % self.vcvars,
-                '"%s" -S "%s" -B "%s" -G Ninja -DCMAKE_BUILD_TYPE=Release "-DXBOXRECOMP_DIR=%s" "-DCMAKE_MAKE_PROGRAM=%s" || exit /b 1'
-                % (self.cmake, src / 'game', build, src / 'runtime', self.ninja.as_posix()),
+                '"%s" -S "%s" -B "%s" -G Ninja -DCMAKE_BUILD_TYPE=Release "-DXBOXRECOMP_DIR=%s" "-DCMAKE_MAKE_PROGRAM=%s"%s || exit /b 1'
+                % (self.cmake, src / 'game', build, src / 'runtime', self.ninja.as_posix(), lowmem),
                 '"%s" -C "%s" -j %d mechassault2_recomp || exit /b 1' % (self.ninja, build, jobs), '']), encoding='utf-8')
             try:
                 self.run_cmd(['cmd.exe', '/d', '/c', script], cwd=root, env=env, title='CMake + Ninja')
                 break
             except Stop as e:
+                if kept and e.kind not in ('out_of_memory', 'cancelled'):
+                    # The files kept from before the low-memory stop did not build: start the build clean, exactly as 1.1.4 does.
+                    kept = False
+                    self.log('  RECOVERY: the build with the earlier files failed; building again from the start')
+                    self.event('recovery', 'kept low-memory build failed (%s): clean build' % e.kind)
+                    self.lowmem_reset(root)
+                    retry_io(lambda: _rmtree_owned(build), 'remove the earlier build', self.log)
+                    continue
+                try: step = self.lowmem_next(e, src / 'game', build, root) if e.kind == 'out_of_memory' and jobs <= 1 else None
+                except Exception: step = None
+                if step:
+                    oom = oom or e
+                    continue
+                try: again = step is False and self.lowmem_wait()
+                except Stop: raise                 # (Cancel while waiting)
+                except Exception: again = False
+                if again:
+                    oom = oom or e                     # the lightest settings ran short too: waited for free memory; build again
+                    continue
                 if e.kind == 'out_of_memory' and jobs > 1:
                     # Out of memory: the same build again with fewer parallel compiles (half, then one); finished objects are kept.
                     jobs = max(1, jobs // 2) if jobs > 2 and not self.state.get('oom_jobs') else 1
@@ -1725,6 +1953,17 @@ class Installer:
                     self.log('  (Visual Studio reports that a restart is still needed)')
                     raise Stop('%s %s' % (e, REBOOT_HINT), e.kind, code=e.code) from e
                 raise
+            except Exception as x:
+                if oom is None: raise
+                # A low-memory retry failed in an unexpected way: stop exactly as 1.1.4 did, with its out-of-memory stop.
+                self.log('  (the low-memory build could not run: %s)' % x)
+                self.lowmem_reset(root)
+                raise oom from x
+        try:
+            if [self.state.pop(k, None) for k in ('lowmem_keep', 'lowmem_waits')] != [None, None]: self.save()
+            self.lowmem_summary()
+        except Exception as x:
+            self.log('  (low-memory note: %s)' % x)
         if not (build / 'mechassault2_recomp.exe').is_file():
             raise Stop('The build finished, but the game program it made (%s) is gone: antivirus software most likely removed '
                        '(quarantined) it.' % (build / 'mechassault2_recomp.exe'), 'access_denied')
@@ -2039,6 +2278,12 @@ class Installer:
         stamp['options'] = {'textures': [s for s in ('2x', '4x') if (self.dest / 'game_files/texture_packs' / s / 'index.json').is_file()],
                             'videos': (self.dest / 'game_files/Movie/Enhanced/2x').is_dir()}
         if self.state.get('shortcuts'): stamp['shortcuts'] = self.state['shortcuts']
+        try:
+            low = self.lowmem_record()                 # 1.1.5: the game was built in low-memory mode (only then is the key written)
+            if low: stamp['low_memory_build'] = low
+            elif 'build' in self.state.get('done', []): stamp.pop('low_memory_build', None)
+        except Exception as e:
+            self.log('  (the low-memory note was not recorded: %s)' % e)
         try:
             (self.dest / precheck.STAMP).write_text(json.dumps(stamp, indent=1), encoding='utf-8')
         except OSError as e:

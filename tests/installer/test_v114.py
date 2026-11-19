@@ -77,8 +77,10 @@ class BuildRecovery(Base):
         self.assertEqual(inst.state['oom_jobs'], 1)
 
     def test_out_of_memory_at_one_job_stops(self):
+        # 1.1.5: at one job the build no longer stops; it waits for free memory and carries on (test_v115.py).
+        # Kept here: with the 1.1.5 helpers failing it stops exactly as 1.1.4 did.
         inst = self.installer(); inst.state['oom_jobs'] = 1
-        with self.assertRaises(install.Stop) as cm:
+        with mock.patch.object(install.Installer, 'lowmem_wait', lambda self: False), self.assertRaises(install.Stop) as cm:
             self.fake_build(inst, [('out_of_memory', ['C1060'])])
         self.assertEqual(cm.exception.kind, 'out_of_memory'); self.assertEqual(self.calls[0][1], 1)
 

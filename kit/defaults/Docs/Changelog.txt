@@ -4,6 +4,13 @@ MechAssault 2 PC recompilation - changes
 You have version {{VERSION}} (build {{BUILD}}).
 
 
+1.1.5
+-----
+- The installer is more reliable on PCs with less memory: if the build runs
+  low on memory, it uses less memory, or waits until some is free, and
+  carries on by itself without losing progress.
+- The game and the scenario editor are the same as in 1.1.4.
+
 1.1.4
 -----
 - A new, simpler installer window: choose your disc image, press Install.

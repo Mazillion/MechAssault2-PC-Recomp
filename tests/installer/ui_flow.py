@@ -765,6 +765,45 @@ def scenario_hooks():
     check('hooks[A4]: a failed download names its cause in one line', 'no internet connection' in t and 'Check your connection' in t and "A download didn't finish" in t, t)
     root.destroy()
 
+def scenario_memwait():
+    """1.1.5: the build waits for free memory (a calm progress state, not a stop) and carries on; the out-of-memory stop's advice.
+    At 100 %, 1366x768 at 125 % (clamped) and 200 %, with the step list hidden and shown."""
+    for label, screen, scale in (('100', None, 1.0), ('1366x768-125', (1366, 768), 1.25), ('200', None, 2.0)):
+        saved = (tk.Tk.winfo_screenwidth, tk.Tk.winfo_screenheight)
+        if screen: tk.Tk.winfo_screenwidth = lambda self, s=screen: s[0]; tk.Tk.winfo_screenheight = lambda self, s=screen: s[1]
+        try:
+            d = fresh_env(); os.environ['MA2_FAKE_SPEED'] = '20'
+            root, app = rig.make(scale=scale); ready_disc(root, app, d)
+            states = []; real_set = app.taskbar.set; app.taskbar.set = lambda s, f=None: (states.append(s), real_set(s, f))[1]
+            app.facts['compiler'] = {'state': 'ready'}; app.facts['sac'] = None; app.folder.findings = []
+            app.primary.invoke(); until(root, lambda: app.model is not None, 20)
+            app.event('wait', {'free_gb': 1.4}); pump(root, 0.2)
+            t = screen_text(app)
+            check('memwait[%s]: a calm waiting state on the progress screen' % label, app.screen == 'progress' and 'Waiting for memory' in t
+                  and 'Discord' in t and 'carries on by itself' in t and "COULDN'T FINISH" not in t, t)
+            check('memwait[%s]: the page file and C: hint is shown' % label, 'page file' in t and 'Virtual memory' in t and 'C:' in t, t)
+            check('memwait[%s]: no time-left estimate while waiting' % label, 'left' not in app.cv.itemcget(app.prog['eta'], 'text'))
+            check('memwait[%s]: Cancel stays available' % label, 'cancel' in app.w)
+            check('memwait[%s]: inside the window, clear of the footer' % label, not layout_problems(app), layout_problems(app))
+            pump(root, 0.3); check('memwait[%s]: the taskbar shows the paused state' % label, 'paused' in states, states)
+            if label == '100': snap(root, SHOTS / 'memwait.png'); owner_shot(root, '24-waiting-for-memory.png')
+            app.w['details'].invoke(); pump(root, 0.2)
+            check('memwait[%s]: with the step list shown it still fits' % label, not layout_problems(app) and 'page file' in screen_text(app), layout_problems(app))
+            if label == '100': snap(root, SHOTS / 'memwait-details.png')
+            app.event('wait', None); pump(root, 0.2)
+            t = screen_text(app)
+            check('memwait[%s]: carrying on: the normal progress state again' % label, 'Waiting for memory' not in t and 'page file' not in t, t)
+            check('memwait[%s]: the install still finishes' % label, run_to(root, app, 'done', 120))
+            app.show_failed('out_of_memory', 'CMake + Ninja failed (exit code 1). fatal error C1060'); pump(root, 0.2)
+            t = screen_text(app)
+            check('memwait[%s]: the out-of-memory stop says what to do' % label, 'This PC ran out of memory' in t and 'Discord' in t and 'page file' in t
+                  and 'Try again' in t and app.primary.text == 'TRY AGAIN', t)
+            check('memwait[%s]: the out-of-memory stop fits' % label, not layout_problems(app), layout_problems(app))
+            if label == '100': snap(root, SHOTS / 'oom-stop.png'); owner_shot(root, '25-out-of-memory.png')
+            root.destroy()
+        finally:
+            tk.Tk.winfo_screenwidth, tk.Tk.winfo_screenheight = saved
+
 def scenario_eta():
     check('eta: under a minute', gui.fmt_left(40) == 'Less than a minute left')
     check('eta: minutes under 10 exact', gui.fmt_left(7 * 60 + 10) == 'About 7 min left')
@@ -832,7 +871,7 @@ if __name__ == '__main__':
     if '--shots' in args:
         i = args.index('--shots'); OWNER_SHOTS = Path(args[i + 1]); OWNER_SHOTS.mkdir(parents=True, exist_ok=True); del args[i:i + 2]
     names = args or ['happy', 'engine', 'fail', 'cancel', 'update', 'elsewhere', 'maintain', 'resume', 'extras', 'stops', 'tools', 'blocked', 'menu', 'keyboard',
-                     'drop', 'faults', 'startup', 'layout', 'dpi', 'hooks', 'eta', 'found', 'plain', 'fonts', 'errors']
+                     'drop', 'faults', 'startup', 'layout', 'dpi', 'hooks', 'memwait', 'eta', 'found', 'plain', 'fonts', 'errors']
     for n in names:
         print('== %s' % n, flush=True)
         try:

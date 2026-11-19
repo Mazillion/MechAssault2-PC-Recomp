@@ -803,6 +803,10 @@ def diagnostics_facts(dest, state=None, gpus=None):
             for l in f.read_text(encoding='utf-8', errors='replace').splitlines()[-15:]: lines.append('Download: %s' % l)
     def history():
         for e in ((state or {}).get('events') or [])[-40:] if isinstance(state, dict) else []: lines.append('Event: %s' % e)
+        low = ((state or {}).get('lowmem') or {}).get('units') if isinstance(state, dict) else None
+        if low:                                    # 1.1.5 low-memory build: which files got which lighter settings
+            lighter = ['%s %s' % (u, ' '.join(f for f in fl if f != '/cgthreads1')) for u, fl in sorted(low.items()) if len(fl) > 1]
+            lines.append('Low-memory build: %d file(s) with /cgthreads1%s' % (len(low), '; lighter: ' + ', '.join(lighter[:20]) if lighter else ''))
     for fn in (basics, drives, adapters, security, downloads, history): part(fn)
     return lines
 

@@ -76,7 +76,10 @@ FAILED = {
                       'choose a simple one such as C:\\Games\\MechAssault 2. Otherwise try again.'),
     'access_denied': ('Windows or your antivirus blocked a file', 'If your antivirus reported a threat in the install folder and you trust '
                       'this game, restore the file from its protection history, then try again.'),
-    'out_of_memory': ('This PC ran out of memory', 'Close other programs, then try again. Your progress is saved.'),
+    'out_of_memory': ('This PC ran out of memory', 'Close other programs, especially web browsers and Discord.'
+                      ' Check that Windows manages the page file size automatically: Settings > System > About > '
+                      'Advanced system settings > Performance Settings > Advanced > Virtual memory. If drive C: is nearly full, free a '
+                      'few GB. Then press Try again. Finished files are kept.'),
     'network': ('A download didn\'t finish', 'Check your internet connection, then try again.'),
     'gpu': ('Your graphics card can\'t make the HD content', 'The game itself is fine. Turn the HD options off and try again.'),
     'ffmpeg_mismatch': ('The cutscene player files aren\'t the expected build', 'Use exactly the file named in Details (a different version '
@@ -97,6 +100,10 @@ DISC_HINTS = {'not_xbox': ('That isn\'t an Xbox disc image', 'Choose an .iso or 
               'read_error': ('Windows couldn\'t read that file', 'Choose the disc image again'),
               'relative': ('Choose the file itself', 'Use Browse to pick it'),
               'disc': ('The disc image couldn\'t be read', 'Choose it again, or make the disc image again')}
+MEMWAIT_TITLE = 'Waiting for memory'
+MEMWAIT_NOTE = 'Close other programs, such as web browsers and Discord. The build carries on by itself when memory frees up.'
+MEMWAIT_HINT = ('If it keeps waiting, check that Windows manages the page file size automatically (Settings > System > About > Advanced '
+                'system settings > Performance Settings > Advanced > Virtual memory), and free a few GB on C: if it is nearly full.')
 SAC_TEXT = 'Windows Smart App Control is on. If it blocks the game, setup will help.'
 HELP_TEXT = [
     ('Windows warned me about the installer', 'Windows SmartScreen warns about programs it does not recognize, and this installer is not '
@@ -184,6 +191,7 @@ class App:
         self.mode = 'install'; self.screen = 'setup'; self.page = None; self.stop = None; self.confirm = None
         self.notice = None; self.menu = None; self.failed = None; self.extras_failed = None
         self.model = None; self.lines = []; self.step_title = ''; self.slow = ''; self.shown_frac = 0.0; self.shown_eta = None
+        self.memwait = None
         self.started = None; self.show_details = False; self.tools_busy = False; self.tools_cancel = False
         self.w = {}; self.primary = None; self.want_focus = None; self.prog = {}; self.scan_x = 0.0
         self.closing = False; self.fallbacks = ui_win.FALLBACKS
@@ -1120,6 +1128,7 @@ class App:
     def start(self):
         """Start the engine (or the recorded-log fake in tests) on a worker thread; the same call as the 1.1.3 window."""
         self.failed = None; self.extras_failed = None; self.lines = []; self.model = None; self.step_title = 'Getting ready'; self.slow = ''
+        self.memwait = None
         self.shown_frac = 0.0; self.shown_eta = None; self.stop = None; self.confirm = None
         p = self.params()
         if self.action() == 'resume':
@@ -1149,6 +1158,7 @@ class App:
             self.inst.on_status = lambda text: q.put(('status', text))
             self.inst.until = os.environ.get('MA2_INSTALLER_UNTIL')
         self.inst.on_plan = lambda names: q.put(('plan', names))
+        self.inst.on_wait = lambda info: q.put(('wait', info))      # 1.1.5: the build waits for free memory (a calm state, not a stop)
         self.last_params = p
         self.started = time.monotonic()
         self.worker = threading.Thread(target=self.work, daemon=True); self.worker.start()
@@ -1182,6 +1192,11 @@ class App:
         if kind == 'status':
             self.slow = value
             if self.screen == 'progress': self.update_progress()
+            return
+        if kind == 'wait':
+            changed = bool(value) != bool(self.memwait)
+            self.memwait = value
+            if changed and self.screen == 'progress': self.render()
             return
         if kind == 'done':
             self.worker = None
@@ -1265,6 +1280,9 @@ class App:
                     it = self.T(56, 240 + 22 * i, '', 'small', 'muted')
                     self.prog['steps'].append(it)
                 self.put(self.link('openlog', 'Open log', self.open_log, quiet=True, bg='panel', small=True), 52, 236 + 22 * len(ph))
+        if self.memwait:                           # waiting for free memory: what helps, under the bar
+            self.T(40, (230 + 18 + 22 * len(self.phases()) + 44) if (not tools and self.show_details) else 232, MEMWAIT_HINT,
+                   'small', 'muted', width=800)
         if self.confirm == 'cancel': self.confirm_footer()
         elif self.tools_busy: self.footer([], [self.link('cancel', 'Cancel', self.cancel_tools, quiet=True, bg='panel')])
         elif tools: self.footer([], [])
@@ -1291,17 +1309,18 @@ class App:
         else:
             frac = None; self.scan_end = dp(837)
         title = self.step_title if self.step_title.endswith('\u2026') else self.step_title + '\u2026'
+        if self.memwait: title = MEMWAIT_TITLE + '\u2026'
         cv.itemconfigure(self.prog['title'], text=title)
         slow = self.slow[:1].upper() + self.slow[1:] if self.slow else ''          # the engine's own phrase ("taking longer: low memory, ...")
-        cv.itemconfigure(self.prog['note'], text=slow or 'You can keep using your PC.')
-        e = self.eta() if m else None
-        cv.itemconfigure(self.prog['eta'], text=fmt_left(e) if e is not None else ('Working out the time left\u2026' if m else ''))
+        cv.itemconfigure(self.prog['note'], text=MEMWAIT_NOTE if self.memwait else (slow or 'You can keep using your PC.'))
+        e = self.eta() if m and not self.memwait else None
+        cv.itemconfigure(self.prog['eta'], text=fmt_left(e) if e is not None else ('Working out the time left\u2026' if m and not self.memwait else ''))
         if self.prog.get('steps'):
             for it, (t, st) in zip(self.prog['steps'], self.phases()):
                 cv.itemconfigure(it, text={'done': '\u2713 ', 'active': '\u25b8 ', 'failed': '\u2715 '}.get(st, '\u25cb ') + t,
                                  fill=P['ok'] if st == 'done' else P['amber'] if st == 'active' else P['danger'] if st == 'failed' else P['muted'])
         if full or self._tick % 10 == 0: self.update_title(frac)
-        if frac is not None: self.taskbar.set('normal', frac)
+        if frac is not None: self.taskbar.set('paused' if self.memwait else 'normal', frac)
 
     def animate(self):
         """The scan line along the filled part of the bar, and the hexes it passes light up (off with Windows' animation effects)."""

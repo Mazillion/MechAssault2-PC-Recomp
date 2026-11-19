@@ -76,7 +76,10 @@ FAILURES = {
                       'Otherwise try Resume once; if it fails again, {report}.'),
     'access_denied': ('Windows or your antivirus blocked a file.', 'If your antivirus reported a threat in this folder, restore the file or '
                       'allow the folder, then Resume. Controlled Folder Access can also cause this.'),
-    'out_of_memory': ('The PC ran out of memory while compiling.', 'Close other programs and press Resume.'),
+    'out_of_memory': ('The PC ran out of memory while compiling.', 'Close other programs (web browsers, Discord),'
+                      ' check that Windows manages the page file size automatically (Settings > System > '
+                      'About > Advanced system settings > Performance Settings > Advanced > Virtual memory) and, if drive C: is nearly '
+                      'full, free a few GB. Then press Resume: finished files are kept.'),
     'network': ('A download failed.', 'Check your connection and press Resume.'),
     'ffmpeg_mismatch': ('The FFmpeg files are not the expected build.', 'Use exactly the file named below (a different FFmpeg version '
                         'or a damaged download does not work), then press Resume.'),
@@ -86,6 +89,9 @@ FAILURES = {
     'extras': ('MechAssault 2 is installed and ready to play.',
                'Only the enhanced content was not finished. Close the installer and play, or press Resume to try the enhanced content again.'),
 }
+MEMORY_WAIT = ('Waiting for memory. Close other programs (web browsers, Discord); the build carries on by itself when memory frees up. '
+               'If it keeps waiting, check that Windows manages the page file size automatically (Settings > System > About > Advanced '
+               'system settings > Performance Settings > Advanced > Virtual memory), and free a few GB on C: if it is nearly full.')
 BUILD_TOOLS_NOTICE = ('Microsoft\'s free C++ Build Tools are needed to compile the game. "Install for me" downloads Microsoft\'s own installer (signed by Microsoft). '
                       'It asks for administrator approval and shows its own progress (about 6 GB, 10-30 minutes). By continuing you accept Microsoft\'s '
                       'licence terms for the Build Tools.')
@@ -1183,6 +1189,7 @@ class Install(Page):
                                          merge_settings=p['merge_settings'], switch_textures=p['switch_textures'], **cb)
             app.inst.on_plan = lambda names: app.q.put(('plan', names))
             app.inst.on_status = lambda text: app.q.put(('status', text))     # a slow recovery, in plain words on the step line
+            app.inst.on_wait = lambda info: app.q.put(('wait', info))         # 1.1.5: waiting for free memory (not a stop)
             app.inst.until = os.environ.get('MA2_INSTALLER_UNTIL')          # maintainers: stop after this step
         self.started = time.monotonic(); app.started = self.started
         app.worker = threading.Thread(target=self.work, daemon=True); app.worker.start()
@@ -1213,6 +1220,10 @@ class Install(Page):
             self.render(); return
         if kind == 'status':
             self.detail['text'] = '%s (%s)' % (getattr(self, 'step_title', '') or 'Installing', value); return
+        if kind == 'wait':
+            try: self.detail.configure(wraplength=max(300, self.detail.winfo_width() - 16) if value else 0, justify='left')
+            except tk.TclError: pass
+            self.detail['text'] = MEMORY_WAIT if value else (getattr(self, 'step_title', '') or 'Installing'); return
         if kind == 'done':
             self.finished = True
             if self.model: self.model.complete()
