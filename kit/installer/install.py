@@ -1870,8 +1870,9 @@ class Installer:
             return ''
 
     # 1.1.6 (I2): on a PC with less than 24 GB of RAM installed, the files known to need the most memory start with one code-generation
-    # thread (/cgthreads1, the low-memory ladder's first rung) instead of failing first: recomp_0076.c alone peaks at 32 GB at the
-    # release flags and 6.2 GB with /cgthreads1 (F115 measurements). Below 11.5 GB (the line build_jobs uses) every game file starts
+    # thread (/cgthreads1, the low-memory ladder's first rung) instead of failing first: recomp_0076.c alone peaks at 16-32 GB at the
+    # release flags and 3-6 GB with /cgthreads1, and the objects are identical apart from the header time stamp (measured for all six
+    # files). /cgthreads1 is slower on a PC with idle cores, so 24 GB PCs keep the release settings. Below 11.5 GB (the line build_jobs uses) every game file starts
     # there, as the ladder does after its first out-of-memory stop. Not recorded as a low-memory build (the stamp keeps meaning
     # "optimisation was reduced or memory ran short").
     PRESEED_FILES = ('src/recomp/gen/recomp_0076.c', 'src/recomp/gen/recomp_0101.c', 'src/recomp/gen/recomp_0025.c',
