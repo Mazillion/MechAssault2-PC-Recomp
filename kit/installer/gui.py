@@ -100,6 +100,8 @@ DISC_HINTS = {'not_xbox': ('That isn\'t an Xbox disc image', 'Choose an .iso or 
               'read_error': ('Windows couldn\'t read that file', 'Choose the disc image again'),
               'relative': ('Choose the file itself', 'Use Browse to pick it'),
               'disc': ('The disc image couldn\'t be read', 'Choose it again, or make the disc image again')}
+BUILD_NOTE = 'High CPU use and fan noise for 10-60 minutes are normal.'          # 1.1.6 (I1): the build step looks busy, not stuck
+OVERRUN = 'Taking longer than estimated, still working'
 MEMWAIT_TITLE = 'Waiting for memory'
 MEMWAIT_NOTE = 'Close other programs, such as web browsers and Discord. The build carries on by itself when memory frees up.'
 MEMWAIT_HINT = ('If it keeps waiting, check that Windows manages the page file size automatically (Settings > System > About > Advanced '
@@ -121,8 +123,9 @@ HELP_TEXT = [
      'decide carefully. The installer never changes it.'),
     ('Settings, saves and logs', 'They are kept in %LOCALAPPDATA%\\MechAssault2. Updating, repairing and uninstalling keep them unless '
      'you ask otherwise. Your own scenarios in Documents\\MechAssault 2 are never deleted.'),
-    ('Something went wrong', 'Open Help > Collect diagnostics. It saves one .zip with the installer and game logs (your user name is '
-     'replaced) for a problem report on %s.'),
+    ('Something went wrong', 'Press Send report on the screen that stopped, or open Help > Report a problem. It sends the installer and '
+     'game logs, your settings and PC details to the developer (your user and PC names are replaced) and gives you a report number to '
+     'quote. Help > Collect diagnostics saves the same .zip on this PC instead, for a problem report on %s.'),
 ]
 
 TECH = ('The installer reads your disc image, translates the original Xbox program to C with the open-source xboxrecomp toolkit, applies '
@@ -163,6 +166,28 @@ def fmt_minutes(m):
     h, r = divmod(m, 60)
     return '%d h %d min' % (h, r) if r else '%d h' % h
 
+def report_available():
+    """1.1.6: True when this build can send a report (report.py's relay address is set); False also if report.py cannot load."""
+    try:
+        import report
+        return report.available()
+    except Exception as e:
+        print('ui: report sending not available (%s)' % e, flush=True)
+        return False
+
+def gentle_default():
+    """1.1.6 (I4): "Keep my PC responsive" starts selected on a PC running on battery or with 4 or fewer CPU threads, where a build at
+    normal priority makes the PC hard to use. Everywhere else (and if anything here fails) it starts at Normal, as in 1.1.5."""
+    try:
+        cpus = os.cpu_count() or 0
+        battery = precheck.on_battery()
+        if battery or 0 < cpus <= 4:
+            print('ui: "Keep my PC responsive" preselected (%s)' % ('on battery' if battery else '%d CPU threads' % cpus), flush=True)
+            return True
+    except Exception as e:
+        print('ui: gentler default not available (%s)' % e, flush=True)
+    return False
+
 def fmt_left(sec):
     if sec < 60: return 'Less than a minute left'
     m = sec / 60.0
@@ -186,12 +211,12 @@ class App:
         self.dest = ''; self.folder = None; self.dest_token = 0; self.dest_chosen = False; self.tried_other = False
         self.texture = 'original'; self.videos = False
         self.sc = {'desktop': True, 'start': True, 'editor': False}
-        self.awake = True; self.lowprio = False; self.merge = True; self.switch = True
+        self.awake = True; self.lowprio = gentle_default(); self.merge = True; self.switch = True
         self.jobs = None; self.vs = None; self.keep_work = False; self.engine = 'auto'; self.upscaler = ''
         self.mode = 'install'; self.screen = 'setup'; self.page = None; self.stop = None; self.confirm = None
         self.notice = None; self.menu = None; self.failed = None; self.extras_failed = None
         self.model = None; self.lines = []; self.step_title = ''; self.slow = ''; self.shown_frac = 0.0; self.shown_eta = None
-        self.memwait = None
+        self.memwait = None; self.overrun = False; self.rep = None
         self.started = None; self.show_details = False; self.tools_busy = False; self.tools_cancel = False
         self.w = {}; self.primary = None; self.want_focus = None; self.prog = {}; self.scan_x = 0.0
         self.closing = False; self.fallbacks = ui_win.FALLBACKS
@@ -515,7 +540,7 @@ class App:
         if self.menu: self.menu = None; self.want_focus = 'help'; self.render(); return 'break'
         if self.confirm: self.confirm = None; self.render(); return 'break'
         back = {'options': 'setup', 'trouble': 'options', 'page': self.page_back if self.screen == 'page' else None,
-                'diag': getattr(self, 'diag_back', 'setup'), 'uninstall': 'setup'}.get(self.screen)
+                'diag': getattr(self, 'diag_back', 'setup'), 'report': getattr(self, 'report_back', 'setup'), 'uninstall': 'setup'}.get(self.screen)
         if back: self.go(back); return 'break'
 
     # -- rendering
@@ -845,6 +870,7 @@ class App:
                                    lambda: self.ask('startover'), quiet=True))
         if m in ('update', 'maintain'):
             items.append(self.link('uninstall', 'Uninstall', lambda: self.go('uninstall'), quiet=True))
+        items.append(self.link('report', 'Report a problem', self.open_report, quiet=True))      # 1.1.6
         for it in items: self.put(it, x, y); x += it.winfo_reqwidth() / k.scale + 18
         if self.notice: self.strip(y + 44, self.notice[1], self.notice[0] == 'bad')
         if self.confirm: return self.confirm_footer()
@@ -1252,6 +1278,7 @@ class App:
         if self.shown_eta is None or e < self.shown_eta[0] - (time.monotonic() - self.shown_eta[1]):
             self.shown_eta = (e, time.monotonic())
         left = self.shown_eta[0] - (time.monotonic() - self.shown_eta[1])
+        self.overrun = left <= 0                   # 1.1.6: the estimate has run out (the window says so instead of "less than a minute")
         return max(left, 30.0)
 
     def scr_progress(self):
@@ -1312,9 +1339,12 @@ class App:
         if self.memwait: title = MEMWAIT_TITLE + '\u2026'
         cv.itemconfigure(self.prog['title'], text=title)
         slow = self.slow[:1].upper() + self.slow[1:] if self.slow else ''          # the engine's own phrase ("taking longer: low memory, ...")
-        cv.itemconfigure(self.prog['note'], text=MEMWAIT_NOTE if self.memwait else (slow or 'You can keep using your PC.'))
+        busy = BUILD_NOTE if (m and getattr(m, 'current', None) == 'build') else 'You can keep using your PC.'
+        cv.itemconfigure(self.prog['note'], text=MEMWAIT_NOTE if self.memwait else (slow or busy))
+        self.overrun = False
         e = self.eta() if m and not self.memwait else None
-        cv.itemconfigure(self.prog['eta'], text=fmt_left(e) if e is not None else ('Working out the time left\u2026' if m and not self.memwait else ''))
+        cv.itemconfigure(self.prog['eta'], text=(OVERRUN if self.overrun else fmt_left(e)) if e is not None else
+                         ('Working out the time left\u2026' if m and not self.memwait else ''))
         if self.prog.get('steps'):
             for it, (t, st) in zip(self.prog['steps'], self.phases()):
                 cv.itemconfigure(it, text={'done': '\u2713 ', 'active': '\u25b8 ', 'failed': '\u2715 '}.get(st, '\u25cb ') + t,
@@ -1435,6 +1465,12 @@ class App:
         if s.get('note'): left.append(('text', s['note'], 'small', 'muted'))
         right = []
         if s.get('close'): right.append(self.link('close', 'Close', self.close_for_later, quiet=True, bg='panel'))
+        if s.get('help') and s.get('style') == 'failed':        # 1.1.6: a failure has a Send report button (never a needs-you stop)
+            try:
+                b = self.button('send', 'SEND REPORT' if report_available() else 'SAVE REPORT', lambda: self.open_report(failure=True), primary=False)
+                b.ghost = True; b.draw(); right.append(b)
+            except Exception as e:
+                print('ui: Send report not available (%s)' % e, flush=True)
         if s.get('primary'): right.append(self.button('primary', s['primary'][0], s['primary'][1]))
         self.footer(left, right)
 
@@ -1538,7 +1574,8 @@ class App:
             self.strip(372, notes[0] if len(notes[0]) < 160 else notes[0][:157] + '\u2026',
                        links=[self.link('notes', 'Details', lambda: self.show_page('notes'), bg='panel2')], width=800)
         of = self.link('open_folder', 'Open install folder', lambda: self.launch('open', precheck.clean_path(self.dest)), quiet=True, bg='panel')
-        self.footer([], [of, self.button('primary', 'LAUNCH', self.play, big=True)])
+        rp = self.link('report', 'Report a problem', self.open_report, quiet=True, bg='panel')        # 1.1.6
+        self.footer([rp], [of, self.button('primary', 'LAUNCH', self.play, big=True)])
 
     def play(self):
         exe = Path(precheck.clean_path(self.dest)) / 'MechAssault 2.exe'
@@ -1644,6 +1681,7 @@ class App:
         f = tk.Frame(self.cv, bg=P['panel2'], highlightthickness=k.line(), highlightbackground=P['steel'])
         items = [('m_help', 'Help & FAQ', lambda: self.menu_do(lambda: self.show_page('help'))),
                  ('m_diag', 'Collect diagnostics\u2026', lambda: self.menu_do(self.open_diag)),
+                 ('m_report', 'Report a problem\u2026', lambda: self.menu_do(self.open_report)),
                  ('m_log', 'Open log', lambda: self.menu_do(self.open_log))]
         ws = []
         for key, label, fn in items:
@@ -1664,7 +1702,7 @@ class App:
 
     def menu_do(self, fn):
         self.menu = None; fn()
-        if self.menu is None and self.screen not in ('page', 'diag'): self.render()
+        if self.menu is None and self.screen not in ('page', 'diag', 'report'): self.render()
 
     # -- Collect diagnostics (in the window; the zip goes to LocalAppData, never into guarded folders)
     def open_diag(self):
@@ -1684,7 +1722,7 @@ class App:
         y = 120
         d = self.diag
         if extras.get('dump'):
-            self.T(40, y + 14, 'Include the newest crash or hang dump (it can contain folder names and your user name)', 'small', 'text', anchor='w')
+            self.T(40, y + 14, 'Include the newest crash or hang dump (your user and PC names in it are overwritten)', 'small', 'text', anchor='w')
             self.put(Toggle(cv, k, d['dump'], lambda v: d.__setitem__('dump', v), P['panel'], key='d_dump'), 840, y + 14, anchor='e'); y += 36
         if extras.get('botrec'):
             self.T(40, y + 14, 'Include the newest bot match recording', 'small', 'text', anchor='w')
@@ -1724,6 +1762,187 @@ class App:
             d['busy'] = False; d['result'] = res
             if not isinstance(res, Exception): self.launch('select', res['path'])
             if self.screen == 'diag': self.want_focus = 'primary'; self.render()
+        self.bg(work, done)
+
+    # -- Send report (1.1.6): one page; the zip is always saved on this PC first, then sent when the build has a relay address
+    def open_report(self, failure=False):
+        try:
+            self.report_back = self.screen if self.screen not in ('report', 'page', 'diag') else 'setup'
+            fail = bool(failure and self.failed)
+            self.rep = {'failure': fail, 'text': '', 'busy': None, 'result': None, 'preview': None, 'previewing': False,
+                        'send': report_available(), 'kind': 'install-fail' if fail else 'manual'}
+            self.go('report', focus='r_text')
+        except Exception as e:                   # never worse than 1.1.5: Collect diagnostics
+            print('ui: the report page could not open (%s); Collect diagnostics instead' % e, flush=True)
+            self.open_diag()
+
+    def scr_report(self):
+        try:
+            self._scr_report()
+        except Exception:
+            print('ui: the report page failed; Collect diagnostics instead:\n%s' % traceback.format_exc(), flush=True)
+            self.report_to_diag()
+
+    def report_to_diag(self, result=None):
+        """The 1.1.5 Collect diagnostics page instead of the report page (any failure in the new page lands here)."""
+        for wdg in list(self.w.values()):
+            try: wdg.destroy()
+            except tk.TclError: pass
+        for c in self.cv.winfo_children():
+            try: c.destroy()
+            except tk.TclError: pass
+        self.cv.delete('s'); self.w = {}; self.primary = None
+        self.diag_back = getattr(self, 'report_back', 'setup')
+        self.diag = {'dump': False, 'rec': False, 'result': result, 'busy': False, 'preview': False}
+        self.screen = 'diag'; self.page = None
+        self.scr_diag()
+
+    def _scr_report(self):
+        k, dp, cv = self.k, self.k.dp, self.cv
+        r = self.rep if isinstance(self.rep, dict) else None
+        if r is None: raise RuntimeError('no report state')
+        cv.create_rectangle(0, 0, dp(self.W), dp(self.H), fill=P['panel'], outline='', tags='s')
+        send = r['send']
+        self.T(40, 22, 'SEND A REPORT' if send else 'SAVE A REPORT', 'h1s')
+        stage = (getattr(self.inst, 'stage', '') or '') if r['failure'] else ''
+        intro = ('The install stopped while %s. A report helps the developer fix it.' % self.stopped_while(stage)) if stage else \
+                ('A report helps the developer fix it.' if r['failure'] else 'Tell the developer what went wrong.')
+        self.T(40, 62, intro, 'body', 'muted', width=780)
+        self.T(40, 100, 'What happened?' + (' (optional)' if r['failure'] else ''), 'row', anchor='w')
+        self.T(840, 100, 'Please don\'t include personal details.', 'small', 'muted', anchor='e')
+        f = tk.Frame(cv, bg=P['panel2'], highlightthickness=k.line(), highlightbackground=P['steel'], highlightcolor=P['amber'])
+        txt = tk.Text(f, bg=P['panel2'], fg=P['text'], font=k.fonts['small'], bd=0, wrap='word', padx=dp(6), pady=dp(4),
+                      insertbackground=P['text'], height=4, takefocus=1)
+        txt.pack(fill='both', expand=True)
+        txt.insert('1.0', r.get('text') or '')
+        if r['busy'] or r['result']: txt.configure(state='disabled')
+        def keep(e=None):
+            try:
+                t = txt.get('1.0', 'end-1c')
+                if len(t) > 2000: txt.delete('1.0 + 2000 chars', 'end'); t = t[:2000]
+                r['text'] = t
+            except tk.TclError:
+                pass
+        txt.bind('<KeyRelease>', keep); txt.bind('<<Paste>>', lambda e: self.root.after(1, keep), add='+')
+        txt.bind('<Tab>', lambda e: (e.widget.tk_focusNext().focus_set(), 'break')[1])
+        txt.bind('<Shift-Tab>', lambda e: (e.widget.tk_focusPrev().focus_set(), 'break')[1])
+        cv.create_window(dp(40), dp(118), window=f, anchor='nw', width=dp(800), height=dp(84), tags='s')
+        txt.key = 'r_text'; txt.enabled = True; self.w['r_text'] = txt
+        self.report_text = keep
+        line = ('Sends logs, settings and PC details to the developer. No names or personal files.' if send else
+                'Saves logs, settings and PC details in one .zip on this PC. Nothing is sent.')
+        t = self.T(40, 220, line, 'small', 'text', anchor='w')
+        x1 = cv.bbox(t)[2] / k.scale
+        self.put(self.link('r_what', 'What\'s included?', self.report_preview, quiet=True, bg='panel', small=True), x1 + 10, 220, anchor='w')
+        y = 248
+        res = r.get('result')
+        if r['busy']:
+            self.T(40, y + 12, 'Sending…' if r['busy'] == 'send' else 'Saving…', 'body', 'text', anchor='w')
+        elif res:
+            self.report_outcome(y, res)
+        elif r['previewing']:
+            self.T(40, y + 12, 'Checking what goes in the report…', 'small', 'muted', anchor='w')
+        elif r['preview'] is not None:
+            items = r['preview']
+            rows = ['%s  %s' % (precheck.short(a, 44), self.kb(n)) for a, n in items[:14]]
+            half = (len(rows) + 1) // 2
+            self.T(52, y, '\n'.join(rows[:half]), 'mono_s', 'muted', width=380)
+            if rows[half:]: self.T(452, y, '\n'.join(rows[half:]), 'mono_s', 'muted', width=380)
+        back = self.link('back', '‹ Back', lambda: self.go(self.report_back), quiet=True, bg='panel')
+        left = [back]
+        if res:
+            prim = self.button('primary', 'DONE', lambda: self.go(self.report_back))
+        else:
+            if send: left.append(self.link('r_save', 'Save a copy instead', lambda: self.do_report(send=False), quiet=True, bg='panel', enabled=not r['busy']))
+            prim = self.button('primary', 'SEND' if send else 'SAVE', lambda: self.do_report(send=send), enabled=not r['busy'])
+        self.footer(left, [prim])
+
+    @staticmethod
+    def kb(n):
+        return '%.1f MB' % (n / 1048576.0) if n >= 1048576 else '%d KB' % max(1, round(n / 1024.0))
+
+    def report_outcome(self, y, res):
+        import report
+        if isinstance(res, Exception):
+            self.strip(y, 'Couldn\'t make the report: %s' % res, bad=True, width=800); return
+        sent = res.get('sent'); folder = Path(res['path']).parent
+        head, body = report.outcome_text(sent, precheck.short(folder, 52))
+        ok = bool(sent and sent.get('ok'))
+        if ok:
+            links = [self.link('r_copy', 'Copy number', lambda: self.copy_text(sent['id']), bg='panel2')]
+        else:
+            links = [self.link('r_folder', 'Open folder', lambda: self.launch('select', res['path']), bg='panel2')]
+            if precheck.MA2_SUPPORT_URL: links.append(self.link('r_issues', 'Issues page', lambda: self.web(precheck.MA2_SUPPORT_URL), bg='panel2'))
+        self.strip(y, head + ' ' + body, bad=bool(sent) and not ok and sent.get('cause') != 'unset', links=links, width=800)
+
+    def copy_text(self, text):
+        self.root.clipboard_clear(); self.root.clipboard_append(text)
+
+    def report_args(self):
+        r = self.rep
+        fail = r['failure'] and self.failed
+        stage = (getattr(self.inst, 'stage', '') or '') if fail else ''
+        failure = ('%s: %s' % self.failed) if fail else ''
+        try:
+            import report
+            sig = report.signature(stage, self.failed[0]) if fail else ''
+        except Exception:
+            sig = ''
+        dest = precheck.remembered_install() or precheck.clean_path(self.dest) or precheck.default_install_folder()
+        return dict(dest=dest, stage=stage, failure=failure, sig=sig, lines=list(self.lines) if fail else None)
+
+    def report_preview(self):
+        """What's included?: the real member list and sizes, from a report bundle made in a temporary folder (deleted again)."""
+        r = self.rep
+        if not r or r['previewing'] or r['busy']: return
+        if getattr(self, 'report_text', None): self.report_text()
+        r['previewing'] = True; self.want_focus = 'r_what'; self.render()
+        a = self.report_args(); gpus = self.facts.get('gpus')
+        def work():
+            import report, tempfile
+            tmp = Path(tempfile.mkdtemp(prefix='ma2-report-preview-'))
+            try:
+                res = report.make_and_send(a['dest'], tmp, r['text'], r['kind'], a['sig'], 'installer', install.PUBLIC_VERSION, install.BUILD, gpus,
+                                           a['stage'], a['failure'], a['lines'], send_it=False)
+                return sorted(res['sizes'].items())
+            finally:
+                shutil.rmtree(tmp, ignore_errors=True)
+        def done(res):
+            r['previewing'] = False
+            r['preview'] = [] if isinstance(res, Exception) else res
+            if isinstance(res, Exception): print('ui: report preview failed: %s' % res, flush=True)
+            if self.screen == 'report': self.want_focus = 'r_what'; self.render()
+        self.bg(work, done)
+
+    def do_report(self, send=True):
+        r = self.rep
+        if not r or r['busy']: return
+        if getattr(self, 'report_text', None): self.report_text()
+        r['busy'] = 'send' if send else 'save'; r['result'] = None; self.render()
+        a = self.report_args(); gpus = self.facts.get('gpus'); text = r['text']; kind = r['kind']
+        out = Path(precheck.diagnostics_dir())
+        def work():
+            out.mkdir(parents=True, exist_ok=True)
+            try:
+                import report
+                return report.make_and_send(a['dest'], out, text, kind, a['sig'], 'installer', install.PUBLIC_VERSION, install.BUILD, gpus,
+                                            a['stage'], a['failure'], a['lines'], send_it=send, log=lambda s: print('ui: ' + s, flush=True))
+            except Exception:
+                print('ui: the report could not be made; Collect diagnostics instead:\n%s' % traceback.format_exc(), flush=True)
+                return ('fallback', precheck.collect_diagnostics(a['dest'], out, install.PUBLIC_VERSION, install.BUILD, gpus, False, False,
+                                                                 a['stage'], a['failure'], a['lines'] or []))
+        def done(res):
+            r['busy'] = None
+            if isinstance(res, tuple) and res and res[0] == 'fallback':
+                if self.screen == 'report': self.report_to_diag(res[1])
+                else: self.diag = {'dump': False, 'rec': False, 'result': res[1], 'busy': False, 'preview': False}
+                return
+            r['result'] = res
+            if isinstance(res, dict):
+                s = res.get('sent')
+                print('ui: report %s (%s)' % (('sent as %s' % s['id']) if s and s.get('ok') else 'saved, not sent: %s' % ((s or {}).get('cause') or 'save only'),
+                                               Path(res['path']).name), flush=True)
+            if self.screen == 'report': self.want_focus = 'primary'; self.render()
         self.bg(work, done)
 
     # -- Uninstall

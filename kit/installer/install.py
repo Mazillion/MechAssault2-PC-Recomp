@@ -1023,6 +1023,45 @@ def tool_job():
     return _TOOL_JOB or None
 _TOOL_JOB = None
 
+class Heartbeat:
+    """1.1.6 (I1): while a tool prints nothing (one big file can compile for 10 minutes on a slow PC), one log line every `every`
+    seconds, so the log and the window's details show the install is alive. It only writes log lines; any error ends its thread
+    quietly (the tool run itself is never touched)."""
+    class _Off:
+        def touch(self): pass
+        def stop(self): pass
+    NONE = _Off()
+
+    def __init__(self, log, what, t0, every):
+        self.log, self.what, self.t0, self.every = log, what, t0, float(every)
+        self.last = time.monotonic(); self.due = self.last + self.every; self.beats = 0
+        self.done = threading.Event()
+        self.thread = threading.Thread(target=self.run, name='heartbeat', daemon=True)
+        self.thread.start()
+
+    def touch(self):
+        """The tool printed a line: the next heartbeat is `every` seconds of silence from now."""
+        self.last = time.monotonic(); self.due = self.last + self.every
+
+    def stop(self):
+        self.done.set()
+
+    def run(self):
+        try:
+            step = max(0.02, min(5.0, self.every / 4.0))
+            while not self.done.wait(step):
+                now = time.monotonic()
+                if now < self.due: continue
+                self.due = now + self.every; self.beats += 1
+                try: free = ', %.1f GB of memory free' % (precheck.memory_info()[1] / GB)
+                except Exception: free = ''
+                if self.done.is_set(): break
+                self.log('  (still working: %s, %s so far; no new output for %s, normal for the biggest files%s)'
+                         % (self.what, duration(now - self.t0), duration(now - self.last), free))
+        except Exception:
+            pass
+
+
 class Installer:
     def __init__(self, xiso, dest, textures=(), videos=False, jobs=None, keep_work=False, allow_cpu=False,
                  log=print, step=lambda *args: None, install_build_tools=False, vs=None, update=False,
@@ -1096,12 +1135,17 @@ class Installer:
             self.proc = subprocess.Popen([str(a) for a in args], **kw)
         t0 = time.monotonic()
         tail = []
-        for raw in self.proc.stdout:
-            line = raw.decode('utf-8', errors='replace').rstrip()
-            if SECRET_LINE.search(line): continue
-            tail = (tail + [line])[-40:]
-            if not quiet_pattern or not re.search(quiet_pattern, line): self.log('  ' + line)
-        code = self.proc.wait(); self.proc = None
+        beat = self.heartbeat(title or Path(str(args[0])).name, t0)      # 1.1.6: a line a minute while the tool prints nothing
+        try:
+            for raw in self.proc.stdout:
+                beat.touch()
+                line = raw.decode('utf-8', errors='replace').rstrip()
+                if SECRET_LINE.search(line): continue
+                tail = (tail + [line])[-40:]
+                if not quiet_pattern or not re.search(quiet_pattern, line): self.log('  ' + line)
+            code = self.proc.wait(); self.proc = None
+        finally:
+            beat.stop()
         self.event('tool', '%s: %s (%s)' % (title or Path(str(args[0])).name, exit_text(code), duration(time.monotonic() - t0)))
         if self.cancelled: raise Stop('Cancelled.', 'cancelled')
         if code:
@@ -1118,6 +1162,17 @@ class Installer:
                 kind, code=code)
             e.tail = tail
             raise e
+
+    HEARTBEAT = 60                                 # seconds without output before a "still working" line (1.1.6)
+
+    def heartbeat(self, what, t0):
+        """A Heartbeat for one tool run (I1), or a do-nothing one if it cannot start (then the run is exactly 1.1.5's)."""
+        try:
+            return Heartbeat(self.log, what, t0, self.HEARTBEAT)
+        except Exception as e:
+            try: self.log('  (no progress heartbeat: %s)' % e)
+            except Exception: pass
+            return Heartbeat.NONE
 
     def toolkit_env(self):
         env = dict(os.environ)
@@ -1142,12 +1197,14 @@ class Installer:
             self._session = open(self.session_log, 'a', encoding='utf-8')
         except OSError:
             self.session_log = None; self._session = None
+        lock = threading.Lock()                      # 1.1.6: the heartbeat thread logs too
         def log(line):
             shown = precheck.redact(line)            # no user name or profile folder in a log file (they get posted)
-            for f in (self._session, self.logfile):
-                if f is not None and not f.closed:
-                    try: f.write(shown + '\n'); f.flush()
-                    except OSError: pass
+            with lock:
+                for f in (self._session, self.logfile):
+                    if f is not None and not f.closed:
+                        try: f.write(shown + '\n'); f.flush()
+                        except (OSError, ValueError): pass
             outer(line)
         self._outer = outer; self.log = log
 
@@ -1296,6 +1353,7 @@ class Installer:
             except ValueError:
                 self.state = {'done': []}
             self.log('Resuming the install in %s (finished steps are kept).' % self.dest)
+            self.note_unclean_end()                # 1.1.6: the last run ended without a stop (power loss, shutdown, killed)?
             if not self.xiso and self.state.get('xiso'): self.xiso = Path(self.state['xiso'])
             if not self.game_installed() and (self.state.get('kit_id') != KIT_ID or
                                                       self.state.get('release') != RELEASE['release_executable_sha256']):
@@ -1334,6 +1392,7 @@ class Installer:
         try:
             self.run_steps()
         except BaseException as e:
+            self.clear_in_progress()               # 1.1.6: a stop (failure, Cancel) is not a power loss
             self.log('INSTALL STOPPED at "%s" (%s): %s' % (self.stage, getattr(e, 'kind', type(e).__name__), e))
             if self.game_installed():
                 # Only optional content failed or was cancelled (or the finishing touches): the game stays installed at this version.
@@ -1354,6 +1413,38 @@ class Installer:
                 shutil.rmtree(self.work, ignore_errors=True)
                 if created and not any(self.dest.iterdir()): self.dest.rmdir()
             raise
+
+    # -- power-loss marker (1.1.6, I3): state.json says which step was running; a stop clears it, so a marker found by the next run
+    #    means that run ended without a stop (power loss, a thermal shutdown, Windows restarting, the process killed). Report only:
+    #    Resume does exactly what it did in 1.1.5.
+    def mark_in_progress(self, name):
+        try:
+            self.state['in_progress'] = name; self.state['in_progress_at'] = time.strftime('%Y-%m-%dT%H:%M:%S')
+            if self.work.is_dir(): self.save()
+        except Exception as e:
+            try: self.log('  (the step marker could not be saved: %s)' % e)
+            except Exception: pass
+
+    def clear_in_progress(self):
+        try:
+            if self.state.pop('in_progress', None) is not None and self.work.is_dir():
+                self.state.pop('in_progress_at', None); self.save()
+        except Exception:
+            pass
+
+    def note_unclean_end(self):
+        try:
+            self.state.pop('last_unclean', None)             # (about the run before this one only)
+            step = self.state.pop('in_progress', None)
+            at = self.state.pop('in_progress_at', '')
+            if not step: return
+            self.state['last_unclean'] = {'step': str(step), 'time': str(at)}
+            self.log('  The last run ended without a stop during "%s" (started %s): power loss, a shutdown or a closed window. '
+                     'Finished steps are kept.' % (step, at or 'at an unknown time'))
+            self.event('unclean', 'the last run ended without a stop during %s' % step)
+        except Exception as e:
+            try: self.log('  (the step marker could not be read: %s)' % e)
+            except Exception: pass
 
     def remember_install(self, **extra):
         r"""%LOCALAPPDATA%\MechAssault2\installer.json names this folder, so the next run can offer Resume or Update.
@@ -1381,11 +1472,13 @@ class Installer:
                 self.stage = name
                 self.state['last_title'], self.state['last_step'] = title, name      # Collect diagnostics names the step that failed
                 skipped = (name in self.state['done'] and name not in ('check', 'finish')) or not self.wanted(name)
+                if not skipped and name != 'finish': self.mark_in_progress(name)    # 1.1.6 power-loss marker (cleared on any stop)
                 self.on_step(index, len(steps), title, name, skipped)
                 if skipped:
                     self.log('[%d/%d] %s: already done' % (index, len(steps), title)); continue
                 self.log('[%d/%d] %s' % (index, len(steps), title))
                 t0 = time.monotonic(); fn()
+                self.state.pop('in_progress', None); self.state.pop('in_progress_at', None)     # (saved with the step's done mark)
                 self.log('    done in %s' % duration(time.monotonic() - t0))
                 if name not in ('check', 'finish'): self.done(name)
                 if name == self.until:
@@ -1762,16 +1855,39 @@ class Installer:
         return False
 
     def lowmem_include(self, root):
-        """The extra CMake argument that passes the low-memory include file, or '' (a normal build)."""
+        """The extra CMake argument that passes the low-memory include file, or '' (a normal build). 1.1.6: the pre-set files
+        (preseed_units) are in it too; the low-memory ladder's own settings win for a file both name."""
         lm = self.state.get('lowmem')
-        if not lm or not lm.get('units'): return ''
+        units = dict(getattr(self, 'preseed', None) or {})
+        if lm and lm.get('units'): units.update(lm['units'])
+        if not units: return ''
         try:
             f = Path(root) / LOWMEM_FILE
-            write_lowmem_cmake(f, lm['units'])
+            write_lowmem_cmake(f, units)
             return ' "-DCMAKE_PROJECT_%s_INCLUDE=%s"' % (LOWMEM_TARGET, f.as_posix())
         except Exception as x:
             self.log('  (the low-memory settings could not be written: %s)' % x)
             return ''
+
+    # 1.1.6 (I2): on a PC with less than 24 GB of RAM installed, the files known to need the most memory start with one code-generation
+    # thread (/cgthreads1, the low-memory ladder's first rung) instead of failing first: recomp_0076.c alone peaks at 32 GB at the
+    # release flags and 6.2 GB with /cgthreads1 (F115 measurements). Below 11.5 GB (the line build_jobs uses) every game file starts
+    # there, as the ladder does after its first out-of-memory stop. Not recorded as a low-memory build (the stamp keeps meaning
+    # "optimisation was reduced or memory ran short").
+    PRESEED_FILES = ('src/recomp/gen/recomp_0076.c', 'src/recomp/gen/recomp_0101.c', 'src/recomp/gen/recomp_0025.c',
+                     'src/recomp/gen/recomp_0024.c', 'src/recomp/gen/recomp_0047.c', 'src/recomp/gen/recomp_0022.c')
+    PRESEED_RAM = 24 * GB                          # installed RAM below this: the heavy files
+    PRESEED_ALL = 11.5 * GB                        # usable RAM below this: every game file
+
+    def preseed_units(self, game, build, total):
+        """{unit: ['/cgthreads1']} to pre-set for this PC ({} on PCs with 24 GB or more: their build is exactly 1.1.5's). `total`: the
+        usable RAM build() already read (memory_info); the installed RAM decides first."""
+        installed = precheck.installed_memory()
+        if (installed or total) >= (self.PRESEED_RAM if installed else self.PRESEED_RAM - 1.5 * GB): return {}
+        game = Path(game)
+        if total < self.PRESEED_ALL: units = lowmem_unbuilt(game, build)
+        else: units = [u for u in self.PRESEED_FILES if (game / u).is_file()]
+        return {u: list(LOWMEM_ALL) for u in units}
 
     def lowmem_next(self, e, game, build, root):
         """After an out-of-memory stop with one parallel compile: the next lighter settings (see LOWMEM_ALL / LOWMEM_STEPS). True = build
@@ -1779,12 +1895,15 @@ class Installer:
         try:
             lm = dict(self.state.get('lowmem') or {})
             units = dict(lm.get('units') or {})
+            what = None
             if not lm.get('started'):
                 todo = lowmem_unbuilt(game, build)
                 if not todo: return False                    # every game file is compiled: the link or a runtime library ran short
+                pre = getattr(self, 'preseed', None) or {}
                 for u in todo: units[u] = list(LOWMEM_ALL)
-                what = '%d file(s) not compiled yet use one code-generation thread (%s)' % (len(todo), ' '.join(LOWMEM_ALL))
-            else:
+                if not all(pre.get(u) == list(LOWMEM_ALL) for u in todo):     # (1.1.6: already pre-set: straight to the next rung)
+                    what = '%d file(s) not compiled yet use one code-generation thread (%s)' % (len(todo), ' '.join(LOWMEM_ALL))
+            if what is None:
                 changed = []
                 for u in lowmem_failed_units(getattr(e, 'tail', None), game):
                     i = lowmem_step_of(units.get(u) or list(LOWMEM_ALL)) + 1
@@ -1895,6 +2014,17 @@ class Installer:
         if self.state.get('oom_jobs'): jobs = max(1, min(jobs, self.state['oom_jobs']))      # an earlier attempt ran out of memory
         if avail < 6 * GB: self.log('  only %.1f GB of memory is free; close other programs if the build fails' % (avail / GB))
         self.log('  %d parallel compiles (%d CPU threads, %.0f GB RAM); usually 5-40 minutes' % (jobs, cpus, total / GB))
+        self.preseed = {}
+        if not kept and not (self.state.get('lowmem') or {}).get('units'):
+            try:
+                self.preseed = self.preseed_units(src / 'game', build, total)
+                if self.preseed:
+                    self.log('  %d file(s) start with one code-generation thread (%s): less memory, the same code (this PC has %.0f GB RAM)'
+                             % (len(self.preseed), ' '.join(LOWMEM_ALL), (precheck.installed_memory() or total) / GB))
+                    self.event('build', 'pre-set %s for %d file(s)' % (' '.join(LOWMEM_ALL), len(self.preseed)))
+            except Exception as x:                 # never worse than 1.1.5: the release settings for every file
+                self.preseed = {}
+                self.log('  (the pre-set low-memory settings are not used: %s)' % x)
         env = dict(os.environ)                     # vcvars64.bat looks for vswhere.exe on PATH
         env['PATH'] = str(Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')) /
                           'Microsoft Visual Studio' / 'Installer') + os.pathsep + env.get('PATH', '')
@@ -2363,7 +2493,7 @@ def main():
     ap.add_argument('--uninstall', action='store_true', help='remove the install in --dest: its shortcuts, the folder, the shader and route caches (needs --yes)')
     ap.add_argument('--delete-user-data', action='store_true', help='with --uninstall: also delete your settings and saves (%%LOCALAPPDATA%%\\MechAssault2)')
     ap.add_argument('--diagnostics', action='store_true', help='write MA2-diagnostics-<time>.zip (logs, settings, system facts) to the Desktop for a problem report')
-    ap.add_argument('--include-dump', action='store_true', help='with --diagnostics: include the newest crash or hang dump (it can contain folder names and your user name)')
+    ap.add_argument('--include-dump', action='store_true', help='with --diagnostics: include the newest crash or hang dump (user, machine and profile folder names in it are overwritten)')
     ap.add_argument('--include-botrec', action='store_true', help='with --diagnostics: include the newest bot match recording')
     ap.add_argument('--yes', action='store_true', help='with --uninstall: do not stop to ask')
     ap.add_argument('--until', help=argparse.SUPPRESS)   # stop after a step, e.g. patch (generated sources only)

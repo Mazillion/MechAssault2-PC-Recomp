@@ -80,9 +80,40 @@ static FILE *g_log = nullptr;
 static std::wstring g_profile;
 static std::wstring g_log_path;            // this run's stub log (the start-up report copies it)
 
+// 1.1.6: the profile folder (any case) becomes %USERPROFILE%, and the user, machine and domain names (whole words, 3 characters or
+// more, any case) become %USERNAME% / %COMPUTERNAME% / %USERDOMAIN%, as the installer's redact() does for everything else.
+static void replace_ci(std::wstring &text, const std::wstring &value, const wchar_t *repl, bool word) {
+    if (value.size() < (word ? 3u : 4u)) return;
+    std::wstring low = text, v = value;
+    for (auto &c : low) c = towlower(c);
+    for (auto &c : v) c = towlower(c);
+    std::wstring out; size_t from = 0;
+    for (size_t at; (at = low.find(v, from)) != std::wstring::npos;) {
+        bool edge = !word || ((at == 0 || !(iswalnum(low[at - 1]) || low[at - 1] == L'_' || low[at - 1] == L'%')) &&
+                              (at + v.size() >= low.size() || !(iswalnum(low[at + v.size()]) || low[at + v.size()] == L'_' || low[at + v.size()] == L'%')));
+        out.append(text, from, at - from);
+        if (edge) out += repl; else out.append(text, at, v.size());
+        from = at + v.size();
+    }
+    out.append(text, from, std::wstring::npos);
+    text.swap(out);
+}
+
+static std::wstring env_value(const wchar_t *name) {
+    wchar_t buf[512]; DWORD n = GetEnvironmentVariableW(name, buf, 512);
+    return (n && n < 512) ? std::wstring(buf, n) : std::wstring();
+}
+
+static void hide_private(std::wstring &text) {
+    replace_ci(text, g_profile, L"%USERPROFILE%", false);
+    static const wchar_t *names[] = {L"USERNAME", L"COMPUTERNAME", L"USERDOMAIN"};
+    static const wchar_t *repls[] = {L"%USERNAME%", L"%COMPUTERNAME%", L"%USERDOMAIN%"};
+    for (int i = 0; i < 3; i++) replace_ci(text, env_value(names[i]), repls[i], true);
+}
+
 static void slog(std::wstring line) {
     if (!g_log) return;
-    for (size_t at; !g_profile.empty() && (at = line.find(g_profile)) != std::wstring::npos;) line.replace(at, g_profile.size(), L"%USERPROFILE%");
+    hide_private(line);
     SYSTEMTIME st; GetLocalTime(&st);
     fwprintf(g_log, L"%02d:%02d:%02d %ls\n", st.wHour, st.wMinute, st.wSecond, line.c_str()); fflush(g_log);
 }
@@ -154,7 +185,7 @@ static std::wstring export_startup_logs(const std::wstring &why) {
             }
         }
         if (!newest.empty()) text += L"\n--- " + newest.filename().wstring() + L" (end) ---\n" + read_tail_utf8(newest, 64 * 1024);
-        for (size_t at; !g_profile.empty() && (at = text.find(g_profile)) != std::wstring::npos;) text.replace(at, g_profile.size(), L"%USERPROFILE%");
+        hide_private(text);
         SYSTEMTIME st; GetLocalTime(&st); wchar_t name[64];
         swprintf(name, 64, L"MA2-startup-%04d%02d%02d-%02d%02d%02d.txt", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
         fs::path out = base / L"Diagnostics" / name;

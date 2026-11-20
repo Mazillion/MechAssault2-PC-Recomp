@@ -444,6 +444,52 @@ def on_battery():
     p = P()
     return bool(ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(p))) and p.ac == 0 and p.flag != 128
 
+def power_status():
+    """{'ac': 'on'|'off'|'unknown', 'battery': True|False|None (a battery is present: the game's own laptop test, pc_storage.c),
+    'percent': 0-100|None, 'saver': True|False}, from GetSystemPowerStatus; None if Windows does not answer. Diagnostics and the
+    installer's gentler default only."""
+    class P(ctypes.Structure):
+        _fields_ = [('ac', ctypes.c_ubyte), ('flag', ctypes.c_ubyte), ('pct', ctypes.c_ubyte), ('saver', ctypes.c_ubyte),
+                    ('life', ctypes.c_ulong), ('full', ctypes.c_ulong)]
+    p = P()
+    if not ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(p)): return None
+    return {'ac': {0: 'off', 1: 'on'}.get(p.ac, 'unknown'), 'battery': None if p.flag == 255 else p.flag != 128,
+            'percent': None if p.pct == 255 else int(p.pct), 'saver': p.saver == 1}
+
+def cpu_model():
+    """The processor's name as Windows reports it (ProcessorNameString), else platform.processor(), else ''."""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'HARDWARE\DESCRIPTION\System\CentralProcessor\0') as k:
+            return ' '.join(str(winreg.QueryValueEx(k, 'ProcessorNameString')[0]).split())
+    except Exception:
+        try:
+            import platform
+            return platform.processor() or ''
+        except Exception:
+            return ''
+
+def memory_status():
+    """{'total', 'avail', 'commit_limit', 'commit_free', 'load'} in bytes / percent (GlobalMemoryStatusEx), or None."""
+    class S(ctypes.Structure):
+        _fields_ = [('length', ctypes.c_ulong), ('load', ctypes.c_ulong), ('total', ctypes.c_ulonglong), ('avail', ctypes.c_ulonglong),
+                    ('pt', ctypes.c_ulonglong), ('pa', ctypes.c_ulonglong), ('vt', ctypes.c_ulonglong), ('va', ctypes.c_ulonglong),
+                    ('ve', ctypes.c_ulonglong)]
+    s = S(); s.length = ctypes.sizeof(S)
+    if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(s)): return None
+    return {'total': s.total, 'avail': s.avail, 'commit_limit': s.pt, 'commit_free': s.pa, 'load': s.load}
+
+def installed_memory():
+    """The RAM physically installed (bytes; a 16 GB PC says exactly 16 GB, unlike memory_info's usable total), or None when Windows
+    cannot tell (some VMs): then memory_info's total stands in. Decides the 1.1.6 pre-set build settings (Installer.preseed_units)."""
+    try:
+        kb = ctypes.c_ulonglong(0)
+        if ctypes.windll.kernel32.GetPhysicallyInstalledSystemMemory(ctypes.byref(kb)) and kb.value:
+            return kb.value * 1024
+    except Exception:
+        pass
+    return None
+
 def smart_app_control():
     """'enforce', 'eval', 'off' or None (not present), from the Code Integrity policy key."""
     try:
@@ -698,11 +744,89 @@ def redact(text):
             text = re.sub(re.escape(value) + r'(?=$|[\\/"\s\'])', lambda m, t='%' + var + '%': t, text, flags=re.I)
     # any other profile folder (another account, a moved LOCALAPPDATA): keep the drive, drop the name
     text = re.sub(r'(?i)\b([A-Z]:[\\/]Users[\\/])(?!Public(?=[\\/"]|$)|<user>)[^\\/"\r\n]+', lambda m: m.group(1) + '<user>', text)
-    value = os.environ.get('USERNAME')
-    if value and len(value) > 2:
-        text = re.sub(r'(?<![\w%])' + re.escape(value) + r'(?![\w%])', '%USERNAME%', text, flags=re.I)
+    for var in ('USERNAME', 'COMPUTERNAME', 'USERDOMAIN'):      # 1.1.6: the machine (and domain) name too, as tools/privacy_scan.py checks
+        value = os.environ.get(var)
+        if value and len(value) > 2:
+            text = re.sub(r'(?<![\w%])' + re.escape(value) + r'(?![\w%])', lambda m, t='%' + var + '%': t, text, flags=re.I)
     for pattern, repl in REDACT: text = pattern.sub(repl, text)       # network hosts, URL queries, credentials
+    text = EMAIL.sub('<email>', text)                                   # 1.1.6: e-mail addresses (after user:password@ above)
     return text
+
+EMAIL = re.compile(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z0-9.-]*[A-Za-z]{2,}')
+
+# ---------------------------------------------------------------------------- binary scrub (1.1.6: dumps in a sent report)
+
+def private_names():
+    """The values a binary file in a report must not carry, longest first: the profile folders, the user, machine and domain names."""
+    out = []
+    for var in ('LOCALAPPDATA', 'APPDATA', 'USERPROFILE'):
+        v = (os.environ.get(var) or '').rstrip('\\/')
+        if len(v) > 3: out.append(v)
+    for var in ('USERNAME', 'COMPUTERNAME', 'USERDOMAIN'):
+        v = os.environ.get(var) or ''
+        if len(v) > 2: out.append(v)
+    seen, uniq = set(), []
+    for v in sorted(out, key=len, reverse=True):
+        if v.lower() not in seen: seen.add(v.lower()); uniq.append(v)
+    return uniq
+
+def _ci_pattern(value, encoding, bounded=False):
+    """A bytes regex for `value` in `encoding`, case-insensitive per character (works for non-ASCII letters and UTF-16LE)."""
+    parts = []
+    for ch in value:
+        alts = {ch, ch.lower(), ch.upper()}
+        enc = []
+        for a in sorted(alts):
+            try: b = a.encode(encoding)
+            except (UnicodeEncodeError, LookupError): continue
+            if len(a) == 1 and b not in enc: enc.append(b)
+        if not enc: return None
+        parts.append(b'(?:' + b'|'.join(re.escape(b) for b in enc) + b')')
+    body = b''.join(parts)
+    if bounded:                    # a name, not a path: only as a whole word (user32.dll stays readable for a user named "user")
+        if encoding == 'utf-16-le': body = rb'(?<![A-Za-z0-9]\x00)' + body + rb'(?![A-Za-z0-9]\x00)'
+        else: body = rb'(?<![A-Za-z0-9])' + body + rb'(?![A-Za-z0-9])'
+    return re.compile(body)
+
+EMAIL_UTF16 = re.compile(rb'(?:[A-Za-z0-9._%+-]\x00)+@\x00(?:[A-Za-z0-9-]\x00)+\.\x00(?:[A-Za-z0-9.-]\x00)*(?:[A-Za-z]\x00){2,}')
+EMAIL_BYTES = re.compile(EMAIL.pattern.encode('ascii'))
+
+# any profile folder name after X:\Users\ (8.3 short names such as JOHNSM~1, another account), except Public / Default / All Users
+_USERS_SKIP = ('public', 'default', 'all users', 'xxx')
+USERS_BYTES = re.compile(rb'(?i)([A-Z]:[\\/]Users[\\/])([^\\/\x00"<>|*?\r\n]{1,64}?)(?=[\\/\x00"])')
+USERS_UTF16 = re.compile(rb'(?i)([A-Z]\x00:\x00[\\/]\x00U\x00s\x00e\x00r\x00s\x00[\\/]\x00)((?:(?![\\/"]\x00)[^\x00]\x00|[^\x00][^\x00]){1,64}?)(?=[\\/"]\x00|\x00\x00)')
+
+def _same_length(n, wide):
+    return (b'x\x00' * (n // 2) + b'x' * (n % 2)) if wide else b'x' * n
+
+def scrub_bytes(data, names=None):
+    """Replace the user name, machine name and profile folders (UTF-8, the ANSI code page and UTF-16LE, any case), any other
+    X:\\Users\\<name> folder name and e-mail addresses in binary data with the same number of 'x' bytes (UTF-16: 'x' characters), so
+    every offset in a crash dump stays valid. Names count only as whole words (a user called "user" leaves user32.dll alone).
+    Returns (new bytes, number of replacements)."""
+    data = bytes(data); count = 0
+    def sub(rx, data, wide, users=False):
+        def repl(m):
+            nonlocal count
+            if users:
+                name = m.group(2).decode('utf-16-le' if wide else 'latin-1', 'replace').lower()
+                if name in _USERS_SKIP or set(name) <= {'x', '%'}: return m.group(0)
+                count += 1                 # '%' first: reads as a placeholder (privacy_scan skips Users\%...); same length
+                return m.group(1) + (b'%\x00' if wide else b'%') + _same_length(len(m.group(2)) - (2 if wide else 1), wide)
+            count += 1
+            return _same_length(m.end() - m.start(), wide)
+        return rx.sub(repl, data)
+    for value in (private_names() if names is None else names):
+        path = '\\' in value or '/' in value
+        for enc in ('utf-16-le', 'utf-8', 'mbcs'):
+            try: rx = _ci_pattern(value, enc, bounded=not path)
+            except Exception: rx = None
+            if rx is not None: data = sub(rx, data, enc == 'utf-16-le')
+    data = sub(USERS_UTF16, data, True, users=True)
+    data = sub(USERS_BYTES, data, False, users=True)
+    data = sub(EMAIL_UTF16, data, True)
+    data = sub(EMAIL_BYTES, data, False)
+    return data, count
 
 def support_bundle(lines, stage='', hide_user=True, version='', kit_id='', gpus=None, vs=''):
     w = windows_info(); total, avail = memory_info()
@@ -807,22 +931,141 @@ def diagnostics_facts(dest, state=None, gpus=None):
         if low:                                    # 1.1.5 low-memory build: which files got which lighter settings
             lighter = ['%s %s' % (u, ' '.join(f for f in fl if f != '/cgthreads1')) for u, fl in sorted(low.items()) if len(fl) > 1]
             lines.append('Low-memory build: %d file(s) with /cgthreads1%s' % (len(low), '; lighter: ' + ', '.join(lighter[:20]) if lighter else ''))
-    for fn in (basics, drives, adapters, security, downloads, history): part(fn)
+        else:                                      # 1.1.6: a finished install has no state.json any more: its stamp records it
+            rec = (read_stamp(dest) or {}).get('low_memory_build') if dest else None
+            if isinstance(rec, dict):
+                lighter = rec.get('lighter_optimisation') or {}
+                lines.append('Low-memory build: %s file(s) with /cgthreads1%s (from %s)' % (rec.get('one_codegen_thread', '?'),
+                             '; lighter: ' + ', '.join('%s %s' % kv for kv in sorted(lighter.items())[:20]) if lighter else '', STAMP))
+    def hardware():                                # 1.1.6: CPU model, free memory and commit, power state
+        lines.append('CPU: %s, %d threads' % (cpu_model() or 'unknown', os.cpu_count() or 0))
+        m = memory_status()
+        if m: lines.append('Memory: %.1f GB, %.1f GB free (%d%% in use); commit limit %.1f GB, %.1f GB free' % (
+            m['total'] / GB, m['avail'] / GB, m['load'], m['commit_limit'] / GB, m['commit_free'] / GB))
+        inst = installed_memory()
+        if inst: lines.append('Installed RAM: %.0f GB' % (inst / GB))
+        p = power_status()
+        if p: lines.append('Power: mains %s; battery %s%s; battery saver %s' % (p['ac'], {True: 'present', False: 'none', None: 'unknown'}[p['battery']],
+                           ' (%d%%)' % p['percent'] if p['battery'] and p['percent'] is not None else '', 'on' if p['saver'] else 'off'))
+    def unclean():                                 # 1.1.6 power-loss marker (install.py): the last run ended without a stop
+        if not isinstance(state, dict): return
+        u = state.get('last_unclean') or ({'step': state['in_progress'], 'time': state.get('in_progress_at', '')} if state.get('in_progress') else None)
+        if isinstance(u, dict) and u.get('step'):
+            lines.append('Last run: ended without a stop (power loss, shutdown or a closed window) during %s%s'
+                         % (u['step'], ' (started %s)' % u['time'] if u.get('time') else ''))
+    for fn in (basics, hardware, drives, adapters, security, downloads, history, unclean): part(fn)
     return lines
 
-def collect_diagnostics(dest, out_dir, version='', kit_id='', gpus=None, include_dump=False, include_botrec=False, stage='', failure='', log_lines=None):
-    r"""Write MA2-diagnostics-<time>.zip into out_dir (the Desktop) with what a developer needs and nothing else:
-    recomp-install.json, the live pc_settings.ini, the newest three game logs, the newest installer log(s), system.txt (the support-bundle header, graphics
-    cards, screen size, the state of an unfinished install). Every text file goes through redact() (user name and profile folder). Only if asked: the newest
-    crash or hang dump under 50 MB (binary, NOT redacted: it can hold folder names and the Windows user name) and the newest bot recording.
+SUMMARY_SETTINGS = (('Display', ('WindowWidth', 'WindowHeight', 'Fullscreen', 'VSync', 'FrameLimit', 'TextureQuality', 'FMVQuality',
+                                 'PreloadShaders')), ('Audio', ('Enabled', 'Threads')), ('Bots', ('BotRecorder',)))
+
+def _ini_values(path):
+    """{(section, key): value} for the keys report_summary names (plain values only)."""
+    out, sec = {}, ''
+    try: text = Path(path).read_text(encoding='utf-8', errors='replace')
+    except OSError: return out
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith('[') and line.endswith(']'): sec = line[1:-1].strip(); continue
+        if '=' in line and not line.startswith((';', '#')):
+            k, v = line.split('=', 1); out[(sec, k.strip())] = v.strip()[:40]
+    return out
+
+def _game_log_lines(log, patterns=('[HEALTH]', '[CRASH]', '[HANG]', '[LAUNCH]')):
+    """The newest line of each kind in a game log (read from the end, at most 4 MB)."""
+    found = {}
+    try:
+        with open(log, 'rb') as f:
+            f.seek(0, 2); size = f.tell(); f.seek(max(0, size - (4 << 20)))
+            text = f.read().decode('utf-8', 'replace')
+    except OSError:
+        return found
+    for line in reversed(text.splitlines()):
+        for p in patterns:
+            if p not in found and p in line: found[p] = line.strip()[:240]
+        if len(found) == len(patterns): break
+    return found
+
+def report_summary(dest, state=None, version='', kit_id='', gpus=None, stage='', failure='', kind=''):
+    """About 15 plain lines for a problem report (the issue text): version and build, Windows, CPU, memory, power, graphics, the
+    install record, a few settings, the failure, the newest [HEALTH] / [CRASH] / [HANG] lines of the newest game log. Every line goes
+    through redact(); a part that fails is left out."""
+    out = []
+    def part(fn):
+        try: fn()
+        except Exception as e: out.append('(%s: %s)' % (getattr(fn, '__name__', 'part'), type(e).__name__))
+    dest = Path(dest) if dest else None
+    try: stamp = read_stamp(dest) if dest else None
+    except Exception: stamp = None
+    def ident():
+        out.append('MechAssault 2 Recomp %s (build %s)%s' % (version or '-', kit_id or '-', ' | report: %s' % kind if kind else ''))
+        if isinstance(stamp, dict): out.append('Installed: %s (kit %s)' % (stamp.get('public_version') or stamp.get('version') or '?', stamp.get('kit_id') or '?'))
+        else: out.append('Installed: nothing finished in the install folder')
+    def system():
+        w = windows_info()
+        out.append('Windows build %s (%s)%s' % (w.get('build'), native_arch() or '?', '' if w.get('ok', True) else ', not supported'))
+        out.append('CPU: %s, %d threads' % (cpu_model() or 'unknown', os.cpu_count() or 0))
+        m = memory_status() or {}
+        if m: out.append('Memory: %.1f GB, %.1f GB free; commit limit %.1f GB, %.1f GB free' % (m['total'] / GB, m['avail'] / GB, m['commit_limit'] / GB, m['commit_free'] / GB))
+        p = power_status()
+        if p: out.append('Power: mains %s, battery %s%s' % (p['ac'], {True: 'present', False: 'none', None: 'unknown'}[p['battery']], ', saver on' if p['saver'] else ''))
+    def graphics():
+        gs = gpus if gpus is not None else detect_gpus()
+        out.append('GPU: %s' % ('; '.join('%s %.0f GB%s' % (g.get('name'), (g.get('vram') or 0) / GB, ', driver %s' % g['driver'] if g.get('driver') else '') for g in gs) or '-'))
+    def build():
+        rec = (stamp or {}).get('low_memory_build') if isinstance(stamp, dict) else None
+        low = ((state or {}).get('lowmem') or {}).get('units') if isinstance(state, dict) else None
+        if low: out.append('Low-memory build: %d file(s) so far (unfinished install)' % len(low))
+        elif isinstance(rec, dict): out.append('Low-memory build: %s file(s) with /cgthreads1, lighter: %s' % (rec.get('one_codegen_thread'), ', '.join(sorted(rec.get('lighter_optimisation') or {})) or 'none'))
+        else: out.append('Low-memory build: no')
+    def settings():
+        vals = _ini_values(local_dir() / 'pc_settings.ini')
+        if not vals: out.append('Settings: none yet (the game has not been started)'); return
+        for sec, keys in SUMMARY_SETTINGS:
+            got = ['%s=%s' % (k, vals[(sec, k)]) for k in keys if (sec, k) in vals]
+            if got: out.append('[%s] %s' % (sec, ' '.join(got)))
+    def failed():
+        if failure or stage: out.append('Failure: %s%s' % (('%s: ' % stage) if stage else '', str(failure).split('\n')[0][:300]))
+        if isinstance(state, dict):
+            done = [s for s in (state.get('done') or []) if isinstance(s, str) and s != 'check']
+            out.append('Unfinished install: %d step(s) done, last step %s' % (len(done), state.get('last_step') or '-'))
+            u = state.get('last_unclean') or ({'step': state['in_progress']} if state.get('in_progress') else None)
+            if isinstance(u, dict) and u.get('step'): out.append('Last run: ended without a stop during %s' % u['step'])
+    def game():
+        logs = logs_dir()
+        own = ('install-', 'installer-ui-', 'buildtools-', 'stub-', 'downloads')
+        cands = sorted((f for f in logs.glob('*.log') if not f.name.startswith(own) and f.is_file()), key=lambda f: f.stat().st_mtime, reverse=True) if logs.is_dir() else []
+        if not cands: out.append('Game log: none'); return
+        found = _game_log_lines(cands[0])
+        out.append('Game log: %s' % cands[0].name)
+        for p in ('[HEALTH]', '[CRASH]', '[HANG]'):
+            if p in found: out.append(found[p])
+    for fn in (ident, system, graphics, build, settings, failed, game): part(fn)
+    return [redact(l) for l in out]
+
+MB = 1024 * 1024
+DUMP_LIMIT = 50 * MB             # Collect diagnostics (saved on this PC)
+REPORT_DUMP_LIMIT = 15 * MB      # a sent report
+REPORT_MAX_BYTES = 20 * MB       # a sent report's zip, at most (the relay takes 25 MB)
+
+def collect_diagnostics(dest, out_dir, version='', kit_id='', gpus=None, include_dump=False, include_botrec=False, stage='', failure='', log_lines=None,
+                        scrub=True, dump_limit=DUMP_LIMIT, max_bytes=None, text='', name_prefix='MA2-diagnostics'):
+    r"""Write MA2-diagnostics-<time>.zip into out_dir with what a developer needs and nothing else (the window saves it in
+    %LOCALAPPDATA%\MechAssault2\Diagnostics, the command line's --diagnostics on the Desktop): recomp-install.json, the live pc_settings.ini,
+    the newest three game logs, the newest installer log(s), system.txt (the support-bundle header, PC facts, graphics cards, screen size,
+    the state of an unfinished install). Every text file goes through redact() (user, machine and domain names, profile folders, e-mail
+    addresses). Only if asked: the newest crash or hang dump up to `dump_limit` (1.1.6: with `scrub`, the user, machine and profile
+    names in it are overwritten with the same number of x bytes; if that fails the dump is left out) and the newest bot recording
+    (compressed: it cannot be scrubbed, so a sent report never asks for it). `text`: the player's own words (what-happened.txt).
+    `max_bytes`: a zip larger than this drops the bot recording, then the dump, and says so in system.txt.
     Works with nothing installed (dest missing or empty): then the zip holds system.txt and whatever logs and settings exist, and system.txt says what was not found.
     A failed install passes `stage` (the step that failed), `failure` (the reason) and `log_lines` (the last lines the window showed).
-    Returns {'path', 'members', 'notes'}."""
+    Returns {'path', 'members', 'notes', 'sizes' (member -> bytes before compression), 'dropped' (members left out for size)}."""
     dest = Path(dest); out_dir = Path(out_dir)
     logs = logs_dir(); notes = []
     newest = lambda files, n=1: sorted((f for f in files if f.is_file()), key=lambda f: f.stat().st_mtime, reverse=True)[:n]
     own = ('install-', 'installer-ui-', 'buildtools-', 'stub-', 'downloads')    # downloads.log: summarised in system.txt
-    text_members, file_members = {}, {}
+    text_members, file_members, bin_members = {}, {}, {}
     def add_text(arc, path):
         try: text_members[arc] = redact(Path(path).read_text(encoding='utf-8', errors='replace'))
         except OSError as e: notes.append('%s could not be read (%s)' % (arc, e.strerror or e))
@@ -839,33 +1082,47 @@ def collect_diagnostics(dest, out_dir, version='', kit_id='', gpus=None, include
     if include_dump and logs.is_dir():
         dumps = newest(list(logs.glob('crash-*.dmp')) + list(logs.glob('hang-*.dmp')))
         if not dumps: notes.append('a dump was asked for but none exists')
-        elif dumps[0].stat().st_size > 50 * 1024 * 1024: notes.append('%s skipped: larger than 50 MB' % dumps[0].name)
+        elif dumps[0].stat().st_size > dump_limit: notes.append('%s skipped: larger than %d MB' % (dumps[0].name, dump_limit // MB))
+        elif scrub:
+            try:
+                data, n = scrub_bytes(Path(dumps[0]).read_bytes())
+                bin_members['dumps/' + dumps[0].name] = data
+                notes.append('%s: %d private name(s) or folder(s) overwritten (same length)' % (dumps[0].name, n))
+            except Exception as e:                 # never send what could not be checked
+                notes.append('%s left out: it could not be checked for private data (%s)' % (dumps[0].name, type(e).__name__))
         else: file_members['dumps/' + dumps[0].name] = dumps[0]
     if include_botrec and logs.is_dir():
         rec = newest(list(logs.glob('*.botrec')))
         if rec: file_members['botrec/' + rec[0].name] = rec[0]
         else: notes.append('a bot recording was asked for but none exists')
+    if text and str(text).strip():
+        text_members['what-happened.txt'] = redact(str(text).strip()[:2000]) + '\n'
     state = read_state(dest) if dest.is_dir() else None          # an unfinished install: how far it got (the disc path inside is not copied)
     known = read_json(local_dir() / 'installer.json'); known = known if isinstance(known, dict) else {}
     vs = (state or {}).get('toolchain') if isinstance(state, dict) else None
     head = support_bundle([], stage or (isinstance(state, dict) and state.get('last_title')) or '', True, version, kit_id,
                           gpus if gpus is not None else detect_gpus(), vs or known.get('toolchain') or '').split('\n\nLast log lines:')[0]
-    lines = [head, 'Screen: %s' % _screen_size(), 'Install folder: %s' % redact(str(dest)), 'Included: %s' % ', '.join(sorted(list(text_members) + list(file_members)) + ['system.txt'])]
-    if failure: lines.append('Failure: %s' % redact(str(failure)))
-    if isinstance(state, dict):
-        done = [s for s in (state.get('done') or []) if isinstance(s, str) and s != 'check']
-        lines.append('Unfinished install: %d step(s) finished (%s); last step: %s' % (len(done), ', '.join(done) or '-', redact(str(state.get('last_title') or 'unknown'))))
-    lines += ['Note: %s' % n for n in notes]
-    try: lines += diagnostics_facts(dest, state, gpus)               # 1.1.4 facts; any failure leaves them out
-    except Exception: pass
-    if log_lines: lines += ['', 'Last log lines:'] + [redact(str(l)) for l in list(log_lines)[-80:]]
-    text_members['system.txt'] = redact('\n'.join(lines) + '\n')            # the notes name folders under the profile too
+    try: facts = diagnostics_facts(dest, state, gpus)               # 1.1.4 facts (+ 1.1.6 lines); any failure leaves them out
+    except Exception: facts = []
+    def system_txt():
+        members = sorted(list(text_members) + list(file_members) + list(bin_members))
+        lines = [head, 'Screen: %s' % _screen_size(), 'Install folder: %s' % redact(str(dest)), 'Included: %s' % ', '.join([m for m in members if m != 'system.txt'] + ['system.txt'])]
+        if failure: lines.append('Failure: %s' % redact(str(failure)))
+        if isinstance(state, dict):
+            done = [s for s in (state.get('done') or []) if isinstance(s, str) and s != 'check']
+            lines.append('Unfinished install: %d step(s) finished (%s); last step: %s' % (len(done), ', '.join(done) or '-', redact(str(state.get('last_title') or 'unknown'))))
+        lines.extend('Note: %s' % n for n in notes)
+        lines.extend(facts)
+        if log_lines: lines.extend(['', 'Last log lines:'] + [redact(str(l)) for l in list(log_lines)[-80:]])
+        return redact('\n'.join(lines) + '\n')            # the notes name folders under the profile too
     import zipfile
-    name = 'MA2-diagnostics-%s.zip' % time.strftime('%Y%m%d-%H%M%S')
+    name = '%s-%s.zip' % (name_prefix, time.strftime('%Y%m%d-%H%M%S'))
     def write(folder):
+        text_members['system.txt'] = system_txt()
         folder.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(folder / name, 'w', zipfile.ZIP_DEFLATED) as z:
-            for arc, text in sorted(text_members.items()): z.writestr(arc, text.encode('utf-8'))
+            for arc, t in sorted(text_members.items()): z.writestr(arc, t.encode('utf-8'))
+            for arc, data in sorted(bin_members.items()): z.writestr(arc, data)
             for arc, f in sorted(file_members.items()): z.write(f, arc)
         return folder / name
     try:
@@ -873,7 +1130,22 @@ def collect_diagnostics(dest, out_dir, version='', kit_id='', gpus=None, include
     except PermissionError:                     # Controlled Folder Access (or similar) guards the Desktop: our own folder instead
         try: (out_dir / name).unlink()
         except OSError: pass
+        notes.append('the Desktop could not be written to (Controlled Folder Access?), so the zip was saved in %s' % redact(str(local_dir() / 'Diagnostics')))
         zip_path = write(local_dir() / 'Diagnostics')
-        notes.append('the Desktop could not be written to (Controlled Folder Access?), so the zip was saved in %s' % redact(str(zip_path.parent)))
-    return {'path': zip_path, 'members': sorted(list(text_members) + list(file_members)), 'notes': notes}
+    dropped = []
+    if max_bytes:                               # a report has a size limit: the bot recording goes first, then the dump
+        for prefix in ('botrec/', 'dumps/'):
+            if zip_path.stat().st_size <= max_bytes: break
+            for d in (file_members, bin_members):
+                for arc in [a for a in d if a.startswith(prefix)]:
+                    del d[arc]; dropped.append(arc)
+                    notes.append('%s left out: the report would be larger than %d MB' % (arc, max_bytes // MB))
+            if dropped: zip_path = write(zip_path.parent)
+    sizes = {arc: len(t.encode('utf-8')) for arc, t in text_members.items()}
+    sizes.update({arc: len(b) for arc, b in bin_members.items()})
+    for arc, f in file_members.items():
+        try: sizes[arc] = Path(f).stat().st_size
+        except OSError: sizes[arc] = 0
+    return {'path': zip_path, 'members': sorted(list(text_members) + list(file_members) + list(bin_members)), 'notes': notes,
+            'sizes': sizes, 'dropped': dropped}
 

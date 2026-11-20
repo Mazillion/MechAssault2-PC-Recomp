@@ -819,6 +819,162 @@ def scenario_eta():
     check('eta: never goes up (stretches), goes down at once', a == 600 or abs(a - 600) < 2 and b <= a and c <= 301, (a, b, c))
     app.model = None; root.destroy()
 
+def scenario_overrun():
+    """1.1.6 (I1): an estimate that has run out says so ("still working") instead of "Less than a minute left"; the build step says
+    that high CPU use and fan noise are normal."""
+    d = fresh_env(); os.environ['MA2_FAKE_SPEED'] = '20'
+    root, app = rig.make(); ready_disc(root, app, d)
+    app.facts['compiler'] = {'state': 'ready'}; app.primary.invoke(); until(root, lambda: app.model is not None, 20)
+    until(root, lambda: app.model.current == 'build', 60); pump(root, 0.3)
+    check('overrun: the build step says high CPU use and fan noise are normal', gui.BUILD_NOTE in screen_text(app), screen_text(app))
+    app.shown_eta = (5.0, time.monotonic() - 60); app.model.eta = lambda: 900.0; app.update_progress()
+    t = app.cv.itemcget(app.prog['eta'], 'text')
+    check('overrun: an estimate that ran out reads "Taking longer than estimated, still working"', t == gui.OVERRUN, t)
+    check('overrun: still inside the window', not layout_problems(app), layout_problems(app))
+    app.shown_eta = (600.0, time.monotonic()); app.update_progress()
+    t = app.cv.itemcget(app.prog['eta'], 'text')
+    check('overrun: a running estimate is unchanged', t.startswith('About ') and t.endswith(' left'), t)
+    app.event('status', 'taking longer: low memory, building more slowly'); app.update_progress()
+    check('overrun: the engine\'s own slow phrase still wins over the build note', 'Taking longer: low memory' in screen_text(app), screen_text(app))
+    app.cancel_install(); until(root, lambda: app.screen == 'setup', 30)
+    root.destroy()
+
+def scenario_report():
+    """1.1.6 Send report: the failure screen's button, the one page, a local mock relay (sent / busy / server error / timeout / nothing
+    listening), a build without a relay address (Save only), the Help menu / Done / Update entries, no request without a click, and
+    faults that must land on 1.1.5's Collect diagnostics. Layout at 100 % and 200 %."""
+    import socket, zipfile
+    import report
+    from mock_relay import MockRelay
+    relay = MockRelay().start()
+    real_web, real_cfg, real_timeout = gui.App.web, report.CONFIG, report.TIMEOUT
+    gui.App.web = lambda self, url: self.launches.append(('web', url))
+    try:
+        # 1. a failed install: SEND REPORT next to TRY AGAIN, the page, What's included, Send, the number
+        for scale in (1.0, 2.0):
+            d = fresh_env(); os.environ['MA2_FAKE_FAIL'] = 'build:build_failed'; os.environ['MA2_REPORT_RELAY'] = relay.url
+            relay.requests.clear(); relay.mode = 'ok'
+            root, app = rig.make(scale=scale); ready_disc(root, app, d)
+            app.primary.invoke(); run_to(root, app, 'stop', 60); pump(root, 0.3)
+            tag = 'report[%d]' % int(scale * 100)
+            check('%s: the failure screen has SEND REPORT next to TRY AGAIN (still the primary)' % tag, 'send' in app.w and app.w['send'].text == 'SEND REPORT'
+                  and app.primary.text == 'TRY AGAIN' and 'help' in app.w, list(app.w))
+            check('%s: the failure screen fits' % tag, not layout_problems(app), layout_problems(app))
+            if scale == 1.0: snap(root, SHOTS / 'report-1-failed.png'); owner_shot(root, '26-failed-send-report.png')
+            check('%s: no request without a click' % tag, relay.requests == [])
+            app.w['send'].invoke(); pump(root, 0.3)
+            check('%s: Send report opens one page with the text box focused' % tag, app.screen == 'report' and getattr(focused(root), 'key', None) == 'r_text',
+                  (app.screen, getattr(focused(root), 'key', None)))
+            t = screen_text(app)
+            check('%s: the page says what is sent, offers What\'s included and Save a copy' % tag, 'No names or personal files' in t and 'What happened? (optional)' in t
+                  and 'r_what' in app.w and 'r_save' in app.w and app.primary.text == 'SEND', t)
+            check('%s: the page fits' % tag, not layout_problems(app), layout_problems(app))
+            if scale == 1.0: snap(root, SHOTS / 'report-2-page.png'); owner_shot(root, '27-send-report.png')
+            box = app.w['r_text']; box.insert('1.0', 'It stopped while compiling.'); box.event_generate('<KeyRelease>'); pump(root, 0.1)
+            app.on_return(type('E', (), {'widget': box})())
+            check('%s: Return in the text box does not send' % tag, relay.requests == [] and not app.rep['busy'])
+            app.w['r_what'].invoke(); until(root, lambda: app.rep['preview'] is not None, 60); pump(root, 0.3)
+            t = screen_text(app)
+            check('%s: What\'s included lists the real files and sizes' % tag, 'system.txt' in t and 'KB' in t, t)
+            check('%s: the list fits' % tag, not layout_problems(app), layout_problems(app))
+            check('%s: the typed text survives the redraw' % tag, app.w['r_text'].get('1.0', 'end-1c') == 'It stopped while compiling.')
+            check('%s: still no request' % tag, relay.requests == [])
+            app.primary.invoke(); until(root, lambda: app.rep['result'] is not None, 90); pump(root, 0.3)
+            r = app.rep['result']; t = screen_text(app)
+            ok = isinstance(r, dict) and r.get('sent') and r['sent'].get('ok')
+            check('%s: sent: "Report sent. Your report number is MA2-..."' % tag, ok and ('Your report number is %s' % r['sent']['id']) in t, t)
+            q = relay.requests[-1] if relay.requests else {'fields': {}}
+            check('%s: one request: install-fail, signature build:build_failed, the player\'s words, a zip' % tag, len(relay.requests) == 1
+                  and q['fields'].get('kind') == 'install-fail' and q['fields'].get('signature') == 'build:build_failed'
+                  and q['fields'].get('text') == 'It stopped while compiling.' and (q.get('zip') or b'').startswith(b'PK'), q['fields'].keys())
+            check('%s: the report is also saved on this PC (LocalAppData)' % tag, ok and Path(r['path']).is_file() and str(r['path']).startswith(os.environ['LOCALAPPDATA']))
+            check('%s: the result fits' % tag, not layout_problems(app), layout_problems(app))
+            if scale == 1.0: snap(root, SHOTS / 'report-3-sent.png'); owner_shot(root, '28-report-sent.png')
+            app.w['r_copy'].invoke(); check('%s: Copy number' % tag, ok and root.clipboard_get() == r['sent']['id'])
+            app.primary.invoke(); pump(root, 0.2)
+            check('%s: DONE goes back to the failure screen' % tag, app.screen == 'stop')
+            root.destroy(); os.environ.pop('MA2_FAKE_FAIL', None)
+        # 2. not sent: busy, server error, timeout, nothing listening (manual report from the Help menu); the zip is kept
+        s = socket.socket(); s.bind(('127.0.0.1', 0)); dead = 'http://127.0.0.1:%d' % s.getsockname()[1]; s.close()
+        for mode, url in (('429', relay.url), ('500', relay.url), ('slow', relay.url), ('ok', dead)):
+            d = fresh_env(); os.environ['MA2_REPORT_RELAY'] = url; relay.mode = mode; relay.slow_seconds = 3; report.TIMEOUT = 1
+            n0 = len(relay.requests)
+            root, app = rig.make(); pump(root, 0.3)
+            app.open_menu(); pump(root, 0.1)
+            check('notsent[%s]: the Help menu has Report a problem' % mode, 'm_report' in app.w)
+            app.w['m_report'].invoke(); pump(root, 0.2)
+            check('notsent[%s]: a manual report: SEND A REPORT, "What happened?"' % mode, app.screen == 'report' and 'SEND A REPORT' in screen_text(app)
+                  and 'What happened?' in screen_text(app) and app.rep['kind'] == 'manual', screen_text(app))
+            app.primary.invoke(); until(root, lambda: app.rep['result'] is not None, 60); pump(root, 0.3)
+            r = app.rep['result']; t = screen_text(app)
+            check('notsent[%s]: "Could not send" and where the zip was saved' % mode, isinstance(r, dict) and not r['sent']['ok'] and 'Could not send' in t
+                  and 'saved to' in t and Path(r['path']).is_file(), t)
+            check('notsent[%s]: Open folder and the issues page' % mode, 'r_folder' in app.w and ('r_issues' in app.w) == bool(precheck.MA2_SUPPORT_URL))
+            app.w['r_folder'].invoke(); check('notsent[%s]: Open folder shows the zip' % mode, app.launches[-1] == ('select', str(r['path'])), app.launches[-1:])
+            if 'r_issues' in app.w: app.w['r_issues'].invoke(); check('notsent[%s]: the issues page opens' % mode, app.launches[-1][0] == 'web')
+            check('notsent[%s]: fits' % mode, not layout_problems(app), layout_problems(app))
+            if mode == '429':
+                check('notsent[429]: the relay\'s own words are shown', 'Too many reports' in t, t)
+                snap(root, SHOTS / 'report-4-busy.png'); owner_shot(root, '29-report-not-sent.png')
+            if mode != 'ok': check('notsent[%s]: exactly one request' % mode, len(relay.requests) == n0 + 1, len(relay.requests) - n0)
+            app.on_escape(); pump(root, 0.1); check('notsent[%s]: Esc goes back' % mode, app.screen == 'setup')
+            root.destroy()
+        report.TIMEOUT = real_timeout; relay.mode = 'ok'
+        # 3. a build without a relay address: SAVE REPORT, Save only, nothing sent
+        os.environ.pop('MA2_REPORT_RELAY', None); report.CONFIG = WORK / 'tmp' / 'no-report-config.json'
+        d = fresh_env(); os.environ['MA2_FAKE_FAIL'] = 'build:build_failed'; n0 = len(relay.requests)
+        root, app = rig.make(); ready_disc(root, app, d); app.primary.invoke(); run_to(root, app, 'stop', 60); pump(root, 0.3)
+        check('unset: the failure screen offers SAVE REPORT', app.w.get('send') is not None and app.w['send'].text == 'SAVE REPORT')
+        app.w['send'].invoke(); pump(root, 0.2); t = screen_text(app)
+        check('unset: SAVE A REPORT, "Nothing is sent", no Save-a-copy link', 'SAVE A REPORT' in t and 'Nothing is sent' in t and 'r_save' not in app.w and app.primary.text == 'SAVE', t)
+        app.primary.invoke(); until(root, lambda: app.rep['result'] is not None, 60); pump(root, 0.3)
+        r = app.rep['result']; t = screen_text(app)
+        check('unset: "Report saved." with the folder; nothing sent', 'Report saved.' in t and isinstance(r, dict) and Path(r['path']).is_file()
+              and len(relay.requests) == n0, t)
+        owner_shot(root, '30-report-saved.png')
+        root.destroy(); os.environ.pop('MA2_FAKE_FAIL', None); report.CONFIG = real_cfg
+        # 4. Done and Update / Repair: a quiet Report a problem; a whole install makes no request
+        d = fresh_env(); os.environ['MA2_REPORT_RELAY'] = relay.url; n0 = len(relay.requests)
+        root, app = rig.make(); ready_disc(root, app, d); app.facts['compiler'] = {'state': 'ready'}
+        app.primary.invoke(); run_to(root, app, 'done', 90); pump(root, 0.3)
+        check('entries: a whole install sends nothing', len(relay.requests) == n0)
+        check('entries: Done has Report a problem', 'report' in app.w and not layout_problems(app), layout_problems(app))
+        app.w['report'].invoke(); pump(root, 0.2)
+        check('entries: it opens the report page (manual)', app.screen == 'report' and app.rep['kind'] == 'manual')
+        app.on_escape(); pump(root, 0.1); check('entries: Esc goes back to Done', app.screen == 'done')
+        for m in ('update', 'maintain', 'resume'):
+            app.mode = m; app.go('setup'); pump(root, 0.15)
+            check('entries: %s has Report a problem and fits' % m, 'report' in app.w and not layout_problems(app), (list(app.w), layout_problems(app)))
+        root.destroy()
+        # 5. faults: they land on Collect diagnostics
+        d = fresh_env(); root, app = rig.make(); pump(root, 0.2)
+        real = report.make_and_send
+        report.make_and_send = lambda *a, **k: (_ for _ in ()).throw(RuntimeError('simulated'))
+        try:
+            app.open_report(); pump(root, 0.1); app.primary.invoke(); until(root, lambda: app.screen == 'diag' and app.diag.get('result'), 60); pump(root, 0.2)
+            r = app.diag.get('result')
+            check('fault[report collect]: lands on Collect diagnostics with the zip saved', app.screen == 'diag' and isinstance(r, dict) and Path(r['path']).is_file(), (app.screen, r))
+        finally:
+            report.make_and_send = real
+        real = gui.App._scr_report
+        gui.App._scr_report = lambda self: (_ for _ in ()).throw(RuntimeError('simulated'))
+        try:
+            app.go('setup'); app.open_report(); pump(root, 0.2)
+            check('fault[report page]: the page failing shows Collect diagnostics', app.screen == 'diag' and 'COLLECT DIAGNOSTICS' in screen_text(app) and app.primary.text == 'COLLECT')
+            app.on_escape(); pump(root, 0.1); check('fault[report page]: Esc goes back', app.screen == 'setup')
+        finally:
+            gui.App._scr_report = real
+        real = report.available
+        report.available = lambda: (_ for _ in ()).throw(RuntimeError('simulated'))
+        try:
+            check('fault[relay check]: counts as no relay (Save only)', gui.report_available() is False)
+        finally:
+            report.available = real
+        root.destroy()
+    finally:
+        relay.stop(); gui.App.web = real_web; report.CONFIG = real_cfg; report.TIMEOUT = real_timeout
+        for k in ('MA2_REPORT_RELAY', 'MA2_FAKE_FAIL'): os.environ.pop(k, None)
+
 def scenario_found():
     """A disc image already in Downloads opens Setup on Disc ready (read-only search)."""
     d = fresh_env(); dl = d / 'Downloads'; dl.mkdir()
@@ -871,7 +1027,8 @@ if __name__ == '__main__':
     if '--shots' in args:
         i = args.index('--shots'); OWNER_SHOTS = Path(args[i + 1]); OWNER_SHOTS.mkdir(parents=True, exist_ok=True); del args[i:i + 2]
     names = args or ['happy', 'engine', 'fail', 'cancel', 'update', 'elsewhere', 'maintain', 'resume', 'extras', 'stops', 'tools', 'blocked', 'menu', 'keyboard',
-                     'drop', 'faults', 'startup', 'layout', 'dpi', 'hooks', 'memwait', 'eta', 'found', 'plain', 'fonts', 'errors']
+                     'drop', 'faults', 'startup', 'layout', 'dpi', 'hooks', 'memwait', 'eta', 'found', 'plain', 'fonts', 'errors',
+                     'overrun', 'report']
     for n in names:
         print('== %s' % n, flush=True)
         try:
