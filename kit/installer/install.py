@@ -1604,7 +1604,8 @@ class Installer:
             self.update_live_settings(q, v)
         self.write_stamp(ini)
         if core: self.state['core_done'] = True; self.save()
-        self.record_cache()                        # 1.1.7: the kept build's record, before the old files move
+        try: self.record_cache()                   # 1.1.7: the kept build's record, before the old files move
+        except Exception as e: self.log('  (the build record was not written: %s)' % e)
         try:
             if 'install' in self.state.get('done', []) or not (self.dest / MANIFEST).is_file():
                 write_manifest(self.dest, (precheck.read_stamp(self.dest) or {}).get('kit_id'))    # 1.1.7: installer-owned files, size + SHA-256
@@ -2058,7 +2059,8 @@ class Installer:
                 self.log('  (the kept build is not used: %s)' % e)
                 self.state['reuse'] = None
                 self.state['done'] = [s for s in self.state.get('done', []) if s not in REUSED_STEPS] if not getattr(self, 'resumed', False)                     else self.state.get('done', [])
-            self.check_manifest()                   # 1.1.7: Update / Repair: which installed files changed or are missing
+            try: self.check_manifest()              # 1.1.7: Update / Repair: which installed files changed or are missing
+            except Exception as e: self.log('  (the installed files were not checked: %s)' % e)
             if 'install' not in self.state.get('done', []):
                 self.ffmpeg_dir()                  # FFmpeg now: a download problem shows in the first minute, not after the translation
             self.log('  CMake: %s\n  Ninja: %s' % (self.cmake, self.ninja))

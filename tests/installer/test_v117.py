@@ -436,6 +436,18 @@ class Keep(Base):
                     inst.finish()
                 self.assertFalse(inst.work.exists(), case)
 
+    def test_fault_record_cache_or_check_manifest_replaced_by_a_throwing_method(self):
+        inst = self.installer(); self.populate(inst); install.write_cache(inst.work, {'complete': False})
+        inst.state['done'] = ['build']; inst.fp = {'x': 1}
+        with mock.patch.object(install.Installer, 'record_cache', boom):
+            inst.finish()
+        self.assertFalse(inst.work.exists())
+        self.assertTrue(any('(the build record was not written: injected fault)' in l for l in self.lines), self.lines)
+        inst2 = self.installer('g2')
+        with mock.patch.object(install.Installer, 'check_manifest', boom), mock.patch.object(install.Installer, 'plan_reuse', lambda self: None),              mock.patch.object(install.precheck, 'smart_app_control', lambda: 'off'):
+            inst2.game_ok = True; inst2.check()
+        self.assertTrue(any('(the installed files were not checked: injected fault)' in l for l in self.lines))
+
     def test_a_plain_build_folder_is_kept_and_trimmed_and_uninstall_removes_it(self):
         inst = self.installer('Game'); self.populate(inst)
         root = self.tmp / ('%sabcd1234' % install.BUILD_PREFIX); (root / 'build').mkdir(parents=True); (root / 'build' / 'x.obj').write_text('o')
