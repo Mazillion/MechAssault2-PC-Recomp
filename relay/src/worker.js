@@ -1,0 +1,605 @@
+// MechAssault 2 report relay (Cloudflare Worker, plain ES module, no build step).
+//
+// Protocol (what the installer, the game and MA2 Report.exe send):
+//   POST /v1/report   multipart/form-data: text, summary, zip
+//                     headers X-MA2-Client, X-MA2-Version, X-MA2-Build, X-MA2-Kind, X-MA2-Signature
+//                     (the same five names are also accepted as form fields: client, version, build, kind, signature)
+//   reply             JSON {ok, id, message}; ok:false always comes with a non-2xx status.
+//   GET /v1/latest    {ok: true, latest: "1.1.7" | null, notice?: "..."} from LATEST_VERSION / UPDATE_NOTICE (1.1.7).
+//                     The game asks once per launch (only its version in the User-Agent). The route reads two vars and
+//                     nothing else: no limiter, no IP, no storage, no log line. Cacheable for an hour.
+//
+// Privacy: the connecting IP is used only inside the rate limiter, as an HMAC under a random key that is
+// created per UTC day and deleted after it. No IP, hash of an IP, country or user agent is written to R2,
+// to GitHub or to a log line. Workers Logs is switched off in wrangler.toml.
+//
+// Owner routes (header X-MA2-Owner-Key = the OWNER_KEY secret; all return 404 when OWNER_KEY is not set):
+//   GET  /v1/report/<id>         the zip
+//   GET  /v1/report/<id>/info    the stored text, summary and metadata (JSON)
+//   GET  /v1/admin/reports?days=N   list of recent reports
+//   GET  /v1/admin/pending       reports whose GitHub issue is not open yet
+//   POST /v1/admin/retry         retry the pending issues now
+//   GET|POST /v1/admin/switch    read or set the off switch {on, message}
+
+const CLIENTS = new Set(["installer", "game", "helper"]);
+const KINDS = new Set(["install-fail", "crash", "hang", "manual"]);
+const MAX_TEXT = 2000;
+const MAX_SUMMARY = 16384;
+const ID_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"; // RFC 4648 base32 (no 0, 1, 8, 9): what the installer client checks
+const ID_RE = /^MA2-[A-Z2-7]{6}$/;
+const KEEP_DAYS = 60;
+const GITHUB_API = "https://api.github.com";
+const USER_AGENT = "ma2-report-relay";
+const RELEASE_RE = /^\d{1,4}(\.\d{1,4}){1,3}$/; // a plain release number: what /v1/latest may announce
+// GitHub statuses that mean "this token will not work" (401 bad credentials, 403 no rights, 400 malformed token):
+// a retry run stops at the first one instead of trying every pending report.
+const TOKEN_DEAD = new Set([400, 401, 403]);
+
+const MSG = {
+  off: "Reports are switched off right now. Your report was saved on your PC.",
+  busy: "The report service has had too many reports today. Your report was saved on your PC; please try again tomorrow.",
+  ip: "Too many reports from this connection in the last hour. Your report was saved on your PC; please try again later.",
+  big: "The report is too large to send. It was saved on your PC.",
+  bad: "The report could not be read by the server. It was saved on your PC.",
+  store: "The server could not store the report. It was saved on your PC; please try again later.",
+};
+
+// ---------------------------------------------------------------- helpers
+
+function json(obj, status = 200, extra = {}) {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...extra },
+  });
+}
+
+function fail(status, message) {
+  return json({ ok: false, id: null, message }, status);
+}
+
+function intVar(env, name, dflt) {
+  const v = parseInt(env[name] ?? "", 10);
+  return Number.isFinite(v) && v > 0 ? v : dflt;
+}
+
+function newId() {
+  const b = new Uint8Array(6);
+  crypto.getRandomValues(b);
+  let s = "MA2-";
+  for (const x of b) s += ID_ALPHABET[x & 31];
+  return s;
+}
+
+function monthOf(d) {
+  return d.toISOString().slice(0, 7);
+}
+
+function lastMonths(n, now = new Date()) {
+  const out = [];
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  for (let i = 0; i < n; i++) {
+    out.push(monthOf(d));
+    d.setUTCMonth(d.getUTCMonth() - 1);
+  }
+  return out;
+}
+
+// Player text and the summary go into a fenced code block. Backticks cannot close the fence, @ cannot mention,
+// and control characters (other than newline and tab) are dropped.
+export function neutralize(s) {
+  s = String(s ?? "").replace(/\r\n?/g, "\n");
+  s = s.replace(/[\u0000-\u0008\u000B-\u001F\u007F‪-‮⁦-⁩]/g, "");
+  s = s.replace(/`/g, "ˋ").replace(/@/g, "＠");
+  return s.trim() === "" ? "(none)" : s;
+}
+
+// Metadata fields: strict character sets; anything else makes the request malformed (signature is cleaned).
+function cleanMeta(m) {
+  const out = {};
+  out.client = String(m.client ?? "").trim().toLowerCase();
+  out.kind = String(m.kind ?? "").trim().toLowerCase();
+  out.version = String(m.version ?? "").trim() || "unknown";
+  out.build = String(m.build ?? "").trim();
+  out.signature = String(m.signature ?? "")
+    .replace(/[^A-Za-z0-9 _.:+\-\/=#]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+  if (!CLIENTS.has(out.client)) return { error: "unknown client kind" };
+  if (!KINDS.has(out.kind)) return { error: "unknown report kind" };
+  if (!/^[0-9A-Za-z.+\-]{1,32}$/.test(out.version)) return { error: "bad version" };
+  if (!/^[0-9A-Za-z.+\-]{0,64}$/.test(out.build)) return { error: "bad build id" };
+  return { meta: out };
+}
+
+function versionLess(a, b) {
+  const pa = String(a).split(/[.\-+]/).map((x) => parseInt(x, 10) || 0);
+  const pb = String(b).split(/[.\-+]/).map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] ?? 0, y = pb[i] ?? 0;
+    if (x !== y) return x < y;
+  }
+  return false;
+}
+
+async function sha256(s) {
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
+}
+
+async function sameSecret(a, b) {
+  const [x, y] = await Promise.all([sha256(a), sha256(b)]);
+  let d = 0;
+  for (let i = 0; i < x.length; i++) d |= x[i] ^ y[i];
+  return d === 0;
+}
+
+async function ownerOk(request, env) {
+  const key = request.headers.get("x-ma2-owner-key") || "";
+  return Boolean(env.OWNER_KEY) && key.length > 0 && (await sameSecret(key, env.OWNER_KEY));
+}
+
+function gate(env) {
+  return env.GATE.get(env.GATE.idFromName("gate"));
+}
+
+async function gateCall(env, path, body) {
+  const r = await gate(env).fetch("https://gate" + path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: { "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return r.json();
+}
+
+// ---------------------------------------------------------------- GitHub
+
+function issueTitle(id, meta) {
+  return `[${id}] ${meta.kind} ${meta.version} ${meta.signature}`.trim().slice(0, 200);
+}
+
+function issueBody(rec, env) {
+  const base = (env.PUBLIC_URL || "").replace(/\/+$/, "");
+  const link = base ? `${base}/v1/report/${rec.id}` : `/v1/report/${rec.id}`;
+  return [
+    `**Report** \`${rec.id}\` | client \`${rec.client}\` | version \`${rec.version}\` | build \`${rec.build || "-"}\` | received ${rec.received}`,
+    "",
+    "**Player's text**",
+    "",
+    "```text",
+    neutralize(rec.text),
+    "```",
+    "",
+    "**System summary**",
+    "",
+    "```text",
+    neutralize(rec.summary),
+    "```",
+    "",
+    `**Zip** (${rec.zip_bytes} bytes, kept ${KEEP_DAYS} days): R2 key \`${rec.key}\``,
+    "",
+    `Download: ${link} (needs the owner key; easiest: \`python triage.py get ${rec.id}\`)`,
+  ].join("\n");
+}
+
+function ghHeaders(env) {
+  return {
+    authorization: `Bearer ${env.GITHUB_TOKEN}`,
+    accept: "application/vnd.github+json",
+    "x-github-api-version": "2022-11-28",
+    "user-agent": USER_AGENT,
+    "content-type": "application/json",
+  };
+}
+
+// Opens the issue for one pending marker. Deletes the marker on success. Returns {ok, status}.
+export async function openIssue(env, marker, { search = false } = {}) {
+  if (!env.GITHUB_TOKEN || !env.GITHUB_REPO) return { ok: false, status: 0 };
+  try {
+    if (search) {
+      const q = encodeURIComponent(`repo:${env.GITHUB_REPO} in:title "${marker.id}"`);
+      const s = await fetch(`${GITHUB_API}/search/issues?q=${q}`, {
+        headers: ghHeaders(env),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (TOKEN_DEAD.has(s.status)) return await markFailed(env, marker, s.status);
+      if (s.ok) {
+        const found = await s.json();
+        if ((found.total_count ?? 0) > 0) {
+          await env.REPORTS.delete(`pending/${marker.id}.json`);
+          return { ok: true, status: 200, existing: true };
+        }
+      }
+    }
+    const r = await fetch(`${GITHUB_API}/repos/${env.GITHUB_REPO}/issues`, {
+      method: "POST",
+      headers: ghHeaders(env),
+      body: JSON.stringify({ title: marker.title, body: marker.body, labels: marker.labels }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (r.status === 201) {
+      await env.REPORTS.delete(`pending/${marker.id}.json`);
+      return { ok: true, status: 201 };
+    }
+    return await markFailed(env, marker, r.status);
+  } catch (e) {
+    return await markFailed(env, marker, 0);
+  }
+}
+
+async function markFailed(env, marker, status) {
+  const m = { ...marker, attempts: (marker.attempts || 0) + 1, last_status: status, last_try: new Date().toISOString() };
+  try {
+    await env.REPORTS.put(`pending/${marker.id}.json`, JSON.stringify(m), {
+      httpMetadata: { contentType: "application/json" },
+    });
+  } catch (e) {
+    /* the old marker stays; the next run tries again */
+  }
+  return { ok: false, status };
+}
+
+export async function retryPending(env, limit = 50) {
+  const res = { tried: 0, opened: 0, failed: 0, expired: 0, stopped: false };
+  const list = await env.REPORTS.list({ prefix: "pending/", limit });
+  const cutoff = Date.now() - KEEP_DAYS * 86400e3;
+  for (const o of list.objects) {
+    const obj = await env.REPORTS.get(o.key);
+    if (!obj) continue;
+    let marker;
+    try {
+      marker = await obj.json();
+    } catch (e) {
+      await env.REPORTS.delete(o.key);
+      continue;
+    }
+    if (Date.parse(marker.received) < cutoff) {
+      await env.REPORTS.delete(o.key); // the zip is gone by now too
+      res.expired++;
+      continue;
+    }
+    res.tried++;
+    const r = await openIssue(env, marker, { search: true });
+    if (r.ok) res.opened++;
+    else {
+      res.failed++;
+      if (TOKEN_DEAD.has(r.status) || (r.status === 0 && !env.GITHUB_TOKEN)) {
+        res.stopped = true; // token missing, expired or lacking rights: the rest would fail the same way
+        break;
+      }
+    }
+  }
+  return res;
+}
+
+// ---------------------------------------------------------------- upload
+
+async function handleUpload(request, env, ctx) {
+  const maxBytes = intVar(env, "MAX_UPLOAD_BYTES", 25 * 1024 * 1024);
+  if (String(env.ACCEPT_REPORTS || "on").toLowerCase() === "off") return fail(503, env.OFF_MESSAGE || MSG.off);
+
+  const ctype = (request.headers.get("content-type") || "").toLowerCase();
+  if (!ctype.startsWith("multipart/form-data")) return fail(415, MSG.bad);
+  const lenHeader = request.headers.get("content-length");
+  if (lenHeader === null) return fail(411, MSG.bad);
+  if (!/^\d+$/.test(lenHeader)) return fail(400, MSG.bad);
+  if (Number(lenHeader) > maxBytes) return fail(413, MSG.big);
+
+  const hdr = {
+    client: request.headers.get("x-ma2-client"),
+    version: request.headers.get("x-ma2-version"),
+    build: request.headers.get("x-ma2-build"),
+    kind: request.headers.get("x-ma2-kind"),
+    signature: request.headers.get("x-ma2-signature"),
+  };
+  // Reject wrong client kinds before spending the rate budget or reading the body.
+  if (hdr.client !== null && !CLIENTS.has(hdr.client.trim().toLowerCase())) return fail(400, MSG.bad);
+  if (hdr.kind !== null && !KINDS.has(hdr.kind.trim().toLowerCase())) return fail(400, MSG.bad);
+
+  const ip = request.headers.get("cf-connecting-ip") || "unknown";
+  let admit;
+  try {
+    admit = await gateCall(env, "/admit", {
+      ip,
+      cap: intVar(env, "DAILY_CAP", 300),
+      perHour: intVar(env, "PER_IP_PER_HOUR", 5),
+    });
+  } catch (e) {
+    return fail(503, MSG.store);
+  }
+  if (!admit.ok) {
+    if (admit.reason === "off") return fail(503, admit.message || env.OFF_MESSAGE || MSG.off);
+    return fail(429, admit.reason === "daily" ? MSG.busy : MSG.ip);
+  }
+
+  let form;
+  try {
+    form = await request.formData();
+  } catch (e) {
+    return fail(400, MSG.bad);
+  }
+  const field = (k) => {
+    const v = form.get(k);
+    return typeof v === "string" ? v : null;
+  };
+  const checked = cleanMeta({
+    client: hdr.client ?? field("client"),
+    version: hdr.version ?? field("version"),
+    build: hdr.build ?? field("build"),
+    kind: hdr.kind ?? field("kind"),
+    signature: hdr.signature ?? field("signature"),
+  });
+  if (checked.error) return fail(400, MSG.bad);
+  const meta = checked.meta;
+
+  const zip = form.get("zip");
+  if (!zip || typeof zip === "string" || typeof zip.arrayBuffer !== "function") return fail(400, MSG.bad);
+  if (zip.size > maxBytes) return fail(413, MSG.big);
+  if (zip.size < 22) return fail(400, MSG.bad);
+  const head = new Uint8Array(await zip.slice(0, 4).arrayBuffer());
+  const isZip = head[0] === 0x50 && head[1] === 0x4b &&
+    ((head[2] === 3 && head[3] === 4) || (head[2] === 5 && head[3] === 6));
+  if (!isZip) return fail(400, MSG.bad);
+
+  const textRaw = form.get("text");
+  const sumRaw = form.get("summary");
+  if ((textRaw !== null && typeof textRaw !== "string") || (sumRaw !== null && typeof sumRaw !== "string"))
+    return fail(400, MSG.bad);
+  // Multipart turns newlines into CRLF; store plain LF.
+  const text = (textRaw || "").replace(/\r\n?/g, "\n").slice(0, MAX_TEXT);
+  const summary = (sumRaw || "").replace(/\r\n?/g, "\n").slice(0, MAX_SUMMARY);
+
+  if (env.MIN_VERSION && versionLess(meta.version, env.MIN_VERSION))
+    return fail(503, env.UPDATE_NOTICE || MSG.off);
+
+  const now = new Date();
+  const month = monthOf(now);
+  let id, key;
+  try {
+    for (let i = 0; i < 5; i++) {
+      id = newId();
+      key = `reports/${month}/${id}.zip`;
+      if (!(await env.REPORTS.head(key))) break;
+      id = null;
+    }
+    if (!id) return fail(500, MSG.store);
+    const received = now.toISOString();
+    const custom = { ...meta, received, issue: "pending" };
+    await env.REPORTS.put(key, zip, {
+      httpMetadata: { contentType: "application/zip" },
+      customMetadata: custom,
+    });
+    const rec = { id, key, received, ...meta, text, summary, zip_bytes: zip.size };
+    await env.REPORTS.put(`reports/${month}/${id}.json`, JSON.stringify(rec), {
+      httpMetadata: { contentType: "application/json" },
+    });
+    const marker = {
+      id,
+      received,
+      title: issueTitle(id, meta),
+      body: issueBody(rec, env),
+      labels: [meta.kind, `v${meta.version}`, meta.client],
+      attempts: 0,
+    };
+    await env.REPORTS.put(`pending/${id}.json`, JSON.stringify(marker), {
+      httpMetadata: { contentType: "application/json" },
+    });
+    // The player gets the id now; the issue is opened after the reply. If that fails the marker stays and the
+    // cron trigger retries it, so an expired token or a GitHub outage never loses a report.
+    ctx.waitUntil(openIssue(env, marker));
+  } catch (e) {
+    return fail(500, MSG.store);
+  }
+
+  let message = admit.message || env.NOTICE || "";
+  if (env.LATEST_VERSION && env.UPDATE_NOTICE && versionLess(meta.version, env.LATEST_VERSION))
+    message = env.UPDATE_NOTICE;
+  return json({ ok: true, id, message });
+}
+
+// ---------------------------------------------------------------- latest version (1.1.7)
+
+// Public and anonymous: the answer depends only on two vars, so it carries no per-player data and may be cached.
+export function handleLatest(request, env) {
+  if (request.method !== "GET" && request.method !== "HEAD") return fail(405, "GET only");
+  const v = String(env.LATEST_VERSION ?? "").trim();
+  const body = { ok: true, latest: RELEASE_RE.test(v) ? v : null };
+  const notice = String(env.UPDATE_NOTICE ?? "").trim();
+  if (body.latest && notice) body.notice = notice.slice(0, 300);
+  return json(body, 200, { "cache-control": "public, max-age=3600" });
+}
+
+// ---------------------------------------------------------------- owner routes
+
+async function findReport(env, id, ext) {
+  for (const m of lastMonths(5)) {
+    const obj = await env.REPORTS.get(`reports/${m}/${id}.${ext}`);
+    if (obj) return obj;
+  }
+  return null;
+}
+
+async function handleOwner(request, env, url) {
+  if (!env.OWNER_KEY) return fail(404, "not found");
+  if (!(await ownerOk(request, env))) return fail(401, "owner key required");
+  const p = url.pathname;
+
+  let m = p.match(/^\/v1\/report\/(MA2-[0-9A-Z]{6})(\/info)?$/);
+  if (m && request.method === "GET") {
+    if (!ID_RE.test(m[1])) return fail(404, "not found");
+    const obj = await findReport(env, m[1], m[2] ? "json" : "zip");
+    if (!obj) return fail(404, "not found (reports are kept 60 days)");
+    if (m[2]) return new Response(obj.body, { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
+    return new Response(obj.body, {
+      headers: {
+        "content-type": "application/zip",
+        "content-disposition": `attachment; filename="${m[1]}.zip"`,
+        "cache-control": "no-store",
+      },
+    });
+  }
+
+  if (p === "/v1/admin/reports" && request.method === "GET") {
+    const days = Math.min(Math.max(parseInt(url.searchParams.get("days") || "7", 10) || 7, 1), 92);
+    const since = Date.now() - days * 86400e3;
+    const pending = new Set();
+    let cur;
+    do {
+      const l = await env.REPORTS.list({ prefix: "pending/", cursor: cur, limit: 1000 });
+      for (const o of l.objects) pending.add(o.key.slice(8, -5));
+      cur = l.truncated ? l.cursor : undefined;
+    } while (cur);
+    const out = [];
+    for (const mo of lastMonths(Math.ceil(days / 28) + 1)) {
+      let c;
+      do {
+        const l = await env.REPORTS.list({ prefix: `reports/${mo}/`, cursor: c, limit: 1000, include: ["customMetadata"] });
+        for (const o of l.objects) {
+          if (!o.key.endsWith(".zip")) continue;
+          const t = new Date(o.uploaded).getTime();
+          if (t < since) continue;
+          const id = o.key.split("/").pop().slice(0, -4);
+          const cm = o.customMetadata || {};
+          out.push({
+            id, key: o.key, bytes: o.size, received: cm.received || new Date(o.uploaded).toISOString(),
+            client: cm.client, version: cm.version, build: cm.build, kind: cm.kind, signature: cm.signature,
+            issue: pending.has(id) ? "pending" : "opened",
+          });
+        }
+        c = l.truncated ? l.cursor : undefined;
+      } while (c);
+    }
+    out.sort((a, b) => (a.received < b.received ? 1 : -1));
+    return json({ ok: true, reports: out });
+  }
+
+  if (p === "/v1/admin/pending" && request.method === "GET") {
+    const l = await env.REPORTS.list({ prefix: "pending/", limit: 1000 });
+    const out = [];
+    for (const o of l.objects) {
+      const obj = await env.REPORTS.get(o.key);
+      if (!obj) continue;
+      const mk = await obj.json();
+      out.push({ id: mk.id, received: mk.received, attempts: mk.attempts || 0, last_status: mk.last_status ?? null });
+    }
+    return json({ ok: true, pending: out });
+  }
+
+  if (p === "/v1/admin/retry" && request.method === "POST") {
+    return json({ ok: true, ...(await retryPending(env)) });
+  }
+
+  if (p === "/v1/admin/switch") {
+    if (request.method === "GET") return json({ ok: true, env: env.ACCEPT_REPORTS || "on", ...(await gateCall(env, "/switch")) });
+    if (request.method === "POST") {
+      let b;
+      try {
+        b = await request.json();
+      } catch (e) {
+        return fail(400, "JSON body {on, message} expected");
+      }
+      if (typeof b.on !== "boolean") return fail(400, "JSON body {on, message} expected");
+      const message = typeof b.message === "string" ? b.message.slice(0, 500) : "";
+      return json({ ok: true, ...(await gateCall(env, "/switch", { on: b.on, message })) });
+    }
+  }
+  return fail(404, "not found");
+}
+
+// ---------------------------------------------------------------- entry points
+
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    try {
+      if (url.pathname === "/v1/latest") return handleLatest(request, env);
+      if (url.pathname === "/v1/report") {
+        if (request.method !== "POST") return fail(405, "POST only");
+        return await handleUpload(request, env, ctx);
+      }
+      if (url.pathname.startsWith("/v1/report/") || url.pathname.startsWith("/v1/admin/"))
+        return await handleOwner(request, env, url);
+      return fail(404, "not found");
+    } catch (e) {
+      return fail(500, MSG.store);
+    }
+  },
+
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(retryPending(env));
+  },
+};
+
+// ---------------------------------------------------------------- limiter (Durable Object, one instance)
+//
+// Storage keys:  switch -> {on, message}
+//                day:<yyyy-mm-dd> -> accepted count (global daily cap)
+//                key:<yyyy-mm-dd> -> random 32-byte HMAC key, deleted when the day is over
+//                ip:<hmac hex> -> timestamps of this connection's reports in the last hour, deleted after the hour
+// The raw IP never reaches storage.
+
+export class Gate {
+  constructor(state, env) {
+    this.state = state;
+    this.env = env;
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    const body = request.method === "POST" ? await request.json() : {};
+    if (url.pathname === "/admit") return json(await this.admit(body));
+    if (url.pathname === "/switch") {
+      if (request.method === "POST") await this.state.storage.put("switch", { on: body.on, message: body.message || "" });
+      const sw = (await this.state.storage.get("switch")) || { on: true, message: "" };
+      return json({ switch: sw });
+    }
+    return json({ ok: false }, 404);
+  }
+
+  async admit({ ip, cap, perHour }) {
+    const st = this.state.storage;
+    const sw = await st.get("switch");
+    if (sw && sw.on === false) return { ok: false, reason: "off", message: sw.message || "" };
+    const now = Date.now();
+    const day = new Date(now).toISOString().slice(0, 10);
+    const count = (await st.get(`day:${day}`)) || 0;
+    if (count >= cap) return { ok: false, reason: "daily" };
+
+    let k = await st.get(`key:${day}`);
+    if (!k) {
+      const raw = new Uint8Array(32);
+      crypto.getRandomValues(raw);
+      k = Array.from(raw);
+      await st.put(`key:${day}`, k);
+    }
+    const hk = await crypto.subtle.importKey("raw", new Uint8Array(k), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const mac = new Uint8Array(await crypto.subtle.sign("HMAC", hk, new TextEncoder().encode(String(ip))));
+    const h = Array.from(mac.slice(0, 16), (x) => x.toString(16).padStart(2, "0")).join("");
+
+    const recent = ((await st.get(`ip:${h}`)) || []).filter((t) => t > now - 3600e3);
+    if (recent.length >= perHour) return { ok: false, reason: "ip" };
+    recent.push(now);
+    await st.put(`ip:${h}`, recent);
+    await st.put(`day:${day}`, count + 1);
+    if ((await st.getAlarm()) === null) await st.setAlarm(now + 3600e3);
+    return { ok: true, message: sw && sw.message ? sw.message : "" };
+  }
+
+  async alarm() {
+    const st = this.state.storage;
+    const now = Date.now();
+    const today = new Date(now).toISOString().slice(0, 10);
+    const weekAgo = new Date(now - 7 * 86400e3).toISOString().slice(0, 10);
+    let left = 0;
+    for (const [k, v] of await st.list({ prefix: "ip:" })) {
+      const keep = (v || []).filter((t) => t > now - 3600e3);
+      if (keep.length === 0) await st.delete(k);
+      else {
+        left++;
+        if (keep.length !== v.length) await st.put(k, keep);
+      }
+    }
+    for (const [k] of await st.list({ prefix: "key:" })) if (k.slice(4) !== today) await st.delete(k);
+    for (const [k] of await st.list({ prefix: "day:" })) if (k.slice(4) < weekAgo) await st.delete(k);
+    if (left > 0 || (await st.list({ prefix: "key:" })).size > 0) await st.setAlarm(now + 3600e3);
+  }
+}

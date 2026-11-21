@@ -1,0 +1,8 @@
+{
+  "name": "ma2-report-relay",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/relay.test.mjs"
+  }
+}
