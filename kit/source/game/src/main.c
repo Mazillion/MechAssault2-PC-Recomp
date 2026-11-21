@@ -41,6 +41,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <math.h>
+#include <intrin.h>   /* 1.1.6: __cpuid for the [LAUNCH] hardware line */
 /* Log privacy (kernel_thunks.c): a path for a log line, with the player's profile folders written as
  * %LOCALAPPDATA% / %APPDATA% / %USERPROFILE% (players post logs publicly). */
 const char *xbox_log_path(const char *path, char *out, size_t size);
@@ -520,21 +521,109 @@ static int crash_directory(char *directory, size_t size)
     return 1;
 }
 
-/* The crash box (W-06a): which two files to send, and where. */
+/* 1.1.6: the crash and freeze boxes start the report helper, "MA2 Report.exe" beside the game
+ * (report-helper/report.c in the public repo): the failure text, a "What happened?" box and Send report,
+ * which sends the logs, settings and the dump (names and profile folders removed) to the developer.
+ * Every call site keeps the 1.1.5 box as the fallback when the helper is missing or cannot start.
+ * Harness runs (RECOMP_SAVE_DIR) show neither, as before. Tests: RECOMP_TEST_REPORT_UI=1 makes a harness
+ * run act like a player's (the helper's window stays hidden through RECOMP_REPORT_HIDDEN=1, and a
+ * fallback box is written to the log instead of shown); RECOMP_REPORT_HELPER=<path> picks the helper
+ * (a missing path tests the fallback). */
+static void hang_say(const char *fmt, ...);
+static int report_ui_test(void) { const char *t = getenv("RECOMP_TEST_REPORT_UI"); return t && *t && *t != '0'; }
+static int report_ui_wanted(void) { return report_ui_test() || (!getenv("RECOMP_SAVE_DIR") && !getenv("RECOMP_ALLOW_MULTI")); }
+/* The helper's full path; 0 when it is not there. Also used by the in-game page (pc_native_settings.cpp). */
+int ma2_report_helper_path(wchar_t *out, DWORD size)
+{
+    wchar_t *slash;
+    DWORD n = GetEnvironmentVariableW(L"RECOMP_REPORT_HELPER", out, size);
+    if (!n || n >= size) {
+        n = GetModuleFileNameW(NULL, out, size);
+        if (!n || n >= size || !(slash = wcsrchr(out, L'\\')) || (size_t)(slash - out) + 18 >= size) { out[0] = 0; return 0; }
+        wcscpy(slash + 1, L"MA2 Report.exe");
+    }
+    {
+        DWORD a = GetFileAttributesW(out);
+        return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
+    }
+}
+/* This run's log (the file stderr writes to): the helper sends it. */
+int ma2_report_log_path(wchar_t *out, DWORD size)
+{
+    HANDLE h = (HANDLE)_get_osfhandle(_fileno(stderr));
+    out[0] = 0;
+    if (h == INVALID_HANDLE_VALUE || !h || GetFileType(h) != FILE_TYPE_DISK) return 0;
+    if (!GetFinalPathNameByHandleW(h, out, size, 0)) { out[0] = 0; return 0; }
+    if (!wcsncmp(out, L"\\\\?\\", 4) && out[5] == L':') memmove(out, out + 4, (wcslen(out + 4) + 1) * sizeof(wchar_t));
+    return out[0] != 0;
+}
+/* The settings file this run uses (the helper sends it). */
+const char *ma2_report_ini_path(void) { return g_pc_switch_ini_path; }
+extern void apu_health_request(void);
+/* Starts the helper with the given arguments (after the helper path); 1 = started (process handle
+ * in *process when asked for). Writes one [REPORT] line either way. */
+static int report_helper_start(const wchar_t *args, HANDLE *process)
+{
+    wchar_t helper[MAX_PATH], log[MAX_PATH], ini[MAX_PATH], cmd[4 * MAX_PATH + 512];
+    STARTUPINFOW si;
+    PROCESS_INFORMATION pi;
+    if (process) *process = NULL;
+    if (!ma2_report_helper_path(helper, MAX_PATH)) { hang_say("[REPORT] helper not found: the 1.1.5 box\n"); return 0; }
+    ma2_report_log_path(log, MAX_PATH);
+    ini[0] = 0;
+    if (g_pc_switch_ini_path[0]) MultiByteToWideChar(CP_ACP, 0, g_pc_switch_ini_path, -1, ini, MAX_PATH);
+    _snwprintf(cmd, sizeof cmd / sizeof *cmd - 1, L"\"%s\" %s%s%s%s%s%s%s", helper, args,
+               log[0] ? L" --log \"" : L"", log[0] ? log : L"", log[0] ? L"\"" : L"",
+               ini[0] ? L" --ini \"" : L"", ini[0] ? ini : L"", ini[0] ? L"\"" : L"");
+    cmd[sizeof cmd / sizeof *cmd - 1] = 0;
+    if (report_ui_test()) SetEnvironmentVariableW(L"RECOMP_REPORT_HIDDEN", L"1");
+    memset(&si, 0, sizeof si); si.cb = sizeof si;
+    memset(&pi, 0, sizeof pi);
+    if (!CreateProcessW(helper, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+        hang_say("[REPORT] the helper could not start (error %lu): the 1.1.5 box\n", GetLastError());
+        return 0;
+    }
+    hang_say("[REPORT] helper started (pid %lu)\n", pi.dwProcessId);
+    CloseHandle(pi.hThread);
+    if (process) *process = pi.hProcess; else CloseHandle(pi.hProcess);
+    return 1;
+}
+/* A 1.1.5-style box (the fallback); a test run writes it to the log instead. */
+static int report_fallback_box(const wchar_t *text, UINT flags)
+{
+    if (report_ui_test()) {
+        char shown[1600];
+        WideCharToMultiByte(CP_UTF8, 0, text, -1, shown, sizeof shown, NULL, NULL);
+        for (char *c = shown; *c; c++) if (*c == '\n') *c = '|';
+        hang_say("[REPORT] fallback box (test run, not shown): %s\n", shown);
+        return getenv("RECOMP_TEST_REPORT_BOX_YES") ? IDYES : IDNO;
+    }
+    return MessageBoxW(NULL, text, L"MechAssault 2", flags | MB_SETFOREGROUND | MB_TOPMOST);
+}
+
+/* The crash box (wording 1.1.6): only when the report helper is missing or cannot start. */
 static void crash_message(const char *dump)
 {
-    char text[3 * MAX_PATH + 600], shown[MAX_PATH * 2];
-    int n = snprintf(text, sizeof(text), "MechAssault 2 has stopped unexpectedly.\n\n"
-                     "To report this, run the MechAssault 2 installer again and press Collect diagnostics. "
-                     "It puts one zip on your Desktop with the logs, your Windows user name removed: attach that zip.\n\n");
-    if (dump && *dump)
-        n += snprintf(text + n, sizeof(text) - n, "A crash report was saved as %s. It can contain your user name: "
-                      "share it only if a maintainer asks (Collect diagnostics can add it).\n\n",
-                      xbox_log_path(dump, shown, sizeof shown));
-    n += snprintf(text + n, sizeof(text) - n, "Folder: %%LOCALAPPDATA%%\\MechAssault2\\Logs");
-    if (MA2_SUPPORT_URL[0] && n > 0 && n < (int)sizeof(text))
-        snprintf(text + n, sizeof(text) - n, "\n\nReport at: %s", MA2_SUPPORT_URL);
-    MessageBoxA(NULL, text, "MechAssault 2", MB_ICONERROR | MB_OK | MB_SETFOREGROUND | MB_TOPMOST);
+    wchar_t text[3 * MAX_PATH + 800];
+    char shown[MAX_PATH * 2];
+    int n = _snwprintf(text, sizeof text / sizeof *text, L"MechAssault 2 has stopped unexpectedly.\n\n"
+                       L"To report this, run the MechAssault 2 installer again and choose Help > Report a problem. "
+                       L"It sends the game's logs with your Windows user name removed, or saves them as a zip in "
+                       L"%%LOCALAPPDATA%%\\MechAssault2\\Diagnostics.\n\n");
+    if (n < 0) n = 0;
+    if (dump && *dump) {
+        int k = _snwprintf(text + n, sizeof text / sizeof *text - n, L"A crash report was saved as %hs. Report a problem includes it, "
+                           L"with your user name removed.\n\n", xbox_log_path(dump, shown, sizeof shown));
+        if (k > 0) n += k;
+    }
+    {
+        int k = _snwprintf(text + n, sizeof text / sizeof *text - n, L"Folder: %%LOCALAPPDATA%%\\MechAssault2\\Logs");
+        if (k > 0) n += k;
+    }
+    if (MA2_SUPPORT_URL[0] && n > 0 && n < (int)(sizeof text / sizeof *text))
+        _snwprintf(text + n, sizeof text / sizeof *text - n, L"\n\nReport at: %hs", MA2_SUPPORT_URL);
+    text[sizeof text / sizeof *text - 1] = 0;
+    report_fallback_box(text, MB_ICONERROR | MB_OK);
 }
 
 /* W-06a: one header that says which build wrote this log, on which Windows. The installer writes
@@ -581,6 +670,28 @@ static void log_build_identity(void)
     json_field(json, "version", version, sizeof(version));
     json_field(json, "public_version", public_version, sizeof(public_version));
     json_field(json, "kit_id", kit, sizeof(kit));
+    /* 1.1.6: the installer writes "low_memory_build": {"one_codegen_thread": N, "lighter_optimisation":
+     * {file: flags, ...}} only when the game was built with less memory; json_field reads strings only. */
+    {
+        const char *low = json ? strstr(json, "\"low_memory_build\"") : NULL;
+        long cg1 = 0, lighter = 0;
+        if (low) {
+            const char *p = strstr(low, "\"one_codegen_thread\"");
+            if (p && (p = strchr(p, ':'))) cg1 = strtol(p + 1, NULL, 10);
+            p = strstr(low, "\"lighter_optimisation\"");
+            if (p && (p = strchr(p, '{'))) {
+                int depth = 0, colons = 0;
+                for (; *p; p++) {
+                    if (*p == '{') depth++;
+                    else if (*p == '}') { if (--depth == 0) break; }
+                    else if (*p == ':' && depth == 1) colons++;
+                }
+                lighter = colons;
+            }
+        }
+        fprintf(stderr, "[LAUNCH] low_memory_build=%s one_codegen_thread=%ld lighter_optimisation=%ld\n",
+                low ? "yes" : "no", cg1, lighter);
+    }
     free(json);
     fprintf(stderr, "[LAUNCH] build version=%s exe_version=%s install=%s kit=%s exe_bytes=%llu exe_time=%04u-%02u-%02uT%02u:%02u:%02uZ\n",
             public_version[0] ? public_version : MA2_PUBLIC_VERSION, MA2_PUBLIC_VERSION,
@@ -593,6 +704,25 @@ static void log_build_identity(void)
         memset(&os, 0, sizeof(os)); os.dwOSVersionInfoSize = sizeof(os);
         if (get && get(&os) == 0)
             fprintf(stderr, "[LAUNCH] windows=%lu.%lu.%lu\n", os.dwMajorVersion, os.dwMinorVersion, os.dwBuildNumber);
+    }
+    /* 1.1.6: CPU model and memory (no names or IDs; thread counts and power are in [CPU-TOPO]). */
+    {
+        int regs[4];
+        char brand[49] = {0};
+        unsigned long long ram_mb = 0, commit_mb = 0;
+        MEMORYSTATUSEX ms;
+        __cpuid(regs, (int)0x80000000);
+        if ((unsigned)regs[0] >= 0x80000004u) {
+            for (int i = 0; i < 3; i++) { __cpuid(regs, (int)(0x80000002u + i)); memcpy(brand + 16 * i, regs, 16); }
+            brand[48] = 0;
+        }
+        { char *b = brand; while (*b == ' ') b++; memmove(brand, b, strlen(b) + 1); }
+        for (size_t n = strlen(brand); n && brand[n - 1] == ' '; n--) brand[n - 1] = 0;
+        for (char *c = brand; *c; c++) if (*c == '"' || (unsigned char)*c < 32) *c = ' ';
+        ms.dwLength = sizeof(ms);
+        if (GlobalMemoryStatusEx(&ms)) { ram_mb = ms.ullTotalPhys >> 20; commit_mb = ms.ullTotalPageFile >> 20; }
+        fprintf(stderr, "[LAUNCH] hardware cpu=\"%s\" ram_mb=%llu commit_limit_mb=%llu\n",
+                brand[0] ? brand : "unknown", ram_mb, commit_mb);
     }
 }
 
@@ -636,8 +766,20 @@ static LONG WINAPI crash_filter(EXCEPTION_POINTERS *info)
     fprintf(stderr, "[CRASH] code=0x%08lX dump=%s ok=%d\n",
             info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionCode : 0, path, written);
     fflush(stderr);
-    if (!getenv("RECOMP_SAVE_DIR") && !getenv("RECOMP_ALLOW_MULTI"))
-        crash_message(written ? path : NULL);
+    if (report_ui_wanted()) {
+        /* 1.1.6: the report helper (Send report); the 1.1.5 box only if it cannot start. The health line
+         * first, so the sent log ends with the audio and frame-time counters of this moment. */
+        wchar_t args[2 * MAX_PATH + 200], wdump[MAX_PATH + 40];
+        unsigned long code = info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionCode : 0;
+        unsigned long long rva = info && info->ExceptionRecord ?
+            (unsigned long long)((uintptr_t)info->ExceptionRecord->ExceptionAddress - (uintptr_t)GetModuleHandleW(NULL)) : 0;
+        apu_health_request();
+        Sleep(60);
+        MultiByteToWideChar(CP_ACP, 0, written ? path : "", -1, wdump, MAX_PATH + 40);
+        _snwprintf(args, sizeof args / sizeof *args - 1, L"--crash \"%s\" --sig \"0x%08lX:rva%llX\"", wdump, code, rva);
+        args[sizeof args / sizeof *args - 1] = 0;
+        if (!report_helper_start(args, NULL)) crash_message(written ? path : NULL);
+    }
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
@@ -670,6 +812,9 @@ LONG xbox_FramebufferFlipCount(void);
 DWORD ma2_pc_menu_pulse_ms(void);
 int xbox_cs_waiters_dump(char *out, int cap);
 static uint32_t *g_hang_regs[7];   /* eax ecx edx ebx esi edi esp of the game thread (thread-local) */
+static char g_hang_dump[MAX_PATH + 40];   /* the newest hang-<pid>.dmp, for the report helper */
+/* The freeze question comes 90 s after the [HANG] report; RECOMP_TEST_HANG_ASK_S shortens it (tests only). */
+static DWORD hang_ask_ms(void) { const char *s = getenv("RECOMP_TEST_HANG_ASK_S"); return s && atoi(s) > 0 ? (DWORD)atoi(s) * 1000u : 90000u; }
 static void hang_say(const char *fmt, ...)
 {
     char line[1024];
@@ -710,7 +855,7 @@ static void hang_report(void)
         hang_say("[HANG] critical-section waiters:\n");
         if (h != INVALID_HANDLE_VALUE) WriteFile(h, buf, (DWORD)n, &wrote, NULL);
     }
-    if (write_dump("hang", NULL, path, sizeof(path))) hang_say("[HANG] dump=%s\n", path);
+    if (write_dump("hang", NULL, path, sizeof(path))) { hang_say("[HANG] dump=%s\n", path); snprintf(g_hang_dump, sizeof g_hang_dump, "%s", path); }
     else hang_say("[HANG] dump could not be written (%s)\n", path[0] ? path : "no folder");
 }
 static DWORD WINAPI hang_monitor(LPVOID unused)
@@ -735,11 +880,30 @@ static DWORD WINAPI hang_monitor(LPVOID unused)
             reported = 1; reports++;
             hang_report();
         }
-        if (!asked && now - last_move >= limit + 90000u && !getenv("RECOMP_SAVE_DIR")) {
+        if (!asked && now - last_move >= limit + hang_ask_ms() && (!getenv("RECOMP_SAVE_DIR") || report_ui_test())) {
+            int close_game = 0;
+            HANDLE helper = NULL;
+            wchar_t args[MAX_PATH + 64], wdump[MAX_PATH + 40];
             asked = 1;
-            if (MessageBoxW(NULL, L"MechAssault 2 has stopped responding.\n\nA report was saved in %LOCALAPPDATA%\\MechAssault2\\Logs. "
-                            L"To report this, run the MechAssault 2 installer again and press Collect diagnostics.\n\nClose the game?",
-                            L"MechAssault 2", MB_YESNO | MB_ICONWARNING | MB_SETFOREGROUND | MB_TOPMOST) == IDYES) {
+            /* 1.1.6: the report helper offers Send report, Close the game (exit 10) and Keep waiting (11);
+             * the 1.1.5 Yes/No box only if it cannot start. */
+            apu_health_request();
+            MultiByteToWideChar(CP_ACP, 0, g_hang_dump, -1, wdump, MAX_PATH + 40);
+            _snwprintf(args, sizeof args / sizeof *args - 1, L"--hang \"%s\"", wdump);
+            args[sizeof args / sizeof *args - 1] = 0;
+            if (report_helper_start(args, &helper)) {
+                DWORD code = 0;
+                WaitForSingleObject(helper, INFINITE);
+                GetExitCodeProcess(helper, &code);
+                CloseHandle(helper);
+                hang_say("[HANG] report helper closed (exit %lu: %s)\n", code, code == 10 ? "close the game" : "keep waiting");
+                close_game = code == 10;
+            } else {
+                close_game = report_fallback_box(L"MechAssault 2 has stopped responding.\n\nA report was saved in %LOCALAPPDATA%\\MechAssault2\\Logs. "
+                                                 L"To report this, run the MechAssault 2 installer again and choose Help > Report a problem.\n\nClose the game?",
+                                                 MB_YESNO | MB_ICONWARNING) == IDYES;
+            }
+            if (close_game) {
                 hang_say("[HANG] player closed the game\n");
                 ma2_pc_sticky_keys(0);
                 ExitProcess(3);

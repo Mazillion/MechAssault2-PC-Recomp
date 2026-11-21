@@ -650,6 +650,18 @@ void mcpx_apu_monitor_frame(MCPXAPUState *d)
  * Throttle (timing control for frame pacing)
  * ============================================================ */
 
+/* ---- 1.1.6 [HEALTH] and the low-plan self-protection ----------------------------------------
+ * g_apu_resyncs counts the throttle's "more than 250 ms behind" resyncs that follow a real stall
+ * (not the first frame, not the wake-up after the APU was idle or held). Written by the APU thread
+ * with InterlockedIncrement (qatomic_* are plain loads/stores on MSVC), read by apu_dsp_runtime.c.
+ * With the self-protection on (apu_selfguard_on, apu_dsp_runtime.c) a stall resync sets the
+ * deadline 64 ms in the past instead of to now, so the APU makes 12 blocks (3 XAudio2 buffers) at
+ * once and the output queue is back at its normal depth instead of starting from empty. */
+volatile LONG g_apu_resyncs;
+static int s_apu_after_idle;          /* APU thread: set when the frame thread leaves an idle/hold wait */
+extern int apu_selfguard_on(void);    /* apu_dsp_runtime.c */
+#define APU_RESYNC_CUSHION_US 64000
+
 static void throttle(MCPXAPUState *d, HANDLE timer)
 {
     if (d->ep_frame_div % 8) {
@@ -661,8 +673,14 @@ static void throttle(MCPXAPUState *d, HANDLE timer)
 
     if (d->next_frame_time_us == 0 ||
         now_us - d->next_frame_time_us > 250000) {
-        d->next_frame_time_us = now_us;
+        if (d->next_frame_time_us != 0 && !s_apu_after_idle) {
+            InterlockedIncrement(&g_apu_resyncs);
+            d->next_frame_time_us = apu_selfguard_on() ? now_us - APU_RESYNC_CUSHION_US : now_us;
+        } else {
+            d->next_frame_time_us = now_us;
+        }
     }
+    s_apu_after_idle = 0;
 
     while (!d->pause_requested) {
         now_us = qemu_clock_get_us(QEMU_CLOCK_REALTIME);
@@ -775,6 +793,93 @@ static void apu_stats_tick(void)
     fflush(stderr);
 }
 
+/* 1.1.6 [HEALTH]: one always-on line every 60 s, written by the APU thread (MMCSS, never blocked by
+ * the game), plus one right after the first underrun and the first stall resync of the session.
+ *   [HEALTH] t=<s since audio start> why=<periodic|underrun|resync|request> fps=<flips/s over the
+ *   interval> p50/p99=<frame time ms, upper edge of the histogram bucket> underruns resyncs bp
+ *   dropped stalls reopens (session totals) plan=... (apu_dsp_health) free_mb nvs=<collapsed
+ *   ExQueryNonVolatileSetting repeats>
+ * Nothing reads these numbers back: counters and one log line only.
+ * Hook for crash/freeze/report tools: apu_health_request asks for a line now (printed by
+ * the APU thread within a frame); apu_health_last_line copies the newest line without blocking
+ * (safe from a crash filter or a monitor thread; returns 0 if none or the line is being written). */
+extern void apu_dsp_health(char *out, size_t size);                 /* apu_dsp_runtime.c */
+extern void nv2a_frame_hist_take(volatile LONG *out, int n, LONG64 *flips);   /* nv2a_pb_exec.c */
+extern LONG xbox_nvs_unhandled_repeats(void);                       /* kernel_xbox.c */
+#define HEALTH_BUCKETS 24
+static const float s_health_edges[HEALTH_BUCKETS] = {   /* upper edge (ms) of each frame-time bucket */
+    4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 17.5f, 20, 25, 33.4f, 40, 50, 67, 100, 150, 250, 500, 1000, 99999};
+static SRWLOCK s_health_lock = SRWLOCK_INIT;
+static char s_health_last[640];
+static volatile LONG s_health_req;
+void apu_health_request(void) { InterlockedExchange(&s_health_req, 1); }
+int apu_health_last_line(char *out, int size)
+{
+    int n = 0;
+    if (!out || size <= 0) return 0;
+    out[0] = 0;
+    if (!TryAcquireSRWLockShared(&s_health_lock)) return 0;
+    if (s_health_last[0]) n = snprintf(out, (size_t)size, "%s", s_health_last);
+    ReleaseSRWLockShared(&s_health_lock);
+    return n > 0;
+}
+static float health_pct(const LONG *b, LONG total, double q)
+{
+    LONG need = (LONG)(total * q + 0.999), run = 0;
+    if (total <= 0) return 0;
+    for (int i = 0; i < HEALTH_BUCKETS; i++) { run += b[i]; if (run >= need) return s_health_edges[i]; }
+    return s_health_edges[HEALTH_BUCKETS - 1];
+}
+static void apu_health_tick(void)
+{
+    static ULONGLONG t0, last;
+    static LONG prev_b[HEALTH_BUCKETS];
+    static LONG64 prev_flips;
+    static int said_underrun, said_resync;
+    static volatile LONG now_b[HEALTH_BUCKETS];
+    ULONGLONG now = GetTickCount64();
+    unsigned under = 0, bp = 0, dropped = 0, stalls = 0, reopens = 0;
+    const char *why = NULL;
+    if (!t0) { t0 = last = now; return; }
+    xa2_health_counters(&under, &bp, &dropped, &stalls, &reopens);
+    LONG resyncs = InterlockedCompareExchange(&g_apu_resyncs, 0, 0);
+    if (InterlockedExchange(&s_health_req, 0)) why = "request";
+    else if (under && !said_underrun) why = "underrun";
+    else if (resyncs && !said_resync) why = "resync";
+    else if (now - last >= 60000) why = "periodic";
+    if (!why) return;
+    if (under) said_underrun = 1;
+    if (resyncs) said_resync = 1;
+    static float fps_s, p50_s, p99_s;   /* last interval's values, reused for a second line within 1 s */
+    double secs = (now - last) / 1000.0;
+    if (secs >= 1.0) {
+        LONG64 flips = 0;
+        LONG d[HEALTH_BUCKETS], total = 0;
+        nv2a_frame_hist_take(now_b, HEALTH_BUCKETS, &flips);
+        for (int i = 0; i < HEALTH_BUCKETS; i++) { d[i] = now_b[i] - prev_b[i]; prev_b[i] = now_b[i]; total += d[i]; }
+        fps_s = (float)((double)(flips - prev_flips) / secs);
+        p50_s = health_pct(d, total, 0.50);
+        p99_s = health_pct(d, total, 0.99);
+        prev_flips = flips;
+        last = now;
+    }
+    MEMORYSTATUSEX ms; ms.dwLength = sizeof ms;
+    unsigned long long free_mb = GlobalMemoryStatusEx(&ms) ? ms.ullAvailPhys >> 20 : 0;
+    char plan[160];
+    apu_dsp_health(plan, sizeof plan);
+    char line[640];
+    snprintf(line, sizeof line,
+             "[HEALTH] t=%llu why=%s fps=%.1f p50=%.1f p99=%.1f underruns=%u resyncs=%ld bp=%u dropped=%u stalls=%u "
+             "reopens=%u %s free_mb=%llu nvs=%ld",
+             (now - t0) / 1000, why, fps_s, p50_s, p99_s, under, resyncs, bp,
+             dropped, stalls, reopens, plan, free_mb, xbox_nvs_unhandled_repeats());
+    AcquireSRWLockExclusive(&s_health_lock);
+    memcpy(s_health_last, line, sizeof line);
+    ReleaseSRWLockExclusive(&s_health_lock);
+    fprintf(stderr, "%s\n", line);
+    fflush(stderr);
+}
+
 static void *mcpx_apu_frame_thread(void *arg)
 {
     MCPXAPUState *d = MCPX_APU_DEVICE(arg);
@@ -800,6 +905,7 @@ static void *mcpx_apu_frame_thread(void *arg)
             qemu_cond_signal(&d->idle_cond);
             qemu_cond_wait(&d->cond, &d->lock);
             d->is_idle = false;
+            s_apu_after_idle = 1; xa2_note_idle();   /* 1.1.6: the catch-up after a hold is not a stall */
             continue;
         }
         if (d->pause_requested && !g_test_tone.active && !g_mixer_active_count) {
@@ -807,10 +913,12 @@ static void *mcpx_apu_frame_thread(void *arg)
             qemu_cond_signal(&d->idle_cond);
             qemu_cond_wait(&d->cond, &d->lock);
             d->is_idle = false;
+            s_apu_after_idle = 1; xa2_note_idle();
             continue;
         }
 
         if (g_apu_ws) apu_stats_tick();
+        apu_health_tick();
 
         /* Always run the audio output loop — the software mixer and test tone
          * need continuous frame delivery regardless of APU register state.

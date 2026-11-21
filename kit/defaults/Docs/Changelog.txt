@@ -4,6 +4,32 @@ MechAssault 2 PC recompilation - changes
 You have version {{VERSION}} (build {{BUILD}}).
 
 
+1.1.6
+-----
+- Report a problem: in the game's pause menu and Audio settings, in the
+  Start menu, in the installer, and in the window that opens when the game
+  crashes or stops responding. It makes one zip with the logs, settings
+  and PC details (no user name, PC name or personal files) and has a box
+  to say what happened. This version saves the zip in
+  %LOCALAPPDATA%\MechAssault2\Diagnostics; attach it to your report.
+- The game's log now notes once a minute how smoothly the game and its
+  sound are running, which helps with reports of crackling or slowdowns.
+- On PCs with few CPU threads, the game gives its sound more priority as
+  soon as the sound starts to fall behind. In our tests that made
+  crackling much rarer on those PCs; other PCs are unchanged.
+- The installer notes in its log every minute that it is still working
+  while a big file compiles, says when it is taking longer than estimated,
+  and explains that high CPU use and fan noise during the build are normal.
+- On PCs with less than 24 GB of memory, the installer builds the largest
+  game files with less memory from the start (the game code is the same).
+- After a power cut or a crash during an install, the next run says so and
+  carries on from the finished steps.
+- "Keep my PC responsive" is preselected on laptops running on battery and
+  on PCs with 4 CPU threads or fewer.
+- Diagnostics and reports also leave out the PC's name and e-mail
+  addresses, and names inside crash dumps are overwritten.
+- The scenario editor is the same as in 1.1.5.
+
 1.1.5
 -----
 - The installer is more reliable on PCs with less memory: if the build runs

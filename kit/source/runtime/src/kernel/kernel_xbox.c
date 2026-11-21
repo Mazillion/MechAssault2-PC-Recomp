@@ -12,6 +12,30 @@
 #include "kernel.h"
 #include <string.h>
 
+/* 1.1.6: unhandled ExQueryNonVolatileSetting indices, logged once each (any guest thread). */
+#define NVS_SLOTS 16
+static volatile LONG s_nvs_index[NVS_SLOTS];   /* index + 1; 0 = free */
+static volatile LONG s_nvs_repeats;
+static int nvs_first_time(ULONG index)
+{
+    LONG key = (LONG)(index & 0x7FFFFFFF) + 1;
+    for (int i = 0; i < NVS_SLOTS; i++) {
+        LONG have = InterlockedCompareExchange(&s_nvs_index[i], 0, 0);
+        if (have == key) { InterlockedIncrement(&s_nvs_repeats); return 0; }
+        if (!have) {
+            have = InterlockedCompareExchange(&s_nvs_index[i], key, 0);
+            if (!have) return 1;                                     /* claimed: first query */
+            if (have == key) { InterlockedIncrement(&s_nvs_repeats); return 0; }
+        }
+    }
+    return 1;                                                        /* table full: log it */
+}
+/* [HEALTH] nvs=: repeats that were counted instead of logged. */
+LONG xbox_nvs_unhandled_repeats(void)
+{
+    return InterlockedCompareExchange(&s_nvs_repeats, 0, 0);
+}
+
 /* ============================================================================
  * Exported Data Objects
  *
@@ -203,8 +227,12 @@ NTSTATUS __stdcall xbox_ExQueryNonVolatileSetting(
         break;
 
     default:
-        xbox_log(XBOX_LOG_WARN, XBOX_LOG_XBOX,
-            "ExQueryNonVolatileSetting: unhandled index 0x%02X", ValueIndex);
+        /* 1.1.6: the title asks for the same unhandled indices (mostly 0x104) thousands of times, which
+         * was 8-46% of every log. Log the first query per index; count the rest (shown as nvs= in the
+         * [HEALTH] line). More than NVS_SLOTS distinct indices: log every query, as before. */
+        if (nvs_first_time(ValueIndex))
+            xbox_log(XBOX_LOG_WARN, XBOX_LOG_XBOX,
+                "ExQueryNonVolatileSetting: unhandled index 0x%02X (repeats are counted, not logged)", ValueIndex);
         memset(Value, 0, ValueLength);
         if (Type) *Type = 4;
         if (ResultLength) *ResultLength = ValueLength;

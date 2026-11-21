@@ -23,4 +23,10 @@ int xa2_wait_for_space(int milliseconds);
 /* Get the preferred buffer size in samples. */
 int xa2_get_buffer_size(void);
 
+/* 1.1.6 [HEALTH], APU thread only: session totals (not reset by a device reopen). Any pointer may be NULL. */
+void xa2_health_counters(unsigned *underruns, unsigned *backpressure, unsigned *dropped,
+                         unsigned *stalls, unsigned *reopens);
+/* 1.1.6, APU thread only: the APU was idle on purpose; the next empty queue is not an underrun. */
+void xa2_note_idle(void);
+
 #endif /* APU_XAUDIO2_H */

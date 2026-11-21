@@ -18,7 +18,7 @@ body:
     attributes:
       label: Version
       description: Shown on the installer's first page, in the game's title screen, or in recomp-install.json in the install folder.
-      placeholder: "1.1.5"
+      placeholder: "1.1.6"
     validations: { required: true }
   - type: textarea
     id: what
@@ -31,16 +31,14 @@ body:
     attributes:
       label: Logs
       description: |
-        1. Run the installer and press **Collect diagnostics** on its first page (command line: `--diagnostics`).
-           It puts one zip on your Desktop with the game and installer logs, your settings and basic PC facts,
-           with your Windows user name removed. Drag that zip in here.
-        2. If the installer itself failed, press **Collect diagnostics** on the failure page (the zip names the failed step and holds the install log),
-           or **Copy log** and paste it (it is redacted the same way).
-        - Crash or freeze: the game also writes `crash-<number>.dmp` / `hang-<number>.dmp`. A dump can contain folder
-          names and your Windows user name, so don't attach it unless a maintainer asks; then tick *Include the newest
-          crash or hang dump* in **Collect diagnostics**.
+        1. Use **Report a problem**: in the game's pause menu, in the Start menu, or in the installer (Help menu, or the
+           failure screen). It makes one zip with the game and installer logs, your settings and basic PC facts, with
+           your Windows user name and PC name removed. If it says *Report sent*, paste the report number here;
+           otherwise it saved the zip in `%LOCALAPPDATA%\MechAssault2\Diagnostics`: drag that zip in here.
+        2. Versions before 1.1.6: run the installer and press **Collect diagnostics** (command line: `--diagnostics`).
+        - Crash or freeze: a report from the crash or freeze window includes the dump, with names overwritten.
         - Bot problems: a maintainer may ask for a bot recording; the Bots guide in your install explains how.
-        - Attach the **Collect diagnostics** zip, not raw `.log` files.
+        - Attach the report zip, not raw `.log` files.
     validations: { required: true }
   - type: input
     id: system

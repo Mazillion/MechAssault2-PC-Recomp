@@ -41,6 +41,9 @@ static HANDLE                  g_xa2_buffer_event;
 static int                     g_xa2_started;
 static unsigned                g_xa2_starved, g_xa2_backpressure;
 static int                     g_xa2_was_empty;
+/* 1.1.6 [HEALTH]: session totals. g_xa2_starved/backpressure restart at every (re)open; these do not.
+ * APU thread only (written in xa2_submit_samples, read through xa2_health_counters). */
+static unsigned                g_xa2_starved_total, g_xa2_bp_total;
 
 /* ---- EW-B3: device-loss handling -------------------------------------
  * A lost output device used to freeze the APU thread for ever: OnBufferEnd
@@ -71,6 +74,45 @@ static int                     g_xa2_hook_fail_done, g_xa2_hook_init_logged;
 
 static int  xa2_open(void);
 static void xa2_teardown(int close_event);
+
+/* 1.1.6: one line per (re)open describing the default output endpoint's shared-mode mix format and
+ * its form factor (speakers, headphones, headset, HDMI/display, ...). A Bluetooth headset in
+ * hands-free mode shows as a 8000/16000 Hz mono mix. No device name, no device ID (privacy).
+ * Plain COM on the APU thread, already in the MTA; any failure prints nothing. */
+#include <mmdeviceapi.h>
+static const GUID xa2_clsid_enum = {0xBCDE0395,0xE52F,0x467C,{0x8E,0x3D,0xC4,0x57,0x92,0x91,0x69,0x2E}};
+static const GUID xa2_iid_enum   = {0xA95664D2,0x9614,0x4F35,{0xA7,0x46,0xDE,0x8D,0xB6,0x36,0x17,0xE6}};
+static const PROPERTYKEY xa2_pkey_format = {{0xF19F064D,0x082C,0x4E27,{0xBC,0x73,0x68,0x82,0xA1,0xBB,0x8E,0x4C}},0};
+static const PROPERTYKEY xa2_pkey_form   = {{0x1DA5D803,0xD492,0x4EDD,{0x8C,0x23,0xE0,0xC0,0xFF,0xEE,0x7F,0x0E}},0};
+static void xa2_log_endpoint(void)
+{
+    static const char *const forms[] = {"network","speakers","line","headphones","microphone","headset",
+                                        "handset","digital","spdif","display","unknown"};
+    IMMDeviceEnumerator *en = NULL;
+    IMMDevice *dev = NULL;
+    IPropertyStore *ps = NULL;
+    PROPVARIANT v;
+    unsigned rate = 0, ch = 0, form = 10;
+    if (FAILED(CoCreateInstance(&xa2_clsid_enum, NULL, CLSCTX_ALL, &xa2_iid_enum, (void **)&en)) || !en) return;
+    if (SUCCEEDED(en->lpVtbl->GetDefaultAudioEndpoint(en, eRender, eConsole, &dev)) && dev &&
+        SUCCEEDED(dev->lpVtbl->OpenPropertyStore(dev, STGM_READ, &ps)) && ps) {
+        PropVariantInit(&v);
+        if (SUCCEEDED(ps->lpVtbl->GetValue(ps, &xa2_pkey_format, &v)) && v.vt == VT_BLOB &&
+            v.blob.cbSize >= sizeof(WAVEFORMATEX) && v.blob.pBlobData) {
+            const WAVEFORMATEX *w = (const WAVEFORMATEX *)v.blob.pBlobData;
+            rate = w->nSamplesPerSec; ch = w->nChannels;
+        }
+        PropVariantClear(&v);
+        PropVariantInit(&v);
+        if (SUCCEEDED(ps->lpVtbl->GetValue(ps, &xa2_pkey_form, &v)) && v.vt == VT_UI4 && v.ulVal <= 10)
+            form = v.ulVal;
+        PropVariantClear(&v);
+        fprintf(stderr, "[XA2] output device: mix=%u Hz %u ch, form=%s\n", rate, ch, forms[form]);
+    }
+    if (ps) ps->lpVtbl->Release(ps);
+    if (dev) dev->lpVtbl->Release(dev);
+    en->lpVtbl->Release(en);
+}
 
 static void xa2_read_hooks(void)
 {
@@ -216,6 +258,7 @@ static int xa2_open(void)
 
     fprintf(stderr, "[XA2] XAudio2 initialized (%d Hz stereo 16-bit, %d x %d-sample buffers)\n",
             XA2_SAMPLE_RATE, XA2_NUM_BUFS, XA2_BUF_SAMPLES);
+    xa2_log_endpoint();
     return 1;
 
 fail:
@@ -329,15 +372,17 @@ int xa2_submit_samples(const int16_t *samples, int num_samples)
         num_samples <= 0 || num_samples > XA2_BUF_SAMPLES) return 0;
 
     IXAudio2SourceVoice_GetState(g_xa2_source, &state, XAUDIO2_VOICE_NOSAMPLESPLAYED);
-    if (g_xa2_started && !state.BuffersQueued && !g_xa2_was_empty)
+    if (g_xa2_started && !state.BuffersQueued && !g_xa2_was_empty) {
         g_xa2_starved++;
+        g_xa2_starved_total++;
+    }
     g_xa2_was_empty = !state.BuffersQueued;
 
     idx = g_xa2_next_buf;
     for (int tried = 0; tried < XA2_NUM_BUFS; tried++) {
         if (!InterlockedCompareExchange(&g_xa2_busy[idx], 1, 0)) break;
         idx = (idx + 1) % XA2_NUM_BUFS;
-        if (tried == XA2_NUM_BUFS - 1) { g_xa2_backpressure++; return 0; }
+        if (tried == XA2_NUM_BUFS - 1) { g_xa2_backpressure++; g_xa2_bp_total++; return 0; }
     }
     copy_samples = num_samples;
     memcpy(g_xa2_bufs[idx], samples, copy_samples * XA2_CHANNELS * sizeof(int16_t));
@@ -419,6 +464,24 @@ int xa2_get_buffer_size(void)
     return XA2_BUF_SAMPLES;
 }
 
+/* 1.1.6 [HEALTH] (APU thread): session totals, unaffected by device reopens. */
+void xa2_health_counters(unsigned *underruns, unsigned *backpressure, unsigned *dropped,
+                         unsigned *stalls, unsigned *reopens)
+{
+    if (underruns) *underruns = g_xa2_starved_total;
+    if (backpressure) *backpressure = g_xa2_bp_total;
+    if (dropped) *dropped = g_xa2_dropped;
+    if (stalls) *stalls = g_xa2_stalls;
+    if (reopens) *reopens = g_xa2_reopens;
+}
+
+/* 1.1.6 (APU thread): the APU thread was idle (guest stopped the APU, or mcpx_apu_hold) and the
+ * output queue ran dry on purpose; do not count the first empty queue after it as an underrun. */
+void xa2_note_idle(void)
+{
+    g_xa2_was_empty = 1;
+}
+
 #else /* !_WIN32 -- POSIX stubs (no audio output yet) */
 
 int  xa2_init(void)                                   { return 0; }
@@ -426,6 +489,9 @@ void xa2_shutdown(void)                               {}
 int  xa2_is_active(void)                              { return 0; }
 int  xa2_submit_samples(const int16_t *s, int n)      { (void)s; (void)n; return 0; }
 int  xa2_get_buffer_size(void)                        { return 0; }
+void xa2_health_counters(unsigned *u, unsigned *b, unsigned *d, unsigned *s, unsigned *r)
+{ if (u) *u = 0; if (b) *b = 0; if (d) *d = 0; if (s) *s = 0; if (r) *r = 0; }
+void xa2_note_idle(void)                              {}
 int  xa2_wait_for_space(int milliseconds)             { (void)milliseconds; return -1; }
 
 #endif /* _WIN32 */

@@ -219,13 +219,17 @@ static void rec_open(void)
     DWORD w = 0; WriteFile(g_rec.file, "MA2BREC1", 8, &w, NULL); g_rec.written = 8;
     g_rec.ntables = ma2_brain_rec_tables(g_rec.tptr, g_rec.tsize, g_rec.tname, REC_TABLES);
     g_rec.state = 1; g_rec.key_all = 1;
-    char mod[MAX_PATH]; GetModuleFileNameA(NULL, mod, sizeof mod);
+    /* 1.1.6: the exe and the recording's own path as the log shows them (%LOCALAPPDATA% etc. for the
+     * profile folders), so a recording can go into a problem report (Report.exe scrubs it as well). */
+    char mod_raw[MAX_PATH], mod[MAX_PATH * 2], path_shown[MAX_PATH * 2];
+    GetModuleFileNameA(NULL, mod_raw, sizeof mod_raw);
+    xbox_log_path(mod_raw, mod, sizeof mod); xbox_log_path(g_rec.path, path_shown, sizeof path_shown);
     char t[4096]; int k = snprintf(t, sizeof t,
         "version=1\nptr=%u\nhz=%.1f\nalgo=%d\nbuilt=%s %s\nexe=%s\npath=%s\nmax_bots=%d\nhumans=%d\nc7_counters=%d\n"
         "sizeof.Ma2World=%u\nsizeof.Bot=%u\nsizeof.BotCtrl=%u\nsizeof.Ma2Order=%u\nsizeof.Ma2CtrlStatus=%u\nsizeof.Ma2PlayerView=%u\nsizeof.Ma2Path=%u\nsizeof.Ma2Brain=%u\n"
         "offsetof.Bot.ctrl=%u\noffsetof.BotCtrl.val=%u\noffsetof.BotCtrl.vto_p0=%u\noffsetof.Ma2World.players=%u\noffsetof.Ma2World.blasts=%u\n"
         "guest.actor=%u\nguest.ai=%u\nguest.comp=%u\nguest.player=%u\nguest.beh=%u\n",
-        (unsigned)sizeof(void *), g_rec.hz, g_rec.algo, __DATE__, __TIME__, mod, g_rec.path, MAX_BOTS, REC_HUMANS, C7_COUNTERS,
+        (unsigned)sizeof(void *), g_rec.hz, g_rec.algo, __DATE__, __TIME__, mod, path_shown, MAX_BOTS, REC_HUMANS, C7_COUNTERS,
         (unsigned)sizeof(Ma2World), (unsigned)sizeof(Bot), (unsigned)sizeof(BotCtrl), (unsigned)sizeof(Ma2Order), (unsigned)sizeof(Ma2CtrlStatus),
         (unsigned)sizeof(Ma2PlayerView), (unsigned)sizeof(Ma2Path), (unsigned)ma2_brain_size(),
         (unsigned)offsetof(Bot, ctrl), (unsigned)offsetof(BotCtrl, val), (unsigned)offsetof(BotCtrl, vto_p0), (unsigned)offsetof(Ma2World, players), (unsigned)offsetof(Ma2World, blasts),

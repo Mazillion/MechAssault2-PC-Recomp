@@ -24,6 +24,12 @@ GAME
   the new PC texts (for example "BOT MATCH").
 - Choosing a key that another binding already uses leaves both actions on
   that key; change the other row too.
+- On PCs with few CPU threads, or when the PC is busy, the sound can still
+  crackle now and then (see Docs\Troubleshooting.txt).
+- Report a problem: with a controller the "What happened?" box offers
+  ready-made descriptions only; free text needs a keyboard.
+- Report a problem saves the report on your PC; sending it to the developer
+  is not switched on yet in this version.
 - Not tested yet on: AMD graphics, Windows 10 without Visual Studio, non-English
   Windows, two monitors, HDR.
 

@@ -4,7 +4,7 @@ MechAssault 2 PC recompilation - install guide (version {{VERSION}})
 The installer builds a PC version of MechAssault 2 from your own disc. It
 contains no game data: the game's program, art, sound and levels come from
 your disc image. It runs on your PC and takes about 15 minutes on a fast
-8-core PC, longer on 4 cores.
+8-core PC; on 4 cores or with 8 GB of memory it can take an hour or more.
 
 
 WHAT YOU NEED
@@ -44,34 +44,40 @@ administrator rights except for Microsoft's Build Tools (their own installer
 asks).
 
 
-THE SEVEN PAGES
----------------
-1. Welcome - what the installer does. Collect diagnostics is always here,
-   even with nothing installed. If it finds an existing install it also
-   offers Update, Repair and Uninstall.
-2. Systems - Windows version, graphics card, memory, power, the C++
-   Build Tools and free space. A red row must be fixed before Next; for
-   missing Build Tools press "Install for me" (this downloads Microsoft's own
-   signed installer; by continuing you accept Microsoft's licence terms for
-   the Build Tools, linked on the page).
-3. Disc - choose your disc image (Choose disc image...) or a folder copied
-   from the disc (Choose a folder...). The installer identifies the disc.
-4. Location - the install folder, by default C:\Games\MechAssault 2. It must
-   be empty or a previous install, and not a protected, temporary or network
-   folder; FAT32 drives are refused (use an NTFS drive).
-   Free space on that drive is checked here.
-5. Loadout - optional enhanced textures and videos (see below), and
-   shortcuts.
-6. Install - the steps run one after another with a progress bar: checking
-   the disc, extracting the game files, analysing and translating the game
-   program, applying the PC fixes and features, compiling the game, building
-   the PC menus, installing. Copy log copies the log for a report; if the
-   install stops, Collect diagnostics saves a zip with the failed step and
-   the log.
-7. Done - Play, Open install folder, Open Scenario Editor and Controls.
+THE INSTALLER WINDOW
+--------------------
+1. Install MechAssault 2 - drop your disc image on the box or browse for it
+   (an .iso or .xiso file, or ma2.xbe in a folder copied from the disc).
+   The installer checks it. Install to shows the install folder, by default
+   C:\Games\MechAssault 2, and the free space on that drive; Change picks
+   another. The folder must be empty or a previous install, and not a
+   protected, temporary or network folder; FAT32 drives are refused (use an
+   NTFS drive). Install options has the textures (Original, HD, Ultra HD),
+   the upscaled movies (see below) and the shortcuts. Its
+   Troubleshooting... page holds settings for when support asks, such as
+   "Keep my PC responsive" (builds more slowly in the background; chosen
+   for you on a laptop running on battery and on PCs with 4 CPU threads or
+   fewer). Press Install.
+2. Microsoft's C++ tools - if they are missing, the installer offers to
+   install them (this downloads Microsoft's own signed installer; Windows
+   asks for permission, and by continuing you accept Microsoft's licence
+   terms for the Build Tools, linked on that screen).
+3. Installing - a progress bar and the time left. Show details lists the
+   steps (reading your disc, setting things up, building the game,
+   installing) and has Open log. Building the game keeps the processor
+   busy: high CPU use and fan noise for 10-60 minutes are normal. If it
+   takes longer than estimated the window says so and keeps working; on a
+   PC with little memory it can wait for free memory and then carry on by
+   itself.
+4. Ready to play - Launch, Open install folder and Report a problem.
 
-Pause, cancel, resume: you can cancel at any time. Running the installer
-again with the same folder resumes where it stopped.
+If something stops the install, the window says why and offers Try again
+(finished steps are kept) and Send report (Save report when sending is not
+available). Help, at the bottom left, has Help & FAQ, Collect diagnostics,
+Report a problem and Open log.
+
+Cancel, resume: you can cancel at any time. Running the installer again
+with the same folder offers Continue, which keeps the finished steps.
 
 
 UPDATE AND REPAIR
@@ -106,7 +112,8 @@ COMMAND LINE
 ------------
 The installer's engine can also run without the window, for example:
   --uninstall [--yes] [--delete-user-data]
-  --diagnostics [--include-dump] [--include-botrec]
+  --diagnostics [--include-dump] [--include-botrec]   (the zip goes on your
+                                                     Desktop)
 
 
 PROBLEMS

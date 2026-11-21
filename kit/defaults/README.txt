@@ -10,6 +10,7 @@ result was compiled here. game_files holds the contents of your disc.
 
   MechAssault 2.exe        the game
   MA2 Scenario Editor.exe  make your own maps and missions
+  MA2 Report.exe           Report a problem: one zip of logs and settings
   game_files\              your disc's files (plus any enhanced textures/videos)
   pc_assets\               PC menus built from your disc, and ready-made
                            graphics shaders
@@ -56,8 +57,9 @@ Bot match recordings: off by default. Turn them on with BotRecorder=1 under
 [Bots] in your pc_settings.ini and each offline bot match then writes a flight
 record of every player's position and input to the Logs folder (about 6 MB a
 minute; the newest 4 are kept, at most 150 MB each). It is only used to find
-and fix bot problems, is never sent anywhere, and holds the game folder path
-(which can include your Windows user name).
+and fix bot problems. Report a problem from the game or the Start menu adds
+the newest one (cut to its last part if it is large), with your user name,
+PC name and folder names removed.
 
 
 UPDATING AND UNINSTALLING
@@ -93,18 +95,25 @@ GETTING HELP AND REPORTING A PROBLEM
 ------------------------------------
 First look in Docs\Troubleshooting.txt and Docs\Known issues.txt.
 
-To report a problem: run the installer and press Collect diagnostics on its
-first page (it works even if nothing is installed). It puts one zip file on
-your Desktop with the logs and settings (your Windows user name is removed
-from the text files). Attach that zip at {{MA2_SUPPORT_URL}} and say which
-version you have: the first line of this file. Crash or hang dumps and bot
-recordings are added only if you tick them; do that only when a maintainer
-asks for one.
+To report a problem, use Report a problem. It is in the game's pause menu
+and in Audio settings, in the Start menu ("Report a problem (MechAssault
+2)", made with the game's Start menu shortcut), in the installer (Help >
+Report a problem, and on its Done screen), and in the window that opens
+when the game crashes or stops responding. It makes one zip with the
+logs, settings and PC details; your user name, PC name and personal
+folders are removed, and What's included? lists every file. Say what
+happened if you like, then press the button. Send report sends it to the
+developer and shows a report number. When sending is not available the
+button says Save report; a report that is not sent is saved in
+%LOCALAPPDATA%\MechAssault2\Diagnostics. Attach that zip at
+{{MA2_SUPPORT_URL}} and say which version you have: the first line of this
+file.
 
 Crash and hang dumps hold the call stack and part of the game's memory at
-that moment (they can include folder paths and your Windows user name), so
-share them only with someone you trust to look into the problem. Nothing is
-ever sent anywhere by the game; delete them whenever you like.
+that moment. The ones in the Logs folder can include folder paths and your
+Windows user name; the copy in a report has your user name, PC name and
+folder names overwritten. Nothing is sent anywhere unless you press Send
+report. Delete the dumps and saved reports whenever you like.
 
 
 CUSTOM SCENARIOS

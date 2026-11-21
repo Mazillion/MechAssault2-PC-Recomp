@@ -2,10 +2,19 @@ MechAssault 2 PC recompilation - troubleshooting (version {{VERSION}})
 =====================================================================
 
 Logs, crash reports and hang reports are in %LOCALAPPDATA%\MechAssault2\Logs.
-For a report, run the installer and press Collect diagnostics on its first
-page (it works with nothing installed, and the error screen of a failed
-install has the button too): it puts one zip on your Desktop. Report problems
-at {{MA2_SUPPORT_URL}}.
+
+To report a problem, use Report a problem. It is in the game's pause menu
+and in Audio settings, in the Start menu ("Report a problem (MechAssault
+2)", made with the game's Start menu shortcut), in the installer (Help >
+Report a problem, and on its Done screen), and in the window that opens
+when the game crashes or stops responding. It makes one zip with the
+logs, settings and PC details; your user name, PC name and personal
+folders are removed, and What's included? lists every file. Say what
+happened if you like, then press the button. Send report sends it to the
+developer and shows a report number. When sending is not available the
+button says Save report; a report that is not sent is saved in
+%LOCALAPPDATA%\MechAssault2\Diagnostics. Attach that zip at
+{{MA2_SUPPORT_URL}}.
 
 
 INSTALLER
@@ -20,17 +29,14 @@ The installer closes after "Unpacking" without a window
   Look for %LOCALAPPDATA%\MechAssault2\Logs\installer-ui-*.log and send it with
   your report. A message box normally names that file.
 
-A Systems row says "Could not check (see the log)"
-  That check failed to run; the install can still go on. Send the
-  installer-ui log if something later fails.
-
 Microsoft's Build Tools will not install
   They need about 8 GB free on C:, administrator approval and an internet
   connection. Their log is buildtools-*.log in the Logs folder. You can also
   install "Build Tools for Visual Studio" yourself from Microsoft with the
-  "Desktop development with C++" workload, then press Re-check.
-  If they finish with "Windows must restart", restart the PC, open the
-  installer again and press Resume.
+  "Desktop development with C++" workload, then press Check again.
+  If Windows must restart, the installer says so: press Restart now (save
+  your work in other programs first). It carries on by itself after you
+  sign in again.
 
 "The disc image was not recognised"
   Only the US (NTSC) retail disc is supported. Choose the .iso/.xiso file
@@ -39,19 +45,29 @@ Microsoft's Build Tools will not install
 
 "These files from your disc image are damaged"
   The dump has read errors. Clean the disc, dump it again with a tool that
-  reports read errors, and choose the new image (Choose disc image on the
-  failure screen).
+  reports read errors, and choose the new image.
+
+The install looks stuck
+  Building the game keeps the processor busy for 10-60 minutes (longer on
+  4 cores or with 8 GB of memory): high CPU use and fan noise are normal,
+  and the bar can stay on "Building the game" for a long time. While a big
+  file is compiled, the log (Help > Open log) gets a "still working" line
+  every minute. When the time estimate runs out the window says "Taking
+  longer than estimated, still working". "Waiting for memory" means it
+  waits for free memory: close other programs and it carries on by itself.
 
 Compiling fails or the PC runs out of memory
-  Close other programs and press Resume. The installer uses fewer parallel
-  jobs on PCs with less memory. If it fails again, press Collect diagnostics
-  and send the zip (or the log: Copy log).
+  Close other programs (web browsers, Discord) and press Try again; finished
+  files are kept. The installer uses fewer parallel jobs and lighter
+  settings on PCs with less memory. Check that Windows manages the page
+  file size automatically and that C: has a few GB free. If it fails
+  again, press Send report (or Save report) on that screen.
 
 A download failed
-  Check the connection and press Resume. The installer downloads FFmpeg (for
-  the cutscenes) on every install, plus the Build Tools and the enhanced
-  content when they are needed. On a PC without internet, download the
-  FFmpeg zip named in the message on another PC and put it next to the
+  Check the connection and press Try again. The installer downloads FFmpeg
+  (for the cutscenes) on every install, plus the Build Tools and the
+  enhanced content when they are needed. On a PC without internet, download
+  the FFmpeg zip named in the message on another PC and put it next to the
   installer.
 
 A folder named MA2RecompBuild-xxxx is left on a drive
@@ -66,7 +82,7 @@ Black screen, or "needs a DirectX 11 graphics card"
 
 "Could not reserve the memory the game needs"
   Close other programs and start the game again. Restarting Windows helps if
-  it keeps happening. Send the newest log if it does not.
+  it keeps happening. If it does not, send a report (Report a problem).
 
 "Game files are missing"
   Run the installer, choose the install folder and press Repair.
@@ -74,11 +90,20 @@ Black screen, or "needs a DirectX 11 graphics card"
 Tinted picture or very low frame rate on Intel integrated graphics
   This was seen on one laptop and is not yet understood. Update the graphics
   driver, set Textures to Original and a lower resolution in Video Settings,
-  and please send a diagnostics zip.
+  and please send a report (Report a problem).
 
 Slow PC
   In Video Settings: Textures Original, a lower resolution, Draw distance 50
   or lower, Frame limit 60. Keep "Pre-load shaders on loading screens" on.
+
+Sound crackles or pops
+  The PC is usually too busy to keep the sound going. Close other programs
+  (web browsers, streaming and recording tools), plug a laptop in and turn
+  off Battery saver, and set Frame limit to 60 in Video Settings. Bluetooth
+  headsets in their hands-free (headset) mode sound poor and can crackle;
+  try wired speakers or headphones. If it keeps crackling, send a report
+  (Report a problem in the pause menu) right after it happens: the log
+  notes how often the sound fell behind.
 
 Controller not detected
   Xbox-style (XInput) controllers work directly. PlayStation and older
@@ -86,15 +111,18 @@ Controller not detected
 
 The game froze
   After 30 seconds without a new frame the game writes hang-<number>.dmp and
-  a [HANG] section in its log; after 2 minutes it offers to close. Run the
-  installer, press Collect diagnostics on its first page and attach the zip;
-  add the hang dump only if a maintainer asks for it.
+  a [HANG] section in its log; after 2 minutes a window offers Send report
+  (Save report when sending is not available), Close the game and Keep
+  waiting. The report includes the hang dump with your user name, PC name
+  and folder names overwritten.
 
 The game crashed
-  The message says how to report it: run the installer, press Collect
-  diagnostics on its first page and attach the zip. The crash-<number>.dmp in
-  the Logs folder can contain folder names and your Windows user name; add it
-  (a tick box in Collect diagnostics) only if a maintainer asks for it.
+  A window says the game stopped and offers Send report (Save report when
+  sending is not available), with a box to say what you were doing. The
+  report includes the crash dump with your user name, PC name and folder
+  names overwritten. If that window cannot open, a message names the crash
+  dump in the Logs folder; then run the installer and choose Help > Report
+  a problem.
 
 The game keeps running or is silent in the background
   By default it pauses and goes silent when another window has focus. See

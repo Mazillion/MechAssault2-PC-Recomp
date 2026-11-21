@@ -14,6 +14,10 @@
 extern int g_apu_ws;
 extern double apu_ws_now_ms(void);
 extern void apu_wt_dspjoin(double ms);
+/* 1.1.6 (apu_core.c / apu_xaudio2.c, APU thread). */
+extern volatile LONG g_apu_resyncs;
+extern void xa2_health_counters(unsigned *underruns, unsigned *backpressure, unsigned *dropped,
+                                unsigned *stalls, unsigned *reopens);
 
 bool mcpx_apu_dsp_enabled(void)
 {
@@ -681,6 +685,71 @@ enum { DSP_PLAN_HIGH=0, DSP_PLAN_LOW=1, DSP_PLAN_INLINE=2 };
 static int g_dsp_plan=-1;
 static volatile LONG g_dsp_prio_high=1;   /* low plan: 1 while the lag guard has promoted the DSP thread */
 static struct { unsigned promotions; long long high_us; int64_t ok_since_us,promoted_at_us; } g_dsp_guard;
+
+/* 1.1.6 self-protecting low plan, [Audio] SelfGuard / RECOMP_AUDIO_SELFGUARD = 0|1.
+ * Only the low plan uses A1/A2; A3 (apu_core.c throttle) runs on any plan but only after a stall of
+ * more than 250 ms. A PC that never stalls and never underruns runs exactly the 1.1.5 code paths.
+ *   A1 timed join: the APU thread waits DSP_JOIN_BOOST_MS for the DSP frame; if the DSP thread is
+ *      still at NORMAL priority (boosts off) by then, the APU thread raises it itself
+ *      (TIME_CRITICAL, boosts on) and marks it promoted, so a frame that is already stuck gets the
+ *      CPU now instead of after the next wake. Then it waits without limit, as before.
+ *   A2 session latch: after an underrun, a stall resync, or DSP_LATCH_EVENTS promotions/boosts
+ *      within DSP_LATCH_WINDOW_US, the DSP thread stays promoted for the rest of the session (the
+ *      guard no longer demotes it after 2 s of no lag).
+ *   A3 see apu_core.c (64 ms cushion at a stall resync).
+ * Session totals for [HEALTH]: promotions, boosts, latch. RECOMP_TEST_DSP_STALL=<s>:<ms>[,<s>:<ms>...]
+ * (test only) sleeps the DSP thread once for <ms> at <s> seconds after its first frame. */
+#ifndef DSP_SELFGUARD_DEFAULT
+#define DSP_SELFGUARD_DEFAULT 1
+#endif
+#define DSP_JOIN_BOOST_MS 12
+#define DSP_LATCH_EVENTS 3
+#define DSP_LATCH_WINDOW_US 60000000LL
+static int g_dsp_selfguard=-1;
+static HANDLE g_dsp_thread_handle;              /* kept open for A1 (1.1.5 closed it at creation) */
+static volatile LONG g_dsp_applied_high=1;      /* what the DSP thread last applied to itself (1 = MMCSS) */
+static unsigned g_dsp_promos_total,g_dsp_boosts_total;
+static int g_dsp_latched;
+static const char *g_dsp_latch_reason="";
+static int64_t g_dsp_events_at[DSP_LATCH_EVENTS];   /* ring of the last promotion/boost times */
+static unsigned g_dsp_events_n;
+int apu_selfguard_on(void)
+{
+    if(g_dsp_selfguard<0) {
+        g_dsp_selfguard=pc_switch("RECOMP_AUDIO_SELFGUARD","Audio","SelfGuard",DSP_SELFGUARD_DEFAULT)!=0;
+        fprintf(stderr,"[APU] self-protecting audio threads (1.1.6): %s\n",g_dsp_selfguard?"on":"off");
+    }
+    return g_dsp_selfguard;
+}
+static void dsp_latch(const char *reason)
+{
+    if(g_dsp_latched)return;
+    g_dsp_latched=1;g_dsp_latch_reason=reason;
+    if(!g_dsp_prio_high) {
+        g_dsp_prio_high=1;g_dsp_promos_total++;
+        g_dsp_guard.promotions++;g_dsp_guard.promoted_at_us=qemu_clock_get_us(QEMU_CLOCK_REALTIME);g_dsp_guard.ok_since_us=0;
+    }
+    fprintf(stderr,"[APU-THREADS] low plan: DSP thread stays high for the rest of the session (reason=%s, promotions=%u, boosts=%u)\n",
+            reason,g_dsp_promos_total,g_dsp_boosts_total);
+}
+/* APU thread: one promotion or boost happened at now; latch on the DSP_LATCH_EVENTS-th within the window. */
+static void dsp_note_event(int64_t now)
+{
+    g_dsp_events_at[g_dsp_events_n++%DSP_LATCH_EVENTS]=now;
+    if(g_dsp_events_n>=DSP_LATCH_EVENTS &&
+       now-g_dsp_events_at[g_dsp_events_n%DSP_LATCH_EVENTS]<=DSP_LATCH_WINDOW_US)
+        dsp_latch("promotions");
+}
+/* [HEALTH] plan fields (APU thread). */
+void apu_dsp_health(char *out,size_t size)
+{
+    if(g_dsp_plan==DSP_PLAN_LOW)
+        snprintf(out,size,"plan=low promos=%u boosts=%u latched=%d%s%s guard=%s",g_dsp_promos_total,g_dsp_boosts_total,
+                 g_dsp_latched,g_dsp_latched?"/":"",g_dsp_latched?g_dsp_latch_reason:"",apu_selfguard_on()?"on":"off");
+    else
+        snprintf(out,size,"plan=%s guard=%s",g_dsp_plan==DSP_PLAN_INLINE?"inline":g_dsp_plan==DSP_PLAN_HIGH?"high":"none",
+                 apu_selfguard_on()?"on":"off");
+}
 static int dsp_plan_choose(void)
 {
     static const char *const names[]={"high","low","inline","auto"};
@@ -715,9 +784,19 @@ static void dsp_guard_tick(MCPXAPUState *d)
     int64_t now=qemu_clock_get_us(QEMU_CLOCK_REALTIME);
     int64_t lag=now-d->next_frame_time_us+5333;   /* throttle already advanced next_frame_time_us by one block */
     if(!d->next_frame_time_us)return;
+    if(apu_selfguard_on() && !g_dsp_latched) {   /*  */
+        unsigned under=0;xa2_health_counters(&under,NULL,NULL,NULL,NULL);
+        if(under)dsp_latch("underrun");
+        else if(InterlockedCompareExchange(&g_apu_resyncs,0,0))dsp_latch("resync");
+    }
     if(!g_dsp_prio_high) {
-        if(lag>2*5333){g_dsp_prio_high=1;g_dsp_guard.promotions++;g_dsp_guard.promoted_at_us=now;g_dsp_guard.ok_since_us=0;}
+        if(lag>2*5333) {
+            g_dsp_prio_high=1;g_dsp_guard.promotions++;g_dsp_guard.promoted_at_us=now;g_dsp_guard.ok_since_us=0;
+            g_dsp_promos_total++;
+            if(apu_selfguard_on())dsp_note_event(now);
+        }
     } else {
+        if(g_dsp_latched){g_dsp_guard.ok_since_us=0;return;}   /* Never demote once latched */
         if(lag>5333){g_dsp_guard.ok_since_us=0;return;}
         if(!g_dsp_guard.ok_since_us)g_dsp_guard.ok_since_us=now;
         else if(now-g_dsp_guard.ok_since_us>=2000000) {
@@ -738,6 +817,29 @@ static void dsp_threads_report(double wall_ms)
     g_dsp_guard.promotions=0;g_dsp_guard.high_us=0;
 }
 
+/* RECOMP_TEST_DSP_STALL (test only, see above): DSP thread. */
+static struct { int n; unsigned at_ms[8],ms[8]; unsigned done; ULONGLONG t0; } g_dsp_stall_test={-1};
+static void dsp_test_stall(void)
+{
+    if(g_dsp_stall_test.n<0) {
+        const char *v=getenv("RECOMP_TEST_DSP_STALL");
+        g_dsp_stall_test.n=0;
+        while(v && *v && g_dsp_stall_test.n<8) {
+            unsigned s=0,ms=0;
+            if(sscanf(v,"%u:%u",&s,&ms)!=2)break;
+            g_dsp_stall_test.at_ms[g_dsp_stall_test.n]=s*1000;g_dsp_stall_test.ms[g_dsp_stall_test.n]=ms;g_dsp_stall_test.n++;
+            v=strchr(v,',');if(v)v++;
+        }
+        g_dsp_stall_test.t0=GetTickCount64();
+    }
+    for(int i=0;i<g_dsp_stall_test.n;i++)
+        if(!(g_dsp_stall_test.done&(1u<<i)) && GetTickCount64()-g_dsp_stall_test.t0>=g_dsp_stall_test.at_ms[i]) {
+            g_dsp_stall_test.done|=1u<<i;
+            fprintf(stderr,"[APU-THREADS] TEST: DSP thread stalls %u ms now\n",g_dsp_stall_test.ms[i]);
+            Sleep(g_dsp_stall_test.ms[i]);
+        }
+}
+
 static DWORD WINAPI dsp_thread_main(LPVOID unused)
 {
     (void)unused;
@@ -747,7 +849,8 @@ static DWORD WINAPI dsp_thread_main(LPVOID unused)
     for(;;) {
         WaitForSingleObject(dsp_thread.go,INFINITE);
         int want=g_dsp_plan==DSP_PLAN_LOW?(int)g_dsp_prio_high:1;
-        if(want!=prio){dsp_thread_set_prio(&mmcss,want);prio=want;}
+        if(want!=prio){dsp_thread_set_prio(&mmcss,want);prio=want;InterlockedExchange(&g_dsp_applied_high,want);}
+        if(g_dsp_stall_test.n)dsp_test_stall();
         AcquireSRWLockExclusive(&g_dsp_exec);
         dsp_run_frame(dsp_thread.d,dsp_thread.in,dsp_thread.gp,dsp_thread.ep_on,dsp_thread.ep_run,dsp_thread.div);
         ReleaseSRWLockExclusive(&g_dsp_exec);
@@ -758,7 +861,26 @@ static void dsp_thread_join(void)
 {
     if(dsp_thread.pending) {
         double t0=g_apu_ws?apu_ws_now_ms():0.0;     /* [APU-WAIT] dspjoin: the APU thread waiting for the GP/EP frame */
-        WaitForSingleObject(dsp_thread.done,INFINITE);dsp_thread.pending=0;
+        /* Low plan, DSP thread still at NORMAL: bounded first wait, then raise it from here.
+         * dsp_thread.done is an auto-reset event: a timed wait that succeeds has consumed the signal. */
+        DWORD first=WAIT_TIMEOUT;
+        if(g_dsp_plan==DSP_PLAN_LOW && g_dsp_thread_handle && apu_selfguard_on() &&
+           !InterlockedCompareExchange(&g_dsp_applied_high,0,0) &&
+           (first=WaitForSingleObject(dsp_thread.done,DSP_JOIN_BOOST_MS))==WAIT_TIMEOUT) {
+            int64_t now=qemu_clock_get_us(QEMU_CLOCK_REALTIME);
+            if(!g_dsp_prio_high) {
+                g_dsp_prio_high=1;g_dsp_guard.promotions++;g_dsp_guard.promoted_at_us=now;g_dsp_guard.ok_since_us=0;
+            }
+            SetThreadPriority(g_dsp_thread_handle,THREAD_PRIORITY_TIME_CRITICAL);
+            SetThreadPriorityBoost(g_dsp_thread_handle,FALSE);
+            g_dsp_boosts_total++;
+            if(g_dsp_boosts_total<=5)
+                fprintf(stderr,"[APU-THREADS] low plan: DSP frame late by %d ms, raised the DSP thread (boost #%u)\n",
+                        DSP_JOIN_BOOST_MS,g_dsp_boosts_total);
+            dsp_note_event(now);
+        }
+        if(first!=WAIT_OBJECT_0)WaitForSingleObject(dsp_thread.done,INFINITE);
+        dsp_thread.pending=0;
         if(g_apu_ws)apu_wt_dspjoin(apu_ws_now_ms()-t0);
     }
 }
@@ -773,7 +895,11 @@ static int dsp_thread_mode(MCPXAPUState *d)
     dsp_thread.go=CreateEventW(NULL,FALSE,FALSE,NULL);
     dsp_thread.done=CreateEventW(NULL,FALSE,FALSE,NULL);
     HANDLE thread=dsp_thread.go && dsp_thread.done?CreateThread(NULL,0,dsp_thread_main,NULL,0,NULL):NULL;
-    if(thread){CloseHandle(thread);dsp_thread.mode=1;}
+    if(thread) {
+        /* 1.1.6 A1 keeps the handle on the low plan (the APU thread raises the DSP thread itself). */
+        if(g_dsp_plan==DSP_PLAN_LOW && apu_selfguard_on())g_dsp_thread_handle=thread;else CloseHandle(thread);
+        dsp_thread.mode=1;
+    }
     fprintf(stderr,"[APU-DSP] GP/EP %s\n",dsp_thread.mode?"run on their own thread, one frame behind the voices":"run inline");
     return dsp_thread.mode;
 }

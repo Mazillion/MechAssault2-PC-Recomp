@@ -118,6 +118,7 @@ static int compare_frame_interval(const void *a,const void *b)
  *   [HITCH-SUM] window=10s frames=N worst=MS over33=N over50=N
  * is printed when the window closes. t is seconds since the mark (negative before it). */
 #include <tlhelp32.h>
+#include <io.h>      /* _get_osfhandle */
 /* Log privacy (kernel_thunks.c): a path for a log line, with the player's profile folders written as
  * %LOCALAPPDATA% / %APPDATA% / %USERPROFILE% (players post logs publicly). */
 const char *xbox_log_path(const char *path, char *out, size_t size);
@@ -211,7 +212,10 @@ static DWORD WINAPI hitch_sampler(LPVOID unused)
             CloseHandle(th);
         }
         CloseHandle(snap);
-        DWORD wr;WriteFile(GetStdHandle(STD_ERROR_HANDLE),out,(DWORD)o,&wr,NULL);
+        /* 1.1.6: the CRT's stderr handle; after main.c's freopen GetStdHandle(STD_ERROR_HANDLE) is stale
+         * (no console in a GUI exe), so these samples were lost unless stderr was a pipe. */
+        DWORD wr;HANDLE eh=(HANDLE)_get_osfhandle(_fileno(stderr));
+        WriteFile(eh!=INVALID_HANDLE_VALUE&&eh?eh:GetStdHandle(STD_ERROR_HANDLE),out,(DWORD)o,&wr,NULL);
         samples++;
     }
     return 0;
@@ -255,9 +259,40 @@ static void hitch_flip(void)
     }
 }
 
+/* 1.1.6 [HEALTH] (apu_core.c): an always-on frame-time histogram, one interlocked add per flip.
+ * Bucket i counts flip-to-flip times up to s_fh_edges[i] ms; the APU thread copies the counts with
+ * nv2a_frame_hist_take and works out fps/p50/p99 over its own interval. The edges must match
+ * s_health_edges in apu_core.c. */
+#define FH_BUCKETS 24
+static const float s_fh_edges[FH_BUCKETS] = {
+    4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 17.5f, 20, 25, 33.4f, 40, 50, 67, 100, 150, 250, 500, 1000, 99999};
+static volatile LONG s_fh[FH_BUCKETS];
+static volatile LONG64 s_fh_flips;
+void nv2a_frame_hist_take(volatile LONG *out, int n, LONG64 *flips)
+{
+    for (int i = 0; i < n && i < FH_BUCKETS; i++) out[i] = InterlockedCompareExchange(&s_fh[i], 0, 0);
+    if (flips) *flips = InterlockedCompareExchange64(&s_fh_flips, 0, 0);
+}
+static void frame_hist_flip(void)
+{
+    static LARGE_INTEGER freq, prev;
+    LARGE_INTEGER q;
+    QueryPerformanceCounter(&q);
+    if (!freq.QuadPart) QueryPerformanceFrequency(&freq);
+    if (prev.QuadPart && freq.QuadPart) {
+        float ms = (float)((double)(q.QuadPart - prev.QuadPart) * 1000.0 / (double)freq.QuadPart);
+        int b = 0;
+        while (b < FH_BUCKETS - 1 && ms > s_fh_edges[b]) b++;
+        InterlockedIncrement(&s_fh[b]);
+    }
+    prev = q;
+    InterlockedIncrement64(&s_fh_flips);
+}
+
 static void perf_frame(void)
 {
     static double previous_flip;
+    frame_hist_flip();
     if (nv2a_hitch_enabled()) hitch_flip();
     double now = perf_clock_ms();
     if (!now || !getenv("RECOMP_PERF")) return;

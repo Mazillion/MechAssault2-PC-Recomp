@@ -51,6 +51,8 @@ VIDEO SETTINGS (defaults in brackets)
 VOLUME
 ------
 Master, effects, speech and music (all full). Changes are heard at once.
+Audio settings also has Report a problem... (the same page as Report a
+Problem in the pause menu; see Docs\Troubleshooting.txt).
 
 
 CONTROLS
@@ -69,6 +71,9 @@ Close the game before editing %LOCALAPPDATA%\MechAssault2\pc_settings.ini.
   [Display] CinematicFrameCap=60  cutscene frame rate (0 = the frame limit)
   [Input] PauseOnFocusLoss=1   pause play when another window has focus
   [Audio] MuteInBackground=1   silence the game when another window has focus
+  [Audio] SelfGuard=1          on PCs with few CPU threads, give the sound
+                               more priority as soon as it falls behind
+                               (0 = as in 1.1.5)
   [Bots]  BotRecorder=0        1 = record each bot match to the Logs folder
                                (newest 4 kept, at most 150 MB each); only
                                when a maintainer asks for a recording

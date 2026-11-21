@@ -13,6 +13,7 @@
 #include <vector>
 #include <algorithm>
 #include <atomic>
+#include <cwctype>
 #include "imgui.h"
 #include "backends/imgui_impl_win32.h"
 #include "backends/imgui_impl_dx11.h"
@@ -371,6 +372,19 @@ static void draw_glow(ImDrawList *list,const float b[4],float alpha){
             IM_COL32(165,210,255,(int)(a*255.f+.5f)),(h*.5f+ey));
     }
 }
+/* The report page's text box around rows 1-4 (640x480 units x 70..570, y 124..241), in the name
+ * keyboard's text-field style: a thin blue rule with a dark line on each side (a recessed field; the
+ * overlay draws over the game's text, so the inside stays clear); with focus the rule turns the hover
+ * glow's blue-white and the same soft halo surrounds it. The settings pages are 4:3, centred. */
+static void draw_report_box(ImDrawList *list,float width,float height,bool focus){
+    float scale=std::min(width/640.f,height/480.f),ox=(width-640*scale)*.5f,oy=(height-480*scale)*.5f,t=std::max(1.f,1.25f*scale);
+    ImVec2 a(ox+70*scale,oy+124*scale),b(ox+570*scale,oy+241*scale);
+    if(focus){float spread=6*scale;
+        for(int i=8;i>=1;i--){float k=i/8.f;list->AddRect(ImVec2(a.x-spread*k,a.y-spread*k),ImVec2(b.x+spread*k,b.y+spread*k),IM_COL32(165,210,255,(int)(28*(1-k)+6)),3*scale,0,1.5f*scale);}}
+    list->AddRect(ImVec2(a.x-t,a.y-t),ImVec2(b.x+t,b.y+t),IM_COL32(4,14,28,170),2*scale,0,t);
+    list->AddRect(ImVec2(a.x+t,a.y+t),ImVec2(b.x-t,b.y-t),IM_COL32(4,14,28,120),2*scale,0,t);
+    list->AddRect(a,b,focus?IM_COL32(170,214,250,235):IM_COL32(74,128,178,230),2*scale,0,t);
+}
 static DWORD settings_write_error;
 static void write_int(const char *section,const char *name,int value){char text[32];snprintf(text,sizeof(text),"%d",value);
     if(!WritePrivateProfileStringA(section,name,text,ini_path)){DWORD error=GetLastError();if(!settings_write_failed)settings_write_error=error;settings_write_failed=true;
@@ -423,6 +437,204 @@ static const wchar_t *yesno(PcSetting s,int fallback){return pc_setting_get(s,fa
  * nv2a_texture_pack.cpp load_index, bink_native.c enhanced_name). Checked when the page opens. */
 extern "C" BOOL xbox_translate_path(const char *xbox_path,WCHAR *host_path_buf,DWORD buf_size);
 static bool texture_installed[3]={true,false,false},videos_installed;
+/* ---- 1.1.6: "Report a problem" inside the game ----
+ * Two ways in: "Report a Problem" on the pause menu (the retail form's hidden dev item, relabelled, moved
+ * under the last item and shown; it opens the Audio settings submenu straight on this page), and the row
+ * "Report a problem..." on Audio settings. The page is page 5 of the native settings pages, drawn in the
+ * Audio settings form (its ten rows, title and hint line, build_pc_assets.py), so it has the game's own
+ * font, colours, panel and footer. The text box is drawn around rows 1-4 in the colours of the name
+ * keyboard's text field. Typing goes into the box only (the page owns the keyboard: pc_frontend_capture);
+ * on a controller, Left / Right on the box picks a ready-made description. Send runs "MA2 Report.exe
+ * --game" on a worker thread (no window; the game thread only reads the outcome), shows "Sending..." and
+ * then the report number, which goes to the clipboard. Nothing appears unless the player opens the page;
+ * with no helper beside the game neither entry is shown (1.1.5 menus). */
+extern "C" int ma2_report_helper_path(wchar_t *out,DWORD size);
+extern "C" int ma2_report_log_path(wchar_t *out,DWORD size);
+extern "C" void apu_health_request(void);
+static int report_available=-1;   // the helper exists (checked once)
+static bool report_helper_ok(){if(report_available<0){wchar_t p[MAX_PATH];report_available=ma2_report_helper_path(p,MAX_PATH)?1:0;
+    fprintf(stderr,"[REPORT] in-game report %s\n",report_available?"available":"off (no MA2 Report.exe beside the game)");}return report_available==1;}
+static int report_from=1;          // page to go back to (1 = Audio settings), or -1: close the submenu (opened from the pause menu)
+static std::atomic<DWORD> report_pending{0};   // the pause item was chosen at this tick: the Audio submenu opens on the report page
+static std::wstring report_text;   // the player's words (game thread only)
+static int report_preset=-1;       // the ready-made description in the box (-1 = the player's own words)
+static const wchar_t *report_presets[]={L"The game crashed.",L"The game froze or stopped responding.",
+    L"Sound problem (crackling, missing or cutting out).",L"Graphics problem.",L"The game runs slowly or stutters.",
+    L"Controls or controller problem.",L"Bots behaved strangely.",L"Something else went wrong."};
+static const int REPORT_PRESETS=(int)(sizeof report_presets/sizeof *report_presets);
+static const size_t REPORT_MAX_TEXT=1000;
+static const int REPORT_BOX=1,REPORT_SEND=7,REPORT_BACK=8;
+struct ReportOutcome{bool saved=false,ok=false;std::wstring id,cause,message,folder;};
+static std::atomic<int> report_state{0};        // 0 typing, 1 sending, 2 outcome ready (report_outcome)
+static std::atomic<int> report_can_send{-1};    // the helper has a relay address (1), saves only (0), not known yet (-1)
+static ReportOutcome report_outcome;           // written by the worker before report_state=2, read by the game thread after
+static bool report_shown_outcome;
+static std::wstring report_from_utf8(const std::string &u){if(u.empty())return L"";int n=MultiByteToWideChar(CP_UTF8,0,u.c_str(),(int)u.size(),nullptr,0);
+    std::wstring w(n,L'\0');MultiByteToWideChar(CP_UTF8,0,u.c_str(),(int)u.size(),&w[0],n);return w;}
+static std::string report_to_utf8(const std::wstring &w){if(w.empty())return "";int n=WideCharToMultiByte(CP_UTF8,0,w.c_str(),(int)w.size(),nullptr,0,nullptr,nullptr);
+    std::string u(n,'\0');WideCharToMultiByte(CP_UTF8,0,w.c_str(),(int)w.size(),&u[0],n,nullptr,nullptr);return u;}
+static DWORD report_run(const std::wstring &args,DWORD timeout_ms,DWORD *exit_code){
+    wchar_t helper[MAX_PATH];if(!ma2_report_helper_path(helper,MAX_PATH))return 0;
+    std::wstring cmd=L"\""+std::wstring(helper)+L"\" "+args;
+    STARTUPINFOW si={};si.cb=sizeof si;si.dwFlags=STARTF_USESHOWWINDOW;si.wShowWindow=SW_HIDE;PROCESS_INFORMATION pi={};
+    std::vector<wchar_t> line(cmd.begin(),cmd.end());line.push_back(0);
+    if(!CreateProcessW(helper,line.data(),nullptr,nullptr,FALSE,CREATE_NO_WINDOW|BELOW_NORMAL_PRIORITY_CLASS,nullptr,nullptr,&si,&pi))return 0;
+    CloseHandle(pi.hThread);
+    DWORD w=WaitForSingleObject(pi.hProcess,timeout_ms);
+    if(w!=WAIT_OBJECT_0)TerminateProcess(pi.hProcess,4);   // our own child only
+    GetExitCodeProcess(pi.hProcess,exit_code);CloseHandle(pi.hProcess);
+    return w==WAIT_OBJECT_0?1:2;
+}
+static DWORD WINAPI report_probe_thread(LPVOID){
+    DWORD code=3;report_can_send=report_run(L"--can-send",15000,&code)==1&&code==0?1:0;
+    fprintf(stderr,"[REPORT] sending %s\n",report_can_send?"set up":"not set up in this build: Save only");
+    return 0;
+}
+static void report_copy(const std::wstring &text){
+    if(text.empty()||!OpenClipboard(nullptr))return;
+    EmptyClipboard();HGLOBAL h=GlobalAlloc(GMEM_MOVEABLE,(text.size()+1)*sizeof(wchar_t));
+    if(h){memcpy(GlobalLock(h),text.c_str(),(text.size()+1)*sizeof(wchar_t));GlobalUnlock(h);if(!SetClipboardData(CF_UNICODETEXT,h))GlobalFree(h);}
+    CloseClipboard();
+}
+static std::wstring report_words;   // handed to the worker (written before it starts)
+static DWORD WINAPI report_send_thread(LPVOID){
+    ReportOutcome o;
+    // The newest [HEALTH] line goes into the log the report carries (printed by the APU thread within a frame).
+    apu_health_request();Sleep(100);
+    wchar_t tmp[MAX_PATH];DWORD n=GetTempPathW(MAX_PATH,tmp);
+    std::wstring base=n&&n<MAX_PATH-40?std::wstring(tmp):std::wstring(L".\\");
+    wchar_t name[64];swprintf_s(name,L"ma2-report-%lu-%lu",GetCurrentProcessId(),GetTickCount());
+    std::wstring text_file=base+name+L".txt",result_file=base+name+L"-result.txt";
+    std::string words=report_to_utf8(report_words);
+    HANDLE f=CreateFileW(text_file.c_str(),GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,FILE_ATTRIBUTE_TEMPORARY,nullptr);
+    if(f!=INVALID_HANDLE_VALUE){DWORD w=0;WriteFile(f,words.data(),(DWORD)words.size(),&w,nullptr);CloseHandle(f);}
+    wchar_t log[MAX_PATH]=L"";ma2_report_log_path(log,MAX_PATH);
+    wchar_t ini[MAX_PATH]=L"";MultiByteToWideChar(CP_ACP,0,ini_path,-1,ini,MAX_PATH);
+    std::wstring args=L"--game --kind manual --text-file \""+text_file+L"\" --result \""+result_file+L"\"";
+    if(log[0])args+=L" --log \""+std::wstring(log)+L"\"";
+    if(ini[0])args+=L" --ini \""+std::wstring(ini)+L"\"";
+    DWORD code=2,ran=report_run(args,180000,&code);
+    std::string r;
+    HANDLE h=CreateFileW(result_file.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,0,nullptr);
+    if(h!=INVALID_HANDLE_VALUE){char buf[4096];DWORD got=0;if(ReadFile(h,buf,sizeof buf-1,&got,nullptr)){buf[got]=0;r=buf;}CloseHandle(h);}
+    DeleteFileW(text_file.c_str());DeleteFileW(result_file.c_str());
+    auto value=[&](const char *key){std::string k=std::string("\n")+key+"=";std::string all="\n"+r;size_t a=all.find(k);
+        if(a==std::string::npos)return std::wstring();a+=k.size();size_t b=all.find('\n',a);return report_from_utf8(all.substr(a,b==std::string::npos?std::string::npos:b-a));};
+    o.saved=value("saved")==L"1";o.ok=value("ok")==L"1";o.id=value("id");o.cause=value("cause_text");o.message=value("message");o.folder=value("folder");
+    if(o.ok&&(o.id.size()!=10||o.id.compare(0,4,L"MA2-")))o.ok=false;
+    if(!ran)o.cause=L"the report helper could not start";
+    else if(ran==2)o.cause=L"the report helper took too long";
+    else if(o.cause.empty())o.cause=L"the report could not be made";
+    // The number goes to the clipboard (not in harness runs: a test must not change the desktop's clipboard).
+    if(o.ok&&!getenv("RECOMP_UI_LIVE"))report_copy(o.id);
+    fprintf(stderr,"[REPORT] in-game report: %s%s%s (exit %lu)\n",o.ok?"sent ":o.saved?"saved, not sent: ":"not saved: ",
+        o.ok?report_to_utf8(o.id).c_str():"",o.ok?"":report_to_utf8(o.cause).c_str(),code);
+    report_outcome=o;report_state=2;
+    return 0;
+}
+static void report_send(){
+    if(report_state==1)return;
+    report_words=report_text;
+    while(!report_words.empty()&&iswspace(report_words.back()))report_words.pop_back();
+    report_state=1;report_shown_outcome=false;
+    fprintf(stderr,"[REPORT] in-game report: sending (%zu characters typed)\n",report_words.size());
+    HANDLE t=CreateThread(nullptr,0,report_send_thread,nullptr,0,nullptr);
+    if(t)CloseHandle(t);else{report_outcome=ReportOutcome();report_outcome.cause=L"the report could not be started";report_state=2;}
+}
+// The box text, word-wrapped (about the width of the box in the row font), the last four lines.
+static std::vector<std::wstring> report_lines(const std::wstring &t,size_t width){
+    std::vector<std::wstring> out;std::wstring line;size_t i=0;
+    while(i<t.size()){
+        if(t[i]==L'\n'){out.push_back(line);line.clear();i++;continue;}
+        size_t e=i;while(e<t.size()&&t[e]!=L' '&&t[e]!=L'\n')e++;
+        std::wstring word=t.substr(i,e-i);
+        while(word.size()>width){if(!line.empty()){out.push_back(line);line.clear();}out.push_back(word.substr(0,width));word.erase(0,width);}
+        if(line.size()+word.size()>width&&!line.empty()){out.push_back(line);line.clear();}
+        line+=word;i=e;
+        while(i<t.size()&&t[i]==L' '){if(line.size()<width)line+=L' ';i++;}
+    }
+    out.push_back(line);
+    return out;
+}
+static int report_leave();
+static bool report_cursor_on(){return (GetTickCount()/530)%2==0;}
+static void report_enter(int from){
+    page=5;report_from=from;selection=REPORT_BOX;page_dirty=true;
+    if(report_state==2&&report_shown_outcome){report_state=0;}
+    if(report_can_send<0){HANDLE t=CreateThread(nullptr,0,report_probe_thread,nullptr,0,nullptr);if(t)CloseHandle(t);else report_can_send=1;}
+    fprintf(stderr,"[REPORT] in-game report page opened (from %s)\n",from<0?"the pause menu":"Audio settings");
+}
+static bool report_row_valid(int row){
+    if(report_state==2)return row==REPORT_BACK||(row==REPORT_SEND&&!report_outcome.ok);
+    if(report_state==1)return row==REPORT_BACK;
+    return row==REPORT_BOX||row==REPORT_SEND||row==REPORT_BACK;
+}
+static std::wstring report_row_text(int row){
+    const bool box=selection==REPORT_BOX&&report_state==0;
+    auto marker=[&](int r){return std::wstring(r==selection?L">  ":L"   ");};
+    if(report_state==2){
+        report_shown_outcome=true;const ReportOutcome &o=report_outcome;
+        std::vector<std::wstring> msg=o.message.empty()?std::vector<std::wstring>():report_lines(o.message,58);
+        if(o.ok)switch(row){
+            case 0:return L"Report sent.";
+            case 1:return L"Your report number is "+o.id+L".";
+            case 2:return L"It is copied to the clipboard. Quote it in a Reddit post";
+            case 3:return L"or a GitHub comment so the developer can find your report.";
+            case 5:case 6:return (size_t)(row-5)<msg.size()?msg[row-5]:L"";
+            case REPORT_BACK:return marker(row)+L"Back";
+            default:return L"";}
+        if(row==REPORT_SEND)return marker(row)+L"Try again";
+        if(row==REPORT_BACK)return marker(row)+L"Back";
+        // Rows 0-6, one short line each (a row's text box wraps a long line onto the next row).
+        const bool unset=o.saved&&o.cause==L"sending is not set up in this version";
+        std::vector<std::wstring> lines;
+        lines.push_back(unset?L"Report saved.":o.saved?L"Could not send the report.":L"Could not make the report.");
+        for(auto &l:report_lines(unset?L"Sending is not set up in this version.":L"Reason: "+o.cause+L".",56))lines.push_back(l);
+        if(o.saved){
+            lines.push_back(L"The report was saved in:");
+            for(auto &l:report_lines(o.folder.empty()?std::wstring(L"%LOCALAPPDATA%\\MechAssault2\\Diagnostics"):o.folder,56))lines.push_back(l);
+            lines.push_back(L"Attach it to a problem report on the project's GitHub page.");
+        }
+        for(auto &l:msg)lines.push_back(l);
+        return row>=0&&row<7&&(size_t)row<lines.size()?lines[row]:L"";
+    }
+    switch(row){
+    case 0:return L"What happened?";
+    case 1:case 2:case 3:case 4:{
+        std::wstring shown=report_text;
+        if(shown.empty()&&!box)shown=pc_input_device()==PC_INPUT_GAMEPAD?L"(optional: Left / Right picks a description)":L"(optional: type here)";
+        std::vector<std::wstring> lines=report_lines(shown,62);
+        size_t first=lines.size()>4?lines.size()-4:0,i=first+(row-1);
+        std::wstring t=i<lines.size()?lines[i]:L"";
+        if(box&&report_state==0&&i==lines.size()-1)t+=report_cursor_on()?L"_":L" ";
+        return L" "+t;}
+    case 5:return L"Sends logs, settings and PC details to the developer.";
+    case 6:return L"No names or personal files. Please don't type personal details.";
+    case REPORT_SEND:
+        if(report_state==1)return L"   Sending...";
+        return marker(row)+(report_can_send==0?L"Save report":L"Send report");
+    case REPORT_BACK:return marker(row)+L"Back";
+    case 9:return report_state==1?L"Collecting the logs and sending them. You can keep playing.":L"";
+    }
+    return L"";
+}
+static void report_preset_step(int direction){
+    if(!report_text.empty()&&report_preset<0)return;            // the player's own words stay
+    report_preset=report_preset<0?(direction>0?0:REPORT_PRESETS-1):(report_preset+direction+REPORT_PRESETS+1)%(REPORT_PRESETS+1);
+    if(report_preset==REPORT_PRESETS){report_preset=-1;report_text.clear();}else report_text=report_presets[report_preset];
+    page_dirty=true;
+}
+static void report_type(uint32_t code){
+    if(report_state!=0)return;
+    if(selection!=REPORT_BOX){selection=REPORT_BOX;}
+    if(report_preset>=0){report_text.clear();report_preset=-1;}
+    if(code==0x16){   // Ctrl+V: paste text
+        if(OpenClipboard(nullptr)){HANDLE h=GetClipboardData(CF_UNICODETEXT);
+            if(h){const wchar_t *w=(const wchar_t *)GlobalLock(h);if(w){for(;*w&&report_text.size()<REPORT_MAX_TEXT;w++){wchar_t c=*w;if(c==L'\r')continue;if(c==L'\t')c=L' ';if(c==L'\n'||c>=0x20)report_text+=c;}GlobalUnlock(h);}}
+            CloseClipboard();}
+    }else if(code>=0x20&&code<0xFFFE&&report_text.size()<REPORT_MAX_TEXT)report_text+=(wchar_t)code;
+    page_dirty=true;
+}
 static void check_optional_content(){
     const char *root=getenv("RECOMP_TEXTURE_PACK_DIR");
     for(int quality=1;quality<=2;quality++){
@@ -437,11 +649,11 @@ static void check_optional_content(){
     if(!texture_installed[std::clamp(pc_setting_get(PC_TEXTURE_QUALITY,0),0,2)])pc_setting_set(PC_TEXTURE_QUALITY,0);
     if(!videos_installed&&pc_setting_get(PC_FMV_QUALITY,0))pc_setting_set(PC_FMV_QUALITY,0);
 }
-static int row_count(){return page==0?13:page==1?5:page==2?9:page==4?4:10;}
+static int row_count(){return page==0?13:page==1?(report_helper_ok()?6:5):page==2?9:page==4?4:10;}
 // Row geometry of the native pages (640x480 units), as laid out by build_pc_assets.py.
 static float row_top(){return page==0?90.f:99.f;}
 static float row_step(){return page==0?23.f:28.f;}
-static bool valid_row(int row){return row>=0&&row<row_count()&&!(page==3&&row<8&&binding_page*8+row>=PC_BINDING_COUNT);}
+static bool valid_row(int row){if(page==5)return report_row_valid(row);return row>=0&&row<row_count()&&!(page==3&&row<8&&binding_page*8+row>=PC_BINDING_COUNT);}
 static std::wstring row_text(int row)
 {
     wchar_t text[180];text[0]=0;
@@ -467,7 +679,9 @@ static std::wstring row_text(int row)
     else if(page==1)switch(row){
     case 0:swprintf_s(text,L"Master volume:  %d%%",pc_setting_get(PC_VOLUME,100));break;
     case 1:case 2:case 3:swprintf_s(text,L"%s volume:  %u%%",row==1?L"Effects":row==2?L"Speech":L"Music",page_object?(guest(page_object+0x84+(row-1)*4)*100+32767)/65535:100);break;
-    case 4:wcscpy_s(text,L"Back");break;}
+    case 4:wcscpy_s(text,report_helper_ok()?L"Report a problem...":L"Back");break;
+    case 5:if(report_helper_ok())wcscpy_s(text,L"Back");break;}
+    else if(page==5)return report_row_text(row);
     else if(page==2)switch(row){
     case 0:swprintf_s(text,L"Keyboard controls:  %s%s",yesno(PC_KEYBOARD,1),pc_setting_get(PC_KEYBOARD,1)&&!gamepad_connected()?L" (no controller connected)":L"");break;
     case 1:swprintf_s(text,L"Mouse aiming:  %s",yesno(PC_MOUSE_AIM,1));break;
@@ -495,7 +709,7 @@ static std::wstring row_text(int row)
 extern "C" uint32_t ma2_pc_page_text(uint32_t id)
 {
     unsigned group=(id-0x70000000)/100,entry=(id-0x70000000)%100;
-    if(entry==0)return ma2_pc_wide(group==0?L"DISPLAY SETTINGS":group==1?L"AUDIO SETTINGS":L"CONTROLS");
+    if(entry==0)return ma2_pc_wide(group==1&&page==5?L"REPORT A PROBLEM":group==0?L"DISPLAY SETTINGS":group==1?L"AUDIO SETTINGS":L"CONTROLS");
     if(entry>=1&&entry<=13)return ma2_pc_wide(row_text(entry-1).c_str());
     if(entry==18)return ma2_pc_wide(L"Distance:  0 = 0.5x     50 = Original     100 = 2x");
     return ma2_pc_wide(pc_input_device()==PC_INPUT_GAMEPAD?L"D-pad: Navigate / Adjust     A: Select     B: Back":L"Arrows: Navigate / Adjust    Enter: Select    Esc: Back");
@@ -525,8 +739,82 @@ extern "C" void ma2_pc_form_loading(uint32_t object,uint32_t filename)
     }
     if(getenv("RECOMP_MENU_TRACE"))fprintf(stderr,"[PC-MENU] form owner=%08X path=%s\n",object,(char *)(g_xbox_mem_offset+filename));
 }
+/* The pause menu's Report a Problem: the retail form keeps a hidden dev item (vt 4830F0, action 800,
+ * "Load Level (Dev)", flags 3D) after the footer legends. It is relabelled, put one step (29 lines) under
+ * the lowest visible item, shown, and given the Volume action (300), so choosing it opens the Audio
+ * submenu; report_pending sends that submenu to the report page. Only with the helper beside the game. */
+static std::atomic<uint32_t> report_item{0};
+static void report_pause_item(uint32_t object){
+    if(!report_helper_ok()||object<0x10000||object>=0x03FFF000)return;
+    uint32_t begin=guest(object+4),end=guest(object+8);
+    if(end<begin||end-begin>1024)return;
+    static uint32_t done_item,label;
+    for(uint32_t e=begin;e<end;e+=4){
+        uint32_t form=guest(e);if(form<0x10000||form>=0x03FFF000)continue;
+        uint32_t root=guest(form+0x38);if(root<0x10000||root>=0x03FFF000)continue;
+        // items are children of the root's first child (the panel)
+        uint32_t panel=guest(root+0x1C);if(panel<0x10000||panel>=0x03FFF000)continue;
+        uint32_t dev=0,lowest=0,volume=0;int lowest_y=-1;
+        for(uint32_t w=guest(panel+0x1C);w>=0x10000&&w<0x03FFF000;w=guest(w+0x18)){
+            if(guest(w)!=0x4830F0)continue;
+            uint32_t action=guest(w+0x70),flags=guest(w+0x74);
+            if(w==done_item||action==800){dev=w;continue;}
+            if(action==300)volume=w;
+            if((flags&0x22)==0x22&&action>=100&&action<=1500&&(int)guest(w+0x50)>lowest_y){lowest=w;lowest_y=(int)guest(w+0x50);}
+        }
+        if(!dev||!lowest)continue;
+        if(done_item!=dev){
+            if(!label)label=ma2_pc_wide(L"Report a Problem");
+            // One step (29 lines) under the lowest item: the item's and its highlight bar's y, in the 4:3 (+50) and
+            // widescreen (+60) rectangles. Their x and width stay the form's own (the bar is drawn from its
+            // authored size: a copied width doubled it). Child 0 is item-relative and stays.
+            uint32_t a=lowest,b=dev;
+            for(int k=0;k<3&&a>=0x10000&&a<0x03FFF000&&b>=0x10000&&b<0x03FFF000;k++){
+                if(k!=1){guest(b+0x50)=guest(a+0x50)+29;guest(b+0x60)=guest(a+0x60)+29;}
+                if(k==2){
+                    // The dev item's bar is authored 256 wide and drawn 0.9 px per unit at 640 wide, the others' 512 at 0.68:
+                    // 391 units (centre kept) draws it as long as the other items' bars (measured on screen shots).
+                    for(int r=0;r<2;r++){int x=(int)guest(b+0x4C+r*16),w=(int)guest(b+0x54+r*16);
+                        if(w==256){guest(b+0x4C+r*16)=(uint32_t)(x+(w-391)/2);guest(b+0x54+r*16)=391;}}
+                }
+                a=k==0?guest(lowest+0x1C):guest(a+0x18);b=k==0?guest(dev+0x1C):guest(b+0x18);
+            }
+            guest(dev+0x70)=300;
+            // +9C: the hash of the submenu an item opens (the dev item's is the level picker): the Volume item's, so the
+            // game itself opens the Audio submenu (the activate hook below also swaps the item; either one is enough).
+            if(volume)guest(dev+0x9C)=guest(volume+0x9C);
+            ma2_gui_text(dev,label);
+            done_item=dev;report_item=dev;
+            fprintf(stderr,"[REPORT] pause menu item %08X under %08X (y %d)\n",dev,lowest,lowest_y+29);
+        }
+        if((guest(dev+0x74)&2)==0)guest(dev+0x74)|=2;
+        if(guest(dev+0x48)==5)guest(dev+0x48)=1;
+        return;
+    }
+}
+extern "C" __declspec(thread) uint32_t g_esp;   // the guest stack pointer (game thread)
 extern "C" void ma2_pc_menu_selection(uint32_t object,uint32_t selected,int activated)
-{if(getenv("RECOMP_MENU_TRACE")&&activated)fprintf(stderr,"[PC-MENU] activate %08X id=%u\n",object,selected);}
+{
+    if(getenv("RECOMP_MENU_TRACE")&&activated)fprintf(stderr,"[PC-MENU] activate %08X id=%u\n",object,selected);
+    /* Report a Problem chosen on the pause menu. This runs first in the pause menu's activate handler
+     * (sub_001FCEB6, argument = the chosen item at esp+4), which tells its items apart by pointer: the
+     * argument becomes the Volume item, so the game opens the Audio submenu its own way, and
+     * report_pending sends that submenu to the report page. */
+    if(activated&&report_item&&object>=0x10000&&object<0x03FFF000&&guest(object)==0x4827B0&&g_esp>=0x10000&&g_esp<0x03FFF000&&
+       guest(g_esp+4)==report_item.load()){
+        uint32_t volume=0,begin=guest(object+4),end=guest(object+8);
+        for(uint32_t e=begin;e<end&&end-begin<=1024&&!volume;e+=4){
+            uint32_t form=guest(e),root=form>=0x10000&&form<0x03FFF000?guest(form+0x38):0,panel=root>=0x10000&&root<0x03FFF000?guest(root+0x1C):0;
+            for(uint32_t w=panel>=0x10000&&panel<0x03FFF000?guest(panel+0x1C):0;w>=0x10000&&w<0x03FFF000&&!volume;w=guest(w+0x18))
+                if(guest(w)==0x4830F0&&guest(w+0x70)==300&&w!=report_item.load())volume=w;
+        }
+        if(volume){
+            guest(g_esp+4)=volume;
+            report_pending=GetTickCount();if(!report_pending)report_pending=1;
+            fprintf(stderr,"[REPORT] pause menu: Report a Problem (through the Volume item %08X)\n",volume);
+        }
+    }
+}
 extern "C" void ma2_pc_menu_pulse(uint32_t object,uint32_t vtable)
 {
     uint32_t old=menu_kind.exchange(vtable);menu_object=object;menu_time=GetTickCount();
@@ -536,6 +824,7 @@ extern "C" void ma2_pc_menu_pulse(uint32_t object,uint32_t vtable)
     if(!opened&&object>=0x10000&&object<0x03FFF000&&!pc_display_movie_active()&&!getenv("RECOMP_NO_BARREL_ARROWS"))ma2_barrel_arrows_pulse(object,pc_display_aspect(4.f/3.f)>4.f/3.f+.01f);
     // Unavailable features (Xbox Live, System Link, guests) are shown disabled (ma2_bots_ui.c menu policy).
     if(object>=0x10000&&object<0x03FFF000)ma2_menu_policy_pulse(object,vtable);
+    if(vtable==0x4827B0&&!opened)report_pause_item(object);
     ma2_pc_input_context_update();
     sync_text_dialog();
     {   // Name keyboard footer: on keyboard/mouse the confirm prompt reads "Done" (Enter = Done there);
@@ -681,7 +970,7 @@ extern "C" void ma2_pc_modal_pulse(void){
 static void refresh_page()
 {
     if(!page_form)return;
-    ma2_gui_text(ma2_gui_find(page_form,9000),ma2_pc_wide(page==0?L"DISPLAY SETTINGS":page==1?L"AUDIO SETTINGS":page==4?L"CONTROLLER":L"KEYBOARD AND MOUSE"));
+    ma2_gui_text(ma2_gui_find(page_form,9000),ma2_pc_wide(page==0?L"DISPLAY SETTINGS":page==1?L"AUDIO SETTINGS":page==4?L"CONTROLLER":page==5?L"REPORT A PROBLEM":L"KEYBOARD AND MOUSE"));
     for(int i=0;i<(page==0?13:10);i++)ma2_gui_text(ma2_gui_find(page_form,9100+i),ma2_pc_wide(row_text(i).c_str()));
     if(page==0)ma2_gui_slider(ma2_gui_find(page_form,9302),pc_setting_get(PC_DRAW_DISTANCE,50)/100.f);
     ma2_gui_text(ma2_gui_find(page_form,9200),ma2_pc_page_text(0x70000011));
@@ -709,7 +998,9 @@ static int activate(int direction,bool confirm)
     case 10:toggle(PC_SHADER_PRELOAD,1);break;
     case 11:pc_setting_set(PC_RENDER_SCALE,0);save_settings(true);break;
     case 12:pc_setting_set(PC_SHADER_PRELOAD,1);pc_setting_set(PC_VSYNC,0);pc_setting_set(PC_FRAME_LIMIT,144);pc_setting_set(PC_RENDER_SCALE,0);pc_setting_set(PC_ASPECT,1);pc_setting_set(PC_FILTER,1);pc_setting_set(PC_SHOW_FPS,0);pc_setting_set(PC_DRAW_DISTANCE,50);pc_setting_set(PC_TEXTURE_QUALITY,0);pc_setting_set(PC_FMV_QUALITY,0);break;}
-    else if(page==1){if(selection==0)change(PC_VOLUME,0,100,direction*5);else if(selection==4)return 2;
+    else if(page==1){if(selection==0)change(PC_VOLUME,0,100,direction*5);
+        else if(selection==4&&report_helper_ok()){if(confirm)report_enter(1);}
+        else if(selection==(report_helper_ok()?5:4))return 2;
         else if(selection<4){int &value=*(int *)(g_xbox_mem_offset+page_object+0x84+(selection-1)*4);value=std::clamp(value+direction*3277,0,65535);ma2_gui_volume(page_object,selection-1,value);}}
     else if(page==2)switch(selection){
     case 0:if(pc_setting_get(PC_KEYBOARD,1)&&!gamepad_connected())break;/* never leave the player with no input device */toggle(PC_KEYBOARD,1);break;case 1:toggle(PC_MOUSE_AIM,1);break;case 2:change(PC_MOUSE_SENSITIVITY,10,500,direction*10);break;case 3:toggle(PC_INVERT_Y,0);break;
@@ -718,6 +1009,18 @@ static int activate(int direction,bool confirm)
     case 6:for(int i=0;i<PC_BINDING_COUNT;i++)pc_binding_set((PcBinding)i,default_keys[i]);pc_setting_set(PC_MOUSE_SENSITIVITY,100);pc_setting_set(PC_INVERT_Y,0);pc_setting_set(PC_INVERT_FLIGHT,0);pc_setting_set(PC_MOUSE_AIM,1);pc_setting_set(PC_KEYBOARD,1);break;
     case 7:if(confirm){page=4;selection=0;}break;
     case 8:return 2;}
+    else if(page==5){
+        if(selection==REPORT_BOX&&report_state==0){
+            // A controller cannot type: Left / Right (and A) pick a ready-made description. Enter moves on to Send.
+            if(!confirm||pc_input_device()==PC_INPUT_GAMEPAD)report_preset_step(confirm?1:direction);
+            else selection=REPORT_SEND;
+        }
+        else if(selection==REPORT_SEND&&confirm){
+            if(report_state==0)report_send();
+            else if(report_state==2&&!report_outcome.ok){report_state=0;selection=REPORT_SEND;}
+        }
+        else if(selection==REPORT_BACK&&confirm)return report_leave();
+    }
     else if(page==3&&confirm){if(selection==8){binding_page=(binding_page+1)%3;selection=0;}else if(selection==9){page=2;selection=4;}else if(binding_page*8+selection<PC_BINDING_COUNT)waiting_binding=binding_page*8+selection;}
     else if(page==4){
         if(selection<2)ma2_gui_controller_set(page_object,selection,!ma2_gui_controller_option(page_object,selection));
@@ -726,8 +1029,23 @@ static int activate(int direction,bool confirm)
     }
     page_dirty=true;return 0;
 }
+static int report_leave(){
+    fprintf(stderr,"[REPORT] in-game report page closed\n");
+    if(report_state==2&&report_shown_outcome)report_state=0;
+    if(report_from<0)return 2;
+    page=1;selection=4;page_dirty=true;return 0;
+}
 static int page_key(int key)
 {
+    if(page==5){
+        // The box owns Backspace and Space; the rest works as on the other pages.
+        if(key==VK_BACK&&selection==REPORT_BOX&&report_state==0){if(!report_text.empty()){report_text.pop_back();if(report_text.empty())report_preset=-1;}page_dirty=true;return 0;}
+        if(key==VK_SPACE&&selection==REPORT_BOX&&report_state==0)return 0;   // typed through WM_CHAR
+        if(key==VK_ESCAPE||key==VK_BACK)return report_leave();
+        if(key==VK_UP||key==VK_DOWN){int order[3]={REPORT_BOX,REPORT_SEND,REPORT_BACK},at=0;for(int i=0;i<3;i++)if(order[i]==selection)at=i;
+            for(int step=0;step<3;step++){at=(at+(key==VK_UP?2:1))%3;if(report_row_valid(order[at]))break;}
+            selection=order[at];page_dirty=true;return 0;}
+    }
     if(waiting_binding>=0){if(key!=VK_ESCAPE&&key>0&&key<256)pc_binding_set((PcBinding)waiting_binding,key);waiting_binding=-1;page_dirty=true;return 0;}
     if(key==VK_ESCAPE||key==VK_BACK){if(page==3){page=2;selection=4;page_dirty=true;return 0;}return 2;}
     if(key==VK_UP||key==VK_DOWN){do {selection=(selection+(key==VK_UP?-1:1)+row_count())%row_count();}while(!valid_row(selection));page_dirty=true;return 0;}
@@ -742,6 +1060,9 @@ extern "C" int ma2_pc_submenu_update(uint32_t object,uint32_t vtable)
     if(entering){
         check_optional_content();
         page_object=object;page_form=guest(object+0x68);page=type==2&&pc_input_device()==PC_INPUT_GAMEPAD?4:type;selection=0;waiting_binding=-1;page_dirty=true;opened=true;opened_at=GetTickCount();distance_dragging=false;
+        // The pause menu's Report a Problem opened this Audio submenu: straight to the report page.
+        DWORD asked=report_pending.exchange(0);
+        if(type==1&&asked&&GetTickCount()-asked<3000&&report_helper_ok())report_enter(-1);
         read_window_state();
         pc_frontend_capture(1);PostMessageA(game_window,PC_WINDOW_CAPTURE_MESSAGE,0,0);
         fprintf(stderr,"[PC-MENU] original settings page=%d form=%08X\n",page,page_form);
@@ -753,6 +1074,7 @@ extern "C" int ma2_pc_submenu_update(uint32_t object,uint32_t vtable)
     for(auto e:pending){
         if(e.type==WM_SIZE){read_window_state();continue;}
         if(e.type==WM_LBUTTONUP||e.type==WM_KILLFOCUS||e.type==WM_CAPTURECHANGED){distance_dragging=false;continue;}
+        if(e.type==WM_CHAR){if(page==5)report_type((uint32_t)e.key);continue;}
         if(e.type==WM_KEYDOWN)result=page_key(e.key);
         else if(e.type>=WM_MOUSEFIRST&&e.type<=WM_MOUSELAST){
             if(waiting_binding>=0&&e.type!=WM_MOUSEMOVE)result=page_key(e.key);
@@ -760,6 +1082,7 @@ extern "C" int ma2_pc_submenu_update(uint32_t object,uint32_t vtable)
                 RECT r;GetClientRect(game_window,&r);float scale=std::min(r.right/640.0f,r.bottom/480.0f);
                 float x=(e.x-(r.right-640*scale)*.5f)/scale,y=(e.y-(r.bottom-480*scale)*.5f)/scale;
                 int row=y>=row_top()?(int)((y-row_top())/row_step()):-1;
+                if(page==5&&row>=1&&row<=4&&report_state==0){if(selection!=REPORT_BOX){selection=REPORT_BOX;page_dirty=true;}continue;}
                 if(page==0&&((e.type==WM_LBUTTONDOWN&&x>=315&&x<566&&row==7)||(distance_dragging&&e.type==WM_MOUSEMOVE))){
                     distance_dragging=true;selection=7;
                     pc_setting_set(PC_DRAW_DISTANCE,std::clamp((int)((x-325)*100/230+.5f),0,100));page_dirty=true;continue;
@@ -775,8 +1098,11 @@ extern "C" int ma2_pc_submenu_update(uint32_t object,uint32_t vtable)
     }
     static WORD last_buttons;static int last_axis;static DWORD repeat_at;
     XINPUT_STATE pad={};
-    if(xbox_InputPollHostState(&pad)==ERROR_SUCCESS){
-        const auto &g=pad.Gamepad;pc_input_note_gamepad(g.wButtons,g.bLeftTrigger,g.bRightTrigger,g.sThumbLX,g.sThumbLY,g.sThumbRX,g.sThumbRY);
+    // Tests (RECOMP_UI_LIVE): the scripted pad buttons (see test_pad_bit) work on these pages as well.
+    const WORD scripted=(WORD)(test_pad_held|test_pad_tapped.exchange(0));
+    if(xbox_InputPollHostState(&pad)==ERROR_SUCCESS||scripted){
+        pad.Gamepad.wButtons|=scripted;
+        const auto &g=pad.Gamepad;if(!scripted)pc_input_note_gamepad(g.wButtons,g.bLeftTrigger,g.bRightTrigger,g.sThumbLX,g.sThumbLY,g.sThumbRX,g.sThumbRY);
         // The A press that opened Controls must not toggle its first option.
         WORD pressed=entering?0:g.wButtons&~last_buttons;last_buttons=g.wButtons;
         // Physical menu navigation must not become a captured keyboard binding.
@@ -796,6 +1122,9 @@ extern "C" int ma2_pc_submenu_update(uint32_t object,uint32_t vtable)
         if(type==2)ma2_gui_controller_commit(object);
         save_settings(false);opened=false;page_object=page_form=0;pc_frontend_capture(0);PostMessageA(game_window,PC_WINDOW_CAPTURE_MESSAGE,0,0);return 2;
     }
+    if(page==5){static int blink=-1,shown_state=-1;int b=report_cursor_on();int st=report_state;
+        if(st==2&&shown_state!=2)selection=report_outcome.ok?REPORT_BACK:REPORT_SEND;   // the outcome: Back, or Try again
+        if(b!=blink||st!=shown_state){blink=b;shown_state=st;page_dirty=true;}}
     if(page_dirty||last_revision!=pc_input_revision())refresh_page();return 0;
 }
 extern "C" int ma2_pc_video_menu_update(uint32_t object){return ma2_pc_submenu_update(object,0x48B360);}
@@ -907,6 +1236,14 @@ static int window_message(void *window,unsigned message,uintptr_t wparam,intptr_
     if(message==WM_KEYDOWN&&!(lparam&(1LL<<30))&&wparam==VK_ESCAPE&&!opened&&!exit_dialog&&menu_available()&&!modal_available()&&
         (menu_kind==0x481B70||menu_kind==0x482170)){request_exit=true;return 1;}
     if(opened){
+        if(message==WM_CHAR){
+            // The report page's text box (other pages ignore typed characters, as before).
+            if(page==5){static TextDecoder decoder;uint32_t code=wparam==0x16?0x16:decoder.decode(GetACP(),IsWindowUnicode((HWND)window)!=FALSE,wparam);
+                if(code==0x16||(code>=0x20&&!(code>=0x7F&&code<0xA0)&&code<0xFFFE&&!(code>=0xD800&&code<=0xDFFF)))queue({WM_CHAR,(int)code,0,0});}
+            return page==5?1:0;
+        }
+        if(message==WM_KEYDOWN&&page==5&&wparam!=VK_ESCAPE&&wparam!=VK_RETURN&&(lparam&(1LL<<30))&&wparam!=VK_BACK&&wparam!=VK_UP&&wparam!=VK_DOWN)return 1;
+        if(message==WM_KEYDOWN&&page==5&&wparam==VK_BACK){queue({WM_KEYDOWN,(int)wparam,0,0});return 1;}
         if(message==WM_KEYDOWN&&!(lparam&(1LL<<30))){queue({WM_KEYDOWN,(int)wparam,0,0});return 1;}
         if(message==WM_KILLFOCUS||message==WM_CAPTURECHANGED){queue({message,0,0,0});return 0;}
         if(message==WM_MOUSEMOVE||message==WM_LBUTTONDOWN||message==WM_LBUTTONUP||message==WM_RBUTTONDOWN||message==WM_MBUTTONDOWN||message==WM_XBUTTONDOWN){
@@ -945,7 +1282,8 @@ static void render(void *device_ptr,void *context_ptr,void *window_ptr,unsigned 
     float glow_rect[4];float glow=glow_alpha(glow_rect);
     bool show_fps=pc_setting_get(PC_SHOW_FPS,0)!=0;
     bool editor_button=editor_button_shown();const wchar_t *editor_note=ma2_scn_editor_note();
-    if(show_fps||glow>0.f||editor_button||editor_note){
+    const bool report_box=opened&&page==5&&page_form&&report_state!=2&&!pc_display_movie_active();
+    if(show_fps||glow>0.f||editor_button||editor_note||report_box){
         if(!fps_context_initialized){ImGui::CreateContext();ImGui::GetIO().IniFilename=nullptr;ImGui::GetIO().LogFilename=nullptr;
             // The overlay never owns the cursor: menus and mouse aim set it.
             ImGui::GetIO().ConfigFlags|=ImGuiConfigFlags_NoMouseCursorChange;fps_context_initialized=true;}
@@ -961,6 +1299,7 @@ static void render(void *device_ptr,void *context_ptr,void *window_ptr,unsigned 
                 glow_rect[0]*=sx;glow_rect[2]*=sx;glow_rect[1]*=sy;glow_rect[3]*=sy;
             }
             ImGui::NewFrame();
+            if(report_box&&client.right>0&&client.bottom>0)draw_report_box(ImGui::GetBackgroundDrawList(),(float)width,(float)height,selection==REPORT_BOX&&report_state==0);
             if(glow>0.f)draw_glow(ImGui::GetBackgroundDrawList(),glow_rect,glow);
             if(editor_button&&client.right>0&&client.bottom>0){
                 float box[4];editor_button_box((HWND)window_ptr,box);
