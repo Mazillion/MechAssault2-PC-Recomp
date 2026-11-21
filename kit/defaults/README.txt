@@ -102,10 +102,13 @@ Report a problem, and on its Done screen), and in the window that opens
 when the game crashes or stops responding. It makes one zip with the
 logs, settings and PC details; your user name, PC name and personal
 folders are removed, and What's included? lists every file. Say what
-happened if you like, then press the button. Send report sends it to the
-developer and shows a report number. When sending is not available the
-button says Save report; a report that is not sent is saved in
-%LOCALAPPDATA%\MechAssault2\Diagnostics. Attach that zip at
+happened if you like, then press Send report. It sends the report to the
+developer and shows a report number to mention if you open an issue.
+Nothing is sent until you press it; sent reports are kept for 90 days.
+Every report is also saved on your PC in
+%LOCALAPPDATA%\MechAssault2\Diagnostics. Save a copy instead, in the
+report window and the installer, saves it there without sending and works
+without internet. If a report cannot be sent, attach the saved zip at
 {{MA2_SUPPORT_URL}} and say which version you have: the first line of this
 file. A report is most useful right after the problem: it holds the logs of
 your last 3 game sessions and only the last 2-3 minutes of a bot match

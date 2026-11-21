@@ -95,7 +95,7 @@ You can run the installer again later to update, repair or uninstall.
 - Every mission and cutscene loads and runs, but I haven't played all of them through to the end on this build.
 - No online multiplayer, and split screen is turned off.
 
-The full list is in [Known issues.txt](kit/defaults/Docs/Known%20issues.txt). If the game crashes, run the installer and press "Collect diagnostics" on its first page, then attach the zip it makes to an [issue](https://github.com/Mazillion/MechAssault2-PC-Recomp/issues). Don't attach game files.
+The full list is in [Known issues.txt](kit/defaults/Docs/Known%20issues.txt). If the game crashes or something goes wrong, use Report a problem (in the window that opens after a crash, the pause menu, the Start menu or the installer's Help menu) and press Send report: it sends the logs and settings, with your user name and PC name removed, and shows a report number. Nothing is sent until you press it, and sent reports are kept for 90 days. You can quote the number in an [issue](https://github.com/Mazillion/MechAssault2-PC-Recomp/issues). Don't attach game files.
 
 ## Building and modding
 

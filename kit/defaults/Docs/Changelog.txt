@@ -10,8 +10,11 @@ You have version {{VERSION}} (build {{BUILD}}).
   Start menu, in the installer, and in the window that opens when the game
   crashes or stops responding. It makes one zip with the logs, settings
   and PC details (no user name, PC name or personal files) and has a box
-  to say what happened. This version saves the zip in
-  %LOCALAPPDATA%\MechAssault2\Diagnostics; attach it to your report.
+  to say what happened. Send report sends it to the developer and shows
+  a report number; nothing is sent until you press it, and sent reports
+  are kept for 90 days. Every report is also saved in
+  %LOCALAPPDATA%\MechAssault2\Diagnostics, and Save a copy instead saves
+  it there without sending (no internet needed).
 - The game's log now notes once a minute how smoothly the game and its
   sound are running, which helps with reports of crackling or slowdowns.
 - On PCs with few CPU threads, the game gives its sound more priority as
