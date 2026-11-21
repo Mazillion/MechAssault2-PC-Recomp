@@ -1,0 +1,39 @@
+# Staging relay: separate Worker, bucket and GitHub repo, used for test runs only.
+# Deploy: npx wrangler deploy -c wrangler.staging.toml
+# Secrets: npx wrangler secret put GITHUB_TOKEN -c wrangler.staging.toml ; same for OWNER_KEY
+name = "ma2-report-relay-staging"
+main = "src/worker.js"
+compatibility_date = "2025-06-01"
+workers_dev = true
+
+[observability]
+enabled = false
+
+[vars]
+GITHUB_REPO = "Mazillion/MechAssault2-Reports-Staging"
+PUBLIC_URL = "https://ma2-report-relay-staging.ma2-relay.workers.dev"
+ACCEPT_REPORTS = "on"
+OFF_MESSAGE = ""
+NOTICE = ""
+LATEST_VERSION = ""
+MIN_VERSION = ""
+UPDATE_NOTICE = ""
+# Small limits so the limit tests finish quickly.
+DAILY_CAP = "20"
+PER_IP_PER_HOUR = "5"
+MAX_UPLOAD_BYTES = "26214400"
+
+[[r2_buckets]]
+binding = "REPORTS"
+bucket_name = "ma2-reports-staging"
+
+[[durable_objects.bindings]]
+name = "GATE"
+class_name = "Gate"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Gate"]
+
+[triggers]
+crons = ["23 * * * *"]

@@ -1,0 +1,43 @@
+# Production relay. Deploy: npx wrangler deploy            (staging: npx wrangler deploy -c wrangler.staging.toml)
+# Secrets (never in this file): npx wrangler secret put GITHUB_TOKEN ; npx wrangler secret put OWNER_KEY
+name = "ma2-report-relay"
+main = "src/worker.js"
+compatibility_date = "2025-06-01"
+workers_dev = true
+
+# Workers Logs would keep request details (including the connecting IP). Keep it off.
+[observability]
+enabled = false
+
+[vars]
+GITHUB_REPO = "Mazillion/MechAssault2-Reports"
+# Fill in after the first deploy, e.g. "https://ma2-report-relay.<your-subdomain>.workers.dev"
+PUBLIC_URL = "https://ma2-report-relay.ma2-relay.workers.dev"
+# Off switch: "off" makes every upload answer ok:false (clients save the report locally instead).
+ACCEPT_REPORTS = "on"
+OFF_MESSAGE = ""
+# Text shown to players after a successful send ("" = nothing extra).
+NOTICE = ""
+# Optional: players on a version below LATEST_VERSION see UPDATE_NOTICE; below MIN_VERSION their report is refused.
+LATEST_VERSION = ""
+MIN_VERSION = ""
+UPDATE_NOTICE = ""
+DAILY_CAP = "300"
+PER_IP_PER_HOUR = "5"
+MAX_UPLOAD_BYTES = "26214400"
+
+[[r2_buckets]]
+binding = "REPORTS"
+bucket_name = "ma2-reports"
+
+[[durable_objects.bindings]]
+name = "GATE"
+class_name = "Gate"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Gate"]
+
+# Retry issues that could not be opened (GitHub down, token expired): every hour at :23.
+[triggers]
+crons = ["23 * * * *"]
