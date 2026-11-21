@@ -317,8 +317,8 @@ def texty(s, lang='py'):
         return bool(re.fullmatch(r"[A-Z][a-z]+[.!?:]?|[A-Z][A-Z]{2,}[.!?:]?|[A-Z][a-z]+(?:-[A-Za-z]+)+", t))
     if len(words) < 2:
         return False
-    if re.fullmatch(r'[-\w./\\:%{}<>#@=,\s]*', t) and not re.search(r'[A-Za-z]{2,}\s+[A-Za-z]{2,}', t):
-        return False
+    if re.fullmatch(r'[\w./\\:%{}<>#@=,-]+(?:\s+[\w./\\:%{}<>#@=,-]+)?', t) and re.search(r'[_/\\=%{}<>]', t):
+        return False                                      # two code-like tokens ("key=%s", "a/b c_d")
     return True
 
 
@@ -1133,20 +1133,29 @@ def st_grepbin(g):
         if len(os.environ.get(var, '')) > 2:
             words.append(os.environ[var].lower())
     words = sorted(set(words))
+    sys.path.insert(0, str(g.clone / 'tools'))
+    import privacy_scan
+    sys.path.pop(0)
     hits, n = [], 0
     blobs = [(p.name, p.read_bytes()) for p in binaries(g)]
     files, _ = packed(exe)
-    blobs += [('packed ' + k, v) for k, v in files.items()]
+    # The bundled python.org runtime (python/) is unmodified third-party code with time-zone tables, example paths and
+    # credits; privacy_scan --binaries checks it with its own rules (names next to a path only). Everything else counts.
+    runtime = [k for k in files if k.startswith('python/')]
+    blobs += [('packed ' + k, v) for k, v in files.items() if not k.startswith('python/')]
     for name, data in blobs:
         n += 1
         low = data.lower()
+        for mail in privacy_scan.THIRD_PARTY_EMAILS:              # licence authors' addresses (privacy_scan's own list)
+            low = low.replace(mail.encode('ascii'), b'').replace(mail.encode('utf-16-le'), b'')
         for w in words:
             c = count_in(low, w)
             if c:
                 hits.append('%s: %d x word #%d' % (name, c, words.index(w)))
     (g.logs / 'grepbin.txt').write_text('\n'.join(hits) + '\n', encoding='utf-8')
-    return {'status': 'FAIL' if hits else 'PASS', 'summary': '%d words (config + profile path + user/PC name) in %d binaries and packed files: %d hit(s)'
-            % (len(words), n, len(hits)), 'details': hits[:40] or None}
+    return {'status': 'FAIL' if hits else 'PASS', 'summary': '%d words (config + profile path + user/PC name) in %d binaries and packed '
+            'files: %d hit(s) (%d python.org runtime files left to privacy_bin)' % (len(words), n, len(hits), len(runtime)),
+            'details': hits[:40] or None}
 
 
 def relay_expected(g):
@@ -1187,7 +1196,8 @@ def st_relay_packed(g):
 def st_helper_build(g):
     """The suites' own report helper, built in the clone WITHOUT a relay address (test_report_helper starts it)."""
     e = {k: v for k, v in os.environ.items() if k.upper() != 'MA2_RELAY_URL'}
-    code, _ = run_logged('build_report.cmd', g.logs / 'helper-build.txt', cwd=g.clone / 'report-helper', env=e, shell=True)
+    code, _ = run_logged('"%s"' % (g.clone / 'report-helper' / 'build_report.cmd'), g.logs / 'helper-build.txt',
+                         cwd=g.clone / 'report-helper', env=e, shell=True)
     exe = g.clone / 'report-helper' / 'MA2 Report.exe'
     if code or not exe.is_file():
         return {'status': 'FAIL', 'summary': 'build_report.cmd exit %d' % code, 'details': tail(g.logs / 'helper-build.txt')}
@@ -1573,8 +1583,9 @@ def st_fault(g):
     r = g.install('fault', exe, g.install_args() + ['--shortcuts', 'desktop,start,editor'])
     m = manifest(r['dest']) if Path(r['dest']).is_dir() else {}
     (g.logs / 'manifest-fault.json').write_text(json.dumps(m, indent=0), encoding='utf-8')
-    hooked_kit(g, exe, base / 'temp', hit, faults)
-    d = g.install('fault', exe, ['--diagnostics', '--dest', str(r['dest'])])
+    _, dbase = g.env('fault-diag')
+    hooked_kit(g, exe, dbase / 'temp', hit, faults)                # the stub deleted the first copy when the install ended
+    d = g.install('fault-diag', exe, ['--diagnostics', '--dest', str(r['dest'])])
     lines = hit.read_text(encoding='utf-8').splitlines() if hit.is_file() else []
     fired = {l[4:] for l in lines if l.startswith('HIT ')}
     absent = [l[7:] for l in lines if l.startswith('ABSENT ')]
