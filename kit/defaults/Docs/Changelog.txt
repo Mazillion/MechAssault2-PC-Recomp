@@ -12,7 +12,7 @@ You have version {{VERSION}} (build {{BUILD}}).
   and PC details (no user name, PC name or personal files) and has a box
   to say what happened. Send report sends it to the developer and shows
   a report number; nothing is sent until you press it, and sent reports
-  are kept for 30 days. Every report is also saved in
+  are kept for 60 days. Every report is also saved in
   %LOCALAPPDATA%\MechAssault2\Diagnostics, and Save a copy instead saves
   it there without sending (no internet needed).
 - The game's log now notes once a minute how smoothly the game and its
