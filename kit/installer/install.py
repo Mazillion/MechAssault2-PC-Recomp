@@ -784,7 +784,15 @@ def uninstall_plan(dest, delete_user_data=False):
     shortcuts = [Path(s) for s in stamp.get('shortcuts', []) if isinstance(s, str) and Path(s).name in ours and Path(s).is_file()]
     caches = [p for p in (local / 'ShaderCache', local / 'NavCache', local / 'Cache', Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local') / 'xboxrecomp' / 'shader-cache')
               if p.exists()]
-    return {'dest': dest, 'shortcuts': shortcuts, 'caches': caches, 'user_data': local if delete_user_data and local.exists() else None}
+    try: build = kept_build_folder(dest)            # 1.1.7: the kept build folder outside the install folder (a plain path), when ours
+    except Exception: build = None
+    if build is not None:
+        try:
+            if os.path.normcase((build / 'owner.txt').read_text(encoding='utf-8').strip()) != os.path.normcase(str(dest)): build = None
+        except (OSError, ValueError):
+            build = None
+    return {'dest': dest, 'shortcuts': shortcuts, 'caches': caches, 'user_data': local if delete_user_data and local.exists() else None,
+            'build': build}
 
 def uninstall(dest, delete_user_data=False, log=print):
     r"""Remove an install made by this installer: its shortcuts, the install folder (only because is_install(dest) is true), the shader and
@@ -805,6 +813,10 @@ def uninstall(dest, delete_user_data=False, log=print):
     before = len(failed)
     safe_rmtree(dest, failed)
     if len(failed) == before: removed.append(str(dest))
+    if plan.get('build') is not None:
+        log('  removing %s' % plan['build'])
+        if remove_build_folder(plan['build'], owner=dest): removed.append(str(plan['build']))
+        else: failed.append((str(plan['build']), 'could not be deleted'))
     for cache in plan['caches']:
         log('  removing %s' % cache)
         n = len(failed); safe_rmtree(cache, failed)
@@ -1065,10 +1077,301 @@ class Heartbeat:
             pass
 
 
+# ---------------------------------------------------------------------------- 1.1.7: kept build, manifest, previous version
+# After a finished install the work folder is kept (trimmed to what a rebuild needs: the patched generated code, the build tree and
+# the FFmpeg download) with _work/cache.json describing what it was made from. An update whose inputs to the translation and the
+# compiler are unchanged then skips analyse / translate / generate / patch and lets CMake + Ninja recompile only the changed files.
+# Any doubt (another fingerprint, an unfinished or unreadable cache, a low-memory build, a failure of the quick build) takes the
+# 1.1.6 path: everything again from the disc's program and a clean build.
+CACHE_SCHEMA = 1
+CACHE_FILE = 'cache.json'
+KEEP_MIN_FREE = 10 * GB                # free space on the build drive below this after an install: the work folder is removed (as 1.1.6)
+REUSED_STEPS = ('analyze', 'recompile', 'generate', 'patch')
+GEN_REL = 'toolkit/' + PROJECT + '/src/recomp/gen'          # the patched generated code, relative to the work folder
+ROOT_KEEP = ('src', 'build', 'build.cmd', LOWMEM_FILE, 'owner.txt')
+MANIFEST = 'recomp-manifest.json'
+MANIFEST_SCHEMA = 1
+PREVIOUS = '_previous'                 # the files an update replaced, until the new version has had a good launch
+PREVIOUS_JSON = 'previous.json'
+GOOD_LAUNCH_SECONDS = 60
+_TREE_MEMO = {}
+
+def tree_hash(root, memo=True):
+    """SHA-256 over every file under `root` (relative path, size and content, in path order); __pycache__ and .pyc are left out.
+    '' for a missing folder. Remembered per process (the kit does not change while it runs)."""
+    root = Path(root)
+    if not root.is_dir(): return ''
+    key = os.path.normcase(str(root.resolve()))
+    if memo and key in _TREE_MEMO: return _TREE_MEMO[key]
+    files = []
+    for dirpath, dirs, names in os.walk(root):
+        dirs[:] = [d for d in dirs if d != '__pycache__']
+        files += [Path(dirpath) / n for n in names if not n.endswith('.pyc')]
+    h = hashlib.sha256()
+    for p in sorted(files, key=lambda p: p.relative_to(root).as_posix()):
+        rel = p.relative_to(root).as_posix()
+        h.update(rel.encode('utf-8') + b'|' + str(p.stat().st_size).encode('ascii') + b'|' + sha256(p).encode('ascii') + b';')
+    if memo: _TREE_MEMO[key] = h.hexdigest()
+    return h.hexdigest()
+
+def _file_id(path):
+    """(path, size, modified time) of a tool file, or None when it is missing: a new compiler or CMake shows up here."""
+    try:
+        st = Path(path).stat()
+        return [str(path), st.st_size, int(st.st_mtime)]
+    except (OSError, TypeError):
+        return None
+
+def compiler_identity(vcvars, cmake, ninja, vs):
+    """The compiler the game is built with: the Visual Studio folder, its default MSVC version (what vcvars64.bat picks) and the
+    identity of cl.exe, its code generator and the linker, the Windows SDK, CMake and Ninja."""
+    vs = Path(vs)
+    ver = ''
+    try: ver = (vs / 'VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt').read_text(encoding='utf-8').strip()
+    except OSError: pass
+    if not ver:
+        vers = sorted((d.name for d in (vs / 'VC/Tools/MSVC').glob('*') if d.is_dir()), key=_ver)
+        ver = vers[-1] if vers else ''
+    bin_ = vs / 'VC/Tools/MSVC' / ver / 'bin/Hostx64/x64'
+    sdk = windows_sdk()
+    return {'vs': str(vs), 'msvc': ver, 'cl': _file_id(bin_ / 'cl.exe'), 'c1': _file_id(bin_ / 'c1.dll'), 'c2': _file_id(bin_ / 'c2.dll'),
+            'link': _file_id(bin_ / 'link.exe'), 'sdk': sdk.parts[-3] if sdk else '', 'cmake': _file_id(cmake), 'ninja': _file_id(ninja)}
+
+def _salted(fp):
+    """MA2_TEST_FINGERPRINT_SALT=compiler=1,patches=2 (tests only): pretend those parts changed."""
+    salt = os.environ.get('MA2_TEST_FINGERPRINT_SALT', '')
+    for part in salt.split(','):
+        k, _, v = part.partition('=')
+        k = k.strip()
+        if k in fp: fp[k] = [fp[k], 'salt:' + v.strip()]
+    return fp
+
+def gen_fingerprint():
+    """What the patched generated code is made from: the toolkit, the bringup generators, the disc's program, the patches (with
+    FastCode and the patch tool) and the cache layout. Equal = the translation would produce the same files."""
+    return _salted({'schema': CACHE_SCHEMA, 'python': sys.version.split()[0],
+                    'toolkit': tree_hash(KIT / 'toolkit'), 'bringup': tree_hash(KIT / 'source' / 'game' / 'bringup'),
+                    'xbe': RELEASE['xbe_sha256'], 'patches': tree_hash(KIT / 'patches') + ':' + sha256(HERE / 'gen_patch.py')})
+
+def read_cache(work):
+    """_work/cache.json as a dict, or None (missing, unreadable, another schema)."""
+    j = precheck.read_json(Path(work) / CACHE_FILE)
+    return j if isinstance(j, dict) and j.get('schema') == CACHE_SCHEMA else None
+
+def write_cache(work, data):
+    work = Path(work); work.mkdir(parents=True, exist_ok=True)
+    tmp = work / (CACHE_FILE + '.tmp')
+    tmp.write_text(json.dumps(dict(data, schema=CACHE_SCHEMA, time=time.strftime('%Y-%m-%dT%H:%M:%S')), indent=1), encoding='utf-8')
+    tmp.replace(work / CACHE_FILE)
+
+def kept_build_folder(dest):
+    """The plain-path build folder an install in `dest` uses or used (cache.json / the state files), when it is one of ours."""
+    work = Path(dest) / '_work'
+    for name in (CACHE_FILE, 'state.json', 'state.finished.json'):
+        j = precheck.read_json(work / name) or {}
+        r = j.get('root') or j.get('build_root')
+        if isinstance(r, str) and Path(r).name.startswith(BUILD_PREFIX) and Path(r).is_dir(): return Path(r)
+    return None
+
+def same_bytes(a, b):
+    """True when two files have the same size and content."""
+    a, b = Path(a), Path(b)
+    if a.stat().st_size != b.stat().st_size: return False
+    with open(a, 'rb') as fa, open(b, 'rb') as fb:
+        while True:
+            x, y = fa.read(1 << 20), fb.read(1 << 20)
+            if x != y: return False
+            if not x: return True
+
+def sync_tree(want, dst, log=lambda s: None, cancelled=lambda: False):
+    """Make `dst` hold exactly the files in `want` ({relative path: source file}): a file is written only when its bytes differ (it
+    then gets a new modified time, so Ninja recompiles it), files not wanted are deleted, unchanged files are never touched (their
+    times stay, so nothing that depends only on them is rebuilt). Returns {'written', 'deleted', 'same'} (relative paths / count)."""
+    dst = Path(dst)
+    have = {}
+    if dst.is_dir():
+        for p in dst.rglob('*'):
+            if p.is_file(): have[p.relative_to(dst).as_posix()] = p
+    keys = {k.lower(): k for k in want}
+    written, deleted, same = [], [], 0
+    for rel, p in sorted(have.items()):
+        if keys.get(rel.lower()) is None:
+            retry_io(lambda p=p: p.unlink(), 'remove %s' % p.name, log, owned=p); deleted.append(rel)
+    for rel in sorted(want):
+        if cancelled(): raise Stop('Cancelled.', 'cancelled')
+        src, out = Path(want[rel]), dst / rel
+        if out.is_file() and same_bytes(src, out):
+            same += 1; continue
+        out.parent.mkdir(parents=True, exist_ok=True)
+        tmp = out.with_name(out.name + '.sync')
+        shutil.copyfile(src, tmp)                                  # copyfile, not copy2: the new file must look newer than its object
+        retry_io(lambda: tmp.replace(out), 'write %s' % out.name, log, owned=out)
+        written.append(rel)
+    for d in sorted((p for p in dst.rglob('*') if p.is_dir()), key=lambda p: len(p.parts), reverse=True) if dst.is_dir() else []:
+        try: d.rmdir()                                             # (only empty folders: rmdir refuses the others)
+        except OSError: pass
+    return {'written': written, 'deleted': deleted, 'same': same}
+
+def tree_files(root, prefix='', skip=()):
+    """{prefix + relative path: file} for every file under `root`, top folders in `skip` left out."""
+    root, out = Path(root), {}
+    for p in root.rglob('*'):
+        if p.is_file():
+            rel = p.relative_to(root).as_posix()
+            if rel.split('/')[0] in skip: continue
+            out[prefix + rel] = p
+    return out
+
+def prune(base, keep):
+    """Delete everything under `base` except the relative paths in `keep` (and the folders on the way to them)."""
+    base = Path(base)
+    keep = [k.strip('/') for k in keep]
+    def walk(d, rel):
+        for e in list(os.scandir(d)):
+            r = (rel + '/' + e.name) if rel else e.name
+            if any(r == k for k in keep): continue
+            if any(k.startswith(r + '/') for k in keep) and e.is_dir(follow_symlinks=False):
+                walk(e.path, r); continue
+            if _is_link(e.path):
+                try: os.unlink(e.path)
+                except OSError: os.rmdir(e.path)
+            elif e.is_dir(follow_symlinks=False): _rmtree_owned(e.path)
+            else:
+                try: os.unlink(e.path)
+                except PermissionError: os.chmod(e.path, 0o700); os.unlink(e.path)
+    if base.is_dir(): walk(base, '')
+
+def manifest_files(dest):
+    """The installer-owned files of an install (relative paths): the game, its DLLs, the editor and report helper, documents,
+    licences, the PC menus and the default settings. Player files (saves, settings in %LOCALAPPDATA%, texture packs) are not in it."""
+    dest = Path(dest)
+    out = []
+    for p in sorted(dest.iterdir()):
+        if p.is_file() and (p.suffix.lower() in ('.exe', '.dll') or p.name in ('README.txt', 'Controls.txt', 'pc_settings.ini', 'pc_settings.default.ini')):
+            out.append(p.name)
+    for top in ('Docs', 'Licenses', 'pc_assets'):
+        if (dest / top).is_dir():
+            out += sorted(p.relative_to(dest).as_posix() for p in (dest / top).rglob('*') if p.is_file())
+    return out
+
+def write_manifest(dest, kit_id=None):
+    dest = Path(dest)
+    files = {rel: [(dest / rel).stat().st_size, sha256(dest / rel)] for rel in manifest_files(dest)}
+    data = {'schema': MANIFEST_SCHEMA, 'kit_id': kit_id or KIT_ID, 'version': PUBLIC_VERSION, 'files': files}
+    tmp = dest / (MANIFEST + '.tmp')
+    tmp.write_text(json.dumps(data, indent=1), encoding='utf-8'); tmp.replace(dest / MANIFEST)
+    return data
+
+def read_manifest(dest):
+    j = precheck.read_json(Path(dest) / MANIFEST)
+    return j if isinstance(j, dict) and j.get('schema') == MANIFEST_SCHEMA and isinstance(j.get('files'), dict) else None
+
+def verify_manifest(dest):
+    """{'changed': [...], 'missing': [...]} against recomp-manifest.json (the settings files are left out: the player may edit them).
+    None when there is no manifest for the installed version."""
+    dest = Path(dest)
+    m = read_manifest(dest)
+    stamp = precheck.read_stamp(dest) or {}
+    if not m or m.get('kit_id') != stamp.get('kit_id'): return None
+    changed, missing = [], []
+    for rel, (size, digest) in sorted(m['files'].items()):
+        if rel in ('pc_settings.ini', 'pc_settings.default.ini'): continue
+        f = dest / rel
+        try:
+            if not f.is_file(): missing.append(rel)
+            elif f.stat().st_size != size or sha256(f) != digest: changed.append(rel)
+        except OSError:
+            missing.append(rel)
+    return {'changed': changed, 'missing': missing}
+
+def _launch_ok(path, kit, since):
+    """A game log of this kit that shows a good launch: the [LAUNCH] build line with kit=<kit>, no crash or freeze, and a normal end
+    ([EXIT] phase=terminate) or at least GOOD_LAUNCH_SECONDS of running (the log's name is its start time, its modified time the last line)."""
+    p = Path(path)
+    st = p.stat()
+    if st.st_mtime < since: return False
+    text = p.read_text(encoding='utf-8', errors='replace')
+    if not re.search(r'(?m)^\[LAUNCH\] build version=\S+ .*\bkit=%s\b' % re.escape(kit), text): return False
+    if re.search(r'(?m)^\[(CRASH|HANG)\]', text): return False
+    if re.search(r'(?m)^\[EXIT\] phase=terminate\b', text): return True
+    m = re.match(r'(\d{8}-\d{6})-\d+\.log$', p.name)
+    if not m: return False
+    start = time.mktime(time.strptime(m.group(1), '%Y%m%d-%H%M%S'))
+    return st.st_mtime - start >= GOOD_LAUNCH_SECONDS
+
+def good_launch(kit, since=0):
+    """True when %LOCALAPPDATA%\\MechAssault2\\Logs has a good launch (_launch_ok) of the game made by installer kit `kit`."""
+    try:
+        logs = sorted(precheck.logs_dir().glob('*.log'), key=lambda f: f.stat().st_mtime, reverse=True)
+    except OSError:
+        return False
+    for f in logs[:20]:
+        try:
+            if f.name.startswith(('install-', 'buildtools-', 'stub-')): continue
+            if _launch_ok(f, kit, since): return True
+        except (OSError, ValueError):
+            continue
+    return False
+
+def read_previous(dest):
+    j = precheck.read_json(Path(dest) / PREVIOUS / PREVIOUS_JSON)
+    return j if isinstance(j, dict) and isinstance(j.get('files'), list) else None
+
+def rollback(dest, log=print):
+    """Put the version an update replaced back (_previous): its files, its install stamp and manifest. All or nothing: if any file
+    cannot be moved, everything moved so far is moved back. Returns the version now installed; raises Stop."""
+    dest = Path(precheck.clean_path(str(dest))).resolve()
+    if not is_install(dest): raise Stop('%s is not a MechAssault 2 Recomp install.' % dest)
+    if precheck.read_state(dest) is not None:
+        raise Stop('An install or update in %s is not finished. Run the installer to finish it first.' % dest)
+    info = read_previous(dest)
+    if not info: raise Stop('There is no earlier version kept in %s to go back to.' % dest)
+    prev = dest / PREVIOUS / 'files'
+    rels = [r for r in info['files'] if isinstance(r, str) and r and '..' not in Path(r).parts and not Path(r).is_absolute()]
+    missing = [r for r in rels if not (prev / r).exists()]
+    if missing or not rels: raise Stop('The kept earlier version is incomplete (%s), so nothing was changed.' % ', '.join(missing[:3] or ['empty']))
+    moved = []                                      # (from, to) renames done, undone in reverse on a failure
+    def mv(a, b, what):
+        retry_io(lambda: Path(a).rename(b), what, log, path=a); moved.append((Path(a), Path(b)))
+    try:
+        for r in rels:
+            cur, aside = dest / r, dest / (r + '.rollback-new')
+            if aside.exists(): (_rmtree_owned(aside) if aside.is_dir() else aside.unlink())
+            if cur.exists(): mv(cur, aside, 'move %s aside' % cur.name)
+            cur.parent.mkdir(parents=True, exist_ok=True)
+            mv(prev / r, cur, 'put back %s' % cur.name)
+    except (OSError, Stop) as e:
+        for a, b in reversed(moved):
+            try: b.rename(a)
+            except OSError: log('  could not undo %s' % b)
+        raise Stop('Could not go back to the earlier version (%s). Nothing was changed. Close MechAssault 2 and the Scenario Editor, '
+                   'then try again.' % (getattr(e, 'strerror', None) or e), 'access_denied')
+    stamp = info.get('stamp')
+    if isinstance(stamp, dict) and stamp:
+        (dest / precheck.STAMP).write_text(json.dumps(stamp, indent=1), encoding='utf-8')
+    man = info.get('manifest')
+    if isinstance(man, dict) and man: (dest / MANIFEST).write_text(json.dumps(man, indent=1), encoding='utf-8')
+    else:
+        try: (dest / MANIFEST).unlink()
+        except OSError: pass
+    for r in rels:
+        aside = dest / (r + '.rollback-new')
+        try:
+            if aside.is_dir(): _rmtree_owned(aside)
+            elif aside.exists(): aside.unlink()
+        except OSError as e:
+            log('  (the newer %s could not be deleted: %s; you can delete it)' % (aside.name, e))
+    shutil.rmtree(dest / PREVIOUS, ignore_errors=True)
+    shown = (stamp or {}).get('public_version') or info.get('version') or 'the earlier version'
+    log('Went back to %s in %s (%d file(s) put back).' % (shown, dest, len(rels)))
+    return shown
+
+
 class Installer:
     def __init__(self, xiso, dest, textures=(), videos=False, jobs=None, keep_work=False, allow_cpu=False,
                  log=print, step=lambda *args: None, install_build_tools=False, vs=None, update=False,
-                 shortcuts=(), keep_awake=True, low_priority=False, merge_settings=True, switch_textures=False):
+                 shortcuts=(), keep_awake=True, low_priority=False, merge_settings=True, switch_textures=False,
+                 keep_build=True, clean_build=False):
         # step(index, total, title, name, skipped) is called as each engine step starts (or is skipped as already done)
         self.xiso = Path(precheck.clean_path(str(xiso))).resolve() if xiso else None      # a disc image, or a folder copied from the disc
         if self.xiso and self.xiso.is_file() and self.xiso.name.lower() == RELEASE['xbe'].lower(): self.xiso = self.xiso.parent     # ma2.xbe itself: its folder
@@ -1088,6 +1391,11 @@ class Installer:
         self.log, self.on_step = log, step
         self.proc = None; self.cancelled = False
         self.state = {}; self.notes = []; self.game_ok = False; self.old_stamp = None
+        # 1.1.7: keep the trimmed work folder for the next update (off: --no-keep-build or MA2_KEEP_BUILD=0); clean_build: never reuse it
+        self.keep_build = keep_build and os.environ.get('MA2_KEEP_BUILD', '1') != '0'
+        self.clean_build = clean_build or os.environ.get('MA2_FAST_UPDATE', '1') == '0'
+        self.on_reuse = lambda mode: None        # 1.1.7: 'fast' / 'rebuild' / None once check() decided (the window's estimates)
+        self.fp = None; self.repair_found = None; self.unchanged = 0
 
     # -- plumbing
     def cancel(self):
@@ -1250,6 +1558,12 @@ class Installer:
             self.log('  the previous version was put back')
 
     def commit_previous(self):
+        """The update is final: the replaced files (.previous) go to _previous (1.1.7, for --rollback until the new version has had a
+        good launch). If that cannot be done, they are deleted as in 1.1.6."""
+        try:
+            if self.keep_previous_version(): return
+        except Exception as e:
+            self.log('  (the earlier version is not kept: %s)' % e)
         for orig, bak in self.state.get('previous') or []:
             bak = Path(bak)
             try:
@@ -1290,7 +1604,211 @@ class Installer:
             self.update_live_settings(q, v)
         self.write_stamp(ini)
         if core: self.state['core_done'] = True; self.save()
+        self.record_cache()                        # 1.1.7: the kept build's record, before the old files move
+        try:
+            if 'install' in self.state.get('done', []) or not (self.dest / MANIFEST).is_file():
+                write_manifest(self.dest, (precheck.read_stamp(self.dest) or {}).get('kit_id'))    # 1.1.7: installer-owned files, size + SHA-256
+        except Exception as e:
+            self.log('  (%s not written: %s)' % (MANIFEST, e))
         self.commit_previous()
+        if self.repair_found and not getattr(self, '_repair_noted', False):
+            self._repair_noted = True
+            self.notes.append('%d changed or missing game file(s) were replaced.' % len(self.repair_found))
+
+    # -- 1.1.7: the earlier version, kept until the new one has had a good launch (--rollback puts it back)
+    def keep_previous_version(self):
+        """Move this update's .previous files into _previous (replacing what an earlier update kept there) with previous.json: the
+        version, the files, the old install stamp and manifest. True when done (nothing left to delete). An update that replaced
+        nothing leaves an existing _previous alone unless it was kept for another version."""
+        pairs = [(Path(o), Path(b)) for o, b in self.state.get('previous') or []]
+        prev = self.dest / PREVIOUS
+        if not pairs:
+            info = read_previous(self.dest)
+            if info and self.state.get('update') and info.get('new_kit') != KIT_ID:
+                shutil.rmtree(prev, ignore_errors=True)
+            return True
+        if not self.state.get('update') or not self.old_stamp: return False
+        old = prev.with_name(PREVIOUS + '.old')
+        if old.exists(): shutil.rmtree(old, ignore_errors=True)
+        if prev.exists(): prev.rename(old)
+        files = prev / 'files'; files.mkdir(parents=True)
+        rels = []
+        for orig, bak in pairs:
+            if not bak.exists(): continue
+            rel = orig.relative_to(self.dest).as_posix()
+            (files / rel).parent.mkdir(parents=True, exist_ok=True)
+            retry_io(lambda: bak.rename(files / rel), 'keep %s' % orig.name, self.log, path=bak)
+            rels.append(rel)
+        info = {'version': self.old_stamp.get('public_version') or '', 'old_kit': self.old_stamp.get('kit_id') or '',
+                'new_version': PUBLIC_VERSION, 'new_kit': KIT_ID, 'time': time.strftime('%Y-%m-%dT%H:%M:%S'), 'epoch': time.time(),
+                'files': rels, 'stamp': self.old_stamp, 'manifest': None}
+        man = getattr(self, 'old_manifest', None)
+        if isinstance(man, dict) and man.get('kit_id') == self.old_stamp.get('kit_id'): info['manifest'] = man
+        (prev / PREVIOUS_JSON).write_text(json.dumps(info, indent=1), encoding='utf-8')
+        shutil.rmtree(old, ignore_errors=True)
+        self.state['previous'] = []; self.save()
+        self.log('  the replaced files of %s are kept in %s until this version has started fine (--rollback puts them back)'
+                 % (info['version'] or 'the earlier version', prev))
+        return True
+
+    def prune_previous(self):
+        """_previous is deleted once the version the update installed has had a good launch (the game's own log, good_launch)."""
+        info = read_previous(self.dest)
+        if not info: return False
+        kit = str(info.get('new_kit') or '')
+        if not kit or (self.old_stamp or {}).get('kit_id') != kit: return False
+        if not good_launch(kit, float(info.get('epoch') or 0)): return False
+        shutil.rmtree(self.dest / PREVIOUS, ignore_errors=True)
+        self.log('  the earlier version kept by the last update was deleted (this version has started fine)')
+        return True
+
+    # -- 1.1.7: the kept build (cache.json)
+    def fingerprint(self):
+        """Everything a reuse depends on (see CACHE_SCHEMA above): the translation's inputs, the compiler, the build folder and the
+        low-memory pre-set this PC gets."""
+        try: kind = self.preseed_kind(precheck.memory_info()[0])
+        except Exception: kind = 'error'
+        root = 'plain' if (self.state.get('plain_build') or not plain_path(self.work)) else str(self.work)
+        fp = {'gen': gen_fingerprint(), 'compiler': compiler_identity(self.vcvars, self.cmake, self.ninja, self.vs), 'root': root,
+              'lowmem': kind}
+        return _salted(fp)
+
+    def reuse_mode(self, fp):
+        """('fast' | 'rebuild' | None, why). fast: skip the translation and recompile only changed files; rebuild: skip the
+        translation, clean build (another compiler, build folder or low-memory setting); None: everything again (1.1.6)."""
+        if not self.state.get('update'): return None, 'not an update'
+        if self.clean_build: return None, 'a rebuild from scratch was asked for'
+        if not (self.work / CACHE_FILE).is_file(): return None, 'no kept build'
+        c = read_cache(self.work)
+        if c is None: return None, 'the kept build record could not be read'
+        if not c.get('complete'): return None, 'the last build did not finish'
+        old = c.get('fingerprint') or {}
+        diff = [k for k in sorted(set(fp['gen']) | set(old.get('gen') or {})) if (old.get('gen') or {}).get(k) != fp['gen'].get(k)]
+        if diff: return None, 'changed: %s' % ', '.join(diff)
+        gen = self.work / GEN_REL
+        if not c.get('gen') or tree_hash(gen, memo=False) != c['gen']: return None, 'the kept generated code changed'
+        spec = KIT / 'patches' / 'fastcode' / 'fastcode.json'
+        if spec.is_file():
+            final = json.loads(spec.read_text(encoding='utf-8')).get('final') or {}
+            if any(not (gen / f).is_file() or sha256(gen / f) != h for f, h in final.items()):
+                return None, 'the kept FastCode files do not match'
+        low = c.get('lowmem') or {}
+        why = []
+        if low.get('ladder') or low.get('oom_jobs'): why.append('the last build ran short of memory')
+        if old.get('compiler') != fp['compiler']: why.append('another compiler')
+        if old.get('root') != fp['root'] or not c.get('root'): why.append('another build folder')
+        if low.get('kind') != fp['lowmem']: why.append('another memory setting')
+        if why: return 'rebuild', ', '.join(why)
+        return 'fast', 'nothing the translation or the compiler depends on changed'
+
+    def drop_kept_build(self, cache=None):
+        """The 1.1.6 start: nothing of a kept build is used (the work folder's toolkit copy and build tree go)."""
+        roots = {self.work}
+        r = (cache or {}).get('root')
+        for name in ('toolkit',) + ROOT_KEEP:
+            for base in roots:
+                p = base / name
+                if name == 'owner.txt': continue
+                try:
+                    if p.is_dir(): _rmtree_owned(p)
+                    elif p.exists(): p.unlink()
+                except OSError as e:
+                    self.log('  (could not remove %s: %s)' % (p, e))
+        if r and Path(r).name.startswith(BUILD_PREFIX) and os.path.normcase(r) != os.path.normcase(str(self.work)):
+            remove_build_folder(r, owner=self.dest)
+
+    def plan_reuse(self):
+        """Decide once per install or update (a Resume keeps the decision): reuse the kept build (fast / rebuild) or start as 1.1.6.
+        cache.json says complete=false from here until the new install is finished. Any error here: the 1.1.6 start."""
+        try:
+            self.fp = self.fingerprint()
+        except Exception as e:
+            self.fp = None; self.log('  (the kept build cannot be checked: %s)' % e)
+        if 'reuse' in self.state or getattr(self, 'resumed', False):
+            # A Resume keeps the first run's decision; a Resume of a run that never decided (stopped before this) reuses nothing.
+            self.state.setdefault('reuse', None)
+            try: self.on_reuse(self.state['reuse'])
+            except Exception: pass
+            return self.state['reuse']
+        mode, why, c = None, 'no fingerprint', None
+        try:
+            if self.fp:
+                c = read_cache(self.work)
+                if c and c.get('plain_build'): self.state['plain_build'] = True; self.fp = self.fingerprint()
+                mode, why = self.reuse_mode(self.fp)
+            if mode:
+                self.state.update(reuse=mode, reuse_root=c.get('root'), reuse_preseed=(c.get('lowmem') or {}).get('units') or {})
+                self.state['done'] = list(self.state.get('done', [])) + [s for s in REUSED_STEPS if s not in self.state.get('done', [])]
+                if mode == 'rebuild': self.state.pop('reuse_preseed', None)
+        except Exception as e:
+            mode, why = None, 'error: %s' % e
+            for k in ('reuse_root', 'reuse_preseed'): self.state.pop(k, None)
+            self.state['done'] = [s for s in self.state.get('done', []) if s not in REUSED_STEPS]
+        self.state['reuse'] = mode
+        if self.state.get('update') or (self.work / CACHE_FILE).exists():
+            self.log('  kept build: %s (%s)' % ({'fast': 'used, only changed files are compiled', 'rebuild':
+                     'the translated program is used, the game is compiled from the start'}.get(mode, 'not used, everything is made again'), why))
+        if not mode and ((self.work / CACHE_FILE).exists() or (self.work / 'toolkit').exists()):
+            try: self.drop_kept_build(c)
+            except Exception as e: self.log('  (the kept build was not removed: %s)' % e)
+        try:
+            if (self.work / CACHE_FILE).exists() or mode: write_cache(self.work, {'complete': False})
+        except OSError as e:
+            self.log('  (cache.json not written: %s)' % e)
+        self.event('reuse', '%s: %s' % (mode or 'none', why))
+        self.save()
+        try: self.on_reuse(mode)
+        except Exception: pass
+        return mode
+
+    def record_cache(self):
+        """The finished build's record (cache.json complete=true): what a later update compares (only when this run built the game)."""
+        if getattr(self, '_cache_done', False) or not self.fp or self.state.get('addons_only') or 'build' not in self.state.get('done', []):
+            return
+        self._cache_done = True
+        try:
+            pre = self.state.get('preseed') or {}
+            write_cache(self.work, {'complete': True, 'fingerprint': self.fp, 'gen': tree_hash(self.work / GEN_REL, memo=False),
+                                    'root': str(self.build_root()), 'plain_build': bool(self.state.get('plain_build')),
+                                    'lowmem': {'kind': pre.get('kind'), 'units': pre.get('units') or {},
+                                               'ladder': bool((self.state.get('lowmem') or {}).get('units')), 'oom_jobs': self.state.get('oom_jobs')},
+                                    'kit_id': KIT_ID, 'version': PUBLIC_VERSION, 'reuse': self.state.get('reuse')})
+        except Exception as e:
+            self.log('  (the build record was not written: %s)' % e)
+            try: (self.work / CACHE_FILE).unlink()
+            except OSError: pass
+
+    # -- 1.1.7: manifest (recomp-manifest.json)
+    def check_manifest(self):
+        """Update / Repair: list the installed files that differ from the manifest; install() replaces them (it copies every file that
+        differs from the new one)."""
+        try:
+            self.old_manifest = read_manifest(self.dest)
+            if not self.state.get('update') or 'install' in self.state.get('done', []): return
+            res = verify_manifest(self.dest)
+            if res is None: return
+            bad = res['changed'] + res['missing']
+            self.repair_found = bad
+            if bad:
+                self.log('  installed files that changed or are missing (%d): %s' % (len(bad), ', '.join(bad[:20])))
+                self.event('repair', '%d changed or missing file(s)' % len(bad))
+            else:
+                self.log('  every installed file matches its record')
+        except Exception as e:
+            self.log('  (the installed files were not checked: %s)' % e)
+
+    def place(self, src, dst, render=False):
+        """Copy one installer-owned file in, unless the installed one already has the same bytes (1.1.7: then nothing is replaced and
+        nothing is kept as .previous). Any error in the comparison: copied as in 1.1.6."""
+        dst = Path(dst)
+        try:
+            if dst.is_file() and same_bytes(src, dst):
+                self.unchanged += 1; return False
+        except Exception:
+            pass
+        self.keep_previous(dst)
+        self.copy_in(src, dst)
+        return True
 
     # -- steps
     def game_files_ok(self):
@@ -1317,7 +1835,7 @@ class Installer:
                      ('recompile', 'Translating the game program to C', self.recompile),
                      ('generate', 'Generating helper code', self.generate),
                      ('patch', 'Applying the PC fixes and features', self.patch),
-                     ('build', 'Compiling the game', self.build),
+                     ('build', 'Compiling the game', self.build_step),
                      ('assets', 'Building the PC menus', self.assets),
                      ('install', 'Installing the game files', self.install)]
         for scale in self.opts['textures']:
@@ -1341,11 +1859,14 @@ class Installer:
     def _run(self):
         state_file = self.work / 'state.json'
         created = not self.dest.exists()
+        self.resumed = state_file.is_file()
         self.log('%s installer, release %s, kit %s, %s' % (build_label(), VERSION, KIT_ID, time.strftime('%Y-%m-%d %H:%M')))
         self.log('  log file: %s' % self.session_log)
         try: self.log('  session %s' % precheck.session_id())          # the same id is in the stub's and the window's logs
         except Exception: pass
         self.old_stamp = precheck.read_stamp(self.dest)
+        try: self.prune_previous()                 # 1.1.7: the version kept by the last update goes once the new one has started fine
+        except Exception as e: self.log('  (the kept earlier version was not checked: %s)' % e)
         try:
             for f in clean_stale_build_folders(build_bases(self.work.anchor)): self.log('  removed an old build folder: %s' % f)
         except Exception as e:
@@ -1364,6 +1885,7 @@ class Installer:
                 dropped = [s for s in self.state.get('done', []) if s not in keep]
                 if dropped:
                     self.state['done'] = [s for s in self.state.get('done', []) if s in keep]
+                    for k in ('reuse', 'reuse_preseed', 'reuse_root', 'fast_tried'): self.state.pop(k, None)    # (1.1.7: decided again)
                     self.log('This installer is newer than the one that started this install. Your extracted disc files are kept; '
                              'the build starts again (about 15 minutes).')
         else:
@@ -1526,6 +2048,8 @@ class Installer:
             self.log('  C++ compiler: %s' % self.vs)
             self.state['toolchain'] = str(self.vs); self.save()                 # named in Collect diagnostics
             self.remember_install(toolchain=str(self.vs))
+            self.plan_reuse()                       # 1.1.7: can the kept build of the last install be used?
+            self.check_manifest()                   # 1.1.7: Update / Repair: which installed files changed or are missing
             if 'install' not in self.state.get('done', []):
                 self.ffmpeg_dir()                  # FFmpeg now: a download problem shows in the first minute, not after the translation
             self.log('  CMake: %s\n  Ninja: %s' % (self.cmake, self.ninja))
@@ -1883,13 +2407,20 @@ class Installer:
     PRESEED_RAM = 24 * GB                          # installed RAM below this: the heavy files
     PRESEED_ALL = 11.5 * GB                        # usable RAM below this: every game file
 
+    def preseed_kind(self, total):
+        """'none' (24 GB or more installed), 'heavy' (the PRESEED_FILES) or 'all' (usable RAM below PRESEED_ALL): which files start with
+        one code-generation thread. `total`: the usable RAM (memory_info); the installed RAM decides first."""
+        installed = precheck.installed_memory()
+        if (installed or total) >= (self.PRESEED_RAM if installed else self.PRESEED_RAM - 1.5 * GB): return 'none'
+        return 'all' if total < self.PRESEED_ALL else 'heavy'
+
     def preseed_units(self, game, build, total):
         """{unit: ['/cgthreads1']} to pre-set for this PC ({} on PCs with 24 GB or more: their build is exactly 1.1.5's). `total`: the
         usable RAM build() already read (memory_info); the installed RAM decides first."""
-        installed = precheck.installed_memory()
-        if (installed or total) >= (self.PRESEED_RAM if installed else self.PRESEED_RAM - 1.5 * GB): return {}
+        kind = self.preseed_kind(total)
+        if kind == 'none': return {}
         game = Path(game)
-        if total < self.PRESEED_ALL: units = lowmem_unbuilt(game, build)
+        if kind == 'all': units = lowmem_unbuilt(game, build)
         else: units = [u for u in self.PRESEED_FILES if (game / u).is_file()]
         return {u: list(LOWMEM_ALL) for u in units}
 
@@ -1990,7 +2521,43 @@ class Installer:
         return {'one_codegen_thread': len(units),
                 'lighter_optimisation': {u: ' '.join(f for f in fl if f not in LOWMEM_ALL) for u, fl in sorted(units.items()) if lowmem_step_of(fl) >= 0}}
 
-    def build(self):
+    def build_step(self):
+        """1.1.7: the quick rebuild first when check() found the kept build usable (plan_reuse: 'fast'); ANY failure of it (other than
+        Cancel) builds again from the start, exactly as 1.1.6 does. A run that stopped during the quick rebuild (fast_tried) builds clean."""
+        if self.state.get('reuse') == 'fast' and not self.state.get('fast_tried'):
+            self.state['fast_tried'] = True; self.save()
+            try:
+                return self.build(True)
+            except Stop as e:
+                if e.kind == 'cancelled': raise
+                why = str(e)
+            except Exception as e:
+                why = '%s: %s' % (type(e).__name__, e)
+            self.log('  RECOVERY: the quick rebuild did not work (%s); building again from the start' % why[:300])
+            self.event('recovery', 'quick rebuild failed: clean build')
+            try:
+                self.on_reuse('rebuild'); self.on_status('taking longer: building again from the start')
+            except Exception:
+                pass
+        return self.build()
+
+    def sync_source(self, src, ffmpeg):
+        """The quick rebuild's source tree: the kit's source (bringup left out, as the copy does), FFmpeg and the patched generated
+        code, written into `src` only where the bytes differ (sync_tree)."""
+        want = tree_files(KIT / 'source' / 'runtime', 'runtime/')
+        want.update(tree_files(KIT / 'source' / 'game', 'game/', skip=('bringup',)))
+        if not any(k.startswith('game/vendor/%s/' % FFMPEG) for k in want): want.update(tree_files(ffmpeg, 'game/vendor/%s/' % FFMPEG))
+        gp = 'game/src/recomp/gen/'
+        want = {k: v for k, v in want.items() if not k.startswith(gp)}
+        want.update(tree_files(self.project() / 'src' / 'recomp' / 'gen', gp))
+        res = sync_tree(want, src, self.log, lambda: self.cancelled)
+        shown = ', '.join(res['written'][:8]) + (' and %d more' % (len(res['written']) - 8) if len(res['written']) > 8 else '')
+        self.log('  source: %d file(s) changed%s, %d removed, %d unchanged' % (len(res['written']), ' (%s)' % shown if shown else '',
+                                                                              len(res['deleted']), res['same']))
+        self.event('build', 'quick rebuild: %d changed, %d removed' % (len(res['written']), len(res['deleted'])))
+        return res
+
+    def build(self, incremental=False):
         ffmpeg = self.ffmpeg_dir()                 # first: a download problem shows before the long compile
         if not hasattr(self, 'vcvars'): self.vcvars, self.cmake, self.ninja, self.vs = find_visual_studio(self.vs_choice)
         root = self.build_root()
@@ -1999,36 +2566,49 @@ class Installer:
             (root / 'owner.txt').write_text(str(self.dest), encoding='utf-8')            # which install this folder belongs to (stale ones are cleaned up)
             self.state['build_root'] = str(root); self.save()
         src = root / 'src'
-        if src.exists(): retry_io(lambda: _rmtree_owned(src), 'remove the earlier source copy', self.log)
-        self.log('  copying the source tree')
-        shutil.copytree(KIT / 'source' / 'runtime', src / 'runtime')
-        shutil.copytree(KIT / 'source' / 'game', src / 'game', ignore=shutil.ignore_patterns('bringup'))
-        if not (src / 'game' / 'vendor' / FFMPEG).is_dir(): shutil.copytree(ffmpeg, src / 'game' / 'vendor' / FFMPEG)
-        gen = src / 'game' / 'src' / 'recomp' / 'gen'
-        if gen.exists(): shutil.rmtree(gen)       # (an empty folder: the packed kit has none)
-        shutil.copytree(self.project() / 'src' / 'recomp' / 'gen', gen)
         build = root / 'build'
-        try: kept = self.lowmem_keep(build)        # 1.1.5: a Resume after a low-memory stop carries on with the files compiled before
-        except Exception: kept = False             # (never worse than 1.1.4: a clean build)
-        if build.exists() and not kept:            # every run starts a clean build (as 1.1.3); only the memory retry below keeps objects
-            retry_io(lambda: _rmtree_owned(build), 'remove the earlier build', self.log)      # (a scanner may still hold the old exe)
+        if incremental:                            # 1.1.7: the kept tree; only changed files are written, the objects are kept
+            if os.path.normcase(str(root)) != os.path.normcase(str(self.state.get('reuse_root') or '')):
+                raise Stop('the build folder is not the one the kept build was made in', 'unexpected')
+            if not (build / 'build.ninja').is_file(): raise Stop('the kept build is incomplete', 'unexpected')
+            self.log('  quick rebuild: only the files that changed are compiled again')
+            self.sync_source(src, ffmpeg)
+            kept = False
+        else:
+            if src.exists(): retry_io(lambda: _rmtree_owned(src), 'remove the earlier source copy', self.log)
+            self.log('  copying the source tree')
+            shutil.copytree(KIT / 'source' / 'runtime', src / 'runtime')
+            shutil.copytree(KIT / 'source' / 'game', src / 'game', ignore=shutil.ignore_patterns('bringup'))
+            if not (src / 'game' / 'vendor' / FFMPEG).is_dir(): shutil.copytree(ffmpeg, src / 'game' / 'vendor' / FFMPEG)
+            gen = src / 'game' / 'src' / 'recomp' / 'gen'
+            if gen.exists(): shutil.rmtree(gen)       # (an empty folder: the packed kit has none)
+            shutil.copytree(self.project() / 'src' / 'recomp' / 'gen', gen)
+            try: kept = self.lowmem_keep(build)        # 1.1.5: a Resume after a low-memory stop carries on with the files compiled before
+            except Exception: kept = False             # (never worse than 1.1.4: a clean build)
+            if build.exists() and not kept:            # every run starts a clean build (as 1.1.3); only the memory retry below keeps objects
+                retry_io(lambda: _rmtree_owned(build), 'remove the earlier build', self.log)      # (a scanner may still hold the old exe)
         cpus = os.cpu_count() or 4
         total, avail = precheck.memory_info()
         jobs = self.jobs or precheck.build_jobs(cpus, avail, total)
         if self.state.get('oom_jobs'): jobs = max(1, min(jobs, self.state['oom_jobs']))      # an earlier attempt ran out of memory
         if avail < 6 * GB: self.log('  only %.1f GB of memory is free; close other programs if the build fails' % (avail / GB))
         self.log('  %d parallel compiles (%d CPU threads, %.0f GB RAM); usually 5-40 minutes' % (jobs, cpus, total / GB))
-        self.preseed = {}
-        if not kept and not (self.state.get('lowmem') or {}).get('units'):
+        self.preseed = {}; kind = None
+        if incremental:                            # 1.1.7: the kept build's own pre-set (the same flags: nothing is rebuilt for them)
+            self.preseed = dict(self.state.get('reuse_preseed') or {}); kind = (self.fp or {}).get('lowmem')
+        elif not kept and not (self.state.get('lowmem') or {}).get('units'):
             try:
+                kind = self.preseed_kind(total)
                 self.preseed = self.preseed_units(src / 'game', build, total)
                 if self.preseed:
                     self.log('  %d file(s) start with one code-generation thread (%s): less memory, the same code (this PC has %.0f GB RAM)'
                              % (len(self.preseed), ' '.join(LOWMEM_ALL), (precheck.installed_memory() or total) / GB))
                     self.event('build', 'pre-set %s for %d file(s)' % (' '.join(LOWMEM_ALL), len(self.preseed)))
             except Exception as x:                 # never worse than 1.1.5: the release settings for every file
-                self.preseed = {}
+                self.preseed = {}; kind = 'error'
                 self.log('  (the pre-set low-memory settings are not used: %s)' % x)
+        try: self.state['preseed'] = {'kind': kind, 'units': self.preseed}; self.save()      # 1.1.7: recorded in cache.json
+        except Exception: pass
         env = dict(os.environ)                     # vcvars64.bat looks for vswhere.exe on PATH
         env['PATH'] = str(Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')) /
                           'Microsoft Visual Studio' / 'Installer') + os.pathsep + env.get('PATH', '')
@@ -2049,6 +2629,7 @@ class Installer:
                 self.run_cmd(['cmd.exe', '/d', '/c', script], cwd=root, env=env, title='CMake + Ninja')
                 break
             except Stop as e:
+                if incremental: raise                  # 1.1.7: build() builds again from the start
                 if kept and e.kind not in ('out_of_memory', 'cancelled'):
                     # The files kept from before the low-memory stop did not build: start the build clean, exactly as 1.1.4 does.
                     kept = False
@@ -2082,7 +2663,7 @@ class Installer:
                     self.log('  RECOVERY: the build failed on its folder path; building again in a plain folder')
                     self.event('recovery', 'path error: build moved to a plain folder')
                     for d in (src, build): shutil.rmtree(d, ignore_errors=True)
-                    return self.build()
+                    return self.build(False)
                 if reboot_pending()['vs']:              # the same failure, with the likely cause named (text only)
                     self.log('  (Visual Studio reports that a restart is still needed)')
                     raise Stop('%s %s' % (e, REBOOT_HINT), e.kind, code=e.code) from e
@@ -2121,17 +2702,22 @@ class Installer:
         if not hasattr(self, 'vs'): self.vcvars, self.cmake, self.ninja, self.vs = find_visual_studio(self.vs_choice)
         build = self.build_root() / 'build'
         exe = self.dest / 'MechAssault 2.exe'
-        self.keep_previous(exe)
-        tmp = self.dest / 'MechAssault 2.exe.new'
-        self.copy_in(build / 'mechassault2_recomp.exe', tmp)
-        retry_io(lambda: tmp.replace(exe), 'replace MechAssault 2.exe', self.log, owned=exe, path=exe)
+        same = False
+        try: same = exe.is_file() and same_bytes(build / 'mechassault2_recomp.exe', exe)     # 1.1.7: the same game exe stays as it is
+        except Exception: same = False
+        if same: self.unchanged += 1
+        else:
+            self.keep_previous(exe)
+            tmp = self.dest / 'MechAssault 2.exe.new'
+            self.copy_in(build / 'mechassault2_recomp.exe', tmp)
+            retry_io(lambda: tmp.replace(exe), 'replace MechAssault 2.exe', self.log, owned=exe, path=exe)
         ff = self.ffmpeg_dir() / 'bin'
         for n in FFMPEG_DLLS:
-            self.keep_previous(self.dest / n); self.copy_in(ff / n, self.dest / n)
+            self.place(ff / n, self.dest / n)
         crt = sorted((self.vs / 'VC' / 'Redist' / 'MSVC').glob('*/x64/Microsoft.VC*.CRT'))
         if crt:
             for dll in crt[-1].glob('*.dll'):
-                self.keep_previous(self.dest / dll.name); self.copy_in(dll, self.dest / dll.name)
+                self.place(dll, self.dest / dll.name)
             self.log('  MSVC runtime from %s' % crt[-1])
         else:
             self.log('  (no MSVC redistributable folder found; the Visual C++ runtime installed on this PC will be used)')
@@ -2148,13 +2734,12 @@ class Installer:
         self.install_docs()
         self.install_defaults_ini()
         for f in sorted((KIT / 'editor').glob('*.exe')) if (KIT / 'editor').is_dir() else []:
-            self.keep_previous(self.dest / f.name)
-            self.copy_in(f, self.dest / f.name)        # MechAssault 2 Scenario Editor
+            self.place(f, self.dest / f.name)          # MechAssault 2 Scenario Editor
             self.log('  %s' % f.name)
         for f in sorted((KIT / 'report').glob('*.exe')) if (KIT / 'report').is_dir() else []:
-            self.keep_previous(self.dest / f.name)
-            self.copy_in(f, self.dest / f.name)        # 1.1.6: MA2 Report.exe (crash / freeze boxes, Report a problem)
+            self.place(f, self.dest / f.name)          # 1.1.6: MA2 Report.exe (crash / freeze boxes, Report a problem)
             self.log('  %s' % f.name)
+        if self.unchanged: self.log('  %d file(s) were already up to date and were left as they are' % self.unchanged)
         self.make_shortcuts()
 
     def copy_in(self, src, dst):
@@ -2364,7 +2949,30 @@ class Installer:
             if root != self.work: self.log('  build folder kept: %s' % root)
             return
         self.logfile.close()
+        try:
+            if self.keep_kept_build(root): return
+        except Exception as e:
+            self.log('  (the build is not kept for the next update: %s)' % e)
         self.remove_work_folders([self.work] if root == self.work else [self.work, root])
+
+    def keep_kept_build(self, root):
+        """1.1.7: keep what the next update can reuse (the patched generated code, the build tree, the FFmpeg download, cache.json),
+        delete the rest of the work folder. Not when the build record is missing or unfinished, with --no-keep-build, or when less
+        than KEEP_MIN_FREE stays free on the build drive (then the work folder goes, as in 1.1.6). True when kept."""
+        c = read_cache(self.work)
+        if not self.keep_build or not c or not c.get('complete'): return False
+        keep = [CACHE_FILE, 'state.finished.json', GEN_REL, 'deps/' + FFMPEG]
+        if root == self.work: keep += [k for k in ROOT_KEEP if k != 'owner.txt']
+        else: prune(root, ROOT_KEEP)
+        prune(self.work, keep)
+        free = shutil.disk_usage(str(root)).free
+        if free < KEEP_MIN_FREE:
+            self.log('  the build is not kept for the next update: only %.1f GB would stay free on %s' % (free / GB, Path(root).anchor))
+            return False
+        size = sum(f.stat().st_size for d in {self.work, Path(root)} for f in Path(d).rglob('*') if f.is_file())
+        self.log('  kept for the next update: %s (%.1f GB; a later update compiles only what changed)' % (
+            self.work if root == self.work else '%s and %s' % (self.work, root), size / GB))
+        return True
 
     def remove_work_folders(self, folders):
         left = []
@@ -2435,6 +3043,19 @@ class Installer:
         except OSError as e:
             self.log('  (could not write %s: %s)' % (precheck.STAMP, e))
 
+def reuse_preview(dest):
+    """1.1.7, for the window's time estimate: 'fast' / 'rebuild' / None, what an update of `dest` would do with its kept build. The
+    install decides again for itself (plan_reuse). Any error: None (the full estimate)."""
+    try:
+        inst = Installer(None, dest, log=lambda s: None)
+        c = read_cache(inst.work)
+        if not c or not c.get('complete'): return None
+        inst.state = {'update': True, 'plain_build': bool(c.get('plain_build'))}
+        inst.vcvars, inst.cmake, inst.ninja, inst.vs = find_visual_studio(None)
+        return inst.reuse_mode(inst.fingerprint())[0]
+    except Exception:
+        return None
+
 def launch_advice(path, e):
     """Plain words for a failed start of the game or the editor (an OSError from launching it), with its Windows code."""
     code = getattr(e, 'winerror', None) or getattr(e, 'errno', None)
@@ -2477,6 +3098,7 @@ def run_uninstall(a):
     print('Uninstall MechAssault 2 Recomp from %s:' % plan['dest'])
     for s in plan['shortcuts']: print('  shortcut  %s' % s)
     print('  the install folder  %s' % plan['dest'])
+    if plan.get('build'): print('  the kept build folder  %s' % plan['build'])
     for c in plan['caches']: print('  cache  %s' % c)
     if plan['user_data']: print('  your settings, saves and logs  %s' % plan['user_data'])
     print('  (never deleted: your scenarios in %s)' % scenarios_dir())
@@ -2493,7 +3115,10 @@ def main():
     ap.add_argument('--textures', default='', help='enhanced texture packs to generate: 2x, 4x or 2x,4x')
     ap.add_argument('--videos', action='store_true', help='generate the 2x enhanced cutscene videos')
     ap.add_argument('--jobs', type=int, help='parallel compiles (default: from CPU threads and RAM)')
-    ap.add_argument('--keep-work', action='store_true', help='keep the _work folder')
+    ap.add_argument('--keep-work', action='store_true', help='keep the whole _work folder')
+    ap.add_argument('--no-keep-build', action='store_true', help='do not keep the build for the next update (the work folder is deleted, as in 1.1.6)')
+    ap.add_argument('--clean-build', action='store_true', help='with --update: rebuild the game from scratch (do not reuse the kept build)')
+    ap.add_argument('--rollback', action='store_true', help='go back to the version the last update replaced (kept until the new version has started fine)')
     ap.add_argument('--allow-cpu', action='store_true', help='allow enhancement without an NVIDIA GPU (extremely slow)')
     ap.add_argument('--upscaler', metavar='ZIP|FOLDER|URL', help='the Vulkan texture upscaler, if this PC has no internet: the file %s '
                     '(download exactly %s on another PC), a folder with it extracted, or a URL' % (upscaler_fetch.SPEC['archive'], upscaler_fetch.SPEC['urls'][0]))
@@ -2524,6 +3149,12 @@ def main():
     if not a.dest and (a.uninstall or not a.diagnostics): ap.error('the following arguments are required: --dest')
     if a.uninstall:
         sys.exit(run_uninstall(a))
+    if a.rollback:
+        try:
+            rollback(a.dest, log=lambda line: print(line, flush=True))
+        except Stop as e:
+            print('ROLLBACK STOPPED: %s' % e, file=sys.stderr); sys.exit(1)
+        sys.exit(0)
     if a.diagnostics:
         # Works with nothing installed: without --dest it looks at the folder this PC last installed to, else the default folder.
         dest = precheck.clean_path(a.dest) if a.dest else (precheck.remembered_install() or precheck.default_install_folder())
@@ -2538,7 +3169,8 @@ def main():
     inst = Installer(a.xiso, a.dest, textures, a.videos, a.jobs, a.keep_work, a.allow_cpu,
                      log=lambda line: print(line, flush=True), install_build_tools=a.install_build_tools, vs=a.vs,
                      update=a.update, shortcuts=shortcuts, merge_settings=not a.no_merge_settings,
-                     switch_textures=a.switch_textures, low_priority=a.low_priority)
+                     switch_textures=a.switch_textures, low_priority=a.low_priority,
+                     keep_build=not a.no_keep_build, clean_build=a.clean_build)
     inst.until = a.until
     try:
         inst.run()

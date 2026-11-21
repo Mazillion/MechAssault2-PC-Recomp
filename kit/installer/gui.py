@@ -101,6 +101,9 @@ DISC_HINTS = {'not_xbox': ('That isn\'t an Xbox disc image', 'Choose an .iso or 
               'relative': ('Choose the file itself', 'Use Browse to pick it'),
               'disc': ('The disc image couldn\'t be read', 'Choose it again, or make the disc image again')}
 BUILD_NOTE = 'High CPU use and fan noise for 10-60 minutes are normal.'          # 1.1.6 (I1): the build step looks busy, not stuck
+QUICK_NOTE = 'Only the parts that changed are compiled again.'                    # 1.1.7: the build step of a quick rebuild
+REBUILD_TITLE = 'Rebuild the game from scratch'                                    # 1.1.7: Install options, on Update and Repair
+REBUILD_SUB = 'Slower. Every part of the game is made again instead of only what changed.'
 OVERRUN = 'Taking longer than estimated, still working'
 MEMWAIT_TITLE = 'Waiting for memory'
 MEMWAIT_NOTE = 'Close other programs, such as web browsers and Discord. The build carries on by itself when memory frees up.'
@@ -115,7 +118,8 @@ HELP_TEXT = [
      'disc image (.iso or .xiso) or a folder. Tools that copy original Xbox discs are widely documented. This installer never links to '
      'download sites and carries no game files: the game\'s program, art, sound and levels all come from your disc.'),
     ('What does the installer do?', None),                  # TECH
-    ('How long does it take?', 'Usually 15 to 40 minutes, depending on the PC. HD textures and upscaled movies are made on your graphics '
+    ('How long does it take?', 'Usually 15 to 40 minutes, depending on the PC. Later updates usually take a few minutes, because only '
+     'the parts that changed are compiled again. HD textures and upscaled movies are made on your graphics '
      'card afterwards and take hours. You can keep using the PC, play while they finish later, or add them any time by running the '
      'installer again.'),
     ('Smart App Control', 'If Windows Smart App Control is on, it can block programs that were built on this PC, including this game. If '
@@ -213,6 +217,7 @@ class App:
         self.sc = {'desktop': True, 'start': True, 'editor': False}
         self.awake = True; self.lowprio = gentle_default(); self.merge = True; self.switch = True
         self.jobs = None; self.vs = None; self.keep_work = False; self.engine = 'auto'; self.upscaler = ''
+        self.clean_build = False; self.quick = None          # 1.1.7: Rebuild from scratch (Update / Repair); the engine's reuse decision
         self.mode = 'install'; self.screen = 'setup'; self.page = None; self.stop = None; self.confirm = None
         self.notice = None; self.menu = None; self.failed = None; self.extras_failed = None
         self.model = None; self.lines = []; self.step_title = ''; self.slow = ''; self.shown_frac = 0.0; self.shown_eta = None
@@ -373,7 +378,23 @@ class App:
 
     def minutes(self):
         m = self.facts.get('minutes') or 15
-        return 1 if self.action() == 'addons' else m
+        if self.action() == 'addons': return 1
+        if self.action() in ('update', 'repair') and not self.clean_build and self.reuse_hint() == 'fast': return progress.QUICK_MINUTES
+        return m
+
+    def reuse_hint(self):
+        """1.1.7: what an update of the chosen folder would do with its kept build ('fast' / 'rebuild' / None), worked out once per
+        folder in the background (install.reuse_preview). None until known and on any error: the full estimate stays."""
+        d = precheck.clean_path(self.dest)
+        if self.facts.get('reuse_for') != d:
+            self.facts['reuse_for'] = d; self.facts['reuse'] = None
+            def done(res):
+                if self.facts.get('reuse_for') != d: return
+                self.facts['reuse'] = None if isinstance(res, Exception) else res
+                if res == 'fast' and self.screen in ('setup', 'options'): self.render()
+            try: self.bg(lambda: install.reuse_preview(d), done)
+            except Exception as e: print('ui: kept build check not available (%s)' % e, flush=True)
+        return self.facts.get('reuse')
 
     def extras_time(self):
         o = self.opts()
@@ -982,6 +1003,9 @@ class App:
                 t = Toggle(f, k, self.sc[key], lambda v, key=key: self.sc.__setitem__(key, v), P['panel'], key='o_sc_' + key)
                 t.pack(side='left'); self.w[t.key] = t
             sec('Shortcuts', [('Where to find the game', 'muted')], f)
+        if self.action() in ('update', 'repair'):          # 1.1.7: off = the quick rebuild when nothing it depends on changed
+            sec(REBUILD_TITLE, [(REBUILD_SUB, 'muted')],
+                Toggle(cv, k, self.clean_build, lambda v: (setattr(self, 'clean_build', v), self.render()), P['panel'], key='o_clean'))
         self.put(self.link('trouble', 'Troubleshooting\u2026', lambda: self.go('trouble'), quiet=True, bg='panel'), 36, y + 4)
         self.footer([], [self.seg_total(), self.button('done', 'DONE', lambda: self.go('setup', focus='options'))])
 
@@ -1165,6 +1189,7 @@ class App:
         if self.jobs: extra['jobs'] = self.jobs
         if self.vs: extra['vs'] = self.vs
         if self.keep_work: extra['keep_work'] = True
+        if self.clean_build and p['update']: extra['clean_build'] = True
         if self.engine == 'cpu': extra['allow_cpu'] = True
         for var in ('MA2_TEXTURE_ENGINE', 'MA2_VIDEO_ENGINE'):
             if self.engine in ('pytorch', 'vulkan', 'cpu'): os.environ[var] = 'vulkan' if self.engine == 'vulkan' else 'pytorch'
@@ -1182,10 +1207,12 @@ class App:
                                           shortcuts=p['shortcuts'], keep_awake=p['keep_awake'], low_priority=p['low_priority'],
                                           merge_settings=p['merge_settings'], switch_textures=p['switch_textures'], **extra, **cb)
             self.inst.on_status = lambda text: q.put(('status', text))
+            self.inst.on_reuse = lambda mode: q.put(('reuse', mode))      # 1.1.7: the quick rebuild's shorter estimates
             self.inst.until = os.environ.get('MA2_INSTALLER_UNTIL')
         self.inst.on_plan = lambda names: q.put(('plan', names))
         self.inst.on_wait = lambda info: q.put(('wait', info))      # 1.1.5: the build waits for free memory (a calm state, not a stop)
         self.last_params = p
+        self.quick = None
         self.started = time.monotonic()
         self.worker = threading.Thread(target=self.work, daemon=True); self.worker.start()
         self.go('progress')
@@ -1203,6 +1230,7 @@ class App:
     def event(self, kind, value):
         if kind == 'plan':
             self.model = progress.ProgressModel(list(value))
+            if self.quick == 'fast': self.model.set_quick(True)
             if self.screen == 'progress': self.render()
             return
         if kind == 'log':
@@ -1214,6 +1242,13 @@ class App:
             if not self.model: self.model = progress.ProgressModel([name])
             self.model.step(name, skipped); self.step_title = self.phase_title(name); self.slow = ''
             if self.screen == 'progress': self.update_progress(full=True)
+            return
+        if kind == 'reuse':
+            self.quick = value
+            if self.model:
+                try: self.model.set_quick(value == 'fast')
+                except Exception: pass
+            if self.screen == 'progress': self.update_progress()
             return
         if kind == 'status':
             self.slow = value
@@ -1255,7 +1290,7 @@ class App:
         if not m: return 0.0
         tot = got = 0.0
         for s in m.steps:
-            w = progress.STEP_SECONDS.get(s) or EXTRA_SECONDS.get(s) or 1
+            w = getattr(m, 'seconds', progress.STEP_SECONDS).get(s) or EXTRA_SECONDS.get(s) or 1
             st = m.status.get(s)
             if st in ('done', 'kept'): f = 1.0
             elif st == 'active':
@@ -1339,7 +1374,7 @@ class App:
         if self.memwait: title = MEMWAIT_TITLE + '\u2026'
         cv.itemconfigure(self.prog['title'], text=title)
         slow = self.slow[:1].upper() + self.slow[1:] if self.slow else ''          # the engine's own phrase ("taking longer: low memory, ...")
-        busy = BUILD_NOTE if (m and getattr(m, 'current', None) == 'build') else 'You can keep using your PC.'
+        busy = (QUICK_NOTE if self.quick == 'fast' else BUILD_NOTE) if (m and getattr(m, 'current', None) == 'build') else 'You can keep using your PC.'
         cv.itemconfigure(self.prog['note'], text=MEMWAIT_NOTE if self.memwait else (slow or busy))
         self.overrun = False
         e = self.eta() if m and not self.memwait else None

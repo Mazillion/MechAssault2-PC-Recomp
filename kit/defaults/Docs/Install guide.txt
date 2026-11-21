@@ -84,7 +84,18 @@ UPDATE AND REPAIR
 -----------------
 Run a newer installer and choose your install folder: Update rebuilds the game
 without the disc and keeps your settings and saves. Repair rebuilds the same
-version.
+version and replaces game files that were changed or are missing.
+
+After an install, the build is kept in the _work folder inside the install
+folder (a few GB; it is not kept when less than 10 GB would stay free on that
+drive). A later update or repair then compiles only the parts that changed,
+which usually takes a few minutes. To make everything again, turn on "Rebuild
+the game from scratch" in Install options.
+
+The files an update replaces are kept in the _previous folder until the new
+version has run for a minute or was closed normally; the next installer run
+then deletes them. Until then, --rollback (see COMMAND LINE) goes back to the
+earlier version.
 
 
 ENHANCED CONTENT (OPTIONAL)
@@ -112,6 +123,9 @@ COMMAND LINE
 ------------
 The installer's engine can also run without the window, for example:
   --uninstall [--yes] [--delete-user-data]
+  --rollback          back to the version the last update replaced
+  --update --clean-build   update or repair, everything made again
+  --no-keep-build     do not keep the build for the next update
   --diagnostics [--include-dump] [--include-botrec]   (the zip goes on your
                                                      Desktop)
 
