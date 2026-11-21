@@ -1248,9 +1248,17 @@ def run_suites(g, pattern):
     rows, bad, warn = [], [], []
     for t in tests:
         log = g.logs / ('suite-%s.txt' % t.stem)
-        code, secs = run_logged([sys.executable, '-B', str(t)], log, cwd=g.clone, env=suite_env(g, t.stem),
-                                timeout=g.cfg['suite_timeout_minutes'] * 60)
-        summ, fails = parse_suite(log.read_text(encoding='utf-8', errors='replace'))
+        for attempt in range(2):
+            wait_mutex(g.cfg['wait_for_installer_minutes'] * 60)      # the stub tests start the real stub (one per session)
+            code, secs = run_logged([sys.executable, '-B', str(t)], log, cwd=g.clone, env=suite_env(g, t.stem),
+                                    timeout=g.cfg['suite_timeout_minutes'] * 60)
+            text = log.read_text(encoding='utf-8', errors='replace')
+            if not (code and 'Installer is already running' in text):
+                break
+            shutil.copy2(log, log.with_name(log.stem + '-busy.txt'))   # another installer started meanwhile: once more
+        summ, fails = parse_suite(text)
+        if attempt:
+            summ += ' (run again: another installer was running)'
         known = g.cfg['known_failures'].get(t.stem, [])
         line = '%s: exit %d, %s (%d s)' % (t.stem, code, summ, secs)
         if code:
