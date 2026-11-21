@@ -71,6 +71,7 @@ What you need:
 
 - A dump of your own US (NTSC) MechAssault 2 disc, as an ISO/XISO or an extracted folder. Regular PC DVD drives can't read Xbox discs, so you have to dump it yourself.
 - Windows 10 or 11, 64-bit, and a GPU that does Direct3D 11
+- At least 8 GB of memory. With less than 16 GB the build takes longer, but the installer adjusts for it.
 - About 5 GB of free space. If you don't have Visual Studio or the C++ Build Tools, the installer can install them for you, which needs another 8 GB or so.
 - An internet connection during the install. It downloads FFmpeg, which the cutscenes need.
 
@@ -80,7 +81,7 @@ Steps:
 
 1. Download `MechAssault 2 Recomp Installer.exe` from [Releases](https://github.com/Mazillion/MechAssault2-PC-Recomp/releases/latest).
 2. Run it and point it at your disc dump.
-3. Wait while it builds the game. This takes around 15 minutes on a decent 8-core CPU.
+3. Wait while it builds the game. This takes around 15 minutes on a decent 8-core CPU, and an hour or more with 4 cores or 8 GB of memory.
 4. Launch MechAssault 2 from the shortcut.
 
 The installer isn't signed, so Windows SmartScreen will warn you about it. Click "More info", then "Run anyway". If you have Smart App Control turned on, it will block the installer completely. The [install guide](kit/defaults/Docs/Install%20guide.txt) covers that, and installing without internet.
@@ -95,7 +96,7 @@ You can run the installer again later to update, repair or uninstall.
 - Every mission and cutscene loads and runs, but I haven't played all of them through to the end on this build.
 - No online multiplayer, and split screen is turned off.
 
-The full list is in [Known issues.txt](kit/defaults/Docs/Known%20issues.txt). If the game crashes or something goes wrong, use Report a problem (in the window that opens after a crash, the pause menu, the Start menu or the installer's Help menu) and press Send report: it sends the logs and settings, with your user name and PC name removed, and shows a report number. Nothing is sent until you press it, and sent reports are kept for 60 days. You can quote the number in an [issue](https://github.com/Mazillion/MechAssault2-PC-Recomp/issues). Don't attach game files.
+The full list is in [Known issues.txt](kit/defaults/Docs/Known%20issues.txt). If the game crashes or something goes wrong, use Report a problem (in the window that opens after a crash, the pause menu, the Start menu or the installer's Help menu) and press Send report: it sends the logs, settings and PC details (plus a crash dump after a crash, or the last few minutes of a bot match), with your user name and PC name removed, and shows a report number. Nothing is sent until you press it, and sent reports are kept for 60 days. You can quote the number in an [issue](https://github.com/Mazillion/MechAssault2-PC-Recomp/issues). Don't attach game files.
 
 ## Building and modding
 
