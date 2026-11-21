@@ -8,7 +8,7 @@ import json, os, shutil, sys, tempfile, time
 from pathlib import Path
 import rig
 from rig import WORK, pump, until, snap
-import precheck, install, ui_theme, ui_win, ui_kit
+import precheck, install, ui_theme, ui_win, ui_kit, progress
 import tkinter as tk
 
 gui = rig.gui
@@ -332,6 +332,59 @@ def scenario_elsewhere():
     app.primary.invoke(); check('elsewhere: the fresh install finishes', run_to(root, app, 'done', 90))
     check('elsewhere: the existing install is untouched (same files, same bytes)', snapshot() == before)
     root.destroy()
+
+def scenario_quick():
+    """1.1.7: Update / Repair with a kept build the installer can use: a short estimate, "Rebuild the game from scratch" in Install
+    options (off; on = clean_build for the engine and the full estimate), the quick build's note and progress numbers."""
+    d = fresh_env(); dest = d / 'Games' / 'MechAssault 2'
+    dummy_install(dest, {'kit_id': install.KIT_ID, 'version': install.VERSION, 'public_version': install.PUBLIC_VERSION}); remember(dest)
+    real_prev = install.reuse_preview; install.reuse_preview = lambda d: 'fast'
+    qm = '%d min' % progress.QUICK_MINUTES
+    import re
+    has_qm = lambda t: re.search(r'(?<!\d)%s' % qm, t) is not None        # ('3 min', not the 3 of '23 min')
+    try:
+        root, app = rig.make(); until(root, lambda: app.folder is not None, 10); pump(root, 0.3)
+        until(root, lambda: app.facts.get('reuse') == 'fast', 10); app.render(); pump(root, 0.2)
+        check('quick: Repair with a usable kept build estimates %s' % qm, app.action() == 'repair' and has_qm(screen_text(app)), screen_text(app))
+        check('quick: the Repair screen fits', not layout_problems(app), layout_problems(app))
+        app.go('options'); pump(root, 0.2)
+        check('quick: Install options has "Rebuild the game from scratch", off', 'o_clean' in app.w and app.w['o_clean'].value is False
+              and gui.REBUILD_TITLE in screen_text(app) and gui.REBUILD_SUB in screen_text(app), screen_text(app))
+        check('quick: Install options fits', not layout_problems(app), layout_problems(app))
+        app.w['o_clean'].invoke(); pump(root, 0.2)
+        check('quick: turned on, the full estimate is back', app.clean_build is True and not has_qm(screen_text(app)), screen_text(app))
+        app.w['o_clean'].invoke(); pump(root, 0.2)
+        check('quick: turned off again, the short estimate', app.clean_build is False and has_qm(screen_text(app)), screen_text(app))
+        root.destroy()
+        # the engine call: clean_build only when the toggle is on
+        os.environ.pop('MA2_INSTALLER_FAKE')
+        real = install.Installer; install.Installer = Recorder; Recorder.calls = []
+        try:
+            for on in (False, True):
+                root, app = rig.make(); until(root, lambda: app.folder is not None, 10); pump(root, 0.3)
+                app.facts['compiler'] = {'state': 'ready'}; app.clean_build = on
+                app.primary.invoke(); until(root, lambda: Recorder.calls and app.screen == 'done', 20)
+                kw = Recorder.calls[-1][1]
+                check('quick: Repair passes clean_build=%s' % on, kw.get('update') is True and kw.get('clean_build', False) is on
+                      and (on or 'clean_build' not in kw), kw)
+                root.destroy()
+        finally:
+            install.Installer = real
+        # the progress screen during a quick rebuild
+        os.environ['MA2_INSTALLER_FAKE'] = str(REC)
+        root, app = rig.make(); until(root, lambda: app.folder is not None, 10); pump(root, 0.3)
+        app.model = progress.ProgressModel(['check', 'verify', 'analyze', 'recompile', 'generate', 'patch', 'build', 'assets', 'install', 'finish'])
+        app.go('progress'); pump(root, 0.1)
+        app.event('reuse', 'fast'); app.event('step', (7, 10, 'Compiling the game', 'build', False)); app.update_progress(full=True); pump(root, 0.1)
+        t = screen_text(app)
+        check('quick: the build step says only the changed parts are compiled (not "10-60 minutes")', gui.QUICK_NOTE in t and gui.BUILD_NOTE not in t, t)
+        check('quick: the quick build counts %d s in the progress numbers' % progress.QUICK_BUILD_SECONDS, app.model.seconds['build'] == progress.QUICK_BUILD_SECONDS)
+        app.event('reuse', 'rebuild'); app.update_progress(full=True); pump(root, 0.1)
+        check('quick: after a fallback the full build note and numbers are back', gui.BUILD_NOTE in screen_text(app) and app.model.seconds['build'] == 540)
+        check('quick: the progress screen fits', not layout_problems(app), layout_problems(app))
+        root.destroy()
+    finally:
+        install.reuse_preview = real_prev
 
 def scenario_maintain():
     d = fresh_env(); dest = d / 'Games' / 'MechAssault 2'
@@ -1028,7 +1081,7 @@ if __name__ == '__main__':
         i = args.index('--shots'); OWNER_SHOTS = Path(args[i + 1]); OWNER_SHOTS.mkdir(parents=True, exist_ok=True); del args[i:i + 2]
     names = args or ['happy', 'engine', 'fail', 'cancel', 'update', 'elsewhere', 'maintain', 'resume', 'extras', 'stops', 'tools', 'blocked', 'menu', 'keyboard',
                      'drop', 'faults', 'startup', 'layout', 'dpi', 'hooks', 'memwait', 'eta', 'found', 'plain', 'fonts', 'errors',
-                     'overrun', 'report']
+                     'overrun', 'report', 'quick']
     for n in names:
         print('== %s' % n, flush=True)
         try:

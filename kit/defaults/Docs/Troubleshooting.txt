@@ -75,9 +75,17 @@ A download failed
   the FFmpeg zip named in the message on another PC and put it next to the
   installer.
 
+The game does not start after an update
+  The files the update replaced are kept until the new version has run for a
+  minute. To go back to the earlier version, run the installer from a command
+  prompt with --dest "<your install folder>" --rollback (see COMMAND LINE in
+  Docs\Install guide.txt), then use Report a problem so it can be fixed.
+
 A folder named MA2RecompBuild-xxxx is left on a drive
-  It is the installer's work folder. The next installer run removes it if the
-  install it belonged to is gone; you can also delete it yourself.
+  It is the installer's build folder, used when the install folder's path has
+  characters the compiler cannot take. It is kept for quicker updates while
+  the install exists; Uninstall removes it, and the next installer run removes
+  it if the install it belonged to is gone. You can also delete it yourself.
 
 
 THE GAME

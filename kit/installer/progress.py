@@ -7,6 +7,8 @@ import re, time
 
 STEP_SECONDS = {'check': 2, 'disc': 3, 'extract': 20, 'verify': 3, 'analyze': 85, 'recompile': 225, 'generate': 80, 'patch': 20,
                 'build': 540, 'assets': 5, 'install': 4, 'finish': 3}
+QUICK_BUILD_SECONDS = 90         # 1.1.7: a quick rebuild (a few changed files and the link), measured in the release gate
+QUICK_MINUTES = 3                 # 1.1.7: a whole update that reuses the kept build (checks, quick rebuild, menus, install)
 # (id, title shown, engine steps)
 CORE_STAGES = [('read', 'Reading your disc', ('check', 'disc', 'extract')),
                ('analyze', 'Analysing the Xbox program', ('analyze',)),
@@ -31,6 +33,7 @@ class ProgressModel:
     def __init__(self, steps, clock=time.monotonic):
         """steps: engine step names in order (as Installer.steps() lists them)."""
         self.clock = clock
+        self.seconds = dict(STEP_SECONDS)      # 1.1.7: set_quick() shortens the build step for a quick rebuild
         self.steps = list(steps)
         self.status = {s: 'pending' for s in self.steps}
         self.sub = {}                  # step -> measured fraction inside it (0..1)
@@ -38,11 +41,16 @@ class ProgressModel:
         self.t0 = clock()
         self.start_at, self.dur = {}, {}      # step -> start time, measured seconds
         self.current = None
-        self.core = [s for s in self.steps if s in STEP_SECONDS]
+        self.core = [s for s in self.steps if s in self.seconds]
         self.stages = [(i, t, [s for s in ss if s in self.steps]) for i, t, ss in CORE_STAGES]
         self.stages = [x for x in self.stages if x[2]]
         self.stages += [(s, ENHANCED[s], [s]) for s in self.steps if s in ENHANCED]
         self.ninja = None
+
+    def set_quick(self, quick):
+        """1.1.7: the installer reuses its kept build (only changed files are compiled): the translation steps are kept and the
+        build is short. False: back to the full build's numbers (the quick rebuild did not work)."""
+        self.seconds['build'] = QUICK_BUILD_SECONDS if quick else STEP_SECONDS['build']
 
     # -- events from the engine
     def step(self, name, skipped=False):
@@ -91,14 +99,14 @@ class ProgressModel:
         if st in ('done', 'kept'): return 1.0
         if st != 'active': return 0.0
         if s in self.sub: return self.sub[s]
-        exp = STEP_SECONDS.get(s)
+        exp = self.seconds.get(s)
         if not exp: return 0.0
         return min(0.95, (self.clock() - self.start_at[s]) / float(exp))
 
     def stage_fraction(self, sid):
         for i, t, ss in self.stages:
             if i == sid:
-                w = [STEP_SECONDS.get(s, 1) for s in ss]
+                w = [self.seconds.get(s, 1) for s in ss]
                 return sum(wi * self._in_step(s) for wi, s in zip(w, ss)) / float(sum(w))
         return 0.0
 
@@ -122,8 +130,8 @@ class ProgressModel:
         return ''
 
     def core_fraction(self):
-        total = sum(STEP_SECONDS[s] for s in self.core) or 1
-        return sum(STEP_SECONDS[s] * self._in_step(s) for s in self.core) / float(total)
+        total = sum(self.seconds[s] for s in self.core) or 1
+        return sum(self.seconds[s] * self._in_step(s) for s in self.core) / float(total)
 
     def fraction(self):
         """The bar: the core install's weighted progress; during an enhancer stage, that stage's own progress."""
@@ -133,9 +141,9 @@ class ProgressModel:
 
     def pace(self):
         """Actual / expected seconds over the finished steps (None until a heavy step has finished)."""
-        done = [s for s in self.core if s in self.dur and STEP_SECONDS[s] >= 20]
+        done = [s for s in self.core if s in self.dur and self.seconds[s] >= 20]
         if not done: return None
-        exp = sum(STEP_SECONDS[s] for s in done)
+        exp = sum(self.seconds[s] for s in done)
         return min(4.0, max(0.3, sum(self.dur[s] for s in done) / float(exp)))
 
     def eta(self):
@@ -147,10 +155,10 @@ class ProgressModel:
         if cur == 'build' and self.status.get('build') == 'active':
             f = self.sub.get('build', 0); el = self.clock() - self.start_at['build']
             if f > 0.05 and el > 20:
-                rest = sum(STEP_SECONDS[s] * (1 - self._in_step(s)) for s in self.core if s != 'build')
+                rest = sum(self.seconds[s] * (1 - self._in_step(s)) for s in self.core if s != 'build')
                 return el * (1 - f) / f + rest * (p or 1.0)
         if p is None: return None
-        rest = sum(STEP_SECONDS[s] * (1 - self._in_step(s)) for s in self.core)
+        rest = sum(self.seconds[s] * (1 - self._in_step(s)) for s in self.core)
         return rest * p
 
     def elapsed(self):
