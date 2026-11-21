@@ -1737,6 +1737,7 @@ class Installer:
                 if c and c.get('plain_build'): self.state['plain_build'] = True; self.fp = self.fingerprint()
                 mode, why = self.reuse_mode(self.fp)
             if mode:
+                write_cache(self.work, {'complete': False})        # first: a run that stops from here on is never reused
                 self.state.update(reuse=mode, reuse_root=c.get('root'), reuse_preseed=(c.get('lowmem') or {}).get('units') or {})
                 self.state['done'] = list(self.state.get('done', [])) + [s for s in REUSED_STEPS if s not in self.state.get('done', [])]
                 if mode == 'rebuild': self.state.pop('reuse_preseed', None)
@@ -1748,13 +1749,17 @@ class Installer:
         if self.state.get('update') or (self.work / CACHE_FILE).exists():
             self.log('  kept build: %s (%s)' % ({'fast': 'used, only changed files are compiled', 'rebuild':
                      'the translated program is used, the game is compiled from the start'}.get(mode, 'not used, everything is made again'), why))
-        if not mode and ((self.work / CACHE_FILE).exists() or (self.work / 'toolkit').exists()):
-            try: self.drop_kept_build(c)
-            except Exception as e: self.log('  (the kept build was not removed: %s)' % e)
-        try:
-            if (self.work / CACHE_FILE).exists() or mode: write_cache(self.work, {'complete': False})
-        except OSError as e:
-            self.log('  (cache.json not written: %s)' % e)
+        if not mode:
+            for f in (CACHE_FILE, CACHE_FILE + '.tmp'):
+                try: (self.work / f).unlink()
+                except FileNotFoundError: pass
+                except OSError as e:
+                    self.log('  (could not remove %s: %s)' % (f, e))
+                    try: write_cache(self.work, {'complete': False})
+                    except Exception: pass
+            if (self.work / 'toolkit').exists() or (self.work / 'build').exists() or (c or {}).get('root'):
+                try: self.drop_kept_build(c)
+                except Exception as e: self.log('  (the kept build was not removed: %s)' % e)
         self.event('reuse', '%s: %s' % (mode or 'none', why))
         self.save()
         try: self.on_reuse(mode)
@@ -2048,7 +2053,11 @@ class Installer:
             self.log('  C++ compiler: %s' % self.vs)
             self.state['toolchain'] = str(self.vs); self.save()                 # named in Collect diagnostics
             self.remember_install(toolchain=str(self.vs))
-            self.plan_reuse()                       # 1.1.7: can the kept build of the last install be used?
+            try: self.plan_reuse()                  # 1.1.7: can the kept build of the last install be used?
+            except Exception as e:                  # (never worse than 1.1.6: the translation and a clean build)
+                self.log('  (the kept build is not used: %s)' % e)
+                self.state['reuse'] = None
+                self.state['done'] = [s for s in self.state.get('done', []) if s not in REUSED_STEPS] if not getattr(self, 'resumed', False)                     else self.state.get('done', [])
             self.check_manifest()                   # 1.1.7: Update / Repair: which installed files changed or are missing
             if 'install' not in self.state.get('done', []):
                 self.ffmpeg_dir()                  # FFmpeg now: a download problem shows in the first minute, not after the translation

@@ -232,14 +232,21 @@ class Plan(Base):
         self.assertIsNone(inst2.plan_reuse()); self.assertTrue((inst2.work / install.GEN_REL).is_dir())    # (nothing deleted on a Resume)
 
     def test_fault_fingerprint_or_decision_throwing_is_the_1_1_6_path(self):
-        for what in ('fingerprint', 'reuse_mode', 'read_cache'):
+        for what in ('fingerprint', 'reuse_mode', 'read_cache', 'write_cache', 'tree_hash'):
             with self.subTest(what):
                 inst = self.installer(what); self.complete_cache(inst)
-                target = (install, what) if what == 'read_cache' else (install.Installer, what)
+                target = (install, what) if what in ('read_cache', 'write_cache', 'tree_hash') else (install.Installer, what)
                 with mock.patch.object(*target, boom):
                     self.assertIsNone(inst.plan_reuse())
                 for s in install.REUSED_STEPS: self.assertNotIn(s, inst.state['done'])
                 self.assertIsNone(inst.state['reuse'])
+
+    def test_fault_plan_reuse_itself_throwing_in_check(self):
+        inst = self.installer(); self.complete_cache(inst)
+        with mock.patch.object(install.Installer, 'plan_reuse', boom), mock.patch.object(install.precheck, 'smart_app_control', lambda: 'off'):
+            inst.state['done'] = []; inst.game_ok = True; inst.check()
+        self.assertIsNone(inst.state['reuse']); self.assertFalse(set(install.REUSED_STEPS) & set(inst.state['done']))
+        self.assertTrue(any('(the kept build is not used: injected fault)' in l for l in self.lines), self.lines)
 
     def test_fault_the_window_hook(self):
         inst = self.installer(); inst.on_reuse = boom
