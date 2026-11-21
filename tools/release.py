@@ -1022,7 +1022,7 @@ def wait_mutex(limit):
         k32.CloseHandle(ctypes.c_void_p(h))
         if time.time() - t0 > limit:
             return None
-        time.sleep(30)
+        time.sleep(3)          # short: another tool that runs installers back to back leaves only a few seconds free
 
 
 def real_profile_installer_logs():
