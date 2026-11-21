@@ -12,11 +12,13 @@ set PUBDATE=
 for /f "usebackq tokens=* delims=" %%a in ("%~dp0..\VERSION") do call :take "%%a"
 if not defined PUBVER (echo VERSION is missing or empty & exit /b 1)
 if not defined PUBDATE (echo VERSION needs the release date on line 2 & exit /b 1)
-for /f "tokens=1-3 delims=." %%x in ("%PUBVER%") do (set V1=%%x& set V2=%%y& set V3=%%z)
+rem A preview build (1.2.3-preview.4) keeps the numbers of 1.2.3 in the version resource.
+for /f "tokens=1 delims=-" %%s in ("%PUBVER%") do set PUBNUM=%%s
+for /f "tokens=1-3 delims=." %%x in ("%PUBNUM%") do (set V1=%%x& set V2=%%y& set V3=%%z)
 if not defined V3 set V3=0
 > version.h echo #define MA2_VER_COMMA %V1%,%V2%,%V3%,0
 >> version.h echo #define MA2_VER_STR "%PUBVER%"
->> version.h echo #define MA2_VER_FILE "%PUBVER%.0"
+>> version.h echo #define MA2_VER_FILE "%PUBNUM%.0"
 >> version.h echo #define MA2_VER_DATE "%PUBDATE%"
 rc /nologo /fo stub.res stub.rc || exit /b 1
 cl /nologo /std:c++17 /O2 /EHsc /MT /W3 /Brepro /DUNICODE /D_UNICODE stub.cpp stub.res /Fe:stub.exe /link /SUBSYSTEM:WINDOWS /Brepro /PDBALTPATH:%%_PDB%% user32.lib || exit /b 1

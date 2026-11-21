@@ -1,0 +1,30 @@
+{
+ "about": "Fault injection for `tools/release.py gate` (step fault): every target is replaced by a function that raises, inside a real CLI install and a real --diagnostics run of the built installer. Each mechanism must fall back to the previous release's behaviour and the install must still finish. `module` is __main__ (install.py), precheck or download; `target` an attribute path in it; `exc` OSError or RuntimeError; `when` the run that must reach it: install, diagnostics, both, or never (reached only after a failure; listed to prove the hook does not break the run). Add every new fail-safe method here.",
+ "faults": [
+  {"id": "A6 JobObject.popen", "module": "__main__", "target": "JobObject.popen", "exc": "OSError", "when": "install"},
+  {"id": "A7 _lock_holders", "module": "__main__", "target": "_lock_holders", "exc": "OSError", "when": "never"},
+  {"id": "B1 space_plan", "module": "__main__", "target": "space_plan", "exc": "RuntimeError", "when": "install"},
+  {"id": "A9 reboot_pending", "module": "__main__", "target": "reboot_pending", "exc": "RuntimeError", "when": "never"},
+  {"id": "A4 download._fetch", "module": "download", "target": "_fetch", "exc": "RuntimeError", "when": "never"},
+  {"id": "A4 download.cached", "module": "download", "target": "cached", "exc": "OSError", "when": "never"},
+  {"id": "B3 dxgi_adapters", "module": "precheck", "target": "dxgi_adapters", "exc": "OSError", "when": "install"},
+  {"id": "B5 native_arch", "module": "precheck", "target": "native_arch", "exc": "RuntimeError", "when": "install"},
+  {"id": "B5 insider_build", "module": "precheck", "target": "insider_build", "exc": "RuntimeError", "when": "never"},
+  {"id": "D1 session_id", "module": "precheck", "target": "session_id", "exc": "RuntimeError", "when": "install"},
+  {"id": "B2/D2 security_facts", "module": "precheck", "target": "security_facts", "exc": "RuntimeError", "when": "never"},
+  {"id": "D2 diagnostics_facts", "module": "precheck", "target": "diagnostics_facts", "exc": "RuntimeError", "when": "diagnostics"},
+  {"id": "115 lowmem_keep", "module": "__main__", "target": "Installer.lowmem_keep", "exc": "RuntimeError", "when": "install"},
+  {"id": "115 lowmem_include", "module": "__main__", "target": "Installer.lowmem_include", "exc": "RuntimeError", "when": "install"},
+  {"id": "115 lowmem_summary", "module": "__main__", "target": "Installer.lowmem_summary", "exc": "RuntimeError", "when": "install"},
+  {"id": "115 lowmem_record", "module": "__main__", "target": "Installer.lowmem_record", "exc": "RuntimeError", "when": "install"},
+  {"id": "115 lowmem_next", "module": "__main__", "target": "Installer.lowmem_next", "exc": "RuntimeError", "when": "never"},
+  {"id": "115 lowmem_wait", "module": "__main__", "target": "Installer.lowmem_wait", "exc": "RuntimeError", "when": "never"},
+  {"id": "115 lowmem_unbuilt", "module": "__main__", "target": "lowmem_unbuilt", "exc": "OSError", "when": "never"},
+  {"id": "115 write_lowmem_cmake", "module": "__main__", "target": "write_lowmem_cmake", "exc": "OSError", "when": "never"},
+  {"id": "116 Heartbeat", "module": "__main__", "target": "Heartbeat.__init__", "exc": "RuntimeError", "when": "install"},
+  {"id": "116 installed_memory", "module": "precheck", "target": "installed_memory", "exc": "RuntimeError", "when": "install"},
+  {"id": "116 on_battery", "module": "precheck", "target": "on_battery", "exc": "RuntimeError", "when": "never"},
+  {"id": "116 scrub_bytes", "module": "precheck", "target": "scrub_bytes", "exc": "RuntimeError", "when": "never"},
+  {"id": "116 report_summary", "module": "precheck", "target": "report_summary", "exc": "RuntimeError", "when": "never"}
+ ]
+}
