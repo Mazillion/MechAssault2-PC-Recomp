@@ -170,15 +170,17 @@ Measured on the 1.1.6 code while other builds ran on the same PC, so treat them 
 
 | Part | Time |
 |:--|:--|
-| `gate task` in all | about 18 minutes |
-| of which build (editor, stub, helper, pack, privacy check) | 4.7 minutes |
-| of which the installer suites | 1.4 minutes |
-| of which the three window flows | 11 minutes |
+| `gate task` in all | 18 to 30 minutes |
+| of which build (editor, stub, helper, pack, privacy check) | 5 to 11 minutes |
+| of which the installer suites | 1.5 to 2 minutes |
+| of which the three window flows | 11 to 14 minutes |
 | clone, scans, relay tests, kit diff, sheet | under 2 minutes together |
-| each real install in `gate rc` (fresh, update, fault run) | 13 to 15 minutes each, one at a time |
+| each real install in `gate rc` (two fresh, one update, one fault run) | 17 to 32 minutes each, one at a time |
+| `--diagnostics` | under a minute |
 
-`gate rc` therefore takes about two hours (four or five real installs on top of `gate task`). A light RC reset costs one
-`gate rc`; a full reset costs that plus the new tests.
+`gate rc` therefore takes about two and a half hours on a quiet PC (four real installs on top of `gate task`), more when
+another installer runs on the PC (the gate waits for it). A light RC reset costs one `gate rc`; a full reset costs that
+plus the new tests.
 
 ### What the gate does not do
 
