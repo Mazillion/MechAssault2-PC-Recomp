@@ -1141,8 +1141,20 @@ def st_grepbin(g):
     files, _ = packed(exe)
     # The bundled python.org runtime (python/) is unmodified third-party code with time-zone tables, example paths and
     # credits; privacy_scan --binaries checks it with its own rules (names next to a path only). Everything else counts.
-    runtime = [k for k in files if k.startswith('python/')]
-    blobs += [('packed ' + k, v) for k, v in files.items() if not k.startswith('python/')]
+    # Third-party packages whose every file matches the hash in tools/deps.lock.json (credits name their authors) are
+    # unmodified upstream files, also left to privacy_bin.
+    locked = {}
+    try:
+        lock = json.loads((g.clone / 'tools' / 'deps.lock.json').read_text(encoding='utf-8'))
+        for pkg in lock.values():
+            if isinstance(pkg, dict) and pkg.get('dest', '').startswith('kit/') and isinstance(pkg.get('files'), dict):
+                for rel, h in pkg['files'].items():
+                    locked['%s/%s' % (pkg['dest'][4:], rel)] = h
+    except (OSError, ValueError):
+        pass
+    upstream = lambda k, v: k.startswith('python/') or (k in locked and hashlib.sha256(v).hexdigest() == locked[k])
+    runtime = [k for k, v in files.items() if upstream(k, v)]
+    blobs += [('packed ' + k, v) for k, v in files.items() if not upstream(k, v)]
     for name, data in blobs:
         n += 1
         low = data.lower()
@@ -1154,7 +1166,8 @@ def st_grepbin(g):
                 hits.append('%s: %d x word #%d' % (name, c, words.index(w)))
     (g.logs / 'grepbin.txt').write_text('\n'.join(hits) + '\n', encoding='utf-8')
     return {'status': 'FAIL' if hits else 'PASS', 'summary': '%d words (config + profile path + user/PC name) in %d binaries and packed '
-            'files: %d hit(s) (%d python.org runtime files left to privacy_bin)' % (len(words), n, len(hits), len(runtime)),
+            'files: %d hit(s) (%d unmodified upstream files, python.org runtime and lock-verified packages, left to '
+            'privacy_bin)' % (len(words), n, len(hits), len(runtime)),
             'details': hits[:40] or None}
 
 

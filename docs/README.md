@@ -7,6 +7,7 @@ copy of the retail disc to build or run anything.
 |---|---|
 | [architecture.md](architecture.md) | How it works: XBE to generated C, runtime (kernel, NV2A to D3D11, APU/DSP audio, input), PC layer, hooks and patch set, FastCode, what the installer does on the user's PC. |
 | [building.md](building.md) | Build the release installer from this repository, and build / iterate on the game from your own disc. |
+| [releasing.md](releasing.md) | How a release is made: branches, the two-step freeze (preview and decision sheet, then one release candidate), and the one-command gate (`tools/release.py`). |
 | [patches.md](patches.md) | The patch set applied to generated code, and how it is stored and re-applied. |
 | [bots.md](bots.md) | The offline bot system: brain, controller, navigation and NavCache, VTOL and BattleArmor, skills, recorder and environment switches. |
 | [editor.md](editor.md) | The scenario editor and custom scenarios: file formats, how the game loads them, automation pipe. |
