@@ -58,7 +58,7 @@ Bot match recordings: off by default. Turn them on with BotRecorder=1 under
 record of every player's position and input to the Logs folder (about 6 MB a
 minute; the newest 4 are kept, at most 150 MB each). It is only used to find
 and fix bot problems. Report a problem from the game or the Start menu adds
-the newest one (cut to its last part if it is large), with your user name,
+the newest one (of a long match, the last 2-3 minutes), with your user name,
 PC name and folder names removed.
 
 
@@ -107,7 +107,9 @@ developer and shows a report number. When sending is not available the
 button says Save report; a report that is not sent is saved in
 %LOCALAPPDATA%\MechAssault2\Diagnostics. Attach that zip at
 {{MA2_SUPPORT_URL}} and say which version you have: the first line of this
-file.
+file. A report is most useful right after the problem: it holds the logs of
+your last 3 game sessions and only the last 2-3 minutes of a bot match
+recording.
 
 Crash and hang dumps hold the call stack and part of the game's memory at
 that moment. The ones in the Logs folder can include folder paths and your

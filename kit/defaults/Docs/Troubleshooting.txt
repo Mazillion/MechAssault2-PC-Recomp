@@ -15,6 +15,8 @@ developer and shows a report number. When sending is not available the
 button says Save report; a report that is not sent is saved in
 %LOCALAPPDATA%\MechAssault2\Diagnostics. Attach that zip at
 {{MA2_SUPPORT_URL}}.
+A report is most useful right after the problem: it holds the logs of your
+last 3 game sessions and only the last 2-3 minutes of a bot match recording.
 
 
 INSTALLER

@@ -614,7 +614,10 @@ static std::wstring report_row_text(int row){
         if(report_state==1)return L"   Sending...";
         return marker(row)+(report_can_send==0?L"Save report":L"Send report");
     case REPORT_BACK:return marker(row)+L"Back";
-    case 9:return report_state==1?L"Collecting the logs and sending them. You can keep playing.":L"";
+    // 1.1.6 (owner): a report is most useful right after the problem (the logs cover the last 3 sessions, a bot match
+    // recording only its last minutes: MA2 Report.exe keeps the newest blocks that fit under the 20 MB report limit).
+    case 9:return report_state==1?L"Collecting the logs and sending them. You can keep playing.":
+                  report_state==0?L"Best sent right after the problem: it covers recent play only.":L"";
     }
     return L"";
 }

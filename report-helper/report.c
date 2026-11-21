@@ -7,7 +7,7 @@
    What it does: collects the same files as the installer's report (kit/installer/precheck.py
    collect_diagnostics with the report settings, kit/installer/report.py make_and_send): system.txt,
    recomp-install.json, pc_settings.ini, the newest three game logs, the newest installer logs, the
-   newest crash or freeze dump (15 MB at most) and the newest bot recording (8 MB at most). Every
+   newest crash or freeze dump (15 MB at most) and the newest bot recording (its first block and the newest blocks that fit under the 20 MB report limit, after the other members and 1 MB headroom: about the last 2-3 minutes of a busy match). Every
    text file has the Windows user name, machine name, profile folders and e-mail addresses removed
    (precheck.redact); the dump and the bot recording have them overwritten with the same number of
    'x' bytes (precheck.scrub_bytes), so the files keep their layout. It writes one zip to
@@ -60,7 +60,7 @@
 #define MAX_SUMMARY (16 * 1024)
 #define MAX_ZIP (20u * 1024 * 1024)
 #define DUMP_LIMIT (15u * 1024 * 1024)
-#define BOTREC_LIMIT (8u * 1024 * 1024)
+#define BOTREC_HEADROOM (1u * 1024 * 1024)   /* 1.1.6: the recording gets what is left under MAX_ZIP minus this (zip overhead, system.txt, text) */
 #define LOG_LIMIT (6u * 1024 * 1024)       /* the newest part of a very long log */
 #define NET_TIMEOUT_MS 60000
 
@@ -543,7 +543,7 @@ static void zip_build(Bundle *b, Buf *z) {
 typedef BOOL (WINAPI *CreateCompFn)(DWORD, void *, void **);
 typedef BOOL (WINAPI *CompFn)(void *, const void *, SIZE_T, void *, SIZE_T, SIZE_T *);
 typedef BOOL (WINAPI *CloseFn)(void *);
-static int botrec_scrub(const Buf *in, Buf *out, char *note, size_t note_n) {
+static int botrec_scrub(const Buf *in, Buf *out, char *note, size_t note_n, size_t limit) {
     note[0] = 0;
     if (in->n < 8 || memcmp(in->p, "MA2BREC1", 8)) { snprintf(note, note_n, "not a bot recording"); return 0; }
     HMODULE cab = LoadLibraryW(L"cabinet.dll");
@@ -587,11 +587,15 @@ static int botrec_scrub(const Buf *in, Buf *out, char *note, size_t note_n) {
     for (int i = 0; i < 8; i++) if (dec[i] && dcl) dcl(dec[i]);
     if (enc && ccl) ccl(enc);
     if (!ok || !nb) { if (!note[0]) snprintf(note, note_n, "no complete block"); buf_free(&packed); free(blocks); return 0; }
+    if (8 + packed.n > limit && (limit < 8 + blocks[0].n || nb < 2 || limit - 8 - blocks[0].n < blocks[nb - 1].n)) {
+        snprintf(note, note_n, "no room left under the report size limit");          /* (a crash or hang dump keeps priority) */
+        buf_free(&packed); free(blocks); return 0;
+    }
     buf_add(out, "MA2BREC1", 8);
-    if (8 + packed.n <= BOTREC_LIMIT) { buf_add(out, packed.p, packed.n); snprintf(note, note_n, "%d blocks", nb); }
+    if (8 + packed.n <= limit) { buf_add(out, packed.p, packed.n); snprintf(note, note_n, "%d blocks", nb); }
     else {
         /* the first block, then the newest blocks that fit */
-        size_t room = BOTREC_LIMIT - 8 - blocks[0].n; int first = nb;
+        size_t room = limit - 8 - blocks[0].n; int first = nb;
         while (first > 1 && blocks[first - 1].n <= room) { room -= blocks[first - 1].n; first--; }
         buf_add(out, packed.p + blocks[0].off, blocks[0].n);
         for (int i = first; i < nb; i++) buf_add(out, packed.p + blocks[i].off, blocks[i].n);
@@ -874,7 +878,12 @@ static int collect(Bundle *b, Buf *summary) {
             else if (!read_file(r.path, &raw, 0, NULL)) buf_addf(&b->notes, "%s could not be read\n", name8);
             else {
                 int before = g_scrubbed;
-                if (botrec_scrub(&raw, &out, note, sizeof note)) {
+                /* 1.1.6: the recording's budget is what is left under the report limit after every member so far (logs,
+                   settings, the dump), less a headroom for the zip overhead, system.txt and the player's words */
+                Buf z = { 0 }; zip_build(b, &z);
+                size_t limit = z.n + BOTREC_HEADROOM < MAX_ZIP ? MAX_ZIP - BOTREC_HEADROOM - z.n : 0;
+                buf_free(&z);
+                if (botrec_scrub(&raw, &out, note, sizeof note, limit)) {
                     snprintf(arc, sizeof arc, "botrec/%s", name8);
                     Member *m = bundle_add(b, arc);
                     if (m) { m->data = out; m->binary = 1; out.p = NULL; }
@@ -1078,7 +1087,7 @@ static void run_report(int send_it, Outcome *o) {
 }
 
 /* ============================================================== window */
-enum { ID_HEAD = 100, ID_BODY, ID_LABEL, ID_EDIT, ID_PRIVACY, ID_NOTE, ID_LINKS, ID_STATUS, ID_PROGRESS, ID_SEND, ID_CLOSE, ID_WAIT, ID_COPY, ID_OPEN, ID_RESULT };
+enum { ID_HEAD = 100, ID_BODY, ID_LABEL, ID_EDIT, ID_PRIVACY, ID_NOTE, ID_LINKS, ID_STATUS, ID_PROGRESS, ID_SEND, ID_CLOSE, ID_WAIT, ID_COPY, ID_OPEN, ID_RESULT, ID_HINT };
 enum { MODE_MANUAL, MODE_CRASH, MODE_HANG };
 #define WM_SENT (WM_APP + 1)
 static int g_mode; static HWND g_wnd; static HFONT g_font, g_bold; static int g_dpi = 96; static int g_exit; static int g_busy;
@@ -1120,7 +1129,7 @@ static void show_result(void) {
         ShowWindow(item(ID_COPY), SW_HIDE); ShowWindow(item(ID_OPEN), SW_SHOW);
     }
     set_text8(ID_HEAD, head); set_text8(ID_RESULT, body); ShowWindow(item(ID_RESULT), SW_SHOW); ShowWindow(item(ID_BODY), SW_HIDE);
-    ShowWindow(item(ID_SEND), SW_HIDE);
+    ShowWindow(item(ID_SEND), SW_HIDE); ShowWindow(item(ID_HINT), SW_HIDE);
     EnableWindow(item(ID_CLOSE), TRUE); EnableWindow(item(ID_WAIT), TRUE);
     if (g_mode != MODE_HANG) SetWindowTextW(item(ID_CLOSE), L"Close");
     SetFocus(item(g_out.sent.ok ? ID_COPY : ID_CLOSE));
@@ -1177,6 +1186,7 @@ static void layout(HWND w) {
     MoveWindow(item(ID_EDIT), m, y, cw, S(104), TRUE); y += S(108);
     MoveWindow(item(ID_PRIVACY), m, y, cw, S(18), TRUE); y += S(24);
     MoveWindow(item(ID_NOTE), m, y, cw, S(34), TRUE); y += S(36);
+    if (g_mode == MODE_MANUAL) { MoveWindow(item(ID_HINT), m, y, cw, S(48), TRUE); y += S(50); }
     MoveWindow(item(ID_LINKS), m, y, cw, S(20), TRUE); y += S(26);
     MoveWindow(item(ID_STATUS), m, y, S(120), S(20), TRUE);
     MoveWindow(item(ID_PROGRESS), m + S(124), y + S(3), cw - S(124), S(14), TRUE);
@@ -1211,12 +1221,15 @@ static LRESULT CALLBACK wnd_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
             { ID_STATUS, L"STATIC", SS_LEFT, L"" }, { ID_PROGRESS, PROGRESS_CLASSW, PBS_MARQUEE, L"" },
             { ID_SEND, L"BUTTON", BS_DEFPUSHBUTTON | WS_TABSTOP, L"Send report" }, { ID_CLOSE, L"BUTTON", BS_PUSHBUTTON | WS_TABSTOP, L"Close" },
             { ID_WAIT, L"BUTTON", BS_PUSHBUTTON | WS_TABSTOP, L"Keep waiting" }, { ID_COPY, L"BUTTON", BS_PUSHBUTTON | WS_TABSTOP, L"Copy number" },
-            { ID_OPEN, L"BUTTON", BS_PUSHBUTTON | WS_TABSTOP, L"Open folder" } };
+            { ID_OPEN, L"BUTTON", BS_PUSHBUTTON | WS_TABSTOP, L"Open folder" },
+            /* 1.1.6 (owner): the manual window says when a report is most useful */
+            { ID_HINT, L"STATIC", SS_LEFT, L"Best sent right after the problem: the logs cover your last 3 game sessions, and a bot match "
+              L"recording only its last 2-3 minutes. If the game is still open, use Report a Problem in its pause menu instead." } };
         for (int i = 0; i < (int)(sizeof items / sizeof *items); i++) {
             HWND c = CreateWindowExW(0, items[i].cls, items[i].text, WS_CHILD | items[i].style, 0, 0, 10, 10, w, (HMENU)(INT_PTR)items[i].id, hi, NULL);
             SendMessageW(c, WM_SETFONT, (WPARAM)(items[i].id == ID_HEAD ? g_bold : g_font), TRUE);
             int hidden = items[i].id == ID_STATUS || items[i].id == ID_PROGRESS || items[i].id == ID_COPY || items[i].id == ID_OPEN || items[i].id == ID_RESULT ||
-                         (items[i].id == ID_WAIT && g_mode != MODE_HANG);
+                         (items[i].id == ID_WAIT && g_mode != MODE_HANG) || (items[i].id == ID_HINT && g_mode != MODE_MANUAL);
             if (!hidden) ShowWindow(c, SW_SHOW);
         }
         SendMessageW(item(ID_EDIT), EM_LIMITTEXT, MAX_TEXT, 0);
@@ -1284,7 +1297,7 @@ static int run_window(void) {
     wc.hCursor = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW); wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     wc.hIcon = LoadIconW(wc.hInstance, MAKEINTRESOURCEW(1)); wc.hIconSm = wc.hIcon;
     RegisterClassExW(&wc);
-    RECT r = { 0, 0, S(540), S(430) };
+    RECT r = { 0, 0, S(540), S(430) + (g_mode == MODE_MANUAL ? S(50) : 0) };
     DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
     AdjustWindowRectEx(&r, style, FALSE, 0);
     int ww = r.right - r.left, wh = r.bottom - r.top;
