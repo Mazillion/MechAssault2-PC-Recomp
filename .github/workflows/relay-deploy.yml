@@ -1,0 +1,80 @@
+# Deploys the report relay (relay/) to Cloudflare: tests, then STAGING, then PRODUCTION after the owner approves.
+#
+# Runs on a tag "relay-v<anything>" (for example relay-v1.1.7) or by hand (Actions > Relay deploy > Run workflow).
+# Needs, set once by the repository owner:
+#   - repository secrets CLOUDFLARE_API_TOKEN (a Cloudflare API token limited to "Workers Scripts: Edit" on the one
+#     account) and CLOUDFLARE_ACCOUNT_ID;
+#   - an environment "staging" (no rules) and an environment "production" with the owner as required reviewer, so the
+#     production job waits for a click on "Approve and deploy".
+# The relay's own secrets (GITHUB_TOKEN for the reports repo, OWNER_KEY) live on Cloudflare and are never used here.
+name: Relay deploy
+
+on:
+  push:
+    tags: ["relay-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: relay-deploy
+  cancel-in-progress: false
+
+env:
+  WRANGLER: wrangler@4.166.0   # exact version; change deliberately
+  WRANGLER_SEND_METRICS: "false"
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Relay tests (no network)
+        working-directory: relay
+        run: |
+          node --version
+          node --test test/relay.test.mjs
+          python3 test/test_triage.py
+
+  staging:
+    needs: test
+    runs-on: ubuntu-24.04
+    environment: staging
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Deploy staging
+        working-directory: relay
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes "$WRANGLER" deploy -c wrangler.staging.toml
+      - name: Staging answers
+        working-directory: relay
+        run: |
+          url=$(sed -n 's/^PUBLIC_URL = "\(https:[^"]*\)"$/\1/p' wrangler.staging.toml)
+          curl -fsS --retry 3 --retry-delay 5 "$url/v1/latest" | tee /dev/stderr | grep -q '"ok":true'
+
+  production:
+    needs: staging
+    runs-on: ubuntu-24.04
+    environment: production   # required reviewer: the owner approves before this job starts
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Deploy production
+        working-directory: relay
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes "$WRANGLER" deploy
+      - name: Production answers
+        working-directory: relay
+        run: |
+          url=$(sed -n 's/^PUBLIC_URL = "\(https:[^"]*\)"$/\1/p' wrangler.toml)
+          curl -fsS --retry 3 --retry-delay 5 "$url/v1/latest" | tee /dev/stderr | grep -q '"ok":true'

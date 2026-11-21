@@ -14,7 +14,8 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-DEFAULT_KIT = os.path.normpath(os.path.join(ROOT, "..", "..", "..", "public-repo-staging", "kit", "installer"))
+# relay/ sits at the top of the public repo, beside kit/.
+DEFAULT_KIT = os.path.normpath(os.path.join(ROOT, "..", "kit", "installer"))
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 
@@ -50,7 +51,8 @@ def main():
         with urllib.request.urlopen(base + "/__mock/issues", timeout=5) as h:
             issues = json.loads(h.read())
         assert issues[0]["title"] == "[%s] install-fail 1.1.6 build:link LNK1102" % r["id"], issues[0]["title"]; checks += 1
-        assert "＠someone" in issues[0]["body"]; checks += 1
+        body = issues[0]["body"]   # 1.1.7: the player's text stays with the report, not in the issue
+        assert "someone" not in body and "**Player's text**: yes" in body, body; checks += 1
         r = report.send(zp, kind="manual", client="helper", version="", build="", url=base)   # empty version still accepted
         assert r["ok"], r; checks += 1
         r = report.send(zp, kind="manual", client="game", version="1.1.6", url=base)

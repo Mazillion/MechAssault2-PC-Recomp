@@ -1,6 +1,6 @@
 # Privacy: what "Report a problem" sends
 
-Nothing is ever sent unless you press **Send report**. There are no accounts and no tracking, and nothing is sent in the background.
+Nothing is ever sent unless you press **Send report**. There are no accounts and no tracking. The only thing the game sends on its own is its version number, once per start, to check for updates (see [Checking for updates](#checking-for-updates)); you can turn that off.
 
 ## Where the button is
 
@@ -37,10 +37,19 @@ A copy of every report also stays on your PC, in `%LOCALAPPDATA%\MechAssault2\Di
 
 Ask for a report to be deleted by giving its report number (shown after sending) in an [issue](https://github.com/Mazillion/MechAssault2-PC-Recomp/issues), or in a message to the developer. The report file and its private entry will then be deleted.
 
+## Checking for updates
+
+Each time the game starts, it asks the report service once which version is the newest. The only thing it sends is the game's version number, for example 1.1.7. It sends nothing about you or your PC, and the service does not use or store your IP address for this.
+
+If a newer version is out, the main menu shows one line, for example "Version 1.1.8 is available. Run the installer to update." Nothing is downloaded or installed, and nothing changes in the game.
+
+To turn the check off, close the game, open `%LOCALAPPDATA%\MechAssault2\pc_settings.ini` in Notepad and set `CheckForUpdates=0` under `[Update]`.
+
 ## Checking it yourself
 
 All of the code is in this repository:
 
 - what goes into a report and how it is sent: [`kit/installer/report.py`](kit/installer/report.py), [`kit/installer/precheck.py`](kit/installer/precheck.py) and [`report-helper/`](report-helper/);
 - the in-game page: [`kit/source/game/src/pc_native_settings.cpp`](kit/source/game/src/pc_native_settings.cpp);
+- the update check: [`kit/source/game/src/pc_update_check.h`](kit/source/game/src/pc_update_check.h);
 - the service that receives reports: [`relay/`](relay/).

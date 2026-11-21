@@ -77,6 +77,10 @@ Close the game before editing %LOCALAPPDATA%\MechAssault2\pc_settings.ini.
   [Bots]  BotRecorder=0        1 = record each bot match to the Logs folder
                                (newest 4 kept, at most 150 MB each); only
                                when a maintainer asks for a recording
+  [Update] CheckForUpdates=1   once per launch, ask for the newest version
+                               number (only the game's version number is
+                               sent) and show one line on the main menu when
+                               a newer version is out; 0 = never ask
 To reset everything, delete the file; it is made again from the defaults.
 
 
