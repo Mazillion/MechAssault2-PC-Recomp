@@ -12,7 +12,7 @@ logs, settings and PC details; your user name, PC name and personal
 folders are removed, and What's included? lists every file. Say what
 happened if you like, then press Send report. It sends the report to the
 developer and shows a report number to mention if you open an issue.
-Nothing is sent until you press it; sent reports are kept for 90 days.
+Nothing is sent until you press it; sent reports are kept for 30 days.
 Every report is also saved on your PC in
 %LOCALAPPDATA%\MechAssault2\Diagnostics. Save a copy instead, in the
 report window and the installer, saves it there without sending and works
