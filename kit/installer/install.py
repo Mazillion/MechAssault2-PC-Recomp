@@ -1292,7 +1292,7 @@ def _launch_ok(path, kit, since):
     if st.st_mtime < since: return False
     text = p.read_text(encoding='utf-8', errors='replace')
     if not re.search(r'(?m)^\[LAUNCH\] build version=\S+ .*\bkit=%s\b' % re.escape(kit), text): return False
-    if re.search(r'(?m)^\[(CRASH|HANG)\]', text): return False
+    if re.search(r'(?m)^(\[CRASH\]|\[HANG\] no frame)', text): return False     # (not the start-up '[HANG] monitor on' notice)
     if re.search(r'(?m)^\[EXIT\] phase=terminate\b', text): return True
     m = re.match(r'(\d{8}-\d{6})-\d+\.log$', p.name)
     if not m: return False
@@ -1326,6 +1326,8 @@ def rollback(dest, log=print):
         raise Stop('An install or update in %s is not finished. Run the installer to finish it first.' % dest)
     info = read_previous(dest)
     if not info: raise Stop('There is no earlier version kept in %s to go back to.' % dest)
+    if info.get('new_kit') and (precheck.read_stamp(dest) or {}).get('kit_id') != info.get('new_kit'):
+        raise Stop('The earlier version kept in %s does not belong to the version installed now, so nothing was changed.' % dest)
     prev = dest / PREVIOUS / 'files'
     rels = [r for r in info['files'] if isinstance(r, str) and r and '..' not in Path(r).parts and not Path(r).is_absolute()]
     missing = [r for r in rels if not (prev / r).exists()]

@@ -570,9 +570,12 @@ class Previous(Base):
         self.assertFalse(inst.prune_previous()); self.assertTrue((d / '_previous').exists())
         (logs / name).write_text(line + '[CRASH] x\n[EXIT] phase=terminate source=x\n')        # a crash is never a good launch
         self.assertFalse(inst.prune_previous())
+        (logs / name).write_text(line + '[HANG] no frame for 30 s\n[EXIT] phase=terminate source=x\n')        # nor a freeze
+        self.assertFalse(inst.prune_previous())
         (logs / name).write_text(line.replace(install.KIT_ID, 'otherkit') + '[EXIT] phase=terminate source=x\n')   # another version
         self.assertFalse(inst.prune_previous())
-        (logs / name).write_text(line + '[EXIT] phase=terminate source=fb_wndproc reason=WM_CLOSE\n')
+        (logs / name).write_text('[HANG] monitor on (30 s without a frame; RECOMP_HANG_MONITOR=0 turns it off)\n' + line +
+                                 '[EXIT] phase=terminate source=fb_wndproc reason=WM_CLOSE\n')     # (every real log starts with this notice)
         self.assertTrue(inst.prune_previous()); self.assertFalse((d / '_previous').exists())
 
     def test_sixty_seconds_count_as_a_good_launch(self):
@@ -608,6 +611,13 @@ class Previous(Base):
         self.assertIn('Nothing was changed', str(cm.exception))
         self.assertEqual((d / 'MechAssault 2.exe').read_text(), 'new-exe'); self.assertEqual((d / 'avcodec-63.dll').read_text(), 'new-dll')
         self.assertEqual(precheck.read_stamp(d)['kit_id'], install.KIT_ID); self.assertTrue(install.read_previous(d))
+
+    def test_rollback_refuses_a_kept_version_of_another_install(self):
+        inst, d = self.updated(); self.commit(inst)
+        (d / precheck.STAMP).write_text(json.dumps({'kit_id': 'a-later-kit'}))      # (an update whose keep step failed replaced the game)
+        with self.assertRaises(install.Stop) as cm: install.rollback(d)
+        self.assertIn('does not belong to the version installed now', str(cm.exception))
+        self.assertEqual((d / 'MechAssault 2.exe').read_text(), 'new-exe')
 
     def test_rollback_refuses_an_unfinished_install(self):
         inst, d = self.updated(); inst.commit_previous(); inst.save()
