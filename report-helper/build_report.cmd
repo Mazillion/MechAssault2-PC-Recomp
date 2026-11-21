@@ -11,11 +11,13 @@ if not defined VCINSTALLDIR call :vcvars || exit /b 1
 set PUBVER=
 for /f "usebackq tokens=* delims=" %%a in ("%~dp0..\VERSION") do if not defined PUBVER set "PUBVER=%%a"
 if not defined PUBVER (echo VERSION is missing or empty & exit /b 1)
-for /f "tokens=1-3 delims=." %%x in ("%PUBVER%") do (set V1=%%x& set V2=%%y& set V3=%%z)
+rem A preview build (1.2.3-preview.4) keeps the numbers of 1.2.3 in the version resource.
+for /f "tokens=1 delims=-" %%s in ("%PUBVER%") do set PUBNUM=%%s
+for /f "tokens=1-3 delims=." %%x in ("%PUBNUM%") do (set V1=%%x& set V2=%%y& set V3=%%z)
 if not defined V3 set V3=0
 > version.h echo #define MA2_VER_COMMA %V1%,%V2%,%V3%,0
 >> version.h echo #define MA2_VER_STR "%PUBVER%"
->> version.h echo #define MA2_VER_FILE "%PUBVER%.0"
+>> version.h echo #define MA2_VER_FILE "%PUBNUM%.0"
 > relay.h echo /* written by build_report.cmd */
 if defined MA2_RELAY_URL >> relay.h echo #define MA2_RELAY_URL "%MA2_RELAY_URL%"
 rc /nologo /fo report.res report.rc || exit /b 1

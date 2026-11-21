@@ -4,7 +4,8 @@
 
 Steps (each stops the build on failure):
   1. versions   VERSION, kit/installer/data/release.json, ma2_release.h, editor/src/app/version.h and
-                editor/res/editor.rc (numbers and strings) agree; Python is the version pinned in deps.lock
+                editor/res/editor.rc (numbers and strings) agree (a preview's "-preview.N" is in the strings only);
+                Python is the version pinned in deps.lock
   2. deps       tools/fetch_deps.py --verify --only capstone: Capstone is in kit/ and matches the lock (FFmpeg is
                 never packed: the installer downloads it on the player's PC, kit/installer/ffmpeg_fetch.py)
   3. editor     editor/build.cmd in a neutral build folder -> kit/editor/MA2 Scenario Editor.exe
@@ -64,7 +65,14 @@ def versions():
     for key in ('FILEVERSION', 'PRODUCTVERSION'):
         s = re.search(r'^\s*%s (\d+),(\d+),(\d+),0' % key, rc, re.M)
         got['editor.rc ' + key] = s and '.'.join(s.groups())
-    if len(set(got.values())) != 1:
+    # A preview build (tools/release.py preview) carries "1.2.3-preview.4" in the version strings; the version numbers
+    # (game numeric, editor.rc FILEVERSION/PRODUCTVERSION) stay 1.2.3.
+    core = re.match(r'^(\d+\.\d+\.\d+)(?:-preview\.\d+)?$', v[0] or '')
+    if not core:
+        raise SystemExit('VERSION line 1 must be X.Y.Z or X.Y.Z-preview.N, not %r' % v[0])
+    numeric = {k: s for k, s in got.items() if k in ('game numeric', 'editor.rc FILEVERSION', 'editor.rc PRODUCTVERSION')}
+    strings = {k: s for k, s in got.items() if k not in numeric}
+    if len(set(strings.values())) != 1 or set(numeric.values()) - {core.group(1)}:
         raise SystemExit('version mismatch: %r' % got)
     if rel.get('date') != v[1]:
         raise SystemExit('VERSION date %s differs from release.json %s' % (v[1], rel.get('date')))
