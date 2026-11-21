@@ -754,15 +754,31 @@ static void report_pause_item(uint32_t object){
         uint32_t root=guest(form+0x38);if(root<0x10000||root>=0x03FFF000)continue;
         // items are children of the root's first child (the panel)
         uint32_t panel=guest(root+0x1C);if(panel<0x10000||panel>=0x03FFF000)continue;
-        uint32_t dev=0,lowest=0,volume=0;int lowest_y=-1;
+        uint32_t dev=0,lowest=0,volume=0,video=0;int lowest_y=-1;
         for(uint32_t w=guest(panel+0x1C);w>=0x10000&&w<0x03FFF000;w=guest(w+0x18)){
             if(guest(w)!=0x4830F0)continue;
             uint32_t action=guest(w+0x70),flags=guest(w+0x74);
             if(w==done_item||action==800){dev=w;continue;}
             if(action==300)volume=w;
+            if(action==1500&&(flags&0x22)==0x22)video=w;
             if((flags&0x22)==0x22&&action>=100&&action<=1500&&(int)guest(w+0x50)>lowest_y){lowest=w;lowest_y=(int)guest(w+0x50);}
         }
         if(!dev||!lowest)continue;
+        /* 1.1.6 (owner): the item sits right after Video Settings, with the settings entries; every item below Video
+         * Settings moves one step (29) down, so the exit item (Quit / Return to Editor) stays the LAST item, as in 1.1.5
+         * (navigation follows the on-screen order). Without a visible Video Settings item it goes under the lowest item as before. */
+        if(done_item!=dev&&video){
+            int vy=(int)guest(video+0x50);
+            for(uint32_t w=guest(panel+0x1C);w>=0x10000&&w<0x03FFF000;w=guest(w+0x18)){
+                if(guest(w)!=0x4830F0||w==dev||(int)guest(w+0x50)<=vy)continue;
+                uint32_t action=guest(w+0x70);if(action<100||action>1500)continue;
+                for(uint32_t a=w,k=0;k<3&&a>=0x10000&&a<0x03FFF000;k++){
+                    if(k!=1){guest(a+0x50)+=29;guest(a+0x60)+=29;}
+                    a=k==0?guest(w+0x1C):guest(a+0x18);
+                }
+            }
+            lowest=video;lowest_y=vy;
+        }
         if(done_item!=dev){
             if(!label)label=ma2_pc_wide(L"Report a Problem");
             // One step (29 lines) under the lowest item: the item's and its highlight bar's y, in the 4:3 (+50) and
