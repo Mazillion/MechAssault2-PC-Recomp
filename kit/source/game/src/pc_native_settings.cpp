@@ -17,6 +17,8 @@
 #include "imgui.h"
 #include "backends/imgui_impl_win32.h"
 #include "backends/imgui_impl_dx11.h"
+#include "ma2_release.h"
+#include "pc_update_check.h"     // 1.1.7: the update line on the main menu
 extern "C" ptrdiff_t g_xbox_mem_offset;
 // The active host pad (xinput_device.c): slot 0 if connected, else the lowest connected slot, switching on a new
 // button press, with empty slots probed once a second. The settings page and the Editor button read it too.
@@ -285,6 +287,22 @@ static void draw_editor_note(ImDrawList *list,float width,float height,const wch
     float x=(width-ts.x)*.5f,y=height*.08f;
     list->AddRectFilled(ImVec2(x-14,y-8),ImVec2(x+ts.x+14,y+ts.y+8),IM_COL32(15,26,38,220));
     list->AddText(font,size,ImVec2(x,y),IM_COL32(252,251,248,255),text,nullptr,wrap);
+}
+/* 1.1.7: "Version X is available. Run the installer to update." under the main menu's footer, only on
+ * the main menu (never in a match, a settings page, the exit prompt or a movie), only when the start-up
+ * check (pc_update_check.h) found a newer release. Box b in back-buffer pixels. */
+static const float UPDATE_X0=0,UPDATE_X1=640,UPDATE_Y0=450,UPDATE_Y1=468;
+static const char *update_line_shown(){
+    if(opened||exit_dialog||!menu_available()||menu_kind!=0x481B70||pc_display_movie_active()||ma2_scn_editor_note())return nullptr;
+    return ma2_update_available();
+}
+static void draw_update_line(ImDrawList *list,const float b[4],const char *latest){
+    char text[96];snprintf(text,sizeof(text),"Version %s is available. Run the installer to update.",latest);
+    const float h=b[3]-b[1],size=std::max(12.f,h*.8f);ImFont *font=ImGui::GetFont();
+    ImVec2 ts=font->CalcTextSizeA(size,FLT_MAX,0,text);
+    float x=(b[0]+b[2]-ts.x)*.5f,y=(b[1]+b[3]-ts.y)*.5f;
+    list->AddText(font,size,ImVec2(x+1,y+1),IM_COL32(0,0,0,160),text);
+    list->AddText(font,size,ImVec2(x,y),IM_COL32(160,190,214,255),text);
 }
 // "Esc: Back" at the end of the settings pages' hint line (keyboard text): its
 // glyphs in 640x480 units (x), and relative to the hint row top (y). It is the
@@ -1302,7 +1320,8 @@ static void render(void *device_ptr,void *context_ptr,void *window_ptr,unsigned 
     bool show_fps=pc_setting_get(PC_SHOW_FPS,0)!=0;
     bool editor_button=editor_button_shown();const wchar_t *editor_note=ma2_scn_editor_note();
     const bool report_box=opened&&page==5&&page_form&&report_state!=2&&!pc_display_movie_active();
-    if(show_fps||glow>0.f||editor_button||editor_note||report_box){
+    const char *update_line=update_line_shown();
+    if(show_fps||glow>0.f||editor_button||editor_note||report_box||update_line){
         if(!fps_context_initialized){ImGui::CreateContext();ImGui::GetIO().IniFilename=nullptr;ImGui::GetIO().LogFilename=nullptr;
             // The overlay never owns the cursor: menus and mouse aim set it.
             ImGui::GetIO().ConfigFlags|=ImGuiConfigFlags_NoMouseCursorChange;fps_context_initialized=true;}
@@ -1335,6 +1354,13 @@ static void render(void *device_ptr,void *context_ptr,void *window_ptr,unsigned 
                     draw_editor_hint(ImGui::GetBackgroundDrawList(),hint,pc_input_device()==PC_INPUT_GAMEPAD);
                 }
             }
+            if(update_line&&client.right>0&&client.bottom>0){
+                float box[4];menu_box((HWND)window_ptr,UPDATE_X0,UPDATE_Y0,UPDATE_X1,UPDATE_Y1,box);
+                float sx=(float)width/client.right,sy=(float)height/client.bottom;
+                box[0]*=sx;box[2]*=sx;box[1]*=sy;box[3]*=sy;
+                static bool logged;if(!logged){logged=true;fprintf(stderr,"[UPDATE] line shown on the main menu\n");}
+                draw_update_line(ImGui::GetBackgroundDrawList(),box,update_line);
+            }
             if(editor_note)draw_editor_note(ImGui::GetForegroundDrawList(),(float)width,(float)height,editor_note);
             if(show_fps){
                 ImGui::SetNextWindowPos(ImVec2(16,16));ImGui::SetNextWindowBgAlpha(.55f);
@@ -1362,4 +1388,5 @@ extern "C" void ma2_pc_settings_initialize(const char *ini)
     std::sort(resolutions.begin(),resolutions.end());resolutions.erase(std::unique(resolutions.begin(),resolutions.end()),resolutions.end());
     pc_frontend_register(render,window_message);
     pc_frontend_register_device_lost(device_lost);
+    ma2_update_check_start(MA2_PUBLIC_VERSION); // 1.1.7: background thread, off with [Update] CheckForUpdates=0
 }

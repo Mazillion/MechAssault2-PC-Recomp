@@ -120,6 +120,13 @@ Windows user name; the copy in a report has your user name, PC name and
 folder names overwritten. Nothing is sent anywhere unless you press Send
 report. Delete the dumps and saved reports whenever you like.
 
+Once per launch the game asks the project's server for the newest version
+number. It sends only the game's own version number: no names, no PC
+details, no settings, no logs. When a newer version is out, the main menu
+shows one line saying so; nothing is downloaded or installed. To turn the
+check off, set [Update] CheckForUpdates=0 in
+%LOCALAPPDATA%\MechAssault2\pc_settings.ini.
+
 
 CUSTOM SCENARIOS
 ----------------
