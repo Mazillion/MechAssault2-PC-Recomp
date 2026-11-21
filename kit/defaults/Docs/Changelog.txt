@@ -4,6 +4,27 @@ MechAssault 2 PC recompilation - changes
 You have version {{VERSION}} (build {{BUILD}}).
 
 
+1.1.7
+-----
+- Updates are much quicker. The installer keeps what it built last time
+  (in the _work folder inside the install folder) and
+  compiles again only the parts that changed, so a small update takes a
+  few minutes instead of a full rebuild. If anything the build depends on
+  has changed, or the last build did not finish, it rebuilds everything,
+  as before. If the drive is nearly full, the folder is not kept.
+- An install now records every file it puts in the install folder, so
+  Update and Repair replace only files that changed or are missing.
+- After an update, the previous version is kept until the new one has
+  started properly; see "The game does not start after an update" in
+  Troubleshooting for how to go back to it.
+- Repair can rebuild the game from scratch ("Rebuild the game from
+  scratch" in Install options).
+- The main menu shows one line when a newer version is out. The game
+  sends only its version number; [Update] CheckForUpdates=0 in
+  pc_settings.ini turns it off. See PRIVACY.md.
+- Uninstall also removes the kept build.
+
+
 1.1.6
 -----
 - Report a problem: in the game's pause menu and Audio settings, in the

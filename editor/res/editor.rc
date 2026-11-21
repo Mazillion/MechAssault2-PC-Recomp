@@ -8,8 +8,8 @@
 202 RCDATA "..\data\palette_kinds.tsv"
 // Same number as src/app/version.h.
 1 VERSIONINFO
- FILEVERSION 1,1,6,0
- PRODUCTVERSION 1,1,6,0
+ FILEVERSION 1,1,7,0
+ PRODUCTVERSION 1,1,7,0
  FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
  FILEFLAGS 0
  FILEOS VOS_NT_WINDOWS32
@@ -20,9 +20,9 @@ BEGIN
   BLOCK "040904B0"
   BEGIN
    VALUE "FileDescription", "MA2 Scenario Editor\0"
-   VALUE "FileVersion", "1.1.6\0"
+   VALUE "FileVersion", "1.1.7\0"
    VALUE "ProductName", "MechAssault 2 PC Recomp (unofficial)\0"
-   VALUE "ProductVersion", "1.1.6\0"
+   VALUE "ProductVersion", "1.1.7\0"
    VALUE "OriginalFilename", "MA2 Scenario Editor.exe\0"
   END
  END

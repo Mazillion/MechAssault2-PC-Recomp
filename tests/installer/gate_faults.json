@@ -25,6 +25,22 @@
   {"id": "116 installed_memory", "module": "precheck", "target": "installed_memory", "exc": "RuntimeError", "when": "install"},
   {"id": "116 on_battery", "module": "precheck", "target": "on_battery", "exc": "RuntimeError", "when": "never"},
   {"id": "116 scrub_bytes", "module": "precheck", "target": "scrub_bytes", "exc": "RuntimeError", "when": "never"},
-  {"id": "116 report_summary", "module": "precheck", "target": "report_summary", "exc": "RuntimeError", "when": "never"}
+  {"id": "116 report_summary", "module": "precheck", "target": "report_summary", "exc": "RuntimeError", "when": "never"},
+  {"id": "117 fingerprint", "module": "__main__", "target": "Installer.fingerprint", "exc": "RuntimeError", "when": "install"},
+  {"id": "117 reuse_mode", "module": "__main__", "target": "Installer.reuse_mode", "exc": "RuntimeError", "when": "install"},
+  {"id": "117 plan_reuse", "module": "__main__", "target": "Installer.plan_reuse", "exc": "RuntimeError", "when": "install"},
+  {"id": "117 check_manifest", "module": "__main__", "target": "Installer.check_manifest", "exc": "RuntimeError", "when": "install"},
+  {"id": "117 record_cache", "module": "__main__", "target": "Installer.record_cache", "exc": "RuntimeError", "when": "install"},
+  {"id": "117 write_manifest", "module": "__main__", "target": "write_manifest", "exc": "OSError", "when": "install"},
+  {"id": "117 keep_kept_build", "module": "__main__", "target": "Installer.keep_kept_build", "exc": "RuntimeError", "when": "install"},
+  {"id": "117 keep_previous_version", "module": "__main__", "target": "Installer.keep_previous_version", "exc": "RuntimeError", "when": "install"},
+  {"id": "117 prune_previous", "module": "__main__", "target": "Installer.prune_previous", "exc": "RuntimeError", "when": "install"},
+  {"id": "117 read_cache", "module": "__main__", "target": "read_cache", "exc": "OSError", "when": "never"},
+  {"id": "117 write_cache", "module": "__main__", "target": "write_cache", "exc": "OSError", "when": "install"},
+  {"id": "117 sync_tree", "module": "__main__", "target": "sync_tree", "exc": "RuntimeError", "when": "never"},
+  {"id": "117 same_bytes", "module": "__main__", "target": "same_bytes", "exc": "RuntimeError", "when": "never"},
+  {"id": "117 verify_manifest", "module": "__main__", "target": "verify_manifest", "exc": "RuntimeError", "when": "never"},
+  {"id": "117 good_launch", "module": "__main__", "target": "good_launch", "exc": "RuntimeError", "when": "never"},
+  {"id": "117 reuse_preview", "module": "__main__", "target": "reuse_preview", "exc": "RuntimeError", "when": "never"}
  ]
 }
