@@ -2,7 +2,7 @@
 
   stub.exe (build_stub.cmd)  +  payload  +  trailer
 
-The payload is the kit (../kit: installer, toolkit, source, patches, assets, defaults, enhancer, editor;
+The payload is the kit (../kit: installer, toolkit, source, patches, assets, defaults, enhancer, editor, report;
 never FFmpeg, which the installer downloads on the player's PC)
 and a Python 3.13 runtime (a python.org Windows install with Tcl/Tk, without site-packages, tests or
 tools) under python/. Files are compressed with LZMS, the Windows Compression API's strongest codec, so
@@ -17,7 +17,7 @@ HERE = Path(__file__).resolve().parent
 KIT = HERE.parent / 'kit'
 PYTHON = Path(os.environ.get('MA2_PYTHON_HOME') or sys.base_prefix)   # the Python 3.13 that gets bundled
 OUT = Path(os.environ['MA2_PACK_OUT']) if os.environ.get('MA2_PACK_OUT') else HERE.parent / 'dist' / 'MechAssault 2 Recomp Installer.exe'   # MA2_PACK_OUT: write elsewhere
-KIT_DIRS = ['installer', 'toolkit', 'source', 'patches', 'assets', 'defaults', 'enhancer', 'editor']
+KIT_DIRS = ['installer', 'toolkit', 'source', 'patches', 'assets', 'defaults', 'enhancer', 'editor', 'report']   # report: MA2 Report.exe (1.1.6)
 PY_FILES = ['python.exe', 'pythonw.exe', 'python3.dll', 'python313.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'LICENSE.txt']
 PY_DIRS = ['DLLs', 'Lib', 'tcl']
 # Never packed: FFmpeg is downloaded on the player's PC by the installer (kit/installer/ffmpeg_fetch.py), even when a
