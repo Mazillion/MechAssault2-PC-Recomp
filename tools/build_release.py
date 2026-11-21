@@ -8,7 +8,8 @@ Steps (each stops the build on failure):
   2. deps       tools/fetch_deps.py --verify --only capstone: Capstone is in kit/ and matches the lock (FFmpeg is
                 never packed: the installer downloads it on the player's PC, kit/installer/ffmpeg_fetch.py)
   3. editor     editor/build.cmd in a neutral build folder -> kit/editor/MA2 Scenario Editor.exe
-  4. stub       installer-exe/build_stub.cmd in the same build folder
+  4. stub       installer-exe/build_stub.cmd in the same build folder; report-helper/build_report.cmd -> kit/report/MA2 Report.exe
+                (its relay address comes from kit/installer/data/report.json, the one place it is set)
   5. pack       refuse any kit file git does not track (ignored, untracked or modified; the fetched deps and the
                 built editor excepted), then installer-exe/pack_installer.py with the running Python 3.13 -> dist/
   6. check      tools/privacy_scan.py over the built binaries, then SHA-256 + size into dist/SHA256SUMS.txt
@@ -24,6 +25,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 DIST = REPO / 'dist'
 EDITOR_EXE = 'MA2 Scenario Editor.exe'
+REPORT_EXE = 'MA2 Report.exe'
 
 
 def step(msg):
@@ -72,7 +74,7 @@ def versions():
 
 # Files under kit/ that git does not track but the payload needs: fetched and hash-checked by tools/fetch_deps.py
 # (step 2), or built from editor/ (step 3). Everything else in the payload must be a file git tracks, unchanged.
-NOT_IN_GIT = ('kit/toolkit/vendor/capstone/', 'kit/editor/')
+NOT_IN_GIT = ('kit/toolkit/vendor/capstone/', 'kit/editor/', 'kit/report/')
 
 
 def kit_is_git(allow_dirty=False):
@@ -154,6 +156,13 @@ def main():
     neutral_copy(build, ['installer-exe', 'VERSION'])
     run('"%s"' % (build / 'installer-exe' / 'build_stub.cmd'), build / 'installer-exe')
     shutil.copy2(build / 'installer-exe' / 'stub.exe', REPO / 'installer-exe' / 'stub.exe')
+    neutral_copy(build, ['report-helper'])
+    relay = json.loads((REPO / 'kit' / 'installer' / 'data' / 'report.json').read_text(encoding='utf-8')).get('relay_url') or ''
+    if relay and not relay.lower().startswith('https://'):
+        raise SystemExit('kit/installer/data/report.json: relay_url must be an https:// address (or empty)')
+    run('"%s"' % (build / 'report-helper' / 'build_report.cmd'), build / 'report-helper', dict(os.environ, MA2_RELAY_URL=relay))
+    (REPO / 'kit' / 'report').mkdir(parents=True, exist_ok=True)
+    shutil.copy2(build / 'report-helper' / REPORT_EXE, REPO / 'kit' / 'report' / REPORT_EXE)
 
     step('5 pack')
     kit_is_git(a.allow_dirty)
@@ -164,7 +173,7 @@ def main():
 
     step('6 check')
     run([sys.executable, str(REPO / 'tools' / 'privacy_scan.py'), '--binaries', str(out),
-         str(REPO / 'kit' / 'editor' / EDITOR_EXE), str(REPO / 'installer-exe' / 'stub.exe')], REPO)
+         str(REPO / 'kit' / 'editor' / EDITOR_EXE), str(REPO / 'installer-exe' / 'stub.exe'), str(REPO / 'kit' / 'report' / REPORT_EXE)], REPO)
     lines = ['%s *%s' % (sha(out), out.name)]
     (DIST / 'SHA256SUMS.txt').write_text('\n'.join(lines) + '\n', encoding='ascii')
     print('\n%s  %d bytes\nsha256 %s\nversion %s' % (out, out.stat().st_size, sha(out), version))

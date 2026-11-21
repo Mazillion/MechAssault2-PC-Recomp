@@ -661,6 +661,9 @@ def _vcall(obj, index, argtypes, *args):
     vtbl = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0]
     return ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, *argtypes)(vtbl[index])(obj, *args)
 
+REPORT_EXE = 'MA2 Report.exe'                       # 1.1.6: the report helper (report-helper/ in the repo), beside the game
+REPORT_LNK = 'Report a problem (MechAssault 2).lnk'   # its Start menu entry (no arguments: the stub needs none either)
+
 def create_shortcut(lnk, target, workdir, description='', icon=None):
     """Write a .lnk with IShellLinkW (no script host). Raises OSError on failure."""
     ole32 = ctypes.windll.ole32
@@ -777,7 +780,7 @@ def uninstall_plan(dest, delete_user_data=False):
     if dest.parent == dest:
         raise Stop('%s is a drive, not an install folder; nothing was deleted.' % dest)
     stamp = precheck.read_stamp(dest) or {}
-    ours = ('MechAssault 2 (Recomp).lnk', 'MA2 Scenario Editor.lnk')
+    ours = ('MechAssault 2 (Recomp).lnk', 'MA2 Scenario Editor.lnk', REPORT_LNK)
     shortcuts = [Path(s) for s in stamp.get('shortcuts', []) if isinstance(s, str) and Path(s).name in ours and Path(s).is_file()]
     caches = [p for p in (local / 'ShaderCache', local / 'NavCache', local / 'Cache', Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local') / 'xboxrecomp' / 'shader-cache')
               if p.exists()]
@@ -2148,6 +2151,10 @@ class Installer:
             self.keep_previous(self.dest / f.name)
             self.copy_in(f, self.dest / f.name)        # MechAssault 2 Scenario Editor
             self.log('  %s' % f.name)
+        for f in sorted((KIT / 'report').glob('*.exe')) if (KIT / 'report').is_dir() else []:
+            self.keep_previous(self.dest / f.name)
+            self.copy_in(f, self.dest / f.name)        # 1.1.6: MA2 Report.exe (crash / freeze boxes, Report a problem)
+            self.log('  %s' % f.name)
         self.make_shortcuts()
 
     def copy_in(self, src, dst):
@@ -2207,6 +2214,14 @@ class Installer:
                 made.append(str(base / 'MA2 Scenario Editor.lnk'))
             except OSError as e:
                 self.log('  (editor shortcut not created: %s)' % e)
+        report = self.dest / REPORT_EXE                # 1.1.6: Report a problem in the Start menu (with the game's Start menu entry)
+        if 'start' in want and report.is_file():
+            try:
+                base = known_folder('start')
+                create_shortcut(base / REPORT_LNK, report, self.dest, 'Send a problem report for MechAssault 2 to the developer')
+                made.append(str(base / REPORT_LNK))
+            except OSError as e:
+                self.log('  (Report a problem shortcut not created: %s)' % e)
         for m in made: self.log('  shortcut: %s' % m)
         self.state['shortcuts'] = made; self.save()
 

@@ -1538,7 +1538,7 @@ class App:
     def shortcut_line(self):
         st = getattr(self.inst, 'state', None) or {}
         if 'shortcuts' not in st: return ''
-        made = [Path(p) for p in st.get('shortcuts') or [] if 'Editor' not in Path(p).name]
+        made = [Path(p) for p in st.get('shortcuts') or [] if 'Editor' not in Path(p).name and not Path(p).name.startswith('Report a problem')]
         asked = any(self.sc.get(x) for x in ('desktop', 'start')) and self.action() in ('install', 'update', 'repair', 'resume')
         try: desk = install.known_folder('desktop')
         except Exception: desk = None

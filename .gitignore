@@ -36,6 +36,10 @@ kit/toolkit/vendor/capstone/
 # Build outputs
 dist/
 kit/editor/
+kit/report/
+report-helper/version.h
+report-helper/relay.h
+report-helper/*.res
 installer-exe/stub.exe
 installer-exe/version.h
 installer-exe/*.obj

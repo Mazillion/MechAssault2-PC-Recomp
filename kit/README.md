@@ -14,6 +14,7 @@ packs this folder plus a Python 3.13 runtime into the single installer exe.
 | `defaults/` | `README.txt`, `Controls.txt`, `Docs/`, `pc_settings.ini` (defaults), `Licenses/` | install folder |
 | `enhancer/` | scripts for the optional AI texture and video enhancement (the models and PyTorch are downloaded on request) | `Enhancer/` when used |
 | `editor/` | the scenario editor exe, built from [`../editor`](../editor) by `tools/build_release.py` (not in git) | install folder |
+| `report/` | `MA2 Report.exe`, the problem-report helper (crash and freeze boxes, Report a problem), built from [`../report-helper`](../report-helper) by `tools/build_release.py` (not in git) | install folder |
 
 What is deliberately *not* here: anything from the game disc, the translated C code, pre-compiled shaders,
 texture packs. See [LEGAL.md](../LEGAL.md#how-the-project-avoids-distributing-the-game).
