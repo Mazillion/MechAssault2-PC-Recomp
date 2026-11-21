@@ -578,8 +578,8 @@ static std::wstring report_row_text(int row){
         if(o.ok)switch(row){
             case 0:return L"Report sent.";
             case 1:return L"Your report number is "+o.id+L".";
-            case 2:return L"It is copied to the clipboard. Quote it in a Reddit post";
-            case 3:return L"or a GitHub comment so the developer can find your report.";
+            case 2:return L"It is copied to your clipboard, if you want to share it";
+            case 3:return L"directly with the developer.";
             case 5:case 6:return (size_t)(row-5)<msg.size()?msg[row-5]:L"";
             case REPORT_BACK:return marker(row)+L"Back";
             default:return L"";}

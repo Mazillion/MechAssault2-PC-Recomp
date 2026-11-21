@@ -18,7 +18,7 @@ You have version {{VERSION}} (build {{BUILD}}).
 - The game's log now notes once a minute how smoothly the game and its
   sound are running, which helps with reports of crackling or slowdowns.
 - On PCs with few CPU threads, the game gives its sound more priority as
-  soon as the sound starts to fall behind. In our tests that made
+  soon as the sound starts to fall behind. In my tests that made
   crackling much rarer on those PCs; other PCs are unchanged.
 - The installer notes in its log every minute that it is still working
   while a big file compiles, says when it is taking longer than estimated,

@@ -216,7 +216,7 @@ def make_and_send(dest, out_dir, text='', kind='manual', sig='', client='install
 def outcome_text(sent, folder):
     """(headline, body) for the window after a send attempt."""
     if sent and sent.get('ok'):
-        body = 'Quote this number in a Reddit post or a GitHub comment so the developer can find your report.'
+        body = 'Press Copy number if you want to share it directly with the developer.'
         if sent.get('message'): body = sent['message'] + ' ' + body
         return 'Report sent. Your report number is %s.' % sent['id'], body
     body = 'The report was saved to %s.' % folder

@@ -1119,7 +1119,7 @@ static void show_result(void) {
         ShowWindow(item(ID_COPY), SW_HIDE); ShowWindow(item(ID_OPEN), SW_HIDE);
     } else if (g_out.sent.ok) {
         snprintf(head, sizeof head, "Report sent. Your report number is %s.", g_out.sent.id);
-        snprintf(body, sizeof body, "%s%sQuote this number in a Reddit post or a GitHub comment so the developer can find your report.", g_out.sent.message, g_out.sent.message[0] ? " " : "");
+        snprintf(body, sizeof body, "%s%sPress Copy number if you want to share it directly with the developer.", g_out.sent.message, g_out.sent.message[0] ? " " : "");
         ShowWindow(item(ID_COPY), SW_SHOW); ShowWindow(item(ID_OPEN), SW_HIDE);
     } else {
         folder_of(g_out.zip, where, sizeof where);
