@@ -15,6 +15,10 @@ Commands:
     python triage.py switch              show the off switch
     python triage.py switch off --message "Reports are paused, please update to 1.1.7."
     python triage.py switch on
+    python triage.py delete MA2-XXXXXX   delete one report for good (a player asked): the zip, its text and summary on
+                                         the relay, its GitHub issue (deleted, or emptied and locked), and the
+                                         copies in the reports folder. Asks you to type the number again (or --yes)
+    python triage.py expire              run the relay's 60-day clean-up now (it also runs every hour)
     python triage.py draft-issue MA2-XXXXXX   write a PUBLIC issue draft (Markdown, never posted) from the report's
                                          text and summary, with private details removed; read it before using it
 
@@ -303,6 +307,23 @@ def write_draft(relay, rid, out):
     return path, n
 
 
+def delete_report(relay, rid, out, yes=False, ask=input):
+    """DELETE /v1/report/<id> on the relay, then the local copies. Returns the relay's answer."""
+    if not yes:
+        again = ask(f"This deletes {rid} for good (relay, GitHub issue, local copies). Type the number again to go on: ")
+        if again.strip().upper() != rid:
+            raise SystemExit("not deleted: the number did not match")
+    res = relay.call("DELETE", f"/v1/report/{rid}")
+    removed = []
+    for name in (rid + ".zip", rid + ".json", rid + "-public-draft.md"):
+        path = os.path.join(out, name)
+        if os.path.exists(path):
+            os.remove(path)
+            removed.append(name)
+    res["local_removed"] = removed
+    return res
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="MechAssault 2 report triage")
     ap.add_argument("--relay", default=os.environ.get("MA2_RELAY_URL", ""))
@@ -316,6 +337,8 @@ def main(argv=None):
     sub.add_parser("pending")
     sub.add_parser("retry")
     sub.add_parser("draft-issue").add_argument("id")
+    p = sub.add_parser("delete"); p.add_argument("id"); p.add_argument("--yes", action="store_true")
+    sub.add_parser("expire")
     p = sub.add_parser("switch"); p.add_argument("state", nargs="?", choices=["on", "off"])
     p.add_argument("--message", default="")
     a = ap.parse_args(argv)
@@ -359,6 +382,18 @@ def main(argv=None):
         print(f"{len(pend)} pending" + ("  (status 400/401/403 = the GitHub token is malformed, expired or lacks Issues access)" if pend else ""))
     elif a.cmd == "retry":
         print(json.dumps(relay.call("POST", "/v1/admin/retry"), indent=1))
+    elif a.cmd == "delete":
+        res = delete_report(relay, check_id(a.id), a.out, yes=a.yes)
+        print(json.dumps(res, indent=1))
+        issue = res.get("issue")
+        print({"deleted": "The GitHub issue was deleted.",
+               "emptied": "The GitHub issue was emptied, closed and locked. GitHub keeps its earlier text in the issue's "
+                          "edit history; delete the issue on github.com to remove that too.",
+               "gone": "The GitHub issue was already gone.",
+               "none": "No GitHub issue was found for this report.",
+               "queued": "GitHub could not be reached: the relay retires the issue at its next hourly run."}.get(issue, ""))
+    elif a.cmd == "expire":
+        print(json.dumps(relay.call("POST", "/v1/admin/expire"), indent=1))
     elif a.cmd == "draft-issue":
         rid = check_id(a.id)
         path, n = write_draft(relay, rid, a.out)

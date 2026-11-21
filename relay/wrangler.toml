@@ -22,6 +22,12 @@ NOTICE = ""
 LATEST_VERSION = ""
 MIN_VERSION = ""
 UPDATE_NOTICE = ""
+# Retention (1.1.7): reports and their issues go after 60 days (hourly cron). The player's own text stays out of
+# issues ("on" = put it in, as in 1.1.6; GitHub then keeps it in the issue's edit history after the clean-up).
+ISSUE_PLAYER_TEXT = "off"
+# "on" = try to delete old issues outright (needs a token with admin rights on the reports repo); otherwise, or
+# when that is refused, they are emptied, closed and locked.
+DELETE_ISSUES = "on"
 DAILY_CAP = "300"
 PER_IP_PER_HOUR = "5"
 MAX_UPLOAD_BYTES = "26214400"

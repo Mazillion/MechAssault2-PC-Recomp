@@ -2,7 +2,11 @@
 
 The small Cloudflare Worker that receives reports from "Report a problem" (see [PRIVACY.md](../PRIVACY.md)).
 
-- `src/worker.js`: the whole service. It stores the report file in Cloudflare R2, which deletes it after 60 days (`KEEP_DAYS`, plus a bucket lifecycle rule), and opens an entry in a private GitHub repository. The connecting IP is only used, scrambled under a key that is replaced daily, to limit reports per hour; it is never written anywhere.
+- `src/worker.js`: the whole service. It stores the report file in Cloudflare R2 and opens an entry in a private GitHub repository. The connecting IP is only used, scrambled under a key that is replaced daily, to limit reports per hour; it is never written anywhere.
+  - Retention: an hourly job deletes every report older than 60 days (`KEEP_DAYS`; the bucket's lifecycle rule is a second net) and retires its GitHub entry: deleted when the token has the rights, otherwise emptied, closed and locked. The player's typed text is not copied into the entry (`ISSUE_PLAYER_TEXT`), because GitHub keeps an edited entry's earlier text in its history.
+  - `DELETE /v1/report/<id>` (owner key) deletes one report and its entry on request (`python tools/triage.py delete MA2-XXXXXX`).
+  - `GET /v1/latest` answers the game's once-per-start update check with `LATEST_VERSION`; it reads nothing from the request.
 - `wrangler.toml` / `wrangler.staging.toml`: the deploy settings. Workers Logs is off (`[observability] enabled = false`). Secrets (the GitHub token and the owner key) are never in these files.
-- `tools/triage.py`: the developer's tool for reading reports; `tools/smoke.py`: deploy checks.
+- `tools/triage.py`: the developer's tool for reading reports (also `delete`, `expire`, `draft-issue`); `tools/smoke.py`: deploy checks.
+- Deploys run from `.github/workflows/relay-deploy.yml`: tests, staging, then production after the owner approves.
 - `test/`: `node --test test/relay.test.mjs` and `python test/test_triage.py`.

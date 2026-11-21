@@ -150,6 +150,30 @@ def main():
             md = open(path, encoding="utf-8").read()
             assert _U not in md and "<e-mail>" in md, md; checks += 1
 
+        # delete: a wrong confirmation deletes nothing; --yes deletes on the relay, the issue and the local copies.
+        with tempfile.TemporaryDirectory() as out:
+            run_triage("get", rid, out=out)
+            relay = triage.Relay(BASE, KEY)
+            try:
+                triage.delete_report(relay, rid, out, ask=lambda prompt: "MA2-ZZZZZZ")
+                raise AssertionError("deleted without the right confirmation")
+            except SystemExit as e:
+                assert "not deleted" in str(e); checks += 1
+            said = run_triage("delete", rid, "--yes", out=out)
+            res = json.loads(said[:said.rindex("}") + 1])
+            assert res["zip"] and res["info"] and res["issue"] == "emptied", res; checks += 1
+            assert res["local_removed"] == [rid + ".zip", rid + ".json"], res; checks += 1
+            assert "edit history" in said; checks += 1
+            try:
+                triage.main(["--relay", BASE, "--key", KEY, "--out", out, "get", rid])
+                raise AssertionError("download still works after delete")
+            except SystemExit as e:
+                assert "not found" in str(e), e; checks += 1
+        with urllib.request.urlopen(BASE + "/__mock/issues", timeout=5) as r:
+            gone = [i for i in json.loads(r.read()) if i["title"] == f"[{rid}] removed"]
+        assert len(gone) == 1 and gone[0]["state"] == "closed" and gone[0].get("locked"), gone; checks += 1
+        assert '"objects"' in run_triage("expire", out=tempfile.gettempdir()); checks += 1
+
         # /v1/latest: no LATEST_VERSION set on this mock -> latest null, cacheable; POST refused.
         with urllib.request.urlopen(BASE + "/v1/latest", timeout=5) as r:
             assert r.status == 200 and r.headers.get("Cache-Control") == "public, max-age=3600"

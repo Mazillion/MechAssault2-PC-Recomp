@@ -56,8 +56,13 @@ test("normal upload: id returned, zip + sidecar stored, issue opened, marker cle
   assert.equal(is.title, `[${r.body.id}] crash 1.1.6 c0000005 0019236B`);
   assert.deepEqual(is.labels, ["crash", "v1.1.6", "installer"]);
   assert.ok(!is.body.includes("@Mazillion"), "mention neutralised");
-  // Exactly the 4 fences the relay writes; the player's backticks cannot add or close one.
-  assert.equal((is.body.match(/```/g) || []).length, 4);
+  // 1.1.7: the player's text is not in the issue (only "yes"); the summary is, in its own fence.
+  assert.ok(!is.body.includes("alert(1)") && !is.body.includes("evil"), "player's text kept out of the issue");
+  assert.ok(is.body.includes("**Player's text**: yes"));
+  assert.equal((is.body.match(/```/g) || []).length, 2);
+  const rec = await (await env.REPORTS.get(`issues/${r.body.id}.json`)).json();
+  assert.equal(rec.number, 1);
+  assert.equal(rec.node_id, "I_node1");
   assert.ok(is.body.includes(zkey), "R2 key in the body");
   assert.ok(is.body.includes(`https://relay.example.test/v1/report/${r.body.id}`), "owner link in the body");
   assert.equal(gh.calls[0].auth, "Bearer github_pat_TEST");
@@ -422,4 +427,160 @@ test("latest: a trailing path or query is not the route", async () => {
   assert.equal((await worker.fetch(new Request("https://relay.example.test/v1/latest/x"), env, ctx)).status, 404);
   const q = await worker.fetch(new Request("https://relay.example.test/v1/latest?v=1.1.6"), env, ctx);
   assert.equal(q.status, 200, "a query string is ignored");
+});
+
+// ---------------------------------------------------------------- issue body with the player's text (opt-in)
+
+test("ISSUE_PLAYER_TEXT=on puts the neutralised text back into the issue (4 fences)", async () => {
+  env = makeEnv({ ISSUE_PLAYER_TEXT: "on" });
+  const r = await send(await reportRequest({ text: "Hi @Mazillion ```js\nalert(1)```" }), env);
+  assert.equal(r.status, 200);
+  const is = gh.issues[0];
+  assert.ok(is.body.includes("alert(1)"));
+  assert.ok(!is.body.includes("@Mazillion"));
+  assert.equal((is.body.match(/```/g) || []).length, 4);
+});
+
+// ---------------------------------------------------------------- retention (1.1.7)
+
+function age(envX, id, days) {
+  // Makes a report look `days` old: R2 upload time, sidecar and issue record.
+  const t = new Date(Date.now() - days * 86400e3);
+  for (const [k, v] of envX.REPORTS.map) if (k.includes(id)) v.uploaded = t;
+  const rec = envX.REPORTS.map.get(`issues/${id}.json`);
+  if (rec) {
+    const j = JSON.parse(new TextDecoder().decode(rec.bytes));
+    j.received = t.toISOString();
+    rec.bytes = new TextEncoder().encode(JSON.stringify(j));
+  }
+}
+
+test("retention: after 60 days the zip, the sidecar and the issue go (token without delete rights: emptied, closed, locked)", async () => {
+  const old = await send(await reportRequest({ text: "old one" }));
+  const fresh = await send(await reportRequest({ text: "new one" }));
+  age(env, old.body.id, 61);
+  age(env, fresh.body.id, 59);
+  await worker.scheduled({}, env, ctx);
+  await ctx.drain();
+  const keys = [...env.REPORTS.map.keys()];
+  assert.ok(!keys.some((k) => k.includes(old.body.id)), "nothing of the old report is left in R2: " + keys.join(","));
+  assert.ok(keys.some((k) => k.endsWith(`${fresh.body.id}.zip`)), "the 59-day-old report stays");
+  const oldIssue = gh.issues.find((x) => x.number === 1);
+  assert.equal(oldIssue.title, `[${old.body.id}] removed`);
+  assert.equal(oldIssue.body, `Report ${old.body.id} was removed (after 60 days).`);
+  assert.equal(oldIssue.state, "closed");
+  assert.deepEqual(gh.locked, [1]);
+  const freshIssue = gh.issues.find((x) => x.number === 2);
+  assert.ok(freshIssue.body.includes("System summary"), "the fresh issue is untouched");
+});
+
+test("retention: a token with admin rights deletes the old issue outright", async () => {
+  gh.canDelete = true;
+  const old = await send(await reportRequest());
+  age(env, old.body.id, 70);
+  const res = await (await worker.fetch(owner("/v1/admin/expire", { method: "POST" }), env, ctx)).json();
+  assert.equal(res.deleted, 1);
+  assert.equal(res.objects, 2);
+  assert.deepEqual(gh.deleted, [1]);
+  assert.equal(gh.issues.length, 0);
+  assert.equal(env.REPORTS.map.size, 0, "R2 is empty");
+});
+
+test("retention: an issue opened before the record existed is found by title", async () => {
+  const old = await send(await reportRequest());
+  await env.REPORTS.delete(`issues/${old.body.id}.json`);
+  // A 1.1.6-era report: no issues/ record. The R2 objects expire; the issue is retired through the queue.
+  await env.REPORTS.put(`retire/${old.body.id}.json`, JSON.stringify({ id: old.body.id, received: new Date().toISOString() }));
+  await worker.scheduled({}, env, ctx);
+  await ctx.drain();
+  assert.equal(gh.issues[0].state, "closed");
+  assert.equal(await env.REPORTS.get(`retire/${old.body.id}.json`), null);
+});
+
+test("retention: GitHub down keeps the work for the next run; an expired token stops the run", async () => {
+  const a = await send(await reportRequest({ ip: "192.0.2.1" }));
+  const b = await send(await reportRequest({ ip: "192.0.2.2" }));
+  age(env, a.body.id, 61);
+  age(env, b.body.id, 61);
+  gh.mode = "down";
+  let res = await (await worker.fetch(owner("/v1/admin/expire", { method: "POST" }), env, ctx)).json();
+  assert.equal(res.failed, 2);
+  assert.equal(res.objects, 4, "R2 objects go even when GitHub is down");
+  assert.ok(await env.REPORTS.get(`issues/${a.body.id}.json`), "issue record kept for the next run");
+  gh.mode = "expired";
+  gh.calls.length = 0;
+  res = await (await worker.fetch(owner("/v1/admin/expire", { method: "POST" }), env, ctx)).json();
+  assert.equal(res.stopped, true);
+  assert.equal(res.failed, 1);
+  gh.mode = "up";
+  res = await (await worker.fetch(owner("/v1/admin/expire", { method: "POST" }), env, ctx)).json();
+  assert.equal(res.issues, 2);
+  assert.ok(gh.issues.every((x) => x.state === "closed"));
+});
+
+test("retention: nothing personal survives in the emptied issue (title, body, labels)", async () => {
+  const old = await send(await reportRequest({ text: "my name is Jane", headers: { "x-ma2-signature": "c0000005 0019236B" } }));
+  age(env, old.body.id, 61);
+  await worker.scheduled({}, env, ctx);
+  await ctx.drain();
+  const is = gh.issues[0];
+  assert.ok(!JSON.stringify([is.title, is.body, is.labels]).match(/Jane|c0000005|Version|1\.1\.6/));
+});
+
+// ---------------------------------------------------------------- owner delete (1.1.7)
+
+test("owner delete: needs the key; deletes zip, sidecar, record and empties the issue", async () => {
+  const r = await send(await reportRequest({ text: "please delete" }));
+  const path = `/v1/report/${r.body.id}`;
+  assert.equal((await worker.fetch(owner(path, { method: "DELETE" }, null), env, ctx)).status, 401);
+  assert.equal((await worker.fetch(owner(path, { method: "DELETE" }, "wrong"), env, ctx)).status, 401);
+  const res = await worker.fetch(owner(path, { method: "DELETE" }), env, ctx);
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { ok: true, id: r.body.id, zip: true, info: true, pending: false, issue: "emptied" });
+  assert.equal(env.REPORTS.map.size, 0, "nothing left in R2");
+  assert.equal(gh.issues[0].body, `Report ${r.body.id} was removed (deleted on request).`);
+  assert.equal(gh.issues[0].state, "closed");
+  assert.equal((await worker.fetch(owner(path), env, ctx)).status, 404, "download now 404");
+});
+
+test("owner delete with admin rights deletes the issue; unknown id reports nothing found", async () => {
+  gh.canDelete = true;
+  const r = await send(await reportRequest());
+  const b = await (await worker.fetch(owner(`/v1/report/${r.body.id}`, { method: "DELETE" }), env, ctx)).json();
+  assert.equal(b.issue, "deleted");
+  assert.equal(gh.issues.length, 0);
+  const n = await (await worker.fetch(owner("/v1/report/MA2-AAAAAA", { method: "DELETE" }), env, ctx)).json();
+  assert.deepEqual(n, { ok: true, id: "MA2-AAAAAA", zip: false, info: false, pending: false, issue: "none" });
+});
+
+test("owner delete while GitHub is down: R2 cleared now, the issue queued and retired by the next cron", async () => {
+  const r = await send(await reportRequest());
+  gh.mode = "down";
+  const b = await (await worker.fetch(owner(`/v1/report/${r.body.id}`, { method: "DELETE" }), env, ctx)).json();
+  assert.equal(b.issue, "queued");
+  assert.equal(b.zip, true);
+  assert.ok(await env.REPORTS.get(`retire/${r.body.id}.json`));
+  gh.mode = "up";
+  await worker.scheduled({}, env, ctx);
+  await ctx.drain();
+  assert.equal(gh.issues[0].state, "closed");
+  assert.deepEqual([...env.REPORTS.map.keys()], [], "queue and record gone");
+});
+
+test("owner delete of a report still pending (issue never opened): marker removed, no issue made later", async () => {
+  gh.mode = "down";
+  const r = await send(await reportRequest());
+  gh.mode = "up";
+  const b = await (await worker.fetch(owner(`/v1/report/${r.body.id}`, { method: "DELETE" }), env, ctx)).json();
+  assert.equal(b.pending, true);
+  assert.equal(b.issue, "none");
+  await worker.scheduled({}, env, ctx);
+  await ctx.drain();
+  assert.equal(gh.issues.length, 0, "the retry did not open an issue for a deleted report");
+});
+
+test("owner routes stay absent without OWNER_KEY (DELETE too)", async () => {
+  env = makeEnv({ OWNER_KEY: "" });
+  const res = await worker.fetch(owner("/v1/report/MA2-AAAAAA", { method: "DELETE" }, "x"), env, ctx);
+  assert.equal(res.status, 404);
 });

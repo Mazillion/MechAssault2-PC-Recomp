@@ -156,6 +156,9 @@ export class MockGitHub {
     this.issues = [];
     this.calls = [];
     this.next = 1;
+    this.canDelete = false;   // GraphQL deleteIssue: true = the token has admin rights, false = FORBIDDEN
+    this.deleted = [];
+    this.locked = [];
     this.realFetch = globalThis.fetch;
   }
   install() {
@@ -170,9 +173,35 @@ export class MockGitHub {
       if (this.mode === "malformed") return new Response('{"message":"Bad request"}', { status: 400 });
       if (req.method === "POST" && /^\/repos\/[^/]+\/[^/]+\/issues$/.test(url.pathname)) {
         const b = await req.json();
-        const issue = { number: this.next++, ...b };
+        const n = this.next++;
+        const issue = { number: n, node_id: `I_node${n}`, state: "open", ...b };
         this.issues.push(issue);
         return new Response(JSON.stringify(issue), { status: 201 });
+      }
+      if (req.method === "POST" && url.pathname === "/graphql") {
+        const b = await req.json();
+        const i = this.issues.findIndex((x) => x.node_id === b.variables?.id);
+        if (!/deleteIssue/.test(b.query || "")) return new Response('{"errors":[{"type":"UNKNOWN"}]}', { status: 200 });
+        if (i < 0) return new Response('{"data":null,"errors":[{"type":"NOT_FOUND","message":"no issue"}]}', { status: 200 });
+        if (!this.canDelete)
+          return new Response('{"data":{"deleteIssue":null},"errors":[{"type":"FORBIDDEN","message":"no admin rights"}]}', { status: 200 });
+        this.deleted.push(this.issues[i].number);
+        this.issues.splice(i, 1);
+        return new Response('{"data":{"deleteIssue":{"clientMutationId":null}}}', { status: 200 });
+      }
+      let im = url.pathname.match(/^\/repos\/[^/]+\/[^/]+\/issues\/(\d+)(\/lock)?$/);
+      if (im) {
+        const issue = this.issues.find((x) => x.number === Number(im[1]));
+        if (!issue) return new Response('{"message":"Not Found"}', { status: 404 });
+        if (req.method === "PATCH" && !im[2]) {
+          Object.assign(issue, await req.json());
+          return new Response(JSON.stringify(issue), { status: 200 });
+        }
+        if (req.method === "PUT" && im[2]) {
+          this.locked.push(issue.number);
+          issue.locked = true;
+          return new Response(null, { status: 204 });
+        }
       }
       if (req.method === "GET" && url.pathname === "/search/issues") {
         const q = url.searchParams.get("q");
