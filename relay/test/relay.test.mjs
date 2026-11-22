@@ -543,6 +543,15 @@ test("announce: report senders on an older version get the announced notice", as
   assert.equal(same.body.message, "");
 });
 
+test("announce: the 60-day clean-up never touches the announcement", async () => {
+  await send(announce({ version: "1.1.8", sha256: SHA, size: SIZE }));
+  await send(announce({ version: "1.1.9", sha256: SHA, size: SIZE }));
+  for (const k of ["config/latest.json", "config/latest.prev.json"]) env.REPORTS.map.get(k).uploaded = new Date(Date.now() - 400 * 86400e3);
+  await send(owner("/v1/admin/expire", { method: "POST" }));
+  assert.ok(env.REPORTS.map.has("config/latest.json") && env.REPORTS.map.has("config/latest.prev.json"));
+  assert.equal((await live()).latest, "1.1.9");
+});
+
 test("announce: the public route stays anonymous (no limiter, no GitHub, one stored file only)", async () => {
   await send(announce({ version: "1.1.8", sha256: SHA, size: SIZE }));
   for (let i = 0; i < 10; i++) assert.equal((await worker.fetch(latestReq(), env, ctx)).status, 200);

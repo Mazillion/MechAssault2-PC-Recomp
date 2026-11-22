@@ -45,6 +45,9 @@ int main(void)
     check(ma2_update_parse_reply("{\"ok\":true,\"latest\":\"1.1.8\"}", out, sizeof out) && !strcmp(out, "1.1.8"), "reply plain");
     check(ma2_update_parse_reply(" {\n \"ok\" : true , \"latest\" : \"1.1.8\", \"notice\": \"x\"}", out, sizeof out) && !strcmp(out, "1.1.8"),
           "reply spaced, notice ignored");
+    /* 1.1.7 self-update: the relay also gives the installer's sha256, size and asset name; the game reads only latest */
+    check(ma2_update_parse_reply("{\"ok\":true,\"latest\":\"1.1.8\",\"notice\":\"Please update.\",\"sha256\":\"abababababababababababababababababababababababababababababababab\",\"size\":23107422,\"asset\":\"MechAssault 2 Recomp Installer.exe\"}", out, sizeof out) && !strcmp(out, "1.1.8"),
+          "reply with the installer fields");
     check(!ma2_update_parse_reply("{\"ok\":true,\"latest\":null}", out, sizeof out) && !out[0], "latest null");
     check(!ma2_update_parse_reply("{\"ok\":false,\"latest\":\"1.1.8\"}", out, sizeof out), "ok false");
     check(!ma2_update_parse_reply("{\"latest\":\"1.1.8\"}", out, sizeof out), "ok missing");
