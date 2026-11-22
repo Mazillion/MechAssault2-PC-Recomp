@@ -605,9 +605,9 @@ static void apu_time_frame(int threaded)
         double ms=1000.0/(double)f.QuadPart,wall=(now.QuadPart-last.QuadPart)*ms;
         long long vp=g_apu_vp_ticks-vp0,gp=g_dsp_gp_ticks-gp0,ep=g_dsp_ep_ticks-ep0;
         unsigned long long voices=g_apu_vp_voices-voices0;
-        fprintf(stderr,"[APU-TIME] %.1f s: %llu frames (%.0f%% of real time); VP %.0f ms (%.1f voices/frame, max %u), GP %.0f ms, EP %.0f ms; %s\n",
+        fprintf(stderr,"[APU-TIME] %.1f s: %llu frames (%.0f%% of real time); VP %.0f ms (%.1f voices/frame, max %u), GP %.0f ms, EP %.0f ms; %s; resyncs=%ld\n",
                 wall/1000.0,frames,frames*0.6666667/wall*100.0,vp*ms,frames?(double)voices/frames:0.0,g_apu_vp_voices_max,
-                gp*ms,ep*ms,threaded?"DSP on its own thread":"DSP inline");
+                gp*ms,ep*ms,threaded?"DSP on its own thread":"DSP inline",(long)g_apu_resyncs);
         dsp_threads_report(wall);
         last=now;vp0=g_apu_vp_ticks;voices0=g_apu_vp_voices;gp0=g_dsp_gp_ticks;ep0=g_dsp_ep_ticks;g_apu_vp_voices_max=0;frames=0;
     }
@@ -615,6 +615,21 @@ static void apu_time_frame(int threaded)
 
 /* GP and EP run here: the mixbins go into the GP, it runs one frame, and every eighth frame the
  * EP runs and DMAs its 256-sample block into d->monitor.frame_buf. */
+/* RECOMP_TEST_CPU_SLOW=<percent> (test only, weak-PC model, MA2-2LXVOZ): after each piece of audio work (VP on
+ * the APU thread, GP/EP on the DSP thread) the thread spins for <percent> % of the time that work took, so the
+ * audio threads run as if on a core 1+<percent>/100 times slower while the rest of the game runs at full speed.
+ * The spin counts as GP time in [APU-TIME]. Off (0) by default. */
+static int g_test_slow=-1;
+long long apu_test_slow(long long ticks)
+{
+    if(g_test_slow<0){const char *v=getenv("RECOMP_TEST_CPU_SLOW");g_test_slow=v?atoi(v):0;
+        if(g_test_slow>0)fprintf(stderr,"[APU] TEST: audio work slowed by %d%% (RECOMP_TEST_CPU_SLOW)\n",g_test_slow);}
+    if(g_test_slow<=0 || ticks<=0)return 0;
+    LARGE_INTEGER a,b;QueryPerformanceCounter(&a);
+    long long until=a.QuadPart+ticks*g_test_slow/100;
+    do{YieldProcessor();QueryPerformanceCounter(&b);}while(b.QuadPart<until);
+    return b.QuadPart-a.QuadPart;
+}
 static uint64_t g_ep_runs,g_ep_cycles;
 static void dsp_run_frame(MCPXAPUState *d,float feed[NUM_MIXBINS][NUM_SAMPLES_PER_FRAME],
                           bool gp,bool ep_on,bool ep_run,unsigned div)
@@ -640,7 +655,7 @@ static void dsp_run_frame(MCPXAPUState *d,float feed[NUM_MIXBINS][NUM_SAMPLES_PE
         g_ep_runs++;g_ep_cycles+=g_dbg.ep.cycles;
         QueryPerformanceCounter(&t2);
     }
-    g_dsp_gp_ticks+=t1.QuadPart-t0.QuadPart;g_dsp_ep_ticks+=t2.QuadPart-t1.QuadPart;
+    g_dsp_gp_ticks+=t1.QuadPart-t0.QuadPart+apu_test_slow(t2.QuadPart-t0.QuadPart);g_dsp_ep_ticks+=t2.QuadPart-t1.QuadPart;
 }
 
 /* The DSPs on their own thread (2026-10-15). The APU thread did everything in turn each 0.67 ms

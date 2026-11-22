@@ -2050,6 +2050,7 @@ void mcpx_apu_vp_frame(MCPXAPUState *d,
     {
         LARGE_INTEGER vp_t1; QueryPerformanceCounter(&vp_t1);
         g_apu_vp_ticks += vp_t1.QuadPart - vp_t0.QuadPart;
+        { extern long long apu_test_slow(long long); apu_test_slow(vp_t1.QuadPart - vp_t0.QuadPart); }
         g_apu_vp_voices += vp_voices;
         if (vp_voices > g_apu_vp_voices_max) g_apu_vp_voices_max = vp_voices;
     }

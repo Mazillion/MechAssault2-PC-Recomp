@@ -28,6 +28,12 @@
 
 #include "../dsp_shim.h"
 #include "dsp_cpu.h"
+#include <intrin.h>   /* _BitScanReverse (emu_update_rn_modulo) */
+#include "../../../platform/pc_switch.h"
+/* 1.1.7 (MA2-2LXVOZ) interpreter cuts, all with the same results as the 1.1.6 code: 64-bit 56-bit
+ * add/sub/mul, bit-scan modulo buffer size, interrupt check only when one can be due.
+ * [Audio] DspFast / RECOMP_DSP_FAST=0 runs the 1.1.6 code instead. Read at the first DSP reset. */
+static int g_dsp_fast = 1;
 
 #define BITMASK(x)  ((1<<(x))-1)
 
@@ -349,6 +355,14 @@ static uint32_t nonparallel_matches[ARRAY_SIZE(nonparallel_opcodes)][2];
 void dsp56k_reset_cpu(dsp_core_t* dsp)
 {
     int i;
+    {
+        static int decided;
+        if (!decided) {
+            decided = 1;
+            g_dsp_fast = pc_switch("RECOMP_DSP_FAST", "Audio", "DspFast", 1) != 0;
+            fprintf(stderr, "[APU-DSP] interpreter: %s\n", g_dsp_fast ? "fast arithmetic (1.1.7)" : "1.1.6 code (DspFast=0)");
+        }
+    }
     if (!matches_initialised) {
         matches_initialised = true;
         for (i=0; i<ARRAY_SIZE(nonparallel_opcodes); i++) {
@@ -657,8 +671,10 @@ void dsp56k_execute_instruction(dsp_core_t* dsp)
     /* Process the PC */
     dsp_postexecute_update_pc(dsp);
 
-    /* Process Interrupts */
-    dsp_postexecute_interrupts(dsp);
+    /* Process Interrupts. With no interrupt pipeline in progress and none pending the call
+     * returns without a change (1.1.8 fast path, MA2-2LXVOZ: one call per DSP instruction). */
+    if (!g_dsp_fast || dsp->interrupt_state == DSP_INTERRUPT_DISABLED || dsp->interrupt_counter)
+        dsp_postexecute_interrupts(dsp);
 
 
     dsp->num_inst += dsp->instr_cycle;
@@ -1161,6 +1177,17 @@ static uint16_t dsp_abs56(uint32_t *dest)
     return newsr;
 }
 
+static inline uint64_t acc56_get(const uint32_t *v)
+{
+    return ((uint64_t)v[0] << 48) | ((uint64_t)v[1] << 24) | v[2];
+}
+static inline void acc56_put(uint32_t *v, uint64_t x)
+{
+    v[0] = (uint32_t)(x >> 48) & 0xFF;
+    v[1] = (uint32_t)(x >> 24) & 0xFFFFFF;
+    v[2] = (uint32_t)x & 0xFFFFFF;
+}
+
 static uint16_t dsp_asl56(uint32_t *dest, int n)
 {
     /* Shift left dest n bits: D<<=n */
@@ -1196,7 +1223,9 @@ static uint16_t dsp_asr56(uint32_t *dest, int n)
     return (carry<<DSP_SR_C);
 }
 
-static uint16_t dsp_add56(uint32_t *source, uint32_t *dest)
+
+/* The 1.1.6 3-word forms, used with DspFast=0. */
+static uint16_t dsp116_add56(uint32_t *source, uint32_t *dest)
 {
     uint16_t overflow, carry, flg_s, flg_d, flg_r;
 
@@ -1222,7 +1251,8 @@ static uint16_t dsp_add56(uint32_t *source, uint32_t *dest)
     return (overflow<<DSP_SR_L)|(overflow<<DSP_SR_V)|(carry<<DSP_SR_C);
 }
 
-static uint16_t dsp_sub56(uint32_t *source, uint32_t *dest)
+
+static uint16_t dsp116_sub56(uint32_t *source, uint32_t *dest)
 {
     uint16_t overflow, carry, flg_s, flg_d, flg_r, dest_save;
 
@@ -1249,7 +1279,8 @@ static uint16_t dsp_sub56(uint32_t *source, uint32_t *dest)
     return (overflow<<DSP_SR_L)|(overflow<<DSP_SR_V)|(carry<<DSP_SR_C);
 }
 
-static void dsp_mul56(uint32_t source1, uint32_t source2, uint32_t *dest, uint8_t signe)
+
+static void dsp116_mul56(uint32_t source1, uint32_t source2, uint32_t *dest, uint8_t signe)
 {
     uint32_t part[4], zerodest[3], value;
 
@@ -1303,12 +1334,50 @@ static void dsp_mul56(uint32_t source1, uint32_t source2, uint32_t *dest, uint8_
     if (signe) {
         zerodest[0] = zerodest[1] = zerodest[2] = 0;
 
-        dsp_sub56(dest, zerodest);
+        dsp116_sub56(dest, zerodest);
 
         dest[0] = zerodest[0];
         dest[1] = zerodest[1];
         dest[2] = zerodest[2];
     }
+}
+
+static uint16_t dsp_add56(uint32_t *source, uint32_t *dest)
+{
+    if (!g_dsp_fast) return dsp116_add56(source, dest);
+    /* 64-bit form (2026-11-22, MA2-2LXVOZ): same result and SR bits as the 3-word version,
+     * checked on 600 M register-shaped inputs. */
+    uint64_t s = acc56_get(source), d = acc56_get(dest), r = d + s;
+    uint16_t carry = (uint16_t)((r >> 56) & 1);
+    r &= 0xFFFFFFFFFFFFFFull;
+    uint16_t fs = (uint16_t)((s >> 55) & 1), fd = (uint16_t)((d >> 55) & 1), fr = (uint16_t)((r >> 55) & 1);
+    uint16_t overflow = (fs ^ fr) & (fd ^ fr);
+    acc56_put(dest, r);
+    return (overflow<<DSP_SR_L)|(overflow<<DSP_SR_V)|(carry<<DSP_SR_C);
+}
+
+static uint16_t dsp_sub56(uint32_t *source, uint32_t *dest)
+{
+    if (!g_dsp_fast) return dsp116_sub56(source, dest);
+    /* 64-bit form (2026-11-22, MA2-2LXVOZ): same result and SR bits as the 3-word version,
+     * checked on 600 M register-shaped inputs. */
+    uint64_t s = acc56_get(source), d = acc56_get(dest), r = (d - s) & 0xFFFFFFFFFFFFFFull;
+    uint16_t carry = d < s;
+    uint16_t fs = (uint16_t)((s >> 55) & 1), fd = (uint16_t)((d >> 55) & 1), fr = (uint16_t)((r >> 55) & 1);
+    uint16_t overflow = (fs ^ fd) & (fr ^ fd);
+    acc56_put(dest, r);
+    return (overflow<<DSP_SR_L)|(overflow<<DSP_SR_V)|(carry<<DSP_SR_C);
+}
+
+static void dsp_mul56(uint32_t source1, uint32_t source2, uint32_t *dest, uint8_t signe)
+{
+    if (!g_dsp_fast) { dsp116_mul56(source1, source2, dest, signe); return; }
+    /* 64-bit form (2026-11-22, MA2-2LXVOZ): same result and SR bits as the 3-word version,
+     * checked on 600 M register-shaped inputs. */
+    int64_t a = (int32_t)(source1 << 8) >> 8, b = (int32_t)(source2 << 8) >> 8;
+    int64_t p = a * b * 2;
+    if (signe) p = -p;
+    acc56_put(dest, (uint64_t)p);
 }
 
 static void dsp_rnd56(dsp_core_t* dsp, uint32_t *dest)

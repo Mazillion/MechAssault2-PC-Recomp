@@ -89,11 +89,20 @@ static void emu_update_rn_modulo(dsp_core_t* dsp, uint32_t numreg, int16_t modif
     int16_t r_reg, orig_modifier=modifier;
 
     modulo = dsp->registers[DSP_REG_M0+numreg]+1;
-    bufsize = 1;
-    bufmask = BITMASK(16);
-    while (bufsize < modulo) {
-        bufsize <<= 1;
-        bufmask <<= 1;
+    /* Smallest power of two >= modulo, by bit scan instead of a loop of up to 15 steps on every
+     * circular access (1.1.7, MA2-2LXVOZ; same bufsize/bufmask for all 32768 moduli). */
+    if (g_dsp_fast) {
+        unsigned long k = 0;
+        if (modulo > 1) { _BitScanReverse(&k, (unsigned long)(uint16_t)(modulo - 1)); k++; }
+        bufsize = (uint16_t)(1u << k);
+        bufmask = (uint16_t)(0xFFFFu << k);
+    } else {
+        bufsize = 1;
+        bufmask = BITMASK(16);
+        while (bufsize < modulo) {
+            bufsize <<= 1;
+            bufmask <<= 1;
+        }
     }
 
     lobound = dsp->registers[DSP_REG_R0+numreg] & bufmask;
