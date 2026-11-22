@@ -23,6 +23,15 @@ You have version {{VERSION}} (build {{BUILD}}).
   sends only its version number; [Update] CheckForUpdates=0 in
   pc_settings.ini turns it off. See PRIVACY.md.
 - Uninstall also removes the kept build.
+- The installer can update itself: when a newer version is out, opening
+  it on your install offers Update to X. It downloads the new installer
+  from the project's GitHub releases page only after you click, checks it
+  before it runs, and then updates your install. A copy of the installer
+  stays in the install folder, and Update MechAssault 2 is added to the
+  Start menu if you chose Start menu shortcuts.
+- Smoother sound on slower PCs: the game's sound processing does the same
+  work in fewer steps, so it falls behind much less often. The sound itself
+  is exactly the same.
 
 
 1.1.6
