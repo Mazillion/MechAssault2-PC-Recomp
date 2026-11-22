@@ -27,6 +27,13 @@ Commands:
     python triage.py forget-key          remove the owner key saved in Windows Credential Manager
     python triage.py draft-issue MA2-XXXXXX   write a PUBLIC issue draft (Markdown, never posted) from the report's
                                          text and summary, with private details removed; read it before using it
+    python triage.py announce 1.1.8 --installer "MechAssault 2 Recomp Installer.exe" [--notice "..."]
+                                         after publishing a release on GitHub: tell every player's game and installer
+                                         that 1.1.8 is out. Hashes the installer file, checks the GitHub release
+                                         (published, not a draft or pre-release, same installer size), shows a
+                                         summary and asks before anything changes (--yes skips the question)
+    python triage.py announce --show     what the relay announces now
+    python triage.py announce --undo     go back to the previous announcement
 
 Reports are saved to %USERPROFILE%\\MA2-Reports (change with --out). Zips are never extracted to disk: they are read
 in memory and only text members are printed, so nothing inside a report is ever run.
@@ -34,6 +41,7 @@ in memory and only text members are printed, so nothing inside a report is ever 
 
 import argparse
 import ctypes
+import hashlib
 import io
 import json
 import os
@@ -456,6 +464,142 @@ def delete_report(relay, rid, out, yes=False, ask=input):
     return res
 
 
+# ---------------------------------------------------------------- announce a release (1.1.7 self-updating installer)
+# The relay tells every game ("Version X is available") and every installer ("Update to X") about the newest release, and
+# gives the installer the SHA-256 and size it must find in the file it downloads from GitHub. This sets those values from
+# the release's own installer file, so nobody types a hash, and only for a release that is really public on GitHub.
+
+GITHUB_REPO = "Mazillion/MechAssault2-PC-Recomp"
+GITHUB_API = "https://api.github.com"
+INSTALLER_ASSET = "MechAssault 2 Recomp Installer.exe"
+ANNOUNCE_VERSION = re.compile(r"^\d{1,4}\.\d{1,4}\.\d{1,4}$")
+ANNOUNCE_QUESTION = "Announce this to every player? [y/N] "
+UNDO_QUESTION = "Go back to the previous announcement? [y/N] "
+
+
+def file_facts(path):
+    """(sha256 hex, size) of a local file."""
+    h, n = hashlib.sha256(), 0
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+            n += len(block)
+    return h.hexdigest(), n
+
+
+def github_api():
+    """The public GitHub API (MA2_GITHUB_API overrides it for tests: https, or http on this PC only)."""
+    url = os.environ.get("MA2_GITHUB_API", "").strip() or GITHUB_API
+    u = urllib.parse.urlparse(url)
+    if u.scheme != "https" and not (u.scheme == "http" and u.hostname in ("localhost", "127.0.0.1", "::1")):
+        raise SystemExit("MA2_GITHUB_API must be https:// (http:// only for localhost testing)")
+    return url.rstrip("/")
+
+
+def github_release(version, timeout=30):
+    """The release v<version> as the public GitHub API describes it (metadata only, no download, no token), or None."""
+    req = urllib.request.Request(f"{github_api()}/repos/{GITHUB_REPO}/releases/tags/v{version}",
+                                 headers={"User-Agent": "ma2-triage", "Accept": "application/vnd.github+json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read(1 << 22))
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        raise SystemExit(f"GitHub answered {e.code}; try again later (or check the release page yourself and use --force)")
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        raise SystemExit(f"cannot reach GitHub: {getattr(e, 'reason', e)} (check the release page yourself and use --force)")
+
+
+def release_problems(rel, version, sha, size):
+    """Why this release must not be announced yet (empty = fine)."""
+    if not rel:
+        return [f"there is no published release v{version} on GitHub (a draft is not visible either)"]
+    out = []
+    if rel.get("draft"):
+        out.append("the release is still a draft")
+    if rel.get("prerelease"):
+        out.append("the release is marked as a pre-release")
+    assets = [a for a in rel.get("assets") or [] if a.get("name") == INSTALLER_ASSET]
+    if not assets:
+        out.append(f'the release has no asset named "{INSTALLER_ASSET}"')
+    else:
+        a = assets[0]
+        if a.get("state", "uploaded") != "uploaded":
+            out.append("the installer asset has not finished uploading")
+        if a.get("size") != size:
+            out.append(f"the installer on GitHub is {a.get('size')} bytes, this file is {size} bytes")
+        digest = str(a.get("digest") or "")
+        if digest.startswith("sha256:") and digest[7:].lower() != sha:
+            out.append("the installer on GitHub has a different SHA-256 than this file")
+    return out
+
+
+def release_url(version):
+    return f"https://github.com/{GITHUB_REPO}/releases/tag/v{version}"
+
+
+def show_live(relay):
+    res = relay.call("GET", "/v1/admin/latest")
+    print("Announced now: " + json.dumps(res.get("live"), indent=1))
+    print("(from " + ("the announcement" if res.get("source") == "file" else "the relay's settings, nothing announced yet") + ")")
+    if res.get("prev"):
+        print(f"Previous announcement: {res['prev'].get('version')} (announce --undo goes back to it)")
+    return res
+
+
+def announce(make_relay, version, installer, notice="", yes=False, force=False, ask=None):
+    """Check, summarise, ask, then POST /v1/admin/latest. make_relay() is called only after the question was answered."""
+    ask = ask or input
+    if not version or not ANNOUNCE_VERSION.match(version):
+        raise SystemExit("Give the release number as X.Y.Z, for example: announce 1.1.8 --installer <file>")
+    if not installer or not os.path.isfile(installer):
+        raise SystemExit("Give the release's installer file with --installer (the exe you uploaded to the release)")
+    if os.path.basename(installer) != INSTALLER_ASSET:
+        print(f'Note: the file is named "{os.path.basename(installer)}"; the release asset must be "{INSTALLER_ASSET}".')
+    sha, size = file_facts(installer)
+    problems = release_problems(github_release(version), version, sha, size)
+    if problems and not force:
+        raise SystemExit("Not announced: " + "; ".join(problems) + ".")
+    print("")
+    print(f"  Version   {version}")
+    print(f"  Installer {installer}")
+    print(f"  Size      {size:,} bytes")
+    print(f"  SHA-256   {sha}")
+    print(f"  Release   {release_url(version)}")
+    if notice:
+        print(f"  Notice    {notice}")
+    if problems:
+        print("")
+        print("  WARNING (--force): " + "; ".join(problems) + ".")
+        print("  Players' installers will refuse a download that does not match this file.")
+    print("")
+    print("Every game shows \"Version %s is available\" on its main menu, and the installer offers \"Update to %s\"." % (version, version))
+    if not yes and ask(ANNOUNCE_QUESTION).strip().lower() not in ("y", "yes"):
+        raise SystemExit("Not announced.")
+    relay = make_relay()
+    body = {"version": version, "sha256": sha, "size": size, "asset": INSTALLER_ASSET}
+    if notice:
+        body["notice"] = notice
+    res = relay.call("POST", "/v1/admin/latest", body)
+    print(f"Announced {res.get('announced')}. The relay now answers: " + json.dumps(res.get("live")))
+    return res
+
+
+def undo_announce(make_relay, yes=False, ask=None):
+    ask = ask or input
+    relay = make_relay()
+    cur = relay.call("GET", "/v1/admin/latest")
+    prev = cur.get("prev")
+    print("Announced now: " + str((cur.get("live") or {}).get("latest")))
+    print("Goes back to: " + (str(prev.get("version")) if prev else "nothing announced (the relay's settings)"))
+    if not yes and ask(UNDO_QUESTION).strip().lower() not in ("y", "yes"):
+        raise SystemExit("Nothing changed.")
+    res = relay.call("POST", "/v1/admin/latest", {"undo": True})
+    print("The relay now answers: " + json.dumps(res.get("live")))
+    return res
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="MechAssault 2 report triage")
     ap.add_argument("--relay", default=os.environ.get("MA2_RELAY_URL", "") or DEFAULT_RELAY)
@@ -474,6 +618,14 @@ def main(argv=None):
     sub.add_parser("forget-key")
     p = sub.add_parser("switch"); p.add_argument("state", nargs="?", choices=["on", "off"])
     p.add_argument("--message", default="")
+    p = sub.add_parser("announce", help="tell every player's game and installer about a published release")
+    p.add_argument("version", nargs="?", default="")
+    p.add_argument("--installer", default="", help="the release's installer exe (its SHA-256 and size are announced)")
+    p.add_argument("--notice", default="", help="optional text shown to older versions after Send report (200 characters)")
+    p.add_argument("--yes", action="store_true", help="do not ask (after the owner's go)")
+    p.add_argument("--force", action="store_true", help="announce even when the GitHub check fails (prints a warning)")
+    p.add_argument("--show", action="store_true", help="show what is announced now")
+    p.add_argument("--undo", action="store_true", help="go back to the previous announcement")
     a = ap.parse_args(argv)
 
     if a.cmd == "draft-issue" and os.path.exists(os.path.join(a.out, check_id(a.id) + ".json")):
@@ -485,6 +637,17 @@ def main(argv=None):
         print("The saved owner key was removed." if cred_delete() else "No owner key was saved.")
         return 0
     relay_url = a.relay or DEFAULT_RELAY
+    if a.cmd == "announce":
+        def make_relay():
+            key, source = resolve_key(a.key)
+            return Relay(relay_url, key, on_success=(lambda: offer_save(key)) if source == "prompt" else None)
+        if a.show:
+            show_live(make_relay())
+        elif a.undo:
+            undo_announce(make_relay, yes=a.yes)
+        else:
+            announce(make_relay, a.version.strip(), a.installer, a.notice.strip(), yes=a.yes, force=a.force)
+        return 0
     key, source = resolve_key(a.key)
     relay = Relay(relay_url, key, on_success=(lambda: offer_save(key)) if source == "prompt" else None)
     seen = load_seen(a.out)

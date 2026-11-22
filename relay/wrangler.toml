@@ -19,7 +19,13 @@ OFF_MESSAGE = ""
 # Text shown to players after a successful send ("" = nothing extra).
 NOTICE = ""
 # Optional: players on a version below LATEST_VERSION see UPDATE_NOTICE; below MIN_VERSION their report is refused.
+# Newest release. Normally set with `python tools/triage.py announce X.Y.Z --installer <file>` (stored in the bucket as
+# config/latest.json, no redeploy); these vars are used only while nothing was announced. LATEST_SHA256 / LATEST_SIZE:
+# the release installer's SHA-256 (64 hex) and size in bytes; the self-updating installer runs a download only when
+# both match.
 LATEST_VERSION = ""
+LATEST_SHA256 = ""
+LATEST_SIZE = ""
 MIN_VERSION = ""
 UPDATE_NOTICE = ""
 # Retention (1.1.7): reports and their issues go after 60 days (hourly cron). The player's own text stays out of

@@ -6,7 +6,7 @@
 //       MOCK_FORCE_STATUS = 429 | 500 | ...          answer every upload with this status and {ok:false}
 //       MOCK_DELAY_MS = n                            wait before answering uploads (timeout tests)
 //       OWNER_KEY, DAILY_CAP, PER_IP_PER_HOUR, MAX_UPLOAD_BYTES, ACCEPT_REPORTS, NOTICE, LATEST_VERSION,
-//       UPDATE_NOTICE, MIN_VERSION, ISSUE_PLAYER_TEXT, DELETE_ISSUES  (as on the Worker)
+//       LATEST_SHA256, LATEST_SIZE, UPDATE_NOTICE, MIN_VERSION, ISSUE_PLAYER_TEXT, DELETE_ISSUES  (as on the Worker)
 // Extra test-only route: GET /__mock/issues  -> the issues the mock GitHub received.
 import http from "node:http";
 import worker from "../src/worker.js";
@@ -15,7 +15,7 @@ import { makeEnv, MockCtx, MockGitHub } from "./mocks.mjs";
 const port = parseInt(process.argv[2] || "8787", 10);
 const over = {};
 for (const k of ["OWNER_KEY", "DAILY_CAP", "PER_IP_PER_HOUR", "MAX_UPLOAD_BYTES", "ACCEPT_REPORTS", "NOTICE", "OFF_MESSAGE",
-  "LATEST_VERSION", "UPDATE_NOTICE", "MIN_VERSION", "ISSUE_PLAYER_TEXT", "DELETE_ISSUES"])
+  "LATEST_VERSION", "LATEST_SHA256", "LATEST_SIZE", "UPDATE_NOTICE", "MIN_VERSION", "ISSUE_PLAYER_TEXT", "DELETE_ISSUES"])
   if (process.env[k] !== undefined) over[k] = process.env[k];
 over.PUBLIC_URL = `http://127.0.0.1:${port}`;
 const env = makeEnv({ OWNER_KEY: "local-owner-key", ...over });

@@ -431,6 +431,125 @@ test("latest: a trailing path or query is not the route", async () => {
   assert.equal(q.status, 200, "a query string is ignored");
 });
 
+// ---------------------------------------------------------------- announce + installer hash (1.1.7 self-update)
+
+const SHA = "ab".repeat(32);
+const SIZE = 23107422;
+function announce(body, key = env.OWNER_KEY, method = "POST") {
+  return owner("/v1/admin/latest", { method, headers: { "content-type": "application/json" },
+                                     body: method === "POST" ? JSON.stringify(body) : undefined }, key);
+}
+async function live(e = env) {
+  return (await worker.fetch(latestReq(), e, ctx)).json();
+}
+
+test("latest env: LATEST_SHA256 + LATEST_SIZE add sha256, size and the fixed asset name", async () => {
+  env = makeEnv({ LATEST_VERSION: "1.1.8", LATEST_SHA256: SHA.toUpperCase(), LATEST_SIZE: String(SIZE) });
+  assert.deepEqual(await live(), { ok: true, latest: "1.1.8", sha256: SHA, size: SIZE, asset: "MechAssault 2 Recomp Installer.exe" });
+});
+
+test("latest env: a bad hash or size leaves the installer fields out (the game still sees the version)", async () => {
+  for (const [sha, size] of [["xyz", String(SIZE)], [SHA.slice(2), String(SIZE)], [SHA, "12"], [SHA, "999999999999"], [SHA, "2e7x"], [SHA, ""]]) {
+    const b = await live(makeEnv({ LATEST_VERSION: "1.1.8", LATEST_SHA256: sha, LATEST_SIZE: size }));
+    assert.deepEqual(b, { ok: true, latest: "1.1.8" }, `${sha} ${size}`);
+  }
+  assert.deepEqual(await live(makeEnv({ LATEST_SHA256: SHA, LATEST_SIZE: String(SIZE) })), { ok: true, latest: null });
+});
+
+test("announce: validation refuses bad input and stores nothing", async () => {
+  const good = { version: "1.1.8", sha256: SHA, size: SIZE, asset: "MechAssault 2 Recomp Installer.exe", notice: "Please update." };
+  const bad = [
+    { ...good, version: "1.1.8-preview.1" }, { ...good, version: "1.2" }, { ...good, version: "v1.1.8" }, { ...good, version: 118 },
+    { ...good, sha256: "ab".repeat(31) }, { ...good, sha256: "zz".repeat(32) }, { ...good, sha256: undefined },
+    { ...good, size: 12 }, { ...good, size: 300 * 1024 * 1024 }, { ...good, size: "23107422" }, { ...good, size: 1.5e7 + 0.5 },
+    { ...good, asset: "evil.exe" }, { ...good, notice: "x".repeat(201) }, { ...good, notice: "line\nbreak" },
+    { ...good, notice: "bidi‮text" }, { ...good, notice: 5 }, [good], null,
+  ];
+  for (const b of bad) {
+    const r = await send(announce(b));
+    assert.equal(r.status, 400, JSON.stringify(b));
+    assert.equal(r.body.ok, false);
+  }
+  const raw = await send(owner("/v1/admin/latest", { method: "POST", body: "not json" }));
+  assert.equal(raw.status, 400);
+  assert.equal(env.REPORTS.map.size, 0, "nothing stored");
+});
+
+test("announce: a wrong or missing key is 401; the browser cookie never reaches the route", async () => {
+  const good = { version: "1.1.8", sha256: SHA, size: SIZE };
+  assert.equal((await send(announce(good, "wrong"))).status, 401);
+  assert.equal((await send(announce(good, null))).status, 401);
+  assert.equal((await send(announce(good, "wrong", "GET"))).status, 401);
+  // the right key through the form gives the cookie; the cookie alone is refused here
+  const login = await worker.fetch(new Request("https://relay.example.test/v1/open/MA2-AAAAAA", {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", origin: "https://relay.example.test", "cf-connecting-ip": "203.0.113.9" },
+    body: `key=${encodeURIComponent(env.OWNER_KEY)}&remember=1` }), env, ctx);
+  const cookie = (login.headers.get("set-cookie") || "").split(";")[0];
+  assert.match(cookie, /^ma2_owner=/);
+  const withCookie = new Request("https://relay.example.test/v1/admin/latest", {
+    method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify(good) });
+  assert.equal((await send(withCookie)).status, 401);
+  assert.equal(await env.REPORTS.get("config/latest.json"), null);
+  // trimmed key works
+  assert.equal((await send(announce(good, ` ${env.OWNER_KEY}\r\n`))).status, 200);
+});
+
+test("announce: the file wins over the vars, the answer changes at once, prev is kept, undo goes back", async () => {
+  env = makeEnv({ LATEST_VERSION: "1.1.7", UPDATE_NOTICE: "env notice", LATEST_SHA256: "cd".repeat(32), LATEST_SIZE: String(SIZE) });
+  assert.deepEqual(await live(), { ok: true, latest: "1.1.7", notice: "env notice", sha256: "cd".repeat(32), size: SIZE,
+                                   asset: "MechAssault 2 Recomp Installer.exe" });
+  let r = await send(announce({ version: "1.1.8", sha256: SHA, size: SIZE, notice: "Please update to 1.1.8." }));
+  assert.equal(r.status, 200);
+  assert.equal(r.body.announced, "1.1.8");
+  assert.equal(r.body.source, "file");
+  assert.deepEqual(r.body.live, { ok: true, latest: "1.1.8", notice: "Please update to 1.1.8.", sha256: SHA, size: SIZE,
+                                  asset: "MechAssault 2 Recomp Installer.exe" });
+  assert.equal(r.body.prev, null, "no earlier announce");
+  assert.deepEqual(await live(), r.body.live, "public answer = what the owner route says is live (cache refreshed)");
+  r = await send(announce({ version: "1.1.9", sha256: "ef".repeat(32), size: SIZE + 1 }));
+  assert.equal(r.body.live.latest, "1.1.9");
+  assert.equal(r.body.live.notice, undefined, "a notice is per announce");
+  assert.equal(r.body.prev.version, "1.1.8");
+  const g = await send(owner("/v1/admin/latest"));
+  assert.equal(g.status, 200);
+  assert.equal(g.body.file.version, "1.1.9");
+  r = await send(announce({ undo: true }));
+  assert.equal(r.body.undone, true);
+  assert.equal(r.body.live.latest, "1.1.8");
+  assert.equal(r.body.prev.version, "1.1.9", "undo twice = redo");
+  assert.equal((await live()).latest, "1.1.8");
+  // with no prev, undo removes the file and the vars apply again
+  env.REPORTS.map.delete("config/latest.prev.json");
+  r = await send(announce({ undo: true }));
+  assert.equal(r.body.source, "env");
+  assert.equal((await live()).latest, "1.1.7");
+});
+
+test("announce: a damaged stored file falls back to the vars", async () => {
+  env = makeEnv({ LATEST_VERSION: "1.1.7" });
+  await env.REPORTS.put("config/latest.json", "{ not json");
+  assert.equal((await live()).latest, "1.1.7");
+  const e2 = makeEnv({ LATEST_VERSION: "1.1.7" });
+  await e2.REPORTS.put("config/latest.json", JSON.stringify({ version: "1.1.8", sha256: "nothex", size: SIZE }));
+  assert.equal((await live(e2)).latest, "1.1.7");
+});
+
+test("announce: report senders on an older version get the announced notice", async () => {
+  await send(announce({ version: "1.1.8", sha256: SHA, size: SIZE, notice: "Please update to 1.1.8." }));
+  const r = await send(await reportRequest({ headers: { "x-ma2-version": "1.1.7" } }));
+  assert.equal(r.status, 200);
+  assert.equal(r.body.message, "Please update to 1.1.8.");
+  const same = await send(await reportRequest({ ip: "203.0.113.8", headers: { "x-ma2-version": "1.1.8" } }));
+  assert.equal(same.body.message, "");
+});
+
+test("announce: the public route stays anonymous (no limiter, no GitHub, one stored file only)", async () => {
+  await send(announce({ version: "1.1.8", sha256: SHA, size: SIZE }));
+  for (let i = 0; i < 10; i++) assert.equal((await worker.fetch(latestReq(), env, ctx)).status, 200);
+  assert.deepEqual([...env.REPORTS.map.keys()], ["config/latest.json"]);
+  assert.equal(gh.calls.length, 0);
+});
+
 // ---------------------------------------------------------------- issue body with the player's text (opt-in)
 
 test("ISSUE_PLAYER_TEXT=on puts the neutralised text back into the issue (4 fences)", async () => {

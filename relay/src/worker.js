@@ -8,6 +8,8 @@
 //   GET /v1/latest    {ok: true, latest: "1.1.7" | null, notice?: "..."} from LATEST_VERSION / UPDATE_NOTICE (1.1.7).
 //                     The game asks once per launch (only its version in the User-Agent). The route reads two vars and
 //                     nothing else: no limiter, no IP, no storage, no log line. Cacheable for an hour.
+//                     1.1.7 self-update: plus sha256, size, asset (the release installer) once announced; the values come
+//                     from config/latest.json (POST /v1/admin/latest, `triage.py announce`), else from the vars.
 //
 // Privacy: the connecting IP is used only inside the rate limiter, as an HMAC under a random key that is
 // created per UTC day and deleted after it. No IP, hash of an IP, country or user agent is written to R2,
@@ -21,6 +23,7 @@
 //   POST /v1/admin/retry         retry the pending issues now
 //   POST /v1/admin/expire        run the retention pass now (the cron runs it every hour)
 //   GET|POST /v1/admin/switch    read or set the off switch {on, message}
+//   GET|POST /v1/admin/latest    read or announce the newest release {version, sha256, size, asset, notice}, or {undo: true}
 //   DELETE /v1/report/<id>       delete one report now: zip, stored text and summary, pending marker, and its issue
 //                                (deleted if the token may, else emptied, closed and locked). 1.1.7.
 //
@@ -534,8 +537,9 @@ async function handleUpload(request, env, ctx) {
   const text = (textRaw || "").replace(/\r\n?/g, "\n").slice(0, MAX_TEXT);
   const summary = (sumRaw || "").replace(/\r\n?/g, "\n").slice(0, MAX_SUMMARY);
 
+  const live = await currentLatest(env);
   if (env.MIN_VERSION && versionLess(meta.version, env.MIN_VERSION))
-    return fail(503, env.UPDATE_NOTICE || MSG.off);
+    return fail(503, env.UPDATE_NOTICE || live.notice || MSG.off);
 
   const now = new Date();
   const month = monthOf(now);
@@ -577,8 +581,8 @@ async function handleUpload(request, env, ctx) {
   }
 
   let message = admit.message || env.NOTICE || "";
-  if (env.LATEST_VERSION && env.UPDATE_NOTICE && versionLess(meta.version, env.LATEST_VERSION))
-    message = env.UPDATE_NOTICE;
+  if (live.version && live.notice && versionLess(meta.version, live.version))
+    message = live.notice;
   return json({ ok: true, id, message });
 }
 
@@ -715,14 +719,134 @@ export async function handleOpen(request, env, url) {
 
 // ---------------------------------------------------------------- latest version (1.1.7)
 
-// Public and anonymous: the answer depends only on two vars, so it carries no per-player data and may be cached.
-export function handleLatest(request, env) {
-  if (request.method !== "GET" && request.method !== "HEAD") return fail(405, "GET only");
+// Where the newest release comes from (1.1.7, self-updating installer): the owner announces it with
+// `triage.py announce` (POST /v1/admin/latest), which writes config/latest.json in the bucket; no dashboard step and no
+// redeploy per release. When that file is absent or invalid, the vars LATEST_VERSION, LATEST_SHA256, LATEST_SIZE and
+// UPDATE_NOTICE are used (the 1.1.7 first-deploy behaviour). sha256 + size describe the release's installer asset
+// (INSTALLER_ASSET on the GitHub release v<latest>): the installer downloads that file from GitHub only and runs it only
+// when its SHA-256 and size equal these values, so GitHub and this relay (two channels) must agree.
+export const INSTALLER_ASSET = "MechAssault 2 Recomp Installer.exe";
+export const INSTALLER_MIN_BYTES = 1024 * 1024;
+export const INSTALLER_MAX_BYTES = 200 * 1024 * 1024;
+const ANNOUNCE_RE = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;    // what an announce may set: a plain X.Y.Z release
+const SHA256_RE = /^[0-9a-f]{64}$/;
+const LATEST_KEY = "config/latest.json";
+const LATEST_PREV_KEY = "config/latest.prev.json";
+const LATEST_TTL_MS = 60 * 1000;
+const NOTICE_MAX = 200;
+const latestCache = new WeakMap();                     // env -> {at, value}: one bucket read per minute per isolate
+
+function validSize(n) {
+  return Number.isSafeInteger(n) && n >= INSTALLER_MIN_BYTES && n <= INSTALLER_MAX_BYTES;
+}
+
+// {value} or {error}: the strict check of an announce (and of the stored file when it is read back).
+export function validateLatest(b) {
+  if (!b || typeof b !== "object" || Array.isArray(b)) return { error: "JSON body {version, sha256, size, asset, notice} expected" };
+  const version = typeof b.version === "string" ? b.version.trim() : "";
+  if (!ANNOUNCE_RE.test(version)) return { error: "version must be X.Y.Z (plain numbers, no preview)" };
+  const sha256 = typeof b.sha256 === "string" ? b.sha256.trim().toLowerCase() : "";
+  if (!SHA256_RE.test(sha256)) return { error: "sha256 must be 64 hex digits" };
+  const size = typeof b.size === "number" ? b.size : NaN;
+  if (!validSize(size)) return { error: `size must be a whole number of bytes from ${INSTALLER_MIN_BYTES} to ${INSTALLER_MAX_BYTES}` };
+  if (b.asset !== undefined && b.asset !== INSTALLER_ASSET) return { error: `asset must be "${INSTALLER_ASSET}"` };
+  let notice = "";
+  if (b.notice !== undefined && b.notice !== null) {
+    if (typeof b.notice !== "string") return { error: "notice must be text" };
+    notice = b.notice.trim();
+    if (notice.length > NOTICE_MAX) return { error: `notice must be at most ${NOTICE_MAX} characters` };
+    if (/[\u0000-\u001F\u007F-\u009F\u2028\u2029\u202A-\u202E\u2066-\u2069]/.test(notice)) return { error: "notice must not contain control characters" };
+  }
+  const value = { version, sha256, size, asset: INSTALLER_ASSET };
+  if (notice) value.notice = notice;
+  return { value };
+}
+
+function latestFromEnv(env) {
   const v = String(env.LATEST_VERSION ?? "").trim();
-  const body = { ok: true, latest: RELEASE_RE.test(v) ? v : null };
+  const out = { source: "env", version: RELEASE_RE.test(v) ? v : null };
   const notice = String(env.UPDATE_NOTICE ?? "").trim();
-  if (body.latest && notice) body.notice = notice.slice(0, 300);
-  return json(body, 200, { "cache-control": "public, max-age=3600" });
+  if (notice) out.notice = notice.slice(0, 300);
+  const sha = String(env.LATEST_SHA256 ?? "").trim().toLowerCase();
+  const size = Number(String(env.LATEST_SIZE ?? "").trim() || NaN);
+  if (out.version && SHA256_RE.test(sha) && validSize(size)) Object.assign(out, { sha256: sha, size });
+  return out;
+}
+
+async function readLatestFile(env, key = LATEST_KEY) {
+  try {
+    const obj = await env.REPORTS.get(key);
+    if (!obj) return null;
+    const r = validateLatest(JSON.parse(await obj.text()));
+    return r.value ? { ...r.value, set_at: null } : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// The live newest release: {source: "file"|"env", version|null, sha256?, size?, notice?}.
+export async function currentLatest(env, fresh = false) {
+  const c = latestCache.get(env);
+  if (!fresh && c && Date.now() - c.at < LATEST_TTL_MS) return c.value;
+  const file = await readLatestFile(env);
+  const value = file
+    ? { source: "file", version: file.version, sha256: file.sha256, size: file.size, ...(file.notice ? { notice: file.notice } : {}) }
+    : latestFromEnv(env);
+  latestCache.set(env, { at: Date.now(), value });
+  return value;
+}
+
+function latestBody(cur) {
+  const body = { ok: true, latest: cur.version || null };
+  if (body.latest && cur.notice) body.notice = cur.notice;
+  if (body.latest && cur.sha256 && cur.size) Object.assign(body, { sha256: cur.sha256, size: cur.size, asset: INSTALLER_ASSET });
+  return body;
+}
+
+// Public and anonymous: the answer depends only on the announced release, so it carries no per-player data and may be cached.
+export async function handleLatest(request, env) {
+  if (request.method !== "GET" && request.method !== "HEAD") return fail(405, "GET only");
+  return json(latestBody(await currentLatest(env)), 200, { "cache-control": "public, max-age=3600" });
+}
+
+// Owner route /v1/admin/latest (header key only, like every admin route; the browser cookie never reaches it).
+//   GET                      {ok, live, source, file, prev}
+//   POST {version, sha256, size, asset?, notice?}   announce: the stored value moves to config/latest.prev.json
+//   POST {undo: true}        back to the previous announce (or, with none, to the vars)
+async function handleAdminLatest(request, env) {
+  const view = async (extra = {}) => {
+    const cur = await currentLatest(env, true);
+    return json({ ok: true, live: latestBody(cur), source: cur.source, file: await readLatestFile(env),
+                  prev: await readLatestFile(env, LATEST_PREV_KEY), ...extra });
+  };
+  if (request.method === "GET") return view();
+  if (request.method !== "POST") return fail(405, "GET or POST");
+  let b;
+  try {
+    b = await request.json();
+  } catch (e) {
+    return fail(400, "JSON body {version, sha256, size, asset, notice} expected");
+  }
+  const put = (key, v) => env.REPORTS.put(key, JSON.stringify({ ...v, set_at: new Date().toISOString() }),
+                                          { httpMetadata: { contentType: "application/json" } });
+  const strip = (v) => { const { set_at, ...rest } = v; return rest; };
+  const now = await readLatestFile(env);
+  if (b && b.undo === true) {
+    const prev = await readLatestFile(env, LATEST_PREV_KEY);
+    if (prev) {
+      await put(LATEST_KEY, strip(prev));
+      if (now) await put(LATEST_PREV_KEY, strip(now));
+      else await env.REPORTS.delete(LATEST_PREV_KEY);
+    } else {
+      await env.REPORTS.delete(LATEST_KEY);
+    }
+    return view({ undone: true });
+  }
+  const r = validateLatest(b);
+  if (r.error) return fail(400, r.error);
+  if (now) await put(LATEST_PREV_KEY, strip(now));
+  await put(LATEST_KEY, r.value);
+  return view({ announced: r.value.version });
 }
 
 // ---------------------------------------------------------------- owner routes
@@ -817,6 +941,8 @@ async function handleOwner(request, env, url) {
     return json({ ok: true, pending: out });
   }
 
+  if (p === "/v1/admin/latest") return await handleAdminLatest(request, env);
+
   if (p === "/v1/admin/expire" && request.method === "POST") {
     return json({ ok: true, ...(await expireOld(env)) });
   }
@@ -848,7 +974,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     try {
-      if (url.pathname === "/v1/latest") return handleLatest(request, env);
+      if (url.pathname === "/v1/latest") return await handleLatest(request, env);
       if (url.pathname.startsWith("/v1/open/")) return await handleOpen(request, env, url);
       if (url.pathname === "/v1/report") {
         if (request.method !== "POST") return fail(405, "POST only");
