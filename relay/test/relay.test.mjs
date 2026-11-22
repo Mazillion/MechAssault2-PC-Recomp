@@ -64,7 +64,9 @@ test("normal upload: id returned, zip + sidecar stored, issue opened, marker cle
   assert.equal(rec.number, 1);
   assert.equal(rec.node_id, "I_node1");
   assert.ok(is.body.includes(zkey), "R2 key in the body");
-  assert.ok(is.body.includes(`https://relay.example.test/v1/report/${r.body.id}`), "owner link in the body");
+  assert.ok(is.body.includes(`Download: https://relay.example.test/v1/open/${r.body.id} (opens in your browser; asks for your owner key the first time)`),
+    "one-click owner link in the body");
+  assert.ok(!is.body.includes(env.OWNER_KEY), "no key in the issue");
   assert.equal(gh.calls[0].auth, "Bearer github_pat_TEST");
   assert.equal(await env.REPORTS.get(`pending/${r.body.id}.json`), null, "pending marker removed");
 });
@@ -583,4 +585,179 @@ test("owner routes stay absent without OWNER_KEY (DELETE too)", async () => {
   env = makeEnv({ OWNER_KEY: "" });
   const res = await worker.fetch(owner("/v1/report/MA2-AAAAAA", { method: "DELETE" }, "x"), env, ctx);
   assert.equal(res.status, 404);
+});
+
+// ---------------------------------------------------------------- one-click owner download (11-22)
+
+import { ownerCookieValue, OPEN_TEXT } from "../src/worker.js";
+
+const BASE = "https://relay.example.test";
+function openReq(id, init = {}) {
+  return new Request(`${BASE}/v1/open/${id}`, init);
+}
+function formReq(id, fields, headers = {}) {
+  return openReq(id, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded", origin: BASE, "cf-connecting-ip": "198.51.100.9", ...headers },
+    body: new URLSearchParams(fields).toString(),
+    redirect: "manual",
+  });
+}
+async function cookieFor(e = env) {
+  return `ma2_owner=${await ownerCookieValue(e)}`;
+}
+
+test("open: no cookie gives the key page (no-store, no framing, no referrer), never the zip", async () => {
+  const r = await send(await reportRequest({ zip: tinyZip(100) }));
+  const res = await worker.fetch(openReq(r.body.id), env, ctx);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type"), /^text\/html/);
+  assert.equal(res.headers.get("cache-control"), "no-store");
+  assert.equal(res.headers.get("x-frame-options"), "DENY");
+  assert.match(res.headers.get("content-security-policy"), /frame-ancestors 'none'/);
+  assert.equal(res.headers.get("referrer-policy"), "no-referrer");
+  const html = await res.text();
+  assert.ok(html.includes(OPEN_TEXT.ask) && html.includes('type="password"') && html.includes(OPEN_TEXT.remember));
+  assert.ok(!html.includes("PK"), "no zip bytes");
+  assert.equal(res.headers.get("set-cookie"), null);
+});
+
+test("open: a wrong key sets no cookie and gives the generic error on the same page", async () => {
+  const r = await send(await reportRequest());
+  const res = await worker.fetch(formReq(r.body.id, { key: "wrong", remember: "1" }), env, ctx);
+  assert.equal(res.status, 401);
+  assert.equal(res.headers.get("set-cookie"), null);
+  const html = await res.text();
+  assert.ok(html.includes(OPEN_TEXT.wrong) && html.includes('type="password"'));
+  assert.ok(!html.includes("wrong\""), "the typed key is not echoed");
+});
+
+test("open: the right key sets an HttpOnly Secure Lax cookie for a year, then the zip downloads", async () => {
+  const zip = tinyZip(321);
+  const r = await send(await reportRequest({ zip }));
+  const res = await worker.fetch(formReq(r.body.id, { key: env.OWNER_KEY, remember: "1" }), env, ctx);
+  assert.equal(res.status, 303);
+  assert.equal(res.headers.get("location"), `/v1/open/${r.body.id}`);
+  const sc = res.headers.get("set-cookie");
+  for (const flag of ["HttpOnly", "Secure", "SameSite=Lax", "Path=/v1/", "Max-Age=31536000"]) assert.ok(sc.includes(flag), flag);
+  assert.ok(!sc.includes(env.OWNER_KEY), "the cookie is not the key");
+  assert.ok(!res.headers.get("location").includes(env.OWNER_KEY));
+  const cookie = sc.split(";")[0];
+  const dl = await worker.fetch(openReq(r.body.id, { headers: { cookie } }), env, ctx);
+  assert.equal(dl.status, 200);
+  assert.equal(dl.headers.get("content-disposition"), `attachment; filename="${r.body.id}.zip"`);
+  assert.equal(dl.headers.get("cache-control"), "no-store");
+  assert.deepEqual(new Uint8Array(await dl.arrayBuffer()), zip);
+});
+
+test("open: without Remember the cookie lasts for the browser session only", async () => {
+  const r = await send(await reportRequest());
+  const res = await worker.fetch(formReq(r.body.id, { key: env.OWNER_KEY }), env, ctx);
+  assert.equal(res.status, 303);
+  assert.ok(!res.headers.get("set-cookie").includes("Max-Age"));
+});
+
+test("open: a cookie made before the key was rotated is refused (the key page again)", async () => {
+  const r = await send(await reportRequest());
+  const old = await cookieFor(env);
+  const rotated = makeEnv({ OWNER_KEY: "a-new-owner-key" });
+  rotated.REPORTS = env.REPORTS;
+  const res = await worker.fetch(openReq(r.body.id, { headers: { cookie: old } }), rotated, ctx);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type"), /^text\/html/);
+  assert.ok((await res.text()).includes('type="password"'));
+});
+
+test("open: the cookie reaches no other owner route (admin, info, delete, header-key download)", async () => {
+  const r = await send(await reportRequest());
+  const cookie = await cookieFor();
+  const routes = [
+    ["GET", "/v1/admin/reports"], ["GET", "/v1/admin/pending"], ["POST", "/v1/admin/retry"], ["POST", "/v1/admin/expire"],
+    ["GET", "/v1/admin/switch"], ["POST", "/v1/admin/switch"], ["DELETE", `/v1/report/${r.body.id}`],
+    ["GET", `/v1/report/${r.body.id}`], ["GET", `/v1/report/${r.body.id}/info`],
+  ];
+  for (const [method, path] of routes) {
+    const res = await worker.fetch(new Request(BASE + path, { method, headers: { cookie } }), env, ctx);
+    assert.equal(res.status, 401, `${method} ${path}`);
+  }
+  assert.ok(await env.REPORTS.get(`reports/${new Date().toISOString().slice(0, 7)}/${r.body.id}.zip`), "nothing deleted");
+});
+
+test("open: a malformed id is a plain 404; an unknown id without the cookie looks exactly like a real one", async () => {
+  for (const bad of ["MA2-ABC", "MA2-000000", "..%2Fadmin", "MA2-ABCDEF.zip", "ma2-abcdef"]) {
+    const res = await worker.fetch(openReq(bad), env, ctx);
+    assert.equal(res.status, 404, bad);
+    assert.ok(!(await res.text()).includes("password"), bad);
+  }
+  const real = await send(await reportRequest());
+  const a = await (await worker.fetch(openReq(real.body.id), env, ctx)).text();
+  const b = await (await worker.fetch(openReq("MA2-ZZZZZZ"), env, ctx)).text();
+  assert.equal(a.replaceAll(real.body.id, "ID"), b.replaceAll("MA2-ZZZZZZ", "ID"), "existence is not revealed");
+  const withCookie = await worker.fetch(openReq("MA2-ZZZZZZ", { headers: { cookie: await cookieFor() } }), env, ctx);
+  assert.equal(withCookie.status, 404);
+  assert.ok((await withCookie.text()).includes(OPEN_TEXT.missing));
+});
+
+test("open: a POST from another origin (or a cross-site fetch) is refused before the key is looked at", async () => {
+  const r = await send(await reportRequest());
+  let res = await worker.fetch(formReq(r.body.id, { key: env.OWNER_KEY }, { origin: "https://evil.example" }), env, ctx);
+  assert.equal(res.status, 403);
+  assert.equal(res.headers.get("set-cookie"), null);
+  res = await worker.fetch(formReq(r.body.id, { key: env.OWNER_KEY }, { origin: "null" }), env, ctx);
+  assert.equal(res.status, 403);
+  const noOrigin = formReq(r.body.id, { key: env.OWNER_KEY }, { "sec-fetch-site": "cross-site" });
+  noOrigin.headers.delete("origin");
+  res = await worker.fetch(noOrigin, env, ctx);
+  assert.equal(res.status, 403);
+  res = await worker.fetch(openReq(r.body.id, { method: "POST", headers: { origin: BASE, "content-type": "application/json" }, body: "{}" }), env, ctx);
+  assert.equal(res.status, 415);
+});
+
+test("open: key tries are limited per connection (10 an hour), then the page says so; a right key is also refused then", async () => {
+  const r = await send(await reportRequest());
+  for (let i = 0; i < 10; i++) assert.equal((await worker.fetch(formReq(r.body.id, { key: "nope" + i }), env, ctx)).status, 401);
+  const res = await worker.fetch(formReq(r.body.id, { key: env.OWNER_KEY }), env, ctx);
+  assert.equal(res.status, 429);
+  assert.equal(res.headers.get("set-cookie"), null);
+  assert.ok((await res.text()).includes(OPEN_TEXT.busy));
+  const other = await worker.fetch(formReq(r.body.id, { key: env.OWNER_KEY }, { "cf-connecting-ip": "203.0.113.200" }), env, ctx);
+  assert.equal(other.status, 303, "another connection is not affected");
+  assert.ok(!env.GATE.storageOf().dump().includes("198.51.100.9"), "the IP is not stored");
+});
+
+test("open: Forget this browser clears the cookie", async () => {
+  const res = await worker.fetch(openReq("forget"), env, ctx);
+  assert.equal(res.status, 200);
+  const sc = res.headers.get("set-cookie");
+  assert.ok(sc.startsWith("ma2_owner=;") && sc.includes("Max-Age=0") && sc.includes("Path=/v1/"));
+  assert.ok((await res.text()).includes(OPEN_TEXT.forgotten));
+});
+
+test("open: absent when OWNER_KEY is not set", async () => {
+  env = makeEnv({ OWNER_KEY: "" });
+  assert.equal((await worker.fetch(openReq("MA2-AAAAAA"), env, ctx)).status, 404);
+});
+
+// ---------------------------------------------------------------- owner key whitespace (11-22)
+
+test("owner key: a trailing space or CRLF in the header, the form or the stored secret still matches", async () => {
+  const zip = tinyZip(10);
+  const r = await send(await reportRequest({ zip }));
+  const path = `/v1/report/${r.body.id}`;
+  for (const k of [env.OWNER_KEY + " ", " " + env.OWNER_KEY, env.OWNER_KEY + "\t"]) {
+    assert.equal((await worker.fetch(owner(path, {}, k), env, ctx)).status, 200, JSON.stringify(k));
+  }
+  for (const k of [env.OWNER_KEY + " ", env.OWNER_KEY + "\r\n", env.OWNER_KEY + "\n"]) {
+    assert.equal((await worker.fetch(formReq(r.body.id, { key: k }), env, ctx)).status, 303, JSON.stringify(k));
+  }
+  // The secret itself saved with a trailing newline: the plain key, header and form, still matches; the cookie too.
+  const nl = makeEnv({ OWNER_KEY: "owner-secret-for-tests\r\n" });
+  nl.REPORTS = env.REPORTS;
+  assert.equal((await worker.fetch(owner(path, {}, "owner-secret-for-tests"), nl, ctx)).status, 200);
+  assert.equal((await worker.fetch(formReq(r.body.id, { key: "owner-secret-for-tests" }, { "cf-connecting-ip": "192.0.2.77" }), nl, ctx)).status, 303);
+  assert.equal(await ownerCookieValue(nl), await ownerCookieValue(env), "same cookie with or without the newline");
+  // An empty or whitespace-only key never matches.
+  assert.equal((await worker.fetch(owner(path, {}, "   "), env, ctx)).status, 401);
+  const ws = makeEnv({ OWNER_KEY: "  \n" });
+  assert.equal((await worker.fetch(owner(path, {}, "x"), ws, ctx)).status, 404, "a blank secret = owner routes off");
 });

@@ -24,6 +24,17 @@
 //   DELETE /v1/report/<id>       delete one report now: zip, stored text and summary, pending marker, and its issue
 //                                (deleted if the token may, else emptied, closed and locked). 1.1.7.
 //
+// One-click download for the owner (11-22), the link in every issue:
+//   GET  /v1/open/<id>           with the owner cookie: the zip (attachment MA2-XXXXXX.zip); without it: a small page
+//                                that asks for the owner key (the page looks the same whether the report exists or not)
+//   POST /v1/open/<id>           form: key, remember. Right key: sets the cookie, 303 back to the GET. Wrong key: the
+//                                same page with a generic error. Same-origin only; tries are rate-limited per connection.
+//   GET  /v1/open/forget         clears the cookie on this browser
+// The cookie value is HMAC-SHA256(OWNER_KEY, "owner-cookie-v1"): rotating OWNER_KEY revokes every cookie. It is
+// HttpOnly, Secure, SameSite=Lax (Lax so that a click on the link in a github.com issue still carries it), Path=/v1/.
+// It authorizes report downloads only: every other owner route still needs the X-MA2-Owner-Key header. No key or cookie
+// value is ever put in a URL or a log line.
+//
 // Retention (1.1.7): every report is deleted KEEP_DAYS (60) days after it arrived. The hourly cron deletes the R2
 // objects itself (the bucket's lifecycle rule is a second net) and retires the report's issue: GraphQL deleteIssue when
 // the token has the rights, else the issue's title and body are replaced by a "removed" line and it is closed and
@@ -146,9 +157,15 @@ async function sameSecret(a, b) {
   return d === 0;
 }
 
+// The owner key as set on Cloudflare, without leading/trailing whitespace: a secret pasted with a trailing newline or
+// space still matches, and so does a key typed or pasted with one (11-22).
+function ownerKey(env) {
+  return String(env.OWNER_KEY ?? "").trim();
+}
+
 async function ownerOk(request, env) {
-  const key = request.headers.get("x-ma2-owner-key") || "";
-  return Boolean(env.OWNER_KEY) && key.length > 0 && (await sameSecret(key, env.OWNER_KEY));
+  const key = (request.headers.get("x-ma2-owner-key") || "").trim();
+  return ownerKey(env).length > 0 && key.length > 0 && (await sameSecret(key, ownerKey(env)));
 }
 
 function gate(env) {
@@ -172,7 +189,7 @@ function issueTitle(id, meta) {
 
 function issueBody(rec, env) {
   const base = (env.PUBLIC_URL || "").replace(/\/+$/, "");
-  const link = base ? `${base}/v1/report/${rec.id}` : `/v1/report/${rec.id}`;
+  const open = base ? `${base}/v1/open/${rec.id}` : `/v1/open/${rec.id}`;
   const withText = String(env.ISSUE_PLAYER_TEXT || "off").toLowerCase() === "on";
   const textPart = withText
     ? ["**Player's text**", "", "```text", neutralize(rec.text), "```", ""]
@@ -189,7 +206,7 @@ function issueBody(rec, env) {
     "",
     `**Zip** (${rec.zip_bytes} bytes; the report and this issue are deleted after ${KEEP_DAYS} days): R2 key \`${rec.key}\``,
     "",
-    `Download: ${link} (needs the owner key; easiest: \`python triage.py get ${rec.id}\`)`,
+    `Download: ${open} (opens in your browser; asks for your owner key the first time)`,
   ].join("\n");
 }
 
@@ -565,6 +582,137 @@ async function handleUpload(request, env, ctx) {
   return json({ ok: true, id, message });
 }
 
+// ---------------------------------------------------------------- one-click owner download (11-22)
+
+const COOKIE = "ma2_owner";
+const COOKIE_LABEL = "owner-cookie-v1";
+const OPEN_RE = /^\/v1\/open\/([^/]+)$/;
+const PAGE_HEADERS = {
+  "content-type": "text/html; charset=utf-8",
+  "cache-control": "no-store",
+  "x-frame-options": "DENY",
+  "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+  "referrer-policy": "no-referrer",
+  "x-content-type-options": "nosniff",
+};
+export const OPEN_TEXT = {
+  title: "MechAssault 2 report download",
+  ask: "This link downloads a player's report. Enter the owner key to continue.",
+  key: "Owner key",
+  remember: "Remember on this browser",
+  button: "Download",
+  wrong: "That key did not work.",
+  busy: "Too many tries from this connection. Try again in an hour.",
+  forget: "Forget this browser",
+  forgotten: "This browser no longer remembers the owner key.",
+  missing: "This report is not here. Reports are deleted after 60 days.",
+};
+
+export async function ownerCookieValue(env) {
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(ownerKey(env)), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(COOKIE_LABEL)));
+  return Array.from(mac, (x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+function cookieOf(request, name) {
+  for (const part of (request.headers.get("cookie") || "").split(";")) {
+    const i = part.indexOf("=");
+    if (i > 0 && part.slice(0, i).trim() === name) return part.slice(i + 1).trim();
+  }
+  return "";
+}
+
+async function cookieOk(request, env) {
+  const v = cookieOf(request, COOKIE);
+  return v.length > 0 && (await sameSecret(v, await ownerCookieValue(env)));
+}
+
+function page(status, body, extra = {}) {
+  return new Response(
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
+      `<meta name="robots" content="noindex"><title>${OPEN_TEXT.title}</title><style>` +
+      `body{font:16px/1.5 system-ui,sans-serif;max-width:30rem;margin:3rem auto;padding:0 1rem;color:#1a1a1a;background:#fff}` +
+      `input[type=password]{width:100%;padding:.5rem;font:inherit;box-sizing:border-box}button{margin-top:1rem;padding:.5rem 1.2rem;font:inherit}` +
+      `.err{color:#a00}.small{font-size:.9rem;color:#555}@media(prefers-color-scheme:dark){body{background:#16181c;color:#e8e8e8}.small{color:#aaa}.err{color:#f77}}` +
+      `</style></head><body><h1 style="font-size:1.3rem">${OPEN_TEXT.title}</h1>${body}</body></html>`,
+    { status, headers: { ...PAGE_HEADERS, ...extra } },
+  );
+}
+
+function askPage(id, status, error) {
+  return page(
+    status,
+    `<p>${OPEN_TEXT.ask}</p><p class="small">${id}</p>` +
+      (error ? `<p class="err" role="alert">${error}</p>` : "") +
+      `<form method="post" action="/v1/open/${id}"><label for="k">${OPEN_TEXT.key}</label><br>` +
+      `<input id="k" name="key" type="password" autocomplete="current-password" required autofocus>` +
+      `<p><label><input name="remember" type="checkbox" value="1" checked> ${OPEN_TEXT.remember}</label></p>` +
+      `<button type="submit">${OPEN_TEXT.button}</button></form>`,
+  );
+}
+
+function sameOrigin(request, url) {
+  const origin = request.headers.get("origin");
+  if (origin !== null && origin !== url.origin) return false;
+  const site = request.headers.get("sec-fetch-site");
+  return !(site && site !== "same-origin" && site !== "none");
+}
+
+export async function handleOpen(request, env, url) {
+  if (!ownerKey(env)) return fail(404, "not found");
+  const m = url.pathname.match(OPEN_RE);
+  if (!m) return fail(404, "not found");
+  const cookieBase = `${COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/v1/`;
+  if (m[1] === "forget") {
+    if (request.method !== "GET") return fail(405, "GET only");
+    return page(200, `<p>${OPEN_TEXT.forgotten}</p>`, { "set-cookie": `${cookieBase}; Max-Age=0` });
+  }
+  const id = m[1];
+  if (!ID_RE.test(id)) return fail(404, "not found");
+  const forgetLink = `<p class="small"><a href="/v1/open/forget">${OPEN_TEXT.forget}</a></p>`;
+
+  if (request.method === "GET" || request.method === "HEAD") {
+    if (!(await cookieOk(request, env))) return askPage(id, 200, "");
+    const obj = await findReport(env, id, "zip");
+    if (!obj) return page(404, `<p>${OPEN_TEXT.missing}</p>${forgetLink}`);
+    return new Response(request.method === "HEAD" ? null : obj.body, {
+      headers: {
+        "content-type": "application/zip",
+        "content-disposition": `attachment; filename="${id}.zip"`,
+        "cache-control": "no-store",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+      },
+    });
+  }
+
+  if (request.method !== "POST") return fail(405, "GET or POST only");
+  if (!sameOrigin(request, url)) return fail(403, "not from this page");
+  const ctype = (request.headers.get("content-type") || "").toLowerCase();
+  if (!ctype.startsWith("application/x-www-form-urlencoded")) return fail(415, "form expected");
+  let admit;
+  try {
+    admit = await gateCall(env, "/attempt", { ip: request.headers.get("cf-connecting-ip") || "unknown", perHour: intVar(env, "KEY_TRIES_PER_HOUR", 10) });
+  } catch (e) {
+    return askPage(id, 503, OPEN_TEXT.busy);
+  }
+  if (!admit.ok) return askPage(id, 429, OPEN_TEXT.busy);
+  let form;
+  try {
+    form = await request.formData();
+  } catch (e) {
+    return askPage(id, 400, OPEN_TEXT.wrong);
+  }
+  const key = String(form.get("key") ?? "").trim();
+  if (!key || key.length > 512 || !(await sameSecret(key, ownerKey(env)))) return askPage(id, 401, OPEN_TEXT.wrong);
+  const remember = form.get("remember") === "1";
+  const cookie = `${COOKIE}=${await ownerCookieValue(env)}; HttpOnly; Secure; SameSite=Lax; Path=/v1/` + (remember ? "; Max-Age=31536000" : "");
+  return new Response(null, {
+    status: 303,
+    headers: { location: `/v1/open/${id}`, "set-cookie": cookie, "cache-control": "no-store", "referrer-policy": "no-referrer" },
+  });
+}
+
 // ---------------------------------------------------------------- latest version (1.1.7)
 
 // Public and anonymous: the answer depends only on two vars, so it carries no per-player data and may be cached.
@@ -588,7 +736,7 @@ async function findReport(env, id, ext) {
 }
 
 async function handleOwner(request, env, url) {
-  if (!env.OWNER_KEY) return fail(404, "not found");
+  if (!ownerKey(env)) return fail(404, "not found");
   if (!(await ownerOk(request, env))) return fail(401, "owner key required");
   const p = url.pathname;
 
@@ -701,6 +849,7 @@ export default {
     const url = new URL(request.url);
     try {
       if (url.pathname === "/v1/latest") return handleLatest(request, env);
+      if (url.pathname.startsWith("/v1/open/")) return await handleOpen(request, env, url);
       if (url.pathname === "/v1/report") {
         if (request.method !== "POST") return fail(405, "POST only");
         return await handleUpload(request, env, ctx);
@@ -725,6 +874,7 @@ export default {
 //                day:<yyyy-mm-dd> -> accepted count (global daily cap)
 //                key:<yyyy-mm-dd> -> random 32-byte HMAC key, deleted when the day is over
 //                ip:<hmac hex> -> timestamps of this connection's reports in the last hour, deleted after the hour
+//                kt:<hmac hex> -> timestamps of this connection's owner-key tries on /v1/open (same rule)
 // The raw IP never reaches storage.
 
 export class Gate {
@@ -737,12 +887,40 @@ export class Gate {
     const url = new URL(request.url);
     const body = request.method === "POST" ? await request.json() : {};
     if (url.pathname === "/admit") return json(await this.admit(body));
+    if (url.pathname === "/attempt") return json(await this.attempt(body));
     if (url.pathname === "/switch") {
       if (request.method === "POST") await this.state.storage.put("switch", { on: body.on, message: body.message || "" });
       const sw = (await this.state.storage.get("switch")) || { on: true, message: "" };
       return json({ switch: sw });
     }
     return json({ ok: false }, 404);
+  }
+
+  async ipHash(ip, day) {
+    const st = this.state.storage;
+    let k = await st.get(`key:${day}`);
+    if (!k) {
+      const raw = new Uint8Array(32);
+      crypto.getRandomValues(raw);
+      k = Array.from(raw);
+      await st.put(`key:${day}`, k);
+    }
+    const hk = await crypto.subtle.importKey("raw", new Uint8Array(k), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const mac = new Uint8Array(await crypto.subtle.sign("HMAC", hk, new TextEncoder().encode(String(ip))));
+    return Array.from(mac.slice(0, 16), (x) => x.toString(16).padStart(2, "0")).join("");
+  }
+
+  // Owner-key tries on the download page: perHour per connection (kt:<hmac>), independent of the report counters.
+  async attempt({ ip, perHour }) {
+    const st = this.state.storage;
+    const now = Date.now();
+    const h = await this.ipHash(ip, new Date(now).toISOString().slice(0, 10));
+    const recent = ((await st.get(`kt:${h}`)) || []).filter((t) => t > now - 3600e3);
+    if (recent.length >= perHour) return { ok: false };
+    recent.push(now);
+    await st.put(`kt:${h}`, recent);
+    if ((await st.getAlarm()) === null) await st.setAlarm(now + 3600e3);
+    return { ok: true };
   }
 
   async admit({ ip, cap, perHour }) {
@@ -780,7 +958,7 @@ export class Gate {
     const today = new Date(now).toISOString().slice(0, 10);
     const weekAgo = new Date(now - 7 * 86400e3).toISOString().slice(0, 10);
     let left = 0;
-    for (const [k, v] of await st.list({ prefix: "ip:" })) {
+    for (const [k, v] of [...(await st.list({ prefix: "ip:" })), ...(await st.list({ prefix: "kt:" }))]) {
       const keep = (v || []).filter((t) => t > now - 3600e3);
       if (keep.length === 0) await st.delete(k);
       else {

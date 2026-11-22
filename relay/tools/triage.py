@@ -1,9 +1,14 @@
 """MechAssault 2 report triage (owner side). Python 3.8+, standard library only.
 
-Setup once (PowerShell):
-    $env:MA2_RELAY_URL = "https://ma2-report-relay.<your-subdomain>.workers.dev"
-    $env:MA2_RELAY_KEY = "<the OWNER_KEY you set on the Worker>"
-(or pass --relay / --key; if the key is missing you are asked for it, and it is not echoed).
+No setup needed. The relay address defaults to the production relay (override: --relay or MA2_RELAY_URL). The owner key
+is taken from --key, else MA2_RELAY_KEY, else Windows Credential Manager ("MA2 report relay owner key"), else you are
+asked once: copy the key, then press Enter at "Press Enter to use the owner key on your clipboard (or type it):" (the
+clipboard is read directly and never shown). After the first answer that accepts it you can save it in Credential
+Manager, so later runs never ask. `python triage.py forget-key` removes it. Spaces, line breaks, control characters and
+terminal paste markers around a key are ignored.
+
+The easiest way to get one report is the Download link in its GitHub issue: it opens in your browser and asks for the
+owner key the first time only.
 
 Commands:
     python triage.py new                 list reports not seen yet, download and summarise each
@@ -19,6 +24,7 @@ Commands:
                                          the relay, its GitHub issue (deleted, or emptied and locked), and the
                                          copies in the reports folder. Asks you to type the number again (or --yes)
     python triage.py expire              run the relay's 60-day clean-up now (it also runs every hour)
+    python triage.py forget-key          remove the owner key saved in Windows Credential Manager
     python triage.py draft-issue MA2-XXXXXX   write a PUBLIC issue draft (Markdown, never posted) from the report's
                                          text and summary, with private details removed; read it before using it
 
@@ -27,7 +33,7 @@ in memory and only text members are printed, so nothing inside a report is ever 
 """
 
 import argparse
-import getpass
+import ctypes
 import io
 import json
 import os
@@ -39,19 +45,142 @@ import urllib.request
 import zipfile
 
 ID_RE = re.compile(r"^MA2-[A-Z2-7]{6}$")
+DEFAULT_RELAY = "https://ma2-report-relay.ma2-relay.workers.dev"
+CRED_TARGET = "MA2 report relay owner key"
+KEY_REJECTED = ("The relay rejected the key. Check it matches OWNER_KEY in Cloudflare "
+                "(Workers > ma2-report-relay > Settings > Variables and Secrets).")
+
+
+# ---------------------------------------------------------------- the owner key (11-22)
+# Windows Credential Manager through advapi32 (standard library ctypes only). On other systems these do nothing.
+
+if os.name == "nt":
+    from ctypes import wintypes
+
+    class _FILETIME(ctypes.Structure):
+        _fields_ = [("lo", wintypes.DWORD), ("hi", wintypes.DWORD)]
+
+    class _CREDENTIAL(ctypes.Structure):
+        _fields_ = [("Flags", wintypes.DWORD), ("Type", wintypes.DWORD), ("TargetName", wintypes.LPWSTR),
+                    ("Comment", wintypes.LPWSTR), ("LastWritten", _FILETIME), ("CredentialBlobSize", wintypes.DWORD),
+                    ("CredentialBlob", ctypes.POINTER(ctypes.c_ubyte)), ("Persist", wintypes.DWORD),
+                    ("AttributeCount", wintypes.DWORD), ("Attributes", ctypes.c_void_p), ("TargetAlias", wintypes.LPWSTR),
+                    ("UserName", wintypes.LPWSTR)]
+
+_CRED_TYPE_GENERIC, _CRED_PERSIST_LOCAL_MACHINE = 1, 2
+
+
+def cred_read(target=CRED_TARGET):
+    """The saved key, or None."""
+    if os.name != "nt":
+        return None
+    adv = ctypes.WinDLL("advapi32", use_last_error=True)
+    pcred = ctypes.POINTER(_CREDENTIAL)()
+    if not adv.CredReadW(target, _CRED_TYPE_GENERIC, 0, ctypes.byref(pcred)):
+        return None
+    try:
+        c = pcred.contents
+        raw = ctypes.string_at(c.CredentialBlob, c.CredentialBlobSize)
+        return raw.decode("utf-16-le", "replace").strip() or None
+    finally:
+        adv.CredFree(pcred)
+
+
+def cred_write(key, target=CRED_TARGET):
+    if os.name != "nt":
+        return False
+    adv = ctypes.WinDLL("advapi32", use_last_error=True)
+    blob = key.strip().encode("utf-16-le")
+    buf = (ctypes.c_ubyte * len(blob)).from_buffer_copy(blob)
+    c = _CREDENTIAL(Type=_CRED_TYPE_GENERIC, TargetName=target, CredentialBlobSize=len(blob),
+                    CredentialBlob=ctypes.cast(buf, ctypes.POINTER(ctypes.c_ubyte)), Persist=_CRED_PERSIST_LOCAL_MACHINE,
+                    UserName="owner", Comment="MechAssault 2 report relay (triage.py)")
+    return bool(adv.CredWriteW(ctypes.byref(c), 0))
+
+
+def cred_delete(target=CRED_TARGET):
+    if os.name != "nt":
+        return False
+    return bool(ctypes.WinDLL("advapi32").CredDeleteW(target, _CRED_TYPE_GENERIC, 0))
+
+
+def clipboard_text():
+    """Unicode text on the Windows clipboard, or ''."""
+    if os.name != "nt":
+        return ""
+    u, k = ctypes.WinDLL("user32"), ctypes.WinDLL("kernel32")
+    u.GetClipboardData.restype = ctypes.c_void_p
+    k.GlobalLock.restype = ctypes.c_void_p
+    k.GlobalLock.argtypes = k.GlobalUnlock.argtypes = [ctypes.c_void_p]
+    if not u.OpenClipboard(None):
+        return ""
+    try:
+        h = u.GetClipboardData(13)  # CF_UNICODETEXT
+        if not h:
+            return ""
+        ptr = k.GlobalLock(h)
+        try:
+            return ctypes.wstring_at(ptr) if ptr else ""
+        finally:
+            k.GlobalUnlock(h)
+    finally:
+        u.CloseClipboard()
+
+
+_BRACKETED_PASTE = re.compile("\x1b\\[20[01]~")
+
+
+def clean_key(text):
+    """A key as typed, pasted or stored: terminal bracketed-paste markers (ESC[200~ ... ESC[201~) and every control
+    character (Ctrl+V as \\x16, ESC, CR, LF, tab ...) removed, then leading and trailing spaces trimmed."""
+    text = _BRACKETED_PASTE.sub("", str(text or ""))
+    return "".join(ch for ch in text if ord(ch) >= 32 and ord(ch) != 127 and not 0x80 <= ord(ch) < 0xA0).strip()
+
+
+def prompt_key(ask=None, clip=None):
+    """Enter alone uses the owner key on the clipboard (read through the Windows clipboard API, never echoed or logged);
+    anything typed is used instead. getpass is not used: Windows terminals garble a paste into it."""
+    ask, clip = ask or input, clip or clipboard_text      # looked up at call time (tests replace them)
+    typed = clean_key(ask("Press Enter to use the owner key on your clipboard (or type it): "))
+    return typed or clean_key(clip() or "")
+
+
+def resolve_key(arg_key, env=None, read=None, ask=None, clip=None):
+    """(key, source): --key, then MA2_RELAY_KEY, then Credential Manager, then a prompt. Each is cleaned (clean_key)."""
+    env = os.environ if env is None else env
+    read = read or cred_read
+    for source, value in (("argument", arg_key), ("environment", env.get("MA2_RELAY_KEY", ""))):
+        if clean_key(value):
+            return clean_key(value), source
+    saved = clean_key(read())
+    if saved:
+        return saved, "saved"
+    key = prompt_key(ask, clip)
+    if not key:
+        raise SystemExit("No key entered")        # nothing is sent
+    return key, "prompt"
+
+
+def offer_save(key, ask=None, write=None):
+    ask, write = ask or input, write or cred_write
+    answer = ask("Save this key in Windows Credential Manager on this PC, so you are not asked again? [Y/n] ").strip().lower()
+    if answer in ("", "y", "yes"):
+        print("Saved. (python triage.py forget-key removes it.)" if write(key) else "Could not save the key.")
+
 INTERESTING = re.compile(r"\[(CRASH|HANG|HEALTH|XA2|STOP|ERROR|FATAL)\]|Traceback|Exception|error C\d+|out of memory", re.I)
 TEXT_EXT = (".txt", ".log", ".ini", ".json", ".csv", ".md")
 
 
 class Relay:
-    def __init__(self, url, key, timeout=60):
+    def __init__(self, url, key, timeout=60, on_success=None):
         u = urllib.parse.urlparse(url)
         local = u.hostname in ("localhost", "127.0.0.1", "::1")
         if u.scheme != "https" and not (u.scheme == "http" and local):
             raise SystemExit("relay URL must be https:// (http:// only for localhost testing)")
         self.base = url.rstrip("/")
-        self.key = key
+        self.key = clean_key(key)
         self.timeout = timeout
+        self.on_success = on_success     # called once after the first answer that accepted the key
 
     def call(self, method, path, body=None, raw=False):
         data = None if body is None else json.dumps(body).encode()
@@ -66,12 +195,15 @@ class Relay:
         except urllib.error.HTTPError as e:
             msg = e.read()[:300].decode("utf-8", "replace")
             if e.code == 401:
-                raise SystemExit("relay said 401: the owner key is wrong")
+                raise SystemExit(KEY_REJECTED)
             if e.code == 404 and raw:
                 return None
             raise SystemExit(f"relay error {e.code}: {msg}")
         except urllib.error.URLError as e:
             raise SystemExit(f"cannot reach the relay: {e.reason}")
+        if self.on_success:
+            hook, self.on_success = self.on_success, None
+            hook()
         return payload if raw else json.loads(payload)
 
 
@@ -326,8 +458,8 @@ def delete_report(relay, rid, out, yes=False, ask=input):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="MechAssault 2 report triage")
-    ap.add_argument("--relay", default=os.environ.get("MA2_RELAY_URL", ""))
-    ap.add_argument("--key", default=os.environ.get("MA2_RELAY_KEY", ""))
+    ap.add_argument("--relay", default=os.environ.get("MA2_RELAY_URL", "") or DEFAULT_RELAY)
+    ap.add_argument("--key", default="", help="the owner key (else MA2_RELAY_KEY, Credential Manager, or a prompt)")
     ap.add_argument("--out", default=os.path.join(os.path.expanduser("~"), "MA2-Reports"))
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("list"); p.add_argument("--days", type=int, default=7)
@@ -339,6 +471,7 @@ def main(argv=None):
     sub.add_parser("draft-issue").add_argument("id")
     p = sub.add_parser("delete"); p.add_argument("id"); p.add_argument("--yes", action="store_true")
     sub.add_parser("expire")
+    sub.add_parser("forget-key")
     p = sub.add_parser("switch"); p.add_argument("state", nargs="?", choices=["on", "off"])
     p.add_argument("--message", default="")
     a = ap.parse_args(argv)
@@ -348,10 +481,12 @@ def main(argv=None):
         path, n = write_draft(None, check_id(a.id), a.out)
         print(f"{path}  ({n} private details removed; NEEDS OWNER REVIEW, nothing was posted)")
         return 0
-    if not a.relay:
-        raise SystemExit("set MA2_RELAY_URL or pass --relay")
-    key = a.key or getpass.getpass("Owner key: ")
-    relay = Relay(a.relay, key)
+    if a.cmd == "forget-key":
+        print("The saved owner key was removed." if cred_delete() else "No owner key was saved.")
+        return 0
+    relay_url = a.relay or DEFAULT_RELAY
+    key, source = resolve_key(a.key)
+    relay = Relay(relay_url, key, on_success=(lambda: offer_save(key)) if source == "prompt" else None)
     seen = load_seen(a.out)
 
     if a.cmd == "list":

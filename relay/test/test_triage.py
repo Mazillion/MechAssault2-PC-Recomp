@@ -2,6 +2,7 @@
 
 Run from anywhere:  python test/test_triage.py      (needs node on PATH; no network; runs hidden)
 """
+import builtins
 import io
 import json
 import os
@@ -79,6 +80,148 @@ def check_draft_unit():
     assert triage.leftovers(md) == [], triage.leftovers(md)
     assert "**Title:** crash in 1.1.6: c0000005 0019236B" in md, md
     return 1
+
+
+def check_key_handling():
+    """--key > env > Credential Manager > prompt; paste works; whitespace trimmed; save offered after a prompt only;
+    production relay by default. Credential Manager, clipboard and input are replaced by fakes."""
+    n = 0
+    no_saved = lambda: None
+    never = lambda *a: (_ for _ in ()).throw(AssertionError("asked"))
+    # order and trimming
+    assert triage.resolve_key(" k1 \r\n", env={"MA2_RELAY_KEY": "k2"}, read=lambda: "k3", ask=never) == ("k1", "argument"); n += 1
+    assert triage.resolve_key("", env={"MA2_RELAY_KEY": "k2\n"}, read=lambda: "k3", ask=never) == ("k2", "environment"); n += 1
+    assert triage.resolve_key("", env={}, read=lambda: " k3\r\n", ask=never) == ("k3", "saved"); n += 1
+    prompts, clip_reads = [], []
+    def asked(answer):
+        return lambda p: prompts.append(p) or answer
+    def clip(value):
+        return lambda: clip_reads.append(1) or value
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        # typed (with trailing space / CRLF): used as typed, the clipboard is not read
+        assert triage.resolve_key("", env={}, read=no_saved, ask=asked(KEY + " \r\n"), clip=clip("other")) == (KEY, "prompt"); n += 1
+        assert clip_reads == []; n += 1
+        # Enter alone: the clipboard key (with a trailing CRLF) is used
+        assert triage.resolve_key("", env={}, read=no_saved, ask=asked(""), clip=clip(KEY + "\r\n")) == (KEY, "prompt"); n += 1
+        # Ctrl+V arriving as its control character \x16: nothing typed, so the clipboard is used
+        assert triage.resolve_key("", env={}, read=no_saved, ask=asked("\x16"), clip=clip(KEY)) == (KEY, "prompt"); n += 1
+        # a bracketed paste from Windows Terminal / PowerShell 7: the markers are removed
+        assert triage.prompt_key(ask=asked("\x1b[200~" + KEY + "\x1b[201~\r\n"), clip=clip("x")) == KEY; n += 1
+        assert triage.prompt_key(ask=asked("\x1b[200~\x16\x1b[201~"), clip=clip(" " + KEY + "\n")) == KEY; n += 1
+    assert prompts and all(p == "Press Enter to use the owner key on your clipboard (or type it): " for p in prompts); n += 1
+    assert KEY not in buf.getvalue(), "the key is never echoed"; n += 1
+    assert triage.clean_key("\x1b[200~ab\tc\x00d\x7f \r\n") == "abcd"; n += 1
+    # an empty key: refused locally with "No key entered" and no request is made
+    made = []
+    orig_init = triage.Relay.__init__
+    triage.Relay.__init__ = lambda self, *a, **k: made.append(a)
+    old_read, old_clip, old_input = triage.cred_read, triage.clipboard_text, builtins.input
+    try:
+        triage.cred_read, triage.clipboard_text, builtins.input = (lambda target=None: None), (lambda: "\r\n"), (lambda p="": "  \x16 ")
+        with redirect_stdout(io.StringIO()):
+            triage.main(["--relay", BASE, "--out", tempfile.gettempdir(), "pending"])
+        raise AssertionError("empty key accepted")
+    except SystemExit as e:
+        assert str(e) == "No key entered" and made == [], (e, made); n += 1
+    finally:
+        triage.Relay.__init__ = orig_init
+        triage.cred_read, triage.clipboard_text, builtins.input = old_read, old_clip, old_input
+    # offer_save: yes saves, no does not
+    saved = []
+    with redirect_stdout(io.StringIO()):
+        triage.offer_save(KEY, ask=lambda p: "", write=lambda k: saved.append(k) or True)
+        triage.offer_save(KEY, ask=lambda p: "n", write=lambda k: saved.append(k) or True)
+    assert saved == [KEY]; n += 1
+    # a pasted key with a trailing space / CRLF works against the relay (the relay trims too)
+    for k in (KEY + " ", KEY + "\r\n"):
+        assert triage.Relay(BASE, k).call("GET", "/v1/admin/pending")["ok"] is True; n += 1
+    # the save offer runs after the first accepted answer, once; not after a rejected key
+    calls = []
+    r = triage.Relay(BASE, KEY, on_success=lambda: calls.append(1))
+    r.call("GET", "/v1/admin/pending"); r.call("GET", "/v1/admin/pending")
+    assert calls == [1]; n += 1
+    calls = []
+    try:
+        triage.Relay(BASE, "wrong", on_success=lambda: calls.append(1)).call("GET", "/v1/admin/pending")
+    except SystemExit:
+        pass
+    assert calls == []; n += 1
+    # main(): a prompted key is offered for saving; production relay by default (checked without a network call)
+    old = (triage.cred_read, triage.cred_write, triage.clipboard_text, builtins.input)
+    try:
+        triage.cred_read = lambda target=None: None
+        stored = []
+        triage.cred_write = lambda k, target=None: stored.append(k) or True
+        answers = iter([KEY + "\r\n", "y"])
+        builtins.input = lambda p="": next(answers)
+        with redirect_stdout(io.StringIO()), tempfile.TemporaryDirectory() as out:
+            triage.main(["--relay", BASE, "--out", out, "pending"])
+        assert stored == [KEY]; n += 1
+        env_url = os.environ.pop("MA2_RELAY_URL", None)
+        seen = []
+        orig_init = triage.Relay.__init__
+        def spy(self, url, key, timeout=60, on_success=None):
+            seen.append(url); raise SystemExit("stop")
+        triage.Relay.__init__ = spy
+        try:
+            triage.main(["--key", "x", "--out", tempfile.gettempdir(), "pending"])
+        except SystemExit:
+            pass
+        finally:
+            triage.Relay.__init__ = orig_init
+            if env_url is not None:
+                os.environ["MA2_RELAY_URL"] = env_url
+        assert seen == [triage.DEFAULT_RELAY] and triage.DEFAULT_RELAY.startswith("https://"); n += 1
+    finally:
+        triage.cred_read, triage.cred_write, triage.clipboard_text, builtins.input = old
+    return n
+
+
+def check_reports_helper(rid):
+    """tools/ma2_reports.pyw with a fake clipboard, fake explorer/startfile/message box and a temporary home folder."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("ma2_reports", os.path.join(ROOT, "tools", "ma2_reports.pyw"))
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    n = 0
+    opened, popen, msgs, browsed = [], [], [], []
+    saved = (helper.triage.clipboard_text, helper.subprocess.Popen, getattr(helper.os, "startfile", None), helper.message,
+             helper.webbrowser.open, os.environ.get("USERPROFILE"), os.environ.get("HOME"), os.environ.get("MA2_RELAY_URL"), os.environ.get("MA2_RELAY_KEY"),
+             helper.triage.cred_read)
+    with tempfile.TemporaryDirectory() as home:
+        try:
+            helper.subprocess.Popen = lambda *a, **k: popen.append(a[0])
+            helper.os.startfile = lambda p: opened.append(p)
+            helper.message = lambda text, error=False: msgs.append(text)
+            helper.webbrowser.open = lambda u: browsed.append(u)
+            helper.triage.cred_read = lambda target=None: None
+            os.environ["USERPROFILE"] = home
+            os.environ["HOME"] = home          # expanduser on Linux (CI)
+            os.environ["MA2_RELAY_URL"] = BASE
+            os.environ["MA2_RELAY_KEY"] = KEY + "\r\n"
+            helper.triage.clipboard_text = lambda: f"see {rid.lower()} please"
+            assert helper.main() == 0, msgs; n += 1
+            out = os.path.join(home, "MA2-Reports")
+            assert os.path.exists(os.path.join(out, rid + ".zip")); n += 1
+            assert opened == [os.path.join(out, rid + "-summary.txt")] and "system.txt" in open(opened[0], encoding="utf-8").read(); n += 1
+            assert popen and popen[0][0] == "explorer"; n += 1
+            helper.triage.clipboard_text = lambda: "nothing here"
+            assert helper.main() == 1 and "Copy a report number" in msgs[-1]; n += 1
+            del os.environ["MA2_RELAY_KEY"]
+            helper.triage.clipboard_text = lambda: rid
+            assert helper.main() == 0 and browsed == [f"{BASE}/v1/open/{rid}"]; n += 1   # no saved key: the browser link
+        finally:
+            (helper.triage.clipboard_text, helper.subprocess.Popen, st, helper.message, helper.webbrowser.open, up, hm, ru, rk,
+             helper.triage.cred_read) = saved
+            if st is not None:
+                helper.os.startfile = st
+            for k, v in (("USERPROFILE", up), ("HOME", hm), ("MA2_RELAY_URL", ru), ("MA2_RELAY_KEY", rk)):
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+    return n
 
 
 def run_triage(*args, out):
@@ -179,12 +322,18 @@ def main():
             assert r.status == 200 and r.headers.get("Cache-Control") == "public, max-age=3600"
             assert json.loads(r.read()) == {"ok": True, "latest": None}; checks += 1
 
-        # Wrong key is refused.
+        # Wrong key is refused, with the exact hint.
         try:
             triage.main(["--relay", BASE, "--key", "wrong", "--out", tempfile.gettempdir(), "list"])
             raise AssertionError("wrong key accepted")
         except SystemExit as e:
-            assert "401" in str(e); checks += 1
+            assert str(e) == triage.KEY_REJECTED, e; checks += 1
+        assert triage.KEY_REJECTED == ("The relay rejected the key. Check it matches OWNER_KEY in Cloudflare "
+                                       "(Workers > ma2-report-relay > Settings > Variables and Secrets)."); checks += 1
+
+        # 11-22 key handling (Credential Manager, clipboard and input are fakes: nothing on this PC is read or written).
+        checks += check_key_handling()
+        checks += check_reports_helper(b2["id"])
 
         print(f"test_triage: {checks} checks passed")
     finally:

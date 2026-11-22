@@ -7,6 +7,7 @@ The small Cloudflare Worker that receives reports from "Report a problem" (see [
   - `DELETE /v1/report/<id>` (owner key) deletes one report and its entry on request (`python tools/triage.py delete MA2-XXXXXX`).
   - `GET /v1/latest` answers the game's once-per-start update check with `LATEST_VERSION`; it reads nothing from the request.
 - `wrangler.toml` / `wrangler.staging.toml`: the deploy settings. Workers Logs is off (`[observability] enabled = false`). Secrets (the GitHub token and the owner key) are never in these files.
-- `tools/triage.py`: the developer's tool for reading reports (also `delete`, `expire`, `draft-issue`); `tools/smoke.py`: deploy checks.
+- `GET /v1/open/<id>` (the Download link in each issue): asks the developer for the owner key once per browser, then sets a cookie that only allows downloading reports (`HttpOnly`, `Secure`, `SameSite=Lax`; derived from the key, so changing the key signs every browser out). Every other owner action still needs the key in a header.
+- `tools/triage.py`: the developer's tool for reading reports (also `delete`, `expire`, `draft-issue`); it uses the production relay by default and can keep the owner key in Windows Credential Manager. `tools/ma2_reports.pyw`: the developer's one-click helper (report number on the clipboard -> downloaded, summarised, folder opened). `tools/smoke.py`: deploy checks.
 - Deploys run from `.github/workflows/relay-deploy.yml`: tests, staging, then production after the owner approves.
 - `test/`: `node --test test/relay.test.mjs` and `python test/test_triage.py`.
