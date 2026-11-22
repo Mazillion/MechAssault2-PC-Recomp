@@ -866,8 +866,9 @@ def later_for_running_copy(dest, failed, log):
     if me is None or not failed: return failed
     left = [f for f in failed if os.path.normcase(f[0]) not in (os.path.normcase(str(me)), os.path.normcase(str(dest)))]
     if left != [] or any(c in str(me) for c in '%^&"!'): return failed
-    script = ('for /l %%i in (1,1,90) do @(del /f /q "%s" >nul 2>&1 & rmdir "%s" >nul 2>&1 & if not exist "%s" exit /b 0 & '
-              'ping -n 2 127.0.0.1 >nul)' % (me, dest, dest))
+    # (the wait comes before the test: in cmd, everything after "if ..." on the line belongs to the if)
+    script = ('for /l %%i in (1,1,90) do @(ping -n 2 127.0.0.1 >nul & del /f /q "%s" >nul 2>&1 & rmdir "%s" >nul 2>&1 & '
+              'if not exist "%s" exit 0)' % (me, dest, dest))
     subprocess.Popen('cmd.exe /d /s /c "%s"' % script, creationflags=0x08000000 | 0x00000008, close_fds=True,
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     log('  the installer copy in the folder is removed when this installer closes')

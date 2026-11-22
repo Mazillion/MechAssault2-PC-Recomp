@@ -484,6 +484,21 @@ class InstallFolder(Base):
         self.assertEqual(len(calls), 1)
         cmd, kw = calls[0]
         self.assertTrue(cmd.startswith('cmd.exe /d /s /c "for /l')); self.assertIn(me, cmd); self.assertTrue(kw['creationflags'] & 0x08000000)
+        # cmd puts everything after "if ..." into the if: the wait must come before it, or the loop spins 90 times at once
+        self.assertLess(cmd.index('ping -n 2'), cmd.index('if not exist'))
+        self.assertTrue(cmd.rstrip('"').endswith('exit 0)'))
+
+    def test_deferred_delete_really_deletes(self):
+        i = self.inst(); (i.dest / ASSET).write_bytes(b'MZ')
+        os.environ['MA2_INSTALLER_EXE'] = str(i.dest / ASSET)
+        for p in list(i.dest.iterdir()):
+            if p.name != ASSET: shutil.rmtree(p) if p.is_dir() else p.unlink()
+        self.assertEqual(install.later_for_running_copy(i.dest, [(str((i.dest / ASSET).resolve()), 'in use'), (str(i.dest.resolve()), 'x')],
+                                                        self.lines.append), [])
+        import time
+        t = time.time()
+        while i.dest.exists() and time.time() - t < 20: time.sleep(0.3)
+        self.assertFalse(i.dest.exists(), 'the hidden command deleted the copy and the folder')
         os.environ['MA2_INSTALLER_EXE'] = str(self.tmp / 'elsewhere.exe')
         self.assertIsNone(install.running_copy(i.dest))
 
