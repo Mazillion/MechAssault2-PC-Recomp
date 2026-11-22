@@ -97,6 +97,14 @@ version has run for a minute or was closed normally; the next installer run
 then deletes them. Until then, --rollback (see COMMAND LINE) goes back to the
 earlier version.
 
+The installer keeps a copy of itself in the install folder (MechAssault 2
+Recomp Installer.exe), and the Start menu gets "Update MechAssault 2" when you
+chose Start menu shortcuts. Run either one: when a newer version is out, it
+offers "Update to" that version. Only when you press it does it download the
+new installer from the project's GitHub releases page, check it against the
+published one and let it update your install. If anything goes wrong, nothing
+is changed and the releases page is one click away.
+
 
 ENHANCED CONTENT (OPTIONAL)
 ---------------------------
@@ -126,6 +134,9 @@ The installer's engine can also run without the window, for example:
   --rollback          back to the version the last update replaced
   --update --clean-build   update or repair, everything made again
   --no-keep-build     do not keep the build for the next update
+  --self-update       with --dest: update to the newest version (downloads its
+                      installer from the releases page and checks it first)
+  --no-self-update    no installer copy, no Update entry, no update check
   --diagnostics [--include-dump] [--include-botrec]   (the zip goes on your
                                                      Desktop)
 

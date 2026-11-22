@@ -581,7 +581,18 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     std::wstring caller_cwd(32768, L'\0');        // console runs keep the folder they were started in: relative paths mean what the user meant
     caller_cwd.resize(GetCurrentDirectoryW((DWORD)caller_cwd.size(), caller_cwd.data()));
     HANDLE single = CreateMutexW(nullptr, TRUE, L"Local\\MechAssault2RecompInstaller");
-    if (GetLastError() == ERROR_ALREADY_EXISTS) { fail(L"The MechAssault 2 Recomp Installer is already running.", console); return 1; }
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        // 1.1.7 self-update: an older installer downloaded and started this one and is closing now (MA2_HANDOFF_WAIT=1).
+        // Wait for it (at most 2 minutes) instead of saying "already running"; anything else is the 1.1.6 behaviour.
+        wchar_t w[4] = {};
+        DWORD r = WAIT_TIMEOUT;
+        if (single && GetEnvironmentVariableW(L"MA2_HANDOFF_WAIT", w, 4) == 1 && w[0] == L'1') {
+            slog(L"waiting for the installer that started this one to close");
+            r = WaitForSingleObject(single, 120000);
+        }
+        if (r != WAIT_OBJECT_0 && r != WAIT_ABANDONED) { fail(L"The MechAssault 2 Recomp Installer is already running.", console); return 1; }
+    }
+    SetEnvironmentVariableW(L"MA2_HANDOFF_WAIT", nullptr);
 
     Unpack u; u.exe = self_path();
     Trailer t;

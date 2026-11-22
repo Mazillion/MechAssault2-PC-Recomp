@@ -51,6 +51,7 @@ import precheck                                   # noqa: E402  (shared checks: 
 import ffmpeg_fetch                               # noqa: E402  (FFmpeg: downloaded on this PC, every file checked)
 import upscaler_fetch                             # noqa: E402  (the Vulkan texture upscaler: downloaded, every file checked)
 import download as dl                             # noqa: E402  (every download: resume, retries, causes named, per-user cache)
+import selfupdate                                 # noqa: E402  (1.1.7: Update to the newest version without visiting GitHub)
 os.environ.setdefault('MA2_INSTALLER_DIR', str(HERE))       # the Enhancer's setup scripts use the same download helper
 RELEASE = json.loads((HERE / 'data' / 'release.json').read_text(encoding='utf-8'))
 VERSION = RELEASE.get('date', 'dev')              # the release date string (KITSRC/VERSION line 2); install_relation compares it
@@ -663,6 +664,8 @@ def _vcall(obj, index, argtypes, *args):
 
 REPORT_EXE = 'MA2 Report.exe'                       # 1.1.6: the report helper (report-helper/ in the repo), beside the game
 REPORT_LNK = 'Report a problem (MechAssault 2).lnk'   # its Start menu entry (no arguments: the stub needs none either)
+INSTALLER_COPY = selfupdate.INSTALLER_COPY            # 1.1.7: a copy of the installer in the install folder ("Run the installer to update")
+UPDATE_LNK = 'Update MechAssault 2.lnk'               # 1.1.7: its Start menu entry (with the game's Start menu entry)
 
 def create_shortcut(lnk, target, workdir, description='', icon=None):
     """Write a .lnk with IShellLinkW (no script host). Raises OSError on failure."""
@@ -780,7 +783,7 @@ def uninstall_plan(dest, delete_user_data=False):
     if dest.parent == dest:
         raise Stop('%s is a drive, not an install folder; nothing was deleted.' % dest)
     stamp = precheck.read_stamp(dest) or {}
-    ours = ('MechAssault 2 (Recomp).lnk', 'MA2 Scenario Editor.lnk', REPORT_LNK)
+    ours = ('MechAssault 2 (Recomp).lnk', 'MA2 Scenario Editor.lnk', REPORT_LNK, UPDATE_LNK)
     shortcuts = [Path(s) for s in stamp.get('shortcuts', []) if isinstance(s, str) and Path(s).name in ours and Path(s).is_file()]
     caches = [p for p in (local / 'ShaderCache', local / 'NavCache', local / 'Cache', Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local') / 'xboxrecomp' / 'shader-cache')
               if p.exists()]
@@ -812,6 +815,8 @@ def uninstall(dest, delete_user_data=False, log=print):
     log('  removing the install folder %s' % dest)
     before = len(failed)
     safe_rmtree(dest, failed)
+    try: failed[before:] = later_for_running_copy(dest, failed[before:], log)    # 1.1.7: Uninstall started from the installer copy in it
+    except Exception as e: log('  (%s)' % e)
     if len(failed) == before: removed.append(str(dest))
     if plan.get('build') is not None:
         log('  removing %s' % plan['build'])
@@ -842,6 +847,31 @@ def uninstall(dest, delete_user_data=False, log=print):
     text = '\n'.join(lines)
     for line in lines: log(line)
     return {'removed': removed, 'failed': failed, 'text': text}
+
+def running_copy(dest):
+    """1.1.7: the installer copy in `dest` when THIS installer runs from it (the Start menu's Update MechAssault 2), else None."""
+    exe = os.environ.get('MA2_INSTALLER_EXE')
+    if not exe: return None
+    try:
+        p = Path(exe).resolve()
+        return p if p.name.lower() == INSTALLER_COPY.lower() and os.path.normcase(str(p.parent)) == os.path.normcase(str(Path(dest).resolve())) else None
+    except OSError:
+        return None
+
+def later_for_running_copy(dest, failed, log):
+    """Uninstall run from the installer copy inside the install folder: that exe cannot be deleted while it runs. When it (and the
+    folder holding it) are the only things left, a hidden Windows command deletes both once this installer has closed; the rest of
+    `failed` is returned unchanged."""
+    me = running_copy(dest)
+    if me is None or not failed: return failed
+    left = [f for f in failed if os.path.normcase(f[0]) not in (os.path.normcase(str(me)), os.path.normcase(str(dest)))]
+    if left != [] or any(c in str(me) for c in '%^&"!'): return failed
+    script = ('for /l %%i in (1,1,90) do @(del /f /q "%s" >nul 2>&1 & rmdir "%s" >nul 2>&1 & if not exist "%s" exit /b 0 & '
+              'ping -n 2 127.0.0.1 >nul)' % (me, dest, dest))
+    subprocess.Popen('cmd.exe /d /s /c "%s"' % script, creationflags=0x08000000 | 0x00000008, close_fds=True,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    log('  the installer copy in the folder is removed when this installer closes')
+    return []
 
 BUILD_PREFIX = 'MA2RecompBuild-'
 plain_path = precheck.plain_path                 # can the C++ build run under this path (a whitelist of characters)
@@ -1247,6 +1277,7 @@ def manifest_files(dest):
     dest = Path(dest)
     out = []
     for p in sorted(dest.iterdir()):
+        if p.name == INSTALLER_COPY: continue       # 1.1.7: the installer copy is refreshed by every run, not a game file
         if p.is_file() and (p.suffix.lower() in ('.exe', '.dll') or p.name in ('README.txt', 'Controls.txt', 'pc_settings.ini', 'pc_settings.default.ini')):
             out.append(p.name)
     for top in ('Docs', 'Licenses', 'pc_assets'):
@@ -2753,7 +2784,30 @@ class Installer:
             self.place(f, self.dest / f.name)          # 1.1.6: MA2 Report.exe (crash / freeze boxes, Report a problem)
             self.log('  %s' % f.name)
         if self.unchanged: self.log('  %d file(s) were already up to date and were left as they are' % self.unchanged)
+        try: self.copy_installer()                     # 1.1.7: the installer itself, so "Run the installer to update" has one to run
+        except Exception as e: self.log('  (the installer was not copied into the install folder: %s)' % e)
         self.make_shortcuts()
+
+    def copy_installer(self):
+        """Keep a copy of this installer (the exe the player ran, MA2_INSTALLER_EXE) in the install folder, replacing an older copy.
+        Not when self-update is switched off, when not run from the exe, or when it already is that file or has the same bytes.
+        Best effort: a copy that cannot be written (in use, antivirus) is logged and the install goes on."""
+        if not selfupdate.enabled(): return False
+        exe = os.environ.get('MA2_INSTALLER_EXE')
+        if not exe or not Path(exe).is_file(): return False
+        src, dst = Path(exe).resolve(), self.dest / INSTALLER_COPY
+        if os.path.normcase(str(src)) == os.path.normcase(str(dst.resolve())): return False
+        if dst.is_file() and same_bytes(src, dst): return False
+        tmp = self.dest / (INSTALLER_COPY + '.new')
+        try:
+            shutil.copy2(src, tmp)
+            retry_io(lambda: tmp.replace(dst), 'replace %s' % INSTALLER_COPY, self.log, owned=dst)
+        except Exception:
+            try: tmp.unlink()
+            except OSError: pass
+            raise
+        self.log('  %s (kept here for later updates)' % INSTALLER_COPY)
+        return True
 
     def copy_in(self, src, dst):
         """Copy one installer-owned file into the install folder, retrying while a scanner holds it (retry_io)."""
@@ -2812,6 +2866,14 @@ class Installer:
                 made.append(str(base / 'MA2 Scenario Editor.lnk'))
             except OSError as e:
                 self.log('  (editor shortcut not created: %s)' % e)
+        upd = self.dest / INSTALLER_COPY               # 1.1.7: Update MechAssault 2 in the Start menu (with the game's Start menu entry)
+        try:
+            if 'start' in want and upd.is_file() and selfupdate.enabled():
+                base = known_folder('start')
+                create_shortcut(base / UPDATE_LNK, upd, self.dest, 'Check for a newer version of MechAssault 2 and update it')
+                made.append(str(base / UPDATE_LNK))
+        except Exception as e:
+            self.log('  (Update MechAssault 2 shortcut not created: %s)' % e)
         report = self.dest / REPORT_EXE                # 1.1.6: Report a problem in the Start menu (with the game's Start menu entry)
         if 'start' in want and report.is_file():
             try:
@@ -3120,6 +3182,42 @@ def run_uninstall(a):
     res = uninstall(a.dest, a.delete_user_data, log=lambda line: print(line, flush=True))
     return 1 if res['failed'] else 0
 
+def run_self_update(dest, log=lambda line: print(line, flush=True), progress=None):
+    """--self-update: check the relay, download the newer installer from GitHub, verify it against the relay's SHA-256 and size,
+    start it with --update --dest <dest> (and the shortcuts the install had) and return. Exit codes: 0 handed over, 3 already the
+    newest (nothing to do), 1 stopped (one sentence and the releases page; nothing was changed)."""
+    def stop(cause):
+        print('SELF-UPDATE STOPPED: %s Get the installer from %s' % (selfupdate.text(cause), selfupdate.RELEASES_PAGE), file=sys.stderr)
+        return 1
+    d = Path(precheck.clean_path(dest)).resolve()
+    if not is_install(d):
+        print('SELF-UPDATE STOPPED: %s is not a MechAssault 2 Recomp install.' % d, file=sys.stderr); return 1
+    if precheck.read_state(d) is not None:
+        print('SELF-UPDATE STOPPED: An install or update in %s is not finished. Run the installer to finish it first.' % d, file=sys.stderr)
+        return 1
+    if not selfupdate.enabled(): return stop('off')
+    info = selfupdate.check(PUBLIC_VERSION, log=log)
+    if info['cause'] == 'current':
+        log('This installer (%s) is the newest version; nothing to do. Run it with --update --dest to repair.' % PUBLIC_VERSION)
+        return 3
+    if not info['ok']: return stop(info['cause'])
+    log('Version %s is available (this installer is %s).' % (info['latest'], PUBLIC_VERSION))
+    last = [0.0]
+    def show(done, total):
+        now = time.monotonic()
+        if now - last[0] >= 2 or done == total:
+            last[0] = now; log('  downloaded %d of %d MB' % (done >> 20, total >> 20))
+    try:
+        exe = selfupdate.download(info, PUBLIC_VERSION, progress=progress or show, log=log)
+        kinds = selfupdate.shortcut_kinds(precheck.read_stamp(d), known_folder)
+        args = ['--update', '--dest', str(d)] + (['--shortcuts', ','.join(kinds)] if kinds else [])
+        selfupdate.launch(exe, info['sha256'], d, PUBLIC_VERSION, cli_args=args, log=log)
+    except selfupdate.UpdateError as e:
+        log('  (%s)' % (e.detail or e.cause))
+        return stop(e.cause)
+    log('The %s installer continues the update of %s.' % (info['latest'], d))
+    return 0
+
 def main():
     ap = argparse.ArgumentParser(prog='"MechAssault 2 Recomp Installer.exe"', description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -3152,7 +3250,17 @@ def main():
     ap.add_argument('--yes', action='store_true', help='with --uninstall: do not stop to ask')
     ap.add_argument('--until', help=argparse.SUPPRESS)   # stop after a step, e.g. patch (generated sources only)
     ap.add_argument('--vs', help=argparse.SUPPRESS)      # build with this VS/Build Tools installation folder
+    ap.add_argument('--self-update', action='store_true', help='with --dest: if a newer version is out, download its installer from '
+                    'GitHub, check it, and let it update the install (keeps settings and saves)')
+    ap.add_argument('--no-self-update', action='store_true', help='do not keep a copy of the installer in the install folder or make '
+                    'the Update MechAssault 2 shortcut, and never look for a newer installer (also: set MA2_SELF_UPDATE=0)')
     a = ap.parse_args()
+    if a.no_self_update: selfupdate.switch_off()
+    try: selfupdate.cleanup_old()
+    except Exception: pass
+    if a.self_update:
+        if not a.dest: ap.error('--self-update needs --dest (the install to update)')
+        sys.exit(run_self_update(a.dest))
     if a.ffmpeg:                                  # a URL is passed as it is; a file or folder as a full path
         os.environ['MA2_FFMPEG_SOURCE'] = (a.ffmpeg.strip() if ffmpeg_fetch.is_url(a.ffmpeg.strip())
                                            else str(Path(precheck.clean_path(a.ffmpeg)).resolve()))

@@ -41,6 +41,15 @@
   {"id": "117 same_bytes", "module": "__main__", "target": "same_bytes", "exc": "RuntimeError", "when": "never"},
   {"id": "117 verify_manifest", "module": "__main__", "target": "verify_manifest", "exc": "RuntimeError", "when": "never"},
   {"id": "117 good_launch", "module": "__main__", "target": "good_launch", "exc": "RuntimeError", "when": "never"},
-  {"id": "117 reuse_preview", "module": "__main__", "target": "reuse_preview", "exc": "RuntimeError", "when": "never"}
+  {"id": "117 reuse_preview", "module": "__main__", "target": "reuse_preview", "exc": "RuntimeError", "when": "never"},
+  {"id": "117su copy_installer", "module": "__main__", "target": "Installer.copy_installer", "exc": "OSError", "when": "install"},
+  {"id": "117su enabled", "module": "selfupdate", "target": "enabled", "exc": "RuntimeError", "when": "install"},
+  {"id": "117su cleanup_old", "module": "selfupdate", "target": "cleanup_old", "exc": "OSError", "when": "install"},
+  {"id": "117su running_copy", "module": "__main__", "target": "running_copy", "exc": "RuntimeError", "when": "never"},
+  {"id": "117su later_for_running_copy", "module": "__main__", "target": "later_for_running_copy", "exc": "RuntimeError", "when": "never"},
+  {"id": "117su check", "module": "selfupdate", "target": "check", "exc": "RuntimeError", "when": "never"},
+  {"id": "117su download", "module": "selfupdate", "target": "download", "exc": "OSError", "when": "never"},
+  {"id": "117su launch", "module": "selfupdate", "target": "launch", "exc": "OSError", "when": "never"},
+  {"id": "117su handoff_dest", "module": "selfupdate", "target": "handoff_dest", "exc": "RuntimeError", "when": "never"}
  ]
 }

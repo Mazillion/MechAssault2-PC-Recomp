@@ -386,6 +386,116 @@ def scenario_quick():
     finally:
         install.reuse_preview = real_prev
 
+def scenario_selfupdate():
+    """1.1.7 self-update: an existing install + a newer release on the (mock) relay -> one quiet line "Version X is available." with
+    "Update to X"; the download screen (progress, Cancel), the hand-over (the new installer is started, this window closes), every
+    failure as one sentence + "Open the releases page" + BACK, the off switch (nothing asked), and the new installer opening on the
+    handed-over folder and starting the update by itself."""
+    import mock_update, selfupdate
+    srv = mock_update.MockUpdate(b'MZ' + os.urandom(3 * 1024 * 1024), latest='9.9.9').start()
+    saved = {k: os.environ.get(k) for k in ('MA2_SELF_UPDATE', 'MA2_SELF_UPDATE_TEST', 'MA2_UPDATE_RELAY', 'MA2_SELF_UPDATE_GITHUB')}
+    os.environ.update(MA2_SELF_UPDATE='1', MA2_SELF_UPDATE_TEST='1', MA2_UPDATE_RELAY=srv.base, MA2_SELF_UPDATE_GITHUB=srv.base)
+    real_launch = selfupdate.launch
+    launched = []
+    selfupdate.launch = lambda exe, sha, dest, own, cli_args=None, log=None: launched.append((str(exe), sha, str(dest), cli_args))
+    try:
+        d = fresh_env(); dest = d / 'Games' / 'MechAssault 2'
+        dummy_install(dest, {'kit_id': install.KIT_ID, 'version': install.VERSION, 'public_version': install.PUBLIC_VERSION}); remember(dest)
+        root, app = rig.make(); until(root, lambda: app.folder is not None, 10)
+        until(root, lambda: 'selfupdate' in app.w, 10); pump(root, 0.2)
+        t = screen_text(app)
+        check('selfupdate: Repair screen shows "Version 9.9.9 is available." with an "Update to 9.9.9" link', gui.SU_OFFER % '9.9.9' in t
+              and app.w['selfupdate'].text == gui.SU_LINK % '9.9.9' and app.primary.text == 'REPAIR', t)
+        check('selfupdate: the check sent only GET /v1/latest (nothing downloaded before the click)', [r['path'] for r in srv.requests] == ['/v1/latest'],
+              srv.requests)
+        check('selfupdate: the offer screen fits', not layout_problems(app), layout_problems(app))
+        snap(root, SHOTS / 'selfupdate-offer.png'); owner_shot(root, '30-selfupdate-offer.png')
+        app.w['selfupdate'].invoke(); pump(root, 0.05)
+        check('selfupdate: the download screen (title, words, Cancel)', app.screen == 'selfupdate' and gui.SU_KICKER % '9.9.9' in screen_text(app)
+              and gui.SU_BODY in screen_text(app), screen_text(app))
+        until(root, lambda: launched and app.closing, 30)
+        check('selfupdate: verified, the new installer is started for this folder, the window closes', launched and app.closing
+              and Path(launched[0][2]) == dest and launched[0][1] == srv.sha and launched[0][3] is None
+              and Path(launched[0][0]).read_bytes() == srv.payload, launched)
+        shutil.rmtree(Path(launched[0][0]).parent, ignore_errors=True)
+        # the download screen mid-way, then Cancel
+        srv.mode = 'slow'
+        root, app = rig.make(); until(root, lambda: 'selfupdate' in app.w, 10); pump(root, 0.1)
+        app.w['selfupdate'].invoke()
+        until(root, lambda: app.su.get('done', 0) > 0, 20); pump(root, 0.1)
+        t = screen_text(app)
+        check('selfupdate: progress shows MB done of the size', ' of 3 MB' in t, t)
+        check('selfupdate: the download screen fits', not layout_problems(app), layout_problems(app))
+        snap(root, SHOTS / 'selfupdate-download.png'); owner_shot(root, '31-selfupdate-download.png')
+        app.w['su_cancel'].invoke(); until(root, lambda: app.screen == 'stop', 20); pump(root, 0.1)
+        t = screen_text(app)
+        check('selfupdate: Cancel -> "cancelled, nothing was changed" + the releases page link + BACK', selfupdate.text('cancelled') in t
+              and selfupdate.LINK_TEXT in t and app.primary.text == 'BACK', t)
+        app.primary.invoke(); pump(root, 0.2)
+        check('selfupdate: BACK returns to the install with the offer still there', app.screen == 'setup' and 'selfupdate' in app.w)
+        root.destroy()
+        # each failure: one sentence, the link, nothing left behind
+        tmp_before = set(Path(tempfile.gettempdir()).glob(selfupdate.TEMP_PREFIX + '*'))
+        for mode, cause in (('mismatch', 'mismatch'), ('evil', 'host'), ('500', 'server'), ('long', 'size')):
+            srv.mode = mode
+            root, app = rig.make(); until(root, lambda: 'selfupdate' in app.w, 10); pump(root, 0.1)
+            app.w['selfupdate'].invoke(); until(root, lambda: app.screen == 'stop', 30); pump(root, 0.1)
+            t = screen_text(app)
+            check('selfupdate: %s -> one sentence + "%s"' % (mode, selfupdate.LINK_TEXT), selfupdate.text(cause) in t and selfupdate.LINK_TEXT in t
+                  and gui.SU_FAILED_KICKER in t and 'send' not in app.w, t)
+            if mode == 'mismatch':
+                check('selfupdate: the failure screen fits', not layout_problems(app), layout_problems(app))
+                snap(root, SHOTS / 'selfupdate-failed.png'); owner_shot(root, '32-selfupdate-failed.png')
+                opened = []; real_web = app.web; app.web = lambda u: opened.append(u)
+                app.w['stop_link0'].invoke(); app.web = real_web
+                check('selfupdate: the link opens the releases page', opened == [selfupdate.RELEASES_PAGE], opened)
+            root.destroy()
+        check('selfupdate: no download folder is left after the failures',
+              set(Path(tempfile.gettempdir()).glob(selfupdate.TEMP_PREFIX + '*')) <= tmp_before)
+        check('selfupdate: no hand-over happened on a failure', len(launched) == 1, launched)
+        # relay down / not newer: nothing is offered
+        for relay in ('down', 'older', 'nohash'):
+            srv.relay = relay
+            root, app = rig.make(); until(root, lambda: app.su.get('state') in ('none', 'offer'), 10); pump(root, 0.2)
+            check('selfupdate: relay %s -> no offer' % relay, 'selfupdate' not in app.w and gui.SU_OFFER % '9.9.9' not in screen_text(app))
+            root.destroy()
+        srv.relay = 'ok'
+        # the off switch: nothing asked at all
+        os.environ['MA2_SELF_UPDATE'] = '0'; n = len(srv.requests)
+        root, app = rig.make(); until(root, lambda: app.folder is not None, 10); pump(root, 1.0)
+        check('selfupdate: MA2_SELF_UPDATE=0 -> no offer and no request', 'selfupdate' not in app.w and len(srv.requests) == n)
+        root.destroy(); os.environ['MA2_SELF_UPDATE'] = '1'
+        # a fresh install (nothing installed) is never offered an update
+        d2 = fresh_env(); n = len(srv.requests)
+        root, app = rig.make(); pump(root, 1.0)
+        check('selfupdate: a fresh install asks nothing', app.mode == 'install' and len(srv.requests) == n and 'selfupdate' not in app.w)
+        root.destroy()
+        # the new installer, started by the hand-over: opens on that folder (an older install) and starts the update by itself
+        d3 = fresh_env(); old = d3 / 'Games' / 'MA2 old'
+        dummy_install(old, {'kit_id': 'oldkit', 'version': '2026.10.22', 'public_version': '1.1.2'})
+        os.environ['MA2_SELF_UPDATE_DEST'] = str(old); os.environ['MA2_HANDOFF_WAIT'] = '1'
+        n = len(srv.requests)
+        root, app = rig.make()
+        check('handoff: the window opens on the handed-over folder as an update', Path(app.dest) == old and app.mode == 'update' and app.handoff)
+        check('handoff: the hand-over variables are read once', 'MA2_SELF_UPDATE_DEST' not in os.environ and 'MA2_HANDOFF_WAIT' not in os.environ)
+        app.facts['compiler'] = {'state': 'ready'}
+        check('handoff: the update starts by itself and finishes', run_to(root, app, 'done', 90), app.screen)
+        check('handoff: no second self-update check', len(srv.requests) == n and 'selfupdate' not in app.w)
+        root.destroy()
+        # handed over to a folder that is already this version: Repair is shown, nothing starts by itself
+        dummy_install(old, {'kit_id': install.KIT_ID, 'version': install.VERSION, 'public_version': install.PUBLIC_VERSION})
+        os.environ['MA2_SELF_UPDATE_DEST'] = str(old)
+        root, app = rig.make(); pump(root, 1.5)
+        check('handoff: an up-to-date folder waits for the player (no automatic run)', app.mode == 'maintain' and app.screen == 'setup' and not app.worker)
+        root.destroy()
+    finally:
+        selfupdate.launch = real_launch
+        srv.stop()
+        for k, v in saved.items():
+            if v is None: os.environ.pop(k, None)
+            else: os.environ[k] = v
+        os.environ.pop('MA2_SELF_UPDATE_DEST', None); os.environ.pop('MA2_HANDOFF_WAIT', None)
+
 def scenario_maintain():
     d = fresh_env(); dest = d / 'Games' / 'MechAssault 2'
     dummy_install(dest, {'kit_id': install.KIT_ID, 'version': install.VERSION, 'public_version': install.PUBLIC_VERSION}); remember(dest)
@@ -1081,7 +1191,7 @@ if __name__ == '__main__':
         i = args.index('--shots'); OWNER_SHOTS = Path(args[i + 1]); OWNER_SHOTS.mkdir(parents=True, exist_ok=True); del args[i:i + 2]
     names = args or ['happy', 'engine', 'fail', 'cancel', 'update', 'elsewhere', 'maintain', 'resume', 'extras', 'stops', 'tools', 'blocked', 'menu', 'keyboard',
                      'drop', 'faults', 'startup', 'layout', 'dpi', 'hooks', 'memwait', 'eta', 'found', 'plain', 'fonts', 'errors',
-                     'overrun', 'report', 'quick']
+                     'overrun', 'report', 'quick', 'selfupdate']
     for n in names:
         print('== %s' % n, flush=True)
         try:

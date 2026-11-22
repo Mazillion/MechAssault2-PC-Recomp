@@ -869,6 +869,7 @@ IDENTITY = ['MechAssault 2.exe', 'MA2 Scenario Editor.exe', 'MA2 Report.exe', 'r
             'README.txt', 'Controls.txt', 'Docs/*']                 # files that carry the version or the build identity
 BUILD_IDENTITY = ['MechAssault 2.exe', 'recomp-install.json', 'recomp-manifest.json']   # differ between two builds of one source
 PLAYER_FILES = ['pc_settings.ini', 'saves/*', 'Saves/*']
+FAULT_MAY_LACK = ['MechAssault 2 Recomp Installer.exe']     # 1.1.7 self-update: the installer copy (fault run: may be missing)
 
 
 class Gate:
@@ -1622,7 +1623,8 @@ def st_fault(g):
     extra = []
     if fresh and fresh.get('manifest') and m:
         a, b, diff = compare_manifests(fresh['manifest'], m)
-        extra = [k for k in a + b + diff if not match_any(k, BUILD_IDENTITY)]
+        # (the installer copy kept for later updates is a fail-safe extra: a faulted copy step leaves it out, as 1.1.6 did)
+        extra = [k for k in a + b + diff if not match_any(k, BUILD_IDENTITY + FAULT_MAY_LACK)]
         det.append('vs the fresh candidate install: %d differ (%s)%s' % (len(diff), ', '.join(diff[:6]),
                                                                        '; other differences: %s' % ', '.join(extra[:8]) if extra else ''))
     bad = r['code'] != 0 or d['code'] != 0 or patched < 2 or not_fired

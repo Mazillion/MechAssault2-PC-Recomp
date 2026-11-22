@@ -44,6 +44,7 @@ try:
     import tkinter as tk
     from tkinter import filedialog, ttk
     import install, precheck, progress, ui_theme                     # noqa: E402
+    import selfupdate                                                 # noqa: E402  (1.1.7: Update to the newest version)
     import ui_kit, ui_win                                             # noqa: E402
     from ui_kit import P, HexButton, Link, Toggle, Segment, Zone      # noqa: E402
 except Exception:                                                     # the classic window may still work (main() falls back)
@@ -110,6 +111,16 @@ MEMWAIT_NOTE = 'Close other programs, such as web browsers and Discord. The buil
 MEMWAIT_HINT = ('If it keeps waiting, check that Windows manages the page file size automatically (Settings > System > About > Advanced '
                 'system settings > Performance Settings > Advanced > Virtual memory), and free a few GB on C: if it is nearly full.')
 SAC_TEXT = 'Windows Smart App Control is on. If it blocks the game, setup will help.'
+# 1.1.7 self-update: an existing install, a newer release announced by the project's server (selfupdate.py)
+SU_OFFER = 'Version %s is available.'
+SU_LINK = 'Update to %s'
+SU_KICKER = 'UPDATE TO %s'
+SU_DOWNLOADING = 'Downloading version %s'
+SU_STARTING = 'Starting the new installer'
+SU_BODY = ('The new installer comes from the project\'s GitHub releases page and is checked before it runs. It then updates this '
+           'install; your settings and saves stay as they are.')
+SU_SIZE = '%d of %d MB'
+SU_FAILED_KICKER = 'UPDATE NOT STARTED'
 HELP_TEXT = [
     ('Windows warned me about the installer', 'Windows SmartScreen warns about programs it does not recognize, and this installer is not '
      'code-signed. If you downloaded it from where you expected, choose More info, then Run anyway. The installer never changes your '
@@ -222,6 +233,7 @@ class App:
         self.notice = None; self.menu = None; self.failed = None; self.extras_failed = None
         self.model = None; self.lines = []; self.step_title = ''; self.slow = ''; self.shown_frac = 0.0; self.shown_eta = None
         self.memwait = None; self.overrun = False; self.rep = None
+        self.su = {'for': None, 'state': None, 'info': None}; self.handoff = False     # 1.1.7: self-update offer and download
         self.started = None; self.show_details = False; self.tools_busy = False; self.tools_cancel = False
         self.w = {}; self.primary = None; self.want_focus = None; self.prog = {}; self.scan_x = 0.0
         self.closing = False; self.fallbacks = ui_win.FALLBACKS
@@ -252,6 +264,11 @@ class App:
         root.bind('<Escape>', self.on_escape)
         # what is in the remembered folder decides the first screen (as 1.1.3's Welcome banner did)
         self.dest = precheck.remembered_install() or precheck.default_install_folder()
+        try: hd = selfupdate.handoff_dest()                # 1.1.7: an older installer downloaded this one to update that folder
+        except Exception: hd = ''
+        if hd and install.is_install(precheck.clean_path(hd)):
+            self.dest = hd; self.handoff = True
+            print('ui: started by the self-update of %s' % hd, flush=True)
         self.mode = self.mode_for(self.dest)
         self.load_installed_choices()
         self.check_dest()
@@ -262,6 +279,8 @@ class App:
         self._after = root.after(100, self.pump)
         self._tick = 0
         if resume: root.after(300, lambda: self.resume_after_restart(resume))
+        elif self.handoff: root.after(600, self.handoff_begin)
+        threading.Thread(target=self.guarded(selfupdate.cleanup_old), daemon=True).start()
 
     # -- scale and placement
     def pick_scale(self, forced=None):
@@ -893,7 +912,11 @@ class App:
             items.append(self.link('uninstall', 'Uninstall', lambda: self.go('uninstall'), quiet=True))
         items.append(self.link('report', 'Report a problem', self.open_report, quiet=True))      # 1.1.6
         for it in items: self.put(it, x, y); x += it.winfo_reqwidth() / k.scale + 18
+        offer = self.self_update_offer() if m in ('update', 'maintain') and not self.notice else None
         if self.notice: self.strip(y + 44, self.notice[1], self.notice[0] == 'bad')
+        elif offer:
+            v = offer['latest']
+            self.strip(y + 44, SU_OFFER % v, links=[self.link('selfupdate', SU_LINK % v, self.self_update_start, bg='panel2')])
         if self.confirm: return self.confirm_footer()
         ok = (not self.needs_disc() or (self.image and self.image.ok))
         label = {'update': 'UPDATE', 'resume': 'CONTINUE'}.get(m) or ('ADD CONTENT' if self.action() == 'addons' else 'REPAIR')
@@ -912,6 +935,105 @@ class App:
                 hl = self.link('help', 'Help', self.open_menu, quiet=True, bg='panel')
                 self.footer([hl], [total, play, prim]); return
         self.std_footer(tp)
+
+    # -- 1.1.7: self-update (selfupdate.py): offer, download with progress and Cancel, verify, hand over, close
+    def self_update_offer(self):
+        """The relay's answer for this install, asked once per folder in the background (only on an existing install, never when this
+        installer was itself started by a self-update). Returns the check() result when a newer, downloadable version is out."""
+        try:
+            if self.handoff or not selfupdate.enabled(): return None
+            d = precheck.clean_path(self.dest)
+            if self.su.get('for') != d:
+                self.su = {'for': d, 'state': 'checking', 'info': None}
+                def done(res):
+                    if self.su.get('for') != d: return
+                    ok = isinstance(res, dict) and res.get('ok')
+                    self.su.update(state='offer' if ok else 'none', info=res if ok else None)
+                    print('ui: self-update check: %s' % (res.get('cause') if isinstance(res, dict) else res), flush=True)
+                    if ok and self.screen == 'setup' and self.mode in ('update', 'maintain'): self.render()
+                self.bg(lambda: selfupdate.check(install.PUBLIC_VERSION, log=lambda s: print('ui: ' + s, flush=True)), done)
+            return self.su.get('info') if self.su.get('state') == 'offer' else None
+        except Exception as e:
+            print('ui: self-update check not available (%s)' % e, flush=True)
+            return None
+
+    def self_update_start(self):
+        info = self.su.get('info')
+        if not info or self.su.get('state') not in ('offer', 'failed'): return
+        self.su.update(state='downloading', done=0, total=int(info['size']), cancel=False)
+        self.notice = None; self.confirm = None
+        self.go('selfupdate')
+        last = [0.0]
+        def progress_cb(done, total):
+            now = time.monotonic()
+            if now - last[0] >= 0.15 or done >= total:
+                last[0] = now; self.q.put(('call', lambda: self.self_update_progress(done, total)))
+        def work():
+            return selfupdate.download(info, install.PUBLIC_VERSION, progress=progress_cb, cancelled=lambda: self.su.get('cancel'),
+                                       log=lambda s: print('ui: ' + s, flush=True))
+        def done(res):
+            if isinstance(res, Exception): return self.self_update_failed(getattr(res, 'cause', 'error'), res)
+            self.su['state'] = 'starting'; self.render()
+            try:
+                selfupdate.launch(res, info['sha256'], precheck.clean_path(self.dest), install.PUBLIC_VERSION,
+                                  log=lambda s: print('ui: ' + s, flush=True))
+            except Exception as e:
+                shutil.rmtree(Path(res).parent, ignore_errors=True)
+                return self.self_update_failed(getattr(e, 'cause', 'start'), e)
+            self.root.after(400, self.close)
+        self.bg(work, done)
+
+    def self_update_progress(self, done, total):
+        self.su['done'], self.su['total'] = done, total
+        if self.screen != 'selfupdate' or not self.prog.get('su_fill'): return
+        dp = self.k.dp
+        frac = min(1.0, done / float(total or 1))
+        self.cv.coords(self.prog['su_fill'], dp(43), dp(153), dp(43) + (dp(837) - dp(43)) * frac, dp(173))
+        self.cv.itemconfigure(self.prog['su_size'], text=SU_SIZE % (done >> 20, total >> 20))
+        self.taskbar.set('normal', frac)
+
+    def self_update_cancel(self):
+        self.su['cancel'] = True
+        if self.w.get('su_cancel'):
+            try: self.w['su_cancel'].configure(state='disabled')
+            except Exception: pass
+
+    def self_update_failed(self, cause, err=None):
+        print('ui: self-update stopped: %s (%s)' % (cause, err), flush=True)
+        v = (self.su.get('info') or {}).get('latest', '')
+        self.su['state'] = 'failed'
+        self.taskbar.set('none')
+        self.show_stop(style='needs', icon='needs' if cause == 'cancelled' else 'bad', kicker=SU_FAILED_KICKER, head=SU_LINK % v,
+                       body=selfupdate.text(cause), primary=('BACK', self.self_update_back),
+                       links=[(selfupdate.LINK_TEXT, lambda: self.web(selfupdate.RELEASES_PAGE))])
+
+    def self_update_back(self):
+        if self.su.get('info'): self.su['state'] = 'offer'
+        self.stop = None; self.go('setup')
+
+    def scr_selfupdate(self):
+        k, dp, cv = self.k, self.k.dp, self.cv
+        s = self.su; v = (s.get('info') or {}).get('latest', '')
+        self.kicker(40, 30, SU_KICKER % v)
+        self.T(40, 56, SU_STARTING if s.get('state') == 'starting' else SU_DOWNLOADING % v, 'h1')
+        self.T(40, 100, SU_BODY, 'body', 'muted', width=620)
+        cv.create_rectangle(dp(40), dp(150), dp(840), dp(176), fill=P['panel'], outline=P['steel'], width=k.line(), tags='s')
+        self.prog['su_fill'] = cv.create_rectangle(dp(43), dp(153), dp(43), dp(173), fill=P['amber'], outline='', tags='s')
+        self.prog['su_size'] = self.T(840, 200, '', 'mono', 'text', anchor='e')
+        right = []
+        if s.get('state') == 'downloading':
+            right.append(self.link('su_cancel', 'Cancel', self.self_update_cancel, quiet=True, bg='panel'))
+        self.footer([], right)
+        self.self_update_progress(s.get('done', 0), s.get('total', 1))
+
+    def handoff_begin(self):
+        """Started by an older installer's self-update: begin the update of that folder at once when nothing is needed from the player."""
+        try:
+            if self.screen == 'setup' and self.mode == 'update' and not self.needs_disc() and not self.worker:
+                print('ui: self-update: starting the update', flush=True)
+                self.begin()
+        except Exception as e:
+            print('ui: self-update: the update did not start by itself (%s)' % e, flush=True)
 
     def stopped_while(self, step):
         """The same plain step names as the Installing list ("building the game", "making the HD textures")."""
@@ -2058,6 +2180,7 @@ class App:
         except (tk.TclError, AttributeError): pass
 
     def close(self):
+        if self.su.get('state') == 'downloading': self.su['cancel'] = True     # 1.1.7: a download in progress stops (its folder is deleted)
         if self.worker and self.worker.is_alive():
             self.attention()
             if self.screen == 'progress': self.ask('cancel')

@@ -15,6 +15,7 @@ os.environ.setdefault('LOCALAPPDATA', tempfile.mkdtemp(prefix='ma2ux-ui-local-',
 os.environ.setdefault('MA2_SHORTCUT_DIR', tempfile.mkdtemp(prefix='ma2ux-ui-lnk-', dir=str(WORK / 'tmp')))
 os.environ.setdefault('MA2_UI_DISC_SEARCH', '')          # never look through the real Downloads / Desktop for disc images
 os.environ.pop('MA2_INSTALLER_EXE', None)                 # never add a real sign-in (RunOnce) entry
+os.environ.setdefault('MA2_SELF_UPDATE', '0')            # 1.1.7: never ask the real relay for a newer installer (ui_flow 'selfupdate' turns it on with mocks)
 if os.environ.get('MA2_UI_MODULE', 'gui') != 'gui_legacy':
     os.environ.setdefault('MA2_UI_OFFSCREEN', '1')        # the new window: far off screen as well as transparent (the mouse never reaches it)
 import tkinter as tk                                     # noqa: E402
