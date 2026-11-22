@@ -129,13 +129,13 @@ manifests stay). The exit code is 0 when nothing failed.
 | Step | Checks |
 |:--|:--|
 | signoff | the signed sheet still matches |
-| ab_fresh | a fresh install with the previous release's installer and with the new one, same disc and options: no file removed, only files that carry the version or build identity differ |
+| ab_fresh | a fresh install with the previous release's installer and with the new one, same disc and options: no file removed, only files that carry the version or build identity differ, plus the files under `kit/defaults` that changed since the base (for example a new `pc_settings.ini` key; their text is in the signed sheet) |
 | relay_installed | the relay address in the installed tree, no staging or empty address |
 | diagnostics | `--diagnostics` on the new install: the zip, its members, a privacy scan of every member |
 | update | an update of a **copy** of the kept previous install: exit 0, the stamp says the new version, nothing a fresh install has is missing, nothing beyond identity and player files differs |
-| fastpath | a second update takes the incremental fast path (only when the kit keeps an update cache; otherwise "not available in this kit") |
-| fallback | a forced fingerprint change (`fallback_env`) falls back to a clean build and still installs (same condition) |
-| fault | fault injection: every entry of `tests/installer/gate_faults.json` raises inside a real install and a real `--diagnostics`; both must finish and every reachable fault must fire. Add each new fail-safe method there |
+| fastpath | a second update takes the incremental fast path: its install log has the line `kept build: used` (only when the kit keeps an update cache; otherwise "not available in this kit") |
+| fallback | a forced fingerprint change (`fallback_env`, default `MA2_TEST_FINGERPRINT_SALT=compiler=1,patches=2`, the form the installer reads) makes everything again: the log has `kept build: not used` and not `kept build: used`, and the install still finishes (same condition) |
+| fault | fault injection: every entry of `tests/installer/gate_faults.json` raises inside a real install and a real `--diagnostics`; both must finish and every reachable fault must fire. A fault that raises can stop the code before a later hooked method runs (for example `plan_reuse` calls `fingerprint`, `reuse_mode` and `write_cache`), so each fault that did not fire in the combined run gets a hooked install and `--diagnostics` of its own: it must fire, both must exit 0, and the install must match the fresh one apart from build identity. Add each new fail-safe method there |
 
 Isolation: every test and install gets its own `LOCALAPPDATA`, `TEMP`, Documents and shortcut folders, and
 `MA2_REPORT_RELAY` points at a loopback port nothing listens on, so a report can never be sent from a test. The
@@ -161,7 +161,7 @@ missing is skipped with the reason.
 | `relay_forbidden` | address fragments that must not be in a build (default `-staging`) |
 | `known_failures` | `{"suite": ["test_name", ...]}`: failures that count as a warning, with the reason recorded elsewhere |
 | `identity_files`, `ab_allowed_removed` | extra patterns for the A/B comparison |
-| `fastpath_marker`, `fallback_env` | how the fast path shows in the install log, and the environment that forces a fallback |
+| `fastpath_marker`, `fallback_env`, `fallback_marker` | how the fast path shows in the install log (default `kept build: used`), the environment that forces a fallback (default `MA2_TEST_FINGERPRINT_SALT=compiler=1,patches=2`), and how the clean fallback shows in the log (default `kept build: not used`). Keep them in step with the installer's log lines |
 | `install_timeout_minutes`, `suite_timeout_minutes`, `wait_for_installer_minutes` | time limits |
 
 ### Timings (one 24-thread PC, 32 GB)

@@ -856,8 +856,9 @@ def load_config(path):
     c.setdefault('known_failures', {})
     c.setdefault('identity_files', [])
     c.setdefault('ab_allowed_removed', [])
-    c.setdefault('fastpath_marker', r'(?i)\bfast path\b')
-    c.setdefault('fallback_env', {'MA2_TEST_FINGERPRINT_SALT': 'release-gate'})
+    c.setdefault('fastpath_marker', r'kept build: used')            # the installer's log line when it reuses the kept build
+    c.setdefault('fallback_env', {'MA2_TEST_FINGERPRINT_SALT': 'compiler=1,patches=2'})   # the format the installer reads
+    c.setdefault('fallback_marker', r'kept build: not used')        # its log line when it makes everything again
     c['_path'] = str(Path(path).resolve())
     return c
 
@@ -1329,9 +1330,19 @@ def st_kit_diff(g):
             % (ia, ib, len(set(a) & set(b)) - len(diff), len(diff), len(only_a), len(only_b)), 'details': det[:80]}
 
 
+def changed_defaults(g):
+    """Installed paths of the files under kit/defaults that changed since the base (pc_settings.ini, Docs/...). They differ
+    on purpose, and their text is in the signed sheet."""
+    base = g.cfg.get('base')
+    if not base:
+        return []
+    out = git('diff', '--name-only', base, g.sha, '--', 'kit/defaults', check=False)
+    return [l[len('kit/defaults/'):] for l in out.splitlines() if l.startswith('kit/defaults/')]
+
+
 def ab_verdict(g, prev_m, cand_m, base_prev, base_cand):
     only_p, only_c, diff = compare_manifests(prev_m, cand_m)
-    ident = IDENTITY + g.cfg['identity_files']
+    ident = IDENTITY + g.cfg['identity_files'] + changed_defaults(g)
     det, bad = [], []
     for k in only_p:
         det.append('only in the previous release: ' + k)
@@ -1526,11 +1537,13 @@ def st_fallback(g):
     if not dest or not g.state.get('update_second'):
         return {'status': 'SKIP', 'summary': 'needs the fast-path update (step fastpath)'}
     r = g.install('update3', need_installer(g), g.install_args() + ['--update'], extra_env=g.cfg['fallback_env'], dest=dest)
-    fast = bool(re.search(g.cfg['fastpath_marker'], install_log_text(r)))
+    text = install_log_text(r)
+    fast = bool(re.search(g.cfg['fastpath_marker'], text))
+    clean = bool(re.search(g.cfg['fallback_marker'], text))
     exe_ok = (Path(dest) / 'MechAssault 2.exe').is_file()
-    ok = r['code'] == 0 and not fast and exe_ok
+    ok = r['code'] == 0 and not fast and clean and exe_ok
     return {'status': 'PASS' if ok else 'FAIL', 'summary': 'forced fingerprint change (%s): exit %d in %.0f s, fast path %s, game exe %s'
-            % (', '.join(g.cfg['fallback_env']), r['code'], r['seconds'], 'taken (WRONG)' if fast else 'not taken (clean build)',
+            % (', '.join(g.cfg['fallback_env']), r['code'], r['seconds'], 'taken (WRONG)' if fast else 'not taken (clean build)' if clean else 'not taken, but no clean-build line in the log',
                'present' if exe_ok else 'MISSING')}
 
 
@@ -1597,17 +1610,41 @@ def st_fault(g):
     if not fj.is_file():
         return {'status': 'SKIP', 'summary': 'not available in this kit (no tests/installer/gate_faults.json)'}
     faults = json.loads(fj.read_text(encoding='utf-8'))['faults']
-    e, base = g.env('fault')
+    r = fault_run(g, exe, faults, 'fault')
+    if r['not_fired']:
+        # A fault that raises can stop the code before a later hooked method is reached (plan_reuse calls fingerprint,
+        # reuse_mode and write_cache; copy_installer calls selfupdate.enabled). Each of those gets a hooked install of its own.
+        alone = []
+        for fid in list(r['not_fired']):
+            one = fault_run(g, exe, [f for f in faults if f['id'] == fid], 'fault-' + re.sub(r'\W+', '_', fid))
+            alone.append(one)
+            r['det'].append('alone: %s: install exit %d, --diagnostics exit %d, %s%s' % (
+                fid, one['code'], one['dcode'], 'fired' if not one['not_fired'] else 'NOT fired',
+                '; other differences: ' + ', '.join(one['extra'][:8]) if one['extra'] else ''))
+            if not one['not_fired']:
+                r['not_fired'].remove(fid)
+        r['bad'] = r['bad'] or any(o['code'] or o['dcode'] or o['patched'] < 2 or o['extra'] for o in alone)
+    if r['not_fired']:
+        r['det'].append('expected but not fired: ' + ', '.join(r['not_fired']))
+    st = 'FAIL' if r['bad'] or r['not_fired'] else 'WARN' if (r['absent'] or r['extra']) else 'PASS'
+    return {'status': st, 'summary': 'hooked install exit %d (%.0f s), hooked --diagnostics exit %d; %d of %d expected faults fired, %d absent'
+            % (r['code'], r['seconds'], r['dcode'], r['want'] - len(r['not_fired']), r['want'], len(set(r['absent']))),
+            'details': r['det']}
+
+
+def fault_run(g, exe, faults, case):
+    """One hooked install plus one hooked --diagnostics with these faults."""
+    e, base = g.env(case)
     hit = base / 'faults-hit.txt'
     if hit.exists():
         hit.unlink()
     hooked_kit(g, exe, base / 'temp', hit, faults)
-    r = g.install('fault', exe, g.install_args() + ['--shortcuts', 'desktop,start,editor'])
+    r = g.install(case, exe, g.install_args() + ['--shortcuts', 'desktop,start,editor'])
     m = manifest(r['dest']) if Path(r['dest']).is_dir() else {}
-    (g.logs / 'manifest-fault.json').write_text(json.dumps(m, indent=0), encoding='utf-8')
-    _, dbase = g.env('fault-diag')
+    (g.logs / ('manifest-%s.json' % case)).write_text(json.dumps(m, indent=0), encoding='utf-8')
+    _, dbase = g.env(case + '-diag')
     hooked_kit(g, exe, dbase / 'temp', hit, faults)                # the stub deleted the first copy when the install ended
-    d = g.install('fault-diag', exe, ['--diagnostics', '--dest', str(r['dest'])])
+    d = g.install(case + '-diag', exe, ['--diagnostics', '--dest', str(r['dest'])])
     lines = hit.read_text(encoding='utf-8').splitlines() if hit.is_file() else []
     fired = {l[4:] for l in lines if l.startswith('HIT ')}
     absent = [l[7:] for l in lines if l.startswith('ABSENT ')]
@@ -1617,8 +1654,6 @@ def st_fault(g):
     det = ['fired: ' + ', '.join(sorted(fired)), 'hooked runs: %d' % patched]
     if absent:
         det.append('absent in this kit: ' + ', '.join(sorted(set(absent))))
-    if not_fired:
-        det.append('expected but not fired: ' + ', '.join(not_fired))
     fresh = g.state.get('fresh')
     extra = []
     if fresh and fresh.get('manifest') and m:
@@ -1627,10 +1662,9 @@ def st_fault(g):
         extra = [k for k in a + b + diff if not match_any(k, BUILD_IDENTITY + FAULT_MAY_LACK)]
         det.append('vs the fresh candidate install: %d differ (%s)%s' % (len(diff), ', '.join(diff[:6]),
                                                                        '; other differences: %s' % ', '.join(extra[:8]) if extra else ''))
-    bad = r['code'] != 0 or d['code'] != 0 or patched < 2 or not_fired
-    st = 'FAIL' if bad else 'WARN' if (absent or extra) else 'PASS'
-    return {'status': st, 'summary': 'hooked install exit %d (%.0f s), hooked --diagnostics exit %d; %d of %d expected faults fired, %d absent'
-            % (r['code'], r['seconds'], d['code'], len(want) - len(not_fired), len(want), len(set(absent))), 'details': det}
+    return {'code': r['code'], 'dcode': d['code'], 'seconds': r['seconds'], 'patched': patched, 'want': len(want),
+            'not_fired': not_fired, 'absent': absent, 'extra': extra, 'det': det,
+            'bad': r['code'] != 0 or d['code'] != 0 or patched < 2}
 
 
 STEPS = {                       # name: (function, modes, what it checks)

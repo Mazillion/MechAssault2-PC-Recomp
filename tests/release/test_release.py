@@ -140,7 +140,7 @@ class Gate(unittest.TestCase):
         ids = [f['id'] for f in data['faults']]
         self.assertEqual(len(ids), len(set(ids)))
         for f in data['faults']:
-            self.assertIn(f['module'], ('__main__', 'precheck', 'download'))
+            self.assertIn(f['module'], ('__main__', 'precheck', 'download', 'selfupdate'))
             self.assertIn(f['when'], ('install', 'diagnostics', 'both', 'never'))
             self.assertIn(f['exc'], ('OSError', 'RuntimeError'))
 
