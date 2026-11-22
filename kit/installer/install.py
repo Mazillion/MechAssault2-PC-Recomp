@@ -3182,10 +3182,11 @@ def run_uninstall(a):
     res = uninstall(a.dest, a.delete_user_data, log=lambda line: print(line, flush=True))
     return 1 if res['failed'] else 0
 
-def run_self_update(dest, log=lambda line: print(line, flush=True), progress=None):
+def run_self_update(dest, log=lambda line: print(line, flush=True), progress=None, extra=()):
     """--self-update: check the relay, download the newer installer from GitHub, verify it against the relay's SHA-256 and size,
     start it with --update --dest <dest> (and the shortcuts the install had) and return. Exit codes: 0 handed over, 3 already the
-    newest (nothing to do), 1 stopped (one sentence and the releases page; nothing was changed)."""
+    newest (nothing to do), 1 stopped (one sentence and the releases page; nothing was changed). `extra`: --low-priority / --jobs
+    of this run, passed on to the new installer."""
     def stop(cause):
         print('SELF-UPDATE STOPPED: %s Get the installer from %s' % (selfupdate.text(cause), selfupdate.RELEASES_PAGE), file=sys.stderr)
         return 1
@@ -3210,7 +3211,7 @@ def run_self_update(dest, log=lambda line: print(line, flush=True), progress=Non
     try:
         exe = selfupdate.download(info, PUBLIC_VERSION, progress=progress or show, log=log)
         kinds = selfupdate.shortcut_kinds(precheck.read_stamp(d), known_folder)
-        args = ['--update', '--dest', str(d)] + (['--shortcuts', ','.join(kinds)] if kinds else [])
+        args = ['--update', '--dest', str(d)] + (['--shortcuts', ','.join(kinds)] if kinds else []) + list(extra)
         selfupdate.launch(exe, info['sha256'], d, PUBLIC_VERSION, cli_args=args, log=log)
     except selfupdate.UpdateError as e:
         log('  (%s)' % (e.detail or e.cause))
@@ -3260,7 +3261,7 @@ def main():
     except Exception: pass
     if a.self_update:
         if not a.dest: ap.error('--self-update needs --dest (the install to update)')
-        sys.exit(run_self_update(a.dest))
+        sys.exit(run_self_update(a.dest, extra=(['--low-priority'] if a.low_priority else []) + (['--jobs', str(a.jobs)] if a.jobs else [])))
     if a.ffmpeg:                                  # a URL is passed as it is; a file or folder as a full path
         os.environ['MA2_FFMPEG_SOURCE'] = (a.ffmpeg.strip() if ffmpeg_fetch.is_url(a.ffmpeg.strip())
                                            else str(Path(precheck.clean_path(a.ffmpeg)).resolve()))

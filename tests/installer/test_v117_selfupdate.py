@@ -350,6 +350,18 @@ class Cli(Base):
         self.assertEqual(kw['cli_args'], ['--update', '--dest', str(dest.resolve()), '--shortcuts', 'start'])
         self.assertIn('Version 1.1.8 is available', out)
 
+    def test_low_priority_and_jobs_are_passed_on(self):
+        dest = self.tmp / 'MA2'; fake_install(dest)
+        calls = []
+        with mock.patch.object(install, 'PUBLIC_VERSION', '1.1.7'), \
+             mock.patch.object(selfupdate, 'launch', lambda *a, **k: calls.append(k)):
+            out = io.StringIO()
+            with redirect_stdout(out), redirect_stderr(io.StringIO()):
+                self.assertEqual(install.run_self_update(str(dest), log=lambda s: None, extra=['--low-priority', '--jobs', '2']), 0)
+        self.assertEqual(calls[0]['cli_args'][-3:], ['--low-priority', '--jobs', '2'])
+        src = (REPO / 'kit' / 'installer' / 'install.py').read_text(encoding='utf-8')
+        self.assertIn("(['--low-priority'] if a.low_priority else [])", src)
+
     def test_current_is_exit_3(self):
         dest = self.tmp / 'MA2'; fake_install(dest)
         with mock.patch.object(install, 'PUBLIC_VERSION', '1.1.8'):
