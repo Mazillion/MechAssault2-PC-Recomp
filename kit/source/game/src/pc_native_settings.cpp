@@ -1040,11 +1040,33 @@ static std::string elide(ImFont *font,float size,const std::string &t,float w){
     std::string s=t;while(!s.empty()&&font->CalcTextSizeA(size,FLT_MAX,0,(s+"...").c_str()).x>w){s.pop_back();while(!s.empty()&&((unsigned char)s.back()&0xC0)==0x80)s.pop_back();}
     return s+"...";
 }
+/* The mouse-over light of the envelope and of everything clickable in the inbox: the footer prompts' hover glow
+ * (draw_glow), faded in over 0.1 s. The pointer is in back-buffer pixels (x<0 = none: a controller, another window).
+ * Each frame the drawing reports what is under the pointer (item); begin() of the next frame fades that one in. */
+static struct{
+    float x=-1,y=-1,alpha=0;int shown=-1,seen=-1;LARGE_INTEGER last{};
+    void begin(float px,float py){
+        LARGE_INTEGER now,frequency;QueryPerformanceCounter(&now);QueryPerformanceFrequency(&frequency);
+        float dt=last.QuadPart?std::min((float)(now.QuadPart-last.QuadPart)/frequency.QuadPart,.1f):0.f;last=now;
+        if(seen!=shown){shown=seen;alpha=0;}
+        if(shown>=0)alpha=std::min(1.f,alpha+dt/.10f);
+        seen=-1;x=px;y=py;
+    }
+    bool over(ImVec2 a,ImVec2 b)const{return x>=0&&x>=a.x&&x<b.x&&y>=a.y&&y<b.y;}
+    // hit = the clickable area, a/b = what lights up (the same unless a label sits beside the control)
+    void item(ImDrawList *list,int id,ImVec2 ha,ImVec2 hb,ImVec2 a,ImVec2 b){
+        if(!over(ha,hb))return;
+        seen=id;if(id==shown&&alpha>0){const float r[4]={a.x,a.y,b.x,b.y};draw_glow(list,r,alpha);}
+    }
+}hover_light;
+enum{HL_ENVELOPE=100,HL_LIST=200};
 static void draw_envelope(ImDrawList *list,float width,float height,float sx,float sy,bool hover){
     ReplyLock l;
     const float u=std::min(width/640.f,height/480.f),s=26*u,x1=width-18*u,x0=x1-s*1.35f,y0=16*u,y1=y0+s;
     const int unread=msg_unread_locked();const ImU32 c=hover?C_YELLOW:C_WHITE;
     list->AddRectFilled(ImVec2(x0-6*u,y0-6*u),ImVec2(x1+6*u,y1+5*u),IM_COL32(15,26,38,hover?220:170),4*u);
+    if(hover){hover_light.seen=HL_ENVELOPE;
+        if(hover_light.shown==HL_ENVELOPE&&hover_light.alpha>0){const float r[4]={x0-6*u,y0-6*u,x1+6*u,y1+5*u};draw_glow(list,r,hover_light.alpha);}}
     list->AddRect(ImVec2(x0,y0),ImVec2(x1,y1),c,2*u,0,std::max(1.5f,2*u));
     list->AddLine(ImVec2(x0+1*u,y0+1*u),ImVec2((x0+x1)*.5f,y0+s*.55f),c,std::max(1.5f,2*u));
     list->AddLine(ImVec2(x1-1*u,y0+1*u),ImVec2((x0+x1)*.5f,y0+s*.55f),c,std::max(1.5f,2*u));
@@ -1081,6 +1103,7 @@ static void draw_inbox(ImDrawList *list,float width,float height,float sx,float 
     list->AddText(font,size*1.25f,ImVec2(x0+pad,y0+pad*.8f),C_YELLOW,msg_text_title);
     ImVec2 cs=font->CalcTextSizeA(size,FLT_MAX,0,msg_text_close);ImVec2 ca(x1-pad-cs.x-16*u,y0+pad*.6f),cb(x1-pad,ca.y+size*1.6f);
     if(inbox_focus==F_CLOSE)draw_focus_ring(list,ca,cb,u);
+    hover_light.item(list,F_CLOSE,ca,cb,ca,cb);
     list->AddRect(ca,cb,inbox_focus==F_CLOSE?C_GLOW:C_LINE,3*u,0,t);
     list->AddText(font,size,ImVec2(ca.x+8*u,(ca.y+cb.y-cs.y)*.5f),inbox_focus==F_CLOSE?C_YELLOW:C_WHITE,msg_text_close);px(F_CLOSE,ca.x,ca.y,cb.x,cb.y);
     const float top=y0+pad*.8f+size*1.25f+10*u,bottom=y1-pad-size*1.2f,lw=std::min(200*u,w*.34f);
@@ -1097,6 +1120,8 @@ static void draw_inbox(ImDrawList *list,float width,float height,float sx,float 
         bool sel=i==inbox_sel;
         if(sel)list->AddRectFilled(a,b,inbox_focus==F_LIST?IM_COL32(50,99,120,230):IM_COL32(30,52,72,230),3*u);
         if(sel&&inbox_focus==F_LIST)list->AddRect(a,b,C_GLOW,3*u,0,t);
+        // the light stays inside the list column (the halo would cross the divider and the frame)
+        list->PushClipRect(ImVec2(x0+t*2,top-4*u),ImVec2(x0+pad*.5f+lw+7*u,bottom),true);hover_light.item(list,HL_LIST+i,a,b,a,b);list->PopClipRect();
         if(!m.read)list->AddCircleFilled(ImVec2(a.x+7*u,iy+size*.65f),3.5f*u,C_YELLOW,12);
         list->AddText(font,size,ImVec2(a.x+14*u,iy+3*u),m.read?C_WHITE:C_YELLOW,elide(font,size,m.title,lw-18*u).c_str());
         char d[16];ma2_msg_short_date(m.date.c_str(),d,sizeof d);
@@ -1151,14 +1176,18 @@ static void draw_inbox(ImDrawList *list,float width,float height,float sx,float 
             ImVec2 ls=font->CalcTextSizeA(size,FLT_MAX,0,label);float bw=std::max(ls.x+28*u,90*u);
             ImVec2 a(bx,cy),b(bx+bw,cy+btn_h);bool f=inbox_focus==id&&!busy;
             if(f)draw_focus_ring(list,a,b,u);
-            list->AddRectFilled(a,b,f?IM_COL32(50,99,120,230):IM_COL32(26,44,62,230),3*u);list->AddRect(a,b,f?C_GLOW:C_LINE,3*u,0,t);
+            list->AddRectFilled(a,b,f?IM_COL32(50,99,120,230):IM_COL32(26,44,62,230),3*u);
+            if(!busy)hover_light.item(list,id,a,b,a,b);
+            list->AddRect(a,b,f?C_GLOW:C_LINE,3*u,0,t);
             list->AddText(font,size,ImVec2(a.x+(bw-ls.x)*.5f,a.y+(btn_h-ls.y)*.5f),busy?C_DIM:f?C_YELLOW:C_WHITE,label);
             px(id,a.x,a.y,b.x,b.y);return bw;};
         if(answering){
             list->AddText(font,size,ImVec2(rx,cy),C_MUTED,reply_text_answer);cy+=size+4*u;
             ImVec2 a(rx,cy),b(rx+rw,cy+box_h);bool f=inbox_focus==F_BOX&&!busy;
             if(f)draw_focus_ring(list,a,b,u);
-            list->AddRectFilled(a,b,IM_COL32(8,18,30,200),2*u);list->AddRect(a,b,f?C_GLOW:C_LINE,2*u,0,t);
+            list->AddRectFilled(a,b,IM_COL32(8,18,30,200),2*u);
+            if(!busy)hover_light.item(list,F_BOX,a,b,a,b);
+            list->AddRect(a,b,f?C_GLOW:C_LINE,2*u,0,t);
             std::string txt=report_to_utf8(reply_answer);const bool empty=txt.empty();
             const bool hint=empty&&(!f||gamepad);if(hint)txt=gamepad?reply_text_pad:reply_text_type;else if(f&&report_cursor_on())txt+="_";
             float tw=rw-8*u;ImVec2 tsz=font->CalcTextSizeA(size,FLT_MAX,tw,txt.c_str());float ty=std::min(a.y+4*u,b.y-4*u-tsz.y);
@@ -1167,6 +1196,8 @@ static void draw_inbox(ImDrawList *list,float width,float height,float sx,float 
             list->PopClipRect();px(F_BOX,a.x,a.y,b.x,b.y);cy+=box_h+6*u;
             float bsz=size*.95f;ImVec2 ta(rx,cy),tb(rx+bsz,cy+bsz);bool tf=inbox_focus==F_TICK&&!busy;
             if(tf)draw_focus_ring(list,ta,tb,u);
+            {ImVec2 ls=font->CalcTextSizeA(size,FLT_MAX,0,reply_text_attach);
+             if(!busy)hover_light.item(list,F_TICK,ImVec2(ta.x-4*u,ta.y-4*u),ImVec2(tb.x+12*u+ls.x,tb.y+4*u),ta,ImVec2(tb.x+8*u+ls.x,tb.y));}
             list->AddRect(ta,tb,tf?C_GLOW:C_MUTED,2*u,0,t);
             if(reply_attach)list->AddRectFilled(ImVec2(ta.x+3*u,ta.y+3*u),ImVec2(tb.x-3*u,tb.y-3*u),tf?C_GLOW:C_YELLOW,1*u);
             list->AddText(font,size,ImVec2(tb.x+8*u,cy-1*u),tf?C_YELLOW:C_WHITE,reply_text_attach);
@@ -1988,11 +2019,19 @@ static void render(void *device_ptr,void *context_ptr,void *window_ptr,unsigned 
             if(editor_note)draw_editor_note(ImGui::GetForegroundDrawList(),(float)width,(float)height,editor_note);
             if(client.right>0&&client.bottom>0){
                 const float sx=(float)width/client.right,sy=(float)height/client.bottom;
+                {   // the mouse-over light: the pointer in back-buffer pixels, none on a controller
+                    POINT p={};static const bool scripted=getenv("RECOMP_UI_LIVE")!=nullptr;bool pointer;
+                    if(scripted){uint32_t m=mouse_position.load();p.x=GET_X_LPARAM(m);p.y=GET_Y_LPARAM(m);pointer=m!=0xFFFFFFFFu;}
+                    else pointer=GetForegroundWindow()==(HWND)window_ptr&&GetCursorPos(&p)&&ScreenToClient((HWND)window_ptr,&p);
+                    const bool pad=reply_box?inbox_pad==1||(inbox_pad<0&&pc_input_device()==PC_INPUT_GAMEPAD):pc_input_device()==PC_INPUT_GAMEPAD;
+                    if(!pointer||pad)hover_light.begin(-1,-1);else hover_light.begin(p.x*sx,p.y*sy);
+                }
                 if(envelope&&!reply_box){   // 1.2.0: Messages (it replaces the 1.1.7 update line)
                     POINT p={};static const bool scripted=getenv("RECOMP_UI_LIVE")!=nullptr;bool pointer;
                     if(scripted){uint32_t m=mouse_position.load();p.x=GET_X_LPARAM(m);p.y=GET_Y_LPARAM(m);pointer=m!=0xFFFFFFFFu;}
                     else pointer=GetForegroundWindow()==(HWND)window_ptr&&GetCursorPos(&p)&&ScreenToClient((HWND)window_ptr,&p);
-                    bool hover=pointer&&envelope_shown&&p.x>=envelope_hit[0]&&p.x<envelope_hit[2]&&p.y>=envelope_hit[1]&&p.y<envelope_hit[3];
+                    // a controller in use: no mouse-over light (as the footer glow)
+                    bool hover=pointer&&pc_input_device()!=PC_INPUT_GAMEPAD&&envelope_shown&&p.x>=envelope_hit[0]&&p.x<envelope_hit[2]&&p.y>=envelope_hit[1]&&p.y<envelope_hit[3];
                     draw_envelope(ImGui::GetForegroundDrawList(),(float)width,(float)height,sx,sy,hover);
                 }else envelope_shown=false;
                 if(reply_box){
