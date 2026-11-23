@@ -23,6 +23,13 @@
                                     the in-game page: no window; collect, save and send, then write the
                                     outcome to the result file (UTF-8 key=value lines); exit 0 sent, 1 saved only
      --can-send                     exit 0 when this build has a relay address, 3 when it only saves
+     --replies --result F           1.2.0, no window: the developer's replies to reports sent from this PC (only when
+                                    report-conversations.txt holds a report under 60 days old; else no request); the
+                                    result file gets one "reply=" line per reply (see run_replies)
+     --seen <id> <n>                1.2.0, no window: reply n of report <id> was shown (it is not returned again)
+     --answer <id> --text-file F --result F [--attach] [--log L] [--ini I]
+                                    1.2.0, no window: the player's answer to the newest reply, with a new report bundle
+                                    when --attach is given; outcome as key=value lines like --game
    Optional with any mode: --log <game log> --ini <pc_settings.ini> (the game passes its own).
 
    The relay address is compiled in (relay.h, written by build_report.cmd from MA2_RELAY_URL, which
@@ -32,8 +39,12 @@
    (the window is created but never shown, for a test driver), MA2_REPORT_FAULT=collect|zip|send (fails at that
    step), MA2_REPORT_TIMEOUT_MS (network timeout). Each also reads as RECOMP_REPORT_* (the game passes RECOMP_* variables through).
 
-   System libraries only: kernel32, user32, gdi32, comctl32, shell32, winhttp, advapi32 (and dxgi /
-   cabinet loaded at run time). */
+   System libraries only: kernel32, user32, gdi32, comctl32, shell32, winhttp, advapi32, bcrypt (and dxgi /
+   cabinet loaded at run time).
+
+   1.2.0 report conversations: every report sent from here carries reply_secret (32 random bytes, 64 hex, from
+   BCryptGenRandom); after a successful send {number, date, the same key} goes into
+   %LOCALAPPDATA%\MechAssault2\report-conversations.txt (format: kit/installer/report.py, shared with the installer). */
 #define WIN32_LEAN_AND_MEAN
 #define COBJMACROS
 #define _CRT_SECURE_NO_WARNINGS
@@ -42,6 +53,7 @@
 #include <commctrl.h>
 #include <shellapi.h>
 #include <winhttp.h>
+#include <bcrypt.h>
 #include <dxgi.h>
 #include <intrin.h>
 #include <stdio.h>
@@ -49,6 +61,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdarg.h>
+#include <limits.h>
 #include "version.h"
 #include "relay.h"
 
@@ -56,6 +69,8 @@
 #define MA2_RELAY_URL ""
 #endif
 #define ISSUES_URL "https://github.com/Mazillion/MechAssault2-PC-Recomp/issues"
+/* 1.2.0: after "Report sent" in the window (REPLIES-STRINGS.md) */
+#define REPLY_HINT "If the developer replies, you'll see it the next time you start the game or the installer."
 #define MAX_TEXT 2000
 #define MAX_SUMMARY (16 * 1024)
 #define MAX_ZIP (20u * 1024 * 1024)
@@ -985,6 +1000,8 @@ static void field(Buf *body, const char *boundary, const char *name, const char 
     buf_adds(body, value); buf_adds(body, "\r\n");
 }
 static int g_timeout = NET_TIMEOUT_MS;
+static int make_secret(char out[65]);
+static void store_add(const char *id, const char *secret);
 static void send_report(const Buf *zip, const char *summary, Sent *r) {
     memset(r, 0, sizeof *r); strcpy(r->cause, "error");
     if (!g_relay[0]) { strcpy(r->cause, "unset"); return; }
@@ -1008,6 +1025,8 @@ static void send_report(const Buf *zip, const char *summary, Sent *r) {
     field(&body, boundary, "client", client); field(&body, boundary, "version", g.version); field(&body, boundary, "build", g.build);
     field(&body, boundary, "kind", g.kind); field(&body, boundary, "signature", sig); field(&body, boundary, "text", text);
     field(&body, boundary, "summary", summary);
+    char secret[65] = "";                      /* 1.2.0: the key to this report's conversation (only its hash is kept there) */
+    if (make_secret(secret)) field(&body, boundary, "reply_secret", secret);
     buf_addf(&body, "--%s\r\nContent-Disposition: form-data; name=\"zip\"; filename=\"report.zip\"\r\nContent-Type: application/zip\r\n\r\n", boundary);
     buf_add(&body, zip->p, zip->n); buf_adds(&body, "\r\n");
     buf_addf(&body, "--%s--\r\n", boundary);
@@ -1051,7 +1070,10 @@ static void send_report(const Buf *zip, const char *summary, Sent *r) {
             int is_json = ans.p && strchr(ans.p, '{');
             if (is_json) { json_str(ans.p, "id", id, sizeof id); json_str(ans.p, "message", msg, sizeof msg); }
             clean_message(msg, r->message, sizeof r->message);
-            if (status == 200 && is_json && json_true(ans.p, "ok") && valid_id(id)) { r->ok = 1; strcpy(r->cause, "sent"); strcpy(r->id, id); }
+            if (status == 200 && is_json && json_true(ans.p, "ok") && valid_id(id)) {
+                r->ok = 1; strcpy(r->cause, "sent"); strcpy(r->id, id);
+                if (secret[0]) store_add(id, secret);
+            }
             else if (status == 429) strcpy(r->cause, "rate_limited");
             else if (status == 413) strcpy(r->cause, "too_large");
             else if (status >= 400 && status < 500) strcpy(r->cause, "refused");
@@ -1067,6 +1089,7 @@ static void send_report(const Buf *zip, const char *summary, Sent *r) {
     if (rq) WinHttpCloseHandle(rq);
     if (c) WinHttpCloseHandle(c);
     if (s) WinHttpCloseHandle(s);
+    SecureZeroMemory(secret, sizeof secret);
     buf_free(&body);
 }
 
@@ -1084,6 +1107,340 @@ static void run_report(int send_it, Outcome *o) {
     }
     for (int i = 0; i < b.n; i++) buf_free(&b.m[i].data);
     buf_free(&b.notes); buf_free(&summary); buf_free(&zip);
+}
+
+/* ============================================================== 1.2.0: report conversations */
+/* report-conversations.txt in the data folder (the installer's report.py reads and writes the same file):
+     # comment lines
+     MA2-XXXXXX <sent yyyy-mm-dd> <last message yyyy-mm-dd> <64 hex key>
+   An entry is dropped 60 days after its last message; with no entry left the file is deleted. */
+#define STORE_NAME L"report-conversations.txt"
+#define KEEP_DAYS 60
+#define MAX_MESSAGE 1000
+#define MAX_ENTRIES 64
+static void result_line(Buf *b, const char *key, const char *value);
+typedef struct { char id[16]; int sent, last; char secret[65]; } Entry;
+static Entry g_store[MAX_ENTRIES]; static int g_nstore;
+
+static int days_from_civil(int y, unsigned m, unsigned d) {     /* days since 1970-01-01 */
+    y -= m <= 2; int era = (y >= 0 ? y : y - 399) / 400; unsigned yoe = (unsigned)(y - era * 400);
+    unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1, doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + (int)doe - 719468;
+}
+static void civil_from_days(int z, int *y, unsigned *m, unsigned *d) {
+    z += 719468; int era = (z >= 0 ? z : z - 146096) / 146097; unsigned doe = (unsigned)(z - era * 146097);
+    unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; int yy = (int)yoe + era * 400;
+    unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100), mp = (5 * doy + 2) / 153;
+    *d = doy - (153 * mp + 2) / 5 + 1; *m = mp < 10 ? mp + 3 : mp - 9; *y = yy + (*m <= 2);
+}
+static int today_days(void) {
+    wchar_t v[16];
+    if (env_get("TODAY", v, 16)) { int y, m, d; if (swscanf(v, L"%d-%d-%d", &y, &m, &d) == 3) return days_from_civil(y, (unsigned)m, (unsigned)d); }   /* tests */
+    SYSTEMTIME st; GetSystemTime(&st); return days_from_civil(st.wYear, st.wMonth, st.wDay);
+}
+static int parse_date(const char *s) {
+    int y, m, d; char tail;
+    if (strlen(s) != 10 || sscanf(s, "%4d-%2d-%2d%c", &y, &m, &d, &tail) != 3 || m < 1 || m > 12 || d < 1 || d > 31) return INT_MIN;
+    return days_from_civil(y, (unsigned)m, (unsigned)d);
+}
+static void fmt_date(int days, char out[11]) { int y; unsigned m, d; civil_from_days(days, &y, &m, &d); snprintf(out, 11, "%04d-%02u-%02u", y, m, d); }
+static int is_hex64(const char *s) { if (strlen(s) != 64) return 0; for (; *s; s++) if (!((*s >= '0' && *s <= '9') || (*s >= 'a' && *s <= 'f'))) return 0; return 1; }
+static void store_file(wchar_t *out) { swprintf(out, MAX_PATH, L"%s\\%s", g.data, STORE_NAME); }
+
+static void store_load(void) {
+    g_nstore = 0;
+    wchar_t path[MAX_PATH]; store_file(path);
+    Buf t = { 0 };
+    if (!read_file(path, &t, 0, NULL) || !t.p) { buf_free(&t); return; }
+    for (char *line = t.p; line && *line && g_nstore < MAX_ENTRIES; ) {
+        char *nl = strchr(line, '\n'); if (nl) *nl = 0;
+        char id[16], sent[16], last[16], key[80];
+        if (line[0] != '#' && sscanf(line, "%15s %15s %15s %79s", id, sent, last, key) == 4 && valid_id(id) && is_hex64(key)) {
+            int s = parse_date(sent), l = parse_date(last);
+            if (s != INT_MIN && l != INT_MIN) {
+                Entry *e = &g_store[g_nstore++]; strcpy(e->id, id); e->sent = s; e->last = l > s ? l : s; strcpy(e->secret, key);
+            }
+        }
+        line = nl ? nl + 1 : NULL;
+    }
+    SecureZeroMemory(t.p, t.n); buf_free(&t);
+}
+static int entry_live(const Entry *e) { return today_days() - e->last < KEEP_DAYS; }
+static void store_save(void) {
+    wchar_t path[MAX_PATH], tmp[MAX_PATH + 8]; store_file(path); swprintf(tmp, MAX_PATH + 8, L"%s.part", path);
+    Buf t = { 0 }; int n = 0;
+    buf_adds(&t, "# MechAssault 2: reports sent from this PC that the developer can reply to (number, sent, last message, key).\n"
+                 "# Each line is removed 60 days after its last message. Deleting this file stops the game and the installer\n"
+                 "# from looking for replies.\n");
+    for (int i = 0; i < g_nstore; i++) {
+        if (!entry_live(&g_store[i])) continue;
+        char s[11], l[11]; fmt_date(g_store[i].sent, s); fmt_date(g_store[i].last, l);
+        buf_addf(&t, "%s %s %s %s\n", g_store[i].id, s, l, g_store[i].secret); n++;
+    }
+    if (!n) DeleteFileW(path);
+    else { make_dirs(g.data); if (write_file(tmp, t.p, t.n)) MoveFileExW(tmp, path, MOVEFILE_REPLACE_EXISTING); }
+    SecureZeroMemory(t.p, t.n); buf_free(&t);
+}
+static void store_add(const char *id, const char *secret) {
+    if (!valid_id(id) || !is_hex64(secret)) return;
+    store_load();
+    int k = 0;
+    for (int i = 0; i < g_nstore; i++) if (strcmp(g_store[i].id, id)) g_store[k++] = g_store[i];
+    g_nstore = k;
+    if (g_nstore == MAX_ENTRIES) { memmove(g_store, g_store + 1, sizeof(Entry) * (MAX_ENTRIES - 1)); g_nstore--; }
+    Entry *e = &g_store[g_nstore++]; strcpy(e->id, id); e->sent = e->last = today_days(); strcpy(e->secret, secret);
+    store_save();
+}
+static void store_touch(const char *id) {
+    store_load();
+    for (int i = 0; i < g_nstore; i++) if (!strcmp(g_store[i].id, id) && today_days() > g_store[i].last) g_store[i].last = today_days();
+    store_save();
+}
+static Entry *store_find(const char *id) { for (int i = 0; i < g_nstore; i++) if (!strcmp(g_store[i].id, id)) return &g_store[i]; return NULL; }
+static int make_secret(char out[65]) {
+    unsigned char raw[32]; out[0] = 0;
+    if (!BCRYPT_SUCCESS(BCryptGenRandom(NULL, raw, sizeof raw, BCRYPT_USE_SYSTEM_PREFERRED_RNG))) return 0;
+    for (int i = 0; i < 32; i++) snprintf(out + i * 2, 3, "%02x", raw[i]);
+    SecureZeroMemory(raw, sizeof raw);
+    return 1;
+}
+
+/* POST <relay><endpoint>. Returns the cause ("sent" = an answer came, whatever its status); *status and ans (the body). */
+static const char *http_post(const wchar_t *endpoint, const wchar_t *headers, const void *body, size_t n, int *status, Buf *ans) {
+    *status = 0;
+    if (!g_relay[0]) return "unset";
+    wchar_t url[700]; u2w(g_relay, url, 600); wcscat(url, endpoint);
+    URL_COMPONENTS uc; memset(&uc, 0, sizeof uc); uc.dwStructSize = sizeof uc;
+    wchar_t host[256], path[512]; uc.lpszHostName = host; uc.dwHostNameLength = 256; uc.lpszUrlPath = path; uc.dwUrlPathLength = 512;
+    if (!WinHttpCrackUrl(url, 0, 0, &uc)) return "error";
+    wchar_t ua[128]; swprintf(ua, 128, L"MechAssault2-Recomp-Report/%hs", g.version);
+    HINTERNET s = WinHttpOpen(ua, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!s) s = WinHttpOpen(ua, WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    HINTERNET c = NULL, rq = NULL; DWORD err = 0; const char *cause = "server";
+    wchar_t tv[16]; int to = env_get("TIMEOUT_MS", tv, 16) ? _wtoi(tv) : 0; if (to <= 0) to = NET_TIMEOUT_MS;
+    if (s) { WinHttpSetTimeouts(s, to, to, to, to); c = WinHttpConnect(s, host, uc.nPort, 0); }
+    if (c) rq = WinHttpOpenRequest(c, L"POST", path, NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, uc.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0);
+    if (rq) {
+        DWORD pol = WINHTTP_OPTION_REDIRECT_POLICY_NEVER, rto = (DWORD)to, nocookies = WINHTTP_DISABLE_COOKIES;
+        WinHttpSetOption(rq, WINHTTP_OPTION_REDIRECT_POLICY, &pol, sizeof pol);
+        WinHttpSetOption(rq, WINHTTP_OPTION_RECEIVE_RESPONSE_TIMEOUT, &rto, sizeof rto);
+        WinHttpSetOption(rq, WINHTTP_OPTION_DISABLE_FEATURE, &nocookies, sizeof nocookies);
+        if (WinHttpSendRequest(rq, headers, (DWORD)-1L, (LPVOID)body, (DWORD)n, (DWORD)n, 0) && WinHttpReceiveResponse(rq, NULL)) {
+            DWORD st = 0, sl = sizeof st, avail = 0;
+            WinHttpQueryHeaders(rq, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &st, &sl, WINHTTP_NO_HEADER_INDEX);
+            *status = (int)st;
+            while (ans->n < 512 * 1024 && WinHttpQueryDataAvailable(rq, &avail) && avail) {
+                buf_reserve(ans, avail); DWORD got = 0;
+                if (!WinHttpReadData(rq, ans->p + ans->n, avail, &got) || !got) break;
+                ans->n += got; ans->p[ans->n] = 0;
+            }
+            cause = "sent";
+        } else err = GetLastError();
+    } else err = GetLastError();
+    if (err) cause = err == ERROR_WINHTTP_NAME_NOT_RESOLVED ? "offline" : err == ERROR_WINHTTP_TIMEOUT ? "timeout" :
+                     err == ERROR_WINHTTP_SECURE_FAILURE ? "tls" : err == ERROR_WINHTTP_CANNOT_CONNECT ? "blocked" : "server";
+    if (rq) WinHttpCloseHandle(rq);
+    if (c) WinHttpCloseHandle(c);
+    if (s) WinHttpCloseHandle(s);
+    return cause;
+}
+
+/* One JSON string at p (the opening quote) into out as UTF-8 (\u escapes and surrogate pairs decoded). Returns the
+   character after the closing quote, or NULL. */
+static const char *json_read_str(const char *p, Buf *out) {
+    if (*p != '"') return NULL;
+    for (p++; *p && *p != '"'; ) {
+        if (*p != '\\') { buf_addc(out, *p++); continue; }
+        p++;
+        if (*p == 'u') {
+            unsigned v = 0;
+            for (int i = 1; i <= 4; i++) { char ch = p[i]; v = v * 16 + (unsigned)(ch >= '0' && ch <= '9' ? ch - '0' : ch >= 'a' && ch <= 'f' ? ch - 'a' + 10 : ch >= 'A' && ch <= 'F' ? ch - 'A' + 10 : 0); if (!ch) return NULL; }
+            p += 5;
+            wchar_t w[3] = { (wchar_t)v, 0, 0 };
+            if (v >= 0xD800 && v < 0xDC00 && p[0] == '\\' && p[1] == 'u') {
+                char hx[5] = { p[2], p[3], p[4], p[5], 0 }; unsigned lo = (unsigned)strtoul(hx, NULL, 16);
+                if (lo >= 0xDC00 && lo < 0xE000) { w[1] = (wchar_t)lo; p += 6; }
+            }
+            char u[16]; w2u(w, u, sizeof u); buf_adds(out, u);
+            continue;
+        }
+        char e = *p++;
+        buf_addc(out, e == 'n' ? '\n' : e == 't' ? '\t' : e == 'r' ? '\r' : e == 'b' ? '\b' : e == 'f' ? '\f' : e);
+    }
+    return *p == '"' ? p + 1 : NULL;
+}
+static const char *json_ws(const char *p) { while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++; return p; }
+
+/* The developer's text, safe to pass on: control and direction characters dropped (tab = space), at most MAX_MESSAGE
+   characters, then escaped for a result line (\n = newline, \\ = backslash). */
+static void reply_line_text(const char *in, Buf *out) {
+    wchar_t *w = (wchar_t *)calloc(strlen(in) + 1, sizeof(wchar_t)); if (!w) return;
+    MultiByteToWideChar(CP_UTF8, 0, in, -1, w, (int)strlen(in) + 1);
+    int chars = 0;
+    for (wchar_t *c = w; *c && chars < MAX_MESSAGE; c++) {
+        wchar_t ch = *c == L'\t' ? L' ' : *c;
+        if (ch == L'\r') continue;
+        if ((ch < 0x20 && ch != L'\n') || (ch >= 0x7F && ch < 0xA0) || ch == 0x2028 || ch == 0x2029 || (ch >= 0x202A && ch <= 0x202E) || (ch >= 0x2066 && ch <= 0x2069)) continue;
+        if (ch == L'\n') buf_adds(out, "\\n"); else if (ch == L'\\') buf_adds(out, "\\\\");
+        else { wchar_t one[3] = { ch, 0, 0 }; if (ch >= 0xD800 && ch < 0xDC00 && c[1]) { one[1] = *++c; } char u[16]; w2u(one, u, sizeof u); buf_adds(out, u); }
+        chars++;
+    }
+    free(w);
+}
+
+/* --replies: result lines "reply=<id> <n> <sent yyyy-mm-dd> <can answer 0|1> <text>", then "count=N" and "end=1".
+   Exit 0 = asked (count may be 0), 1 = nothing to ask (no entry under 60 days old), 2 = the relay did not answer. */
+static int run_replies(const wchar_t *result_file) {
+    store_load();
+    Buf req = { 0 }, ans = { 0 }, r = { 0 };
+    int live = 0, count = 0, rc = 1;
+    buf_adds(&req, "{\"reports\":[");
+    for (int i = 0; i < g_nstore; i++) {
+        if (!entry_live(&g_store[i])) continue;
+        buf_addf(&req, "%s{\"id\":\"%s\",\"secret\":\"%s\"}", live ? "," : "", g_store[i].id, g_store[i].secret);
+        if (++live == 20) break;
+    }
+    buf_adds(&req, "]}");
+    if (live && g_relay[0]) {
+        int status = 0;
+        const char *cause = http_post(L"/v1/replies", L"Content-Type: application/json\r\nAccept: application/json\r\n", req.p, req.n, &status, &ans);
+        rc = 2;
+        if (!strcmp(cause, "sent") && status == 200 && ans.p && json_true(ans.p, "ok")) {
+            rc = 0;
+            const char *p = strstr(ans.p, "\"replies\"");
+            p = p ? strchr(p, '[') : NULL;
+            while (p && *p) {
+                p = json_ws(p + 1);
+                if (*p != '{') break;
+                char id[16] = ""; int n = 0, can = 0; Buf text = { 0 };
+                for (p = json_ws(p + 1); *p && *p != '}'; p = json_ws(p)) {
+                    Buf key = { 0 };
+                    p = json_read_str(p, &key); if (!p) { buf_free(&key); break; }
+                    p = json_ws(p); if (*p == ':') p = json_ws(p + 1);
+                    if (*p == '"') {
+                        Buf val = { 0 }; p = json_read_str(p, &val);
+                        if (key.p && !strcmp(key.p, "id") && val.p && strlen(val.p) < sizeof id) strcpy(id, val.p);
+                        else if (key.p && !strcmp(key.p, "text")) { buf_free(&text); text = val; val.p = NULL; }
+                        buf_free(&val);
+                        if (!p) { buf_free(&key); break; }
+                    } else {
+                        const char *e = p; while (*e && *e != ',' && *e != '}') e++;
+                        if (key.p && !strcmp(key.p, "n")) n = atoi(p);
+                        if (key.p && !strcmp(key.p, "can_answer")) can = !strncmp(p, "true", 4);
+                        p = e;
+                    }
+                    buf_free(&key);
+                    p = json_ws(p); if (*p == ',') p++;
+                }
+                if (!p || *p != '}') { buf_free(&text); break; }
+                Entry *e = store_find(id);
+                if (e && n > 0 && text.p && text.p[0]) {
+                    char sent[11]; fmt_date(e->sent, sent);
+                    buf_addf(&r, "reply=%s %d %s %d ", id, n, sent, can);
+                    reply_line_text(text.p, &r); buf_addc(&r, '\n'); count++;
+                    e->last = today_days();
+                }
+                buf_free(&text);
+                p = json_ws(p + 1);
+                if (*p != ',') break;
+            }
+            if (count) store_save();
+        }
+    }
+    buf_addf(&r, "count=%d\nend=1\n", count);
+    if (result_file[0]) {
+        wchar_t tmp[MAX_PATH + 8]; swprintf(tmp, MAX_PATH + 8, L"%s.part", result_file);
+        if (write_file(tmp, r.p, r.n)) MoveFileExW(tmp, result_file, MOVEFILE_REPLACE_EXISTING);
+    }
+    SecureZeroMemory(req.p, req.n);
+    buf_free(&req); buf_free(&ans); buf_free(&r);
+    return rc;
+}
+
+/* --seen <id> <n>: exit 0 when the relay took it. */
+static int run_seen(const char *id, int n) {
+    store_load();
+    Entry *e = store_find(id);
+    if (!e || n <= 0 || !g_relay[0]) return 1;
+    char body[256]; snprintf(body, sizeof body, "{\"reports\":[{\"id\":\"%s\",\"secret\":\"%s\",\"seen\":%d}]}", e->id, e->secret, n);
+    Buf ans = { 0 }; int status = 0;
+    const char *cause = http_post(L"/v1/replies", L"Content-Type: application/json\r\nAccept: application/json\r\n", body, strlen(body), &status, &ans);
+    int ok = !strcmp(cause, "sent") && status == 200 && ans.p && json_true(ans.p, "ok");
+    SecureZeroMemory(body, sizeof body); buf_free(&ans);
+    return ok ? 0 : 2;
+}
+
+/* --answer: result lines ok, cause, cause_text, message, logs (1 = a report bundle went with it), end. */
+static int run_answer(const char *id, const wchar_t *text_file, int attach, const wchar_t *result_file) {
+    Buf words = { 0 }, r = { 0 }, zip = { 0 }, summary = { 0 }, ans = { 0 };
+    const char *cause = "error"; char message[320] = ""; int ok = 0, logs = 0;
+    if (text_file[0]) {
+        Buf t = { 0 };
+        if (read_file(text_file, &t, 0, NULL) && t.p) buf_adds(&words, t.n >= 3 && !memcmp(t.p, "\xEF\xBB\xBF", 3) ? t.p + 3 : t.p);
+        buf_free(&t);
+    }
+    if (words.p) redact(&words);
+    {   /* trimmed, at most MAX_MESSAGE characters */
+        char *s = words.p ? words.p : (char *)"";
+        while (*s && strchr(" \r\n\t", *s)) s++;
+        size_t k = 0; int chars = 0;
+        while (s[k] && chars < MAX_MESSAGE) { unsigned char c = (unsigned char)s[k]; k += c < 0x80 ? 1 : c < 0xE0 ? 2 : c < 0xF0 ? 3 : 4; chars++; }
+        if (k > strlen(s)) k = strlen(s);
+        while (k && strchr(" \r\n\t", s[k - 1])) k--;
+        Buf t = { 0 }; buf_add(&t, s, k); buf_free(&words); words = t;
+    }
+    store_load();
+    Entry *e = store_find(id);
+    if (!words.n) cause = "empty";
+    else if (!g_relay[0]) cause = "unset";
+    else if (!e) cause = "closed";
+    else {
+        if (attach) {
+            snprintf(g_text, sizeof g_text, "%s", words.p);
+            Bundle b; wchar_t zp[MAX_PATH];
+            if (collect(&b, &summary) == 0 && save_zip(&b, &summary, zp, &zip)) logs = 1;
+            for (int i = 0; i < b.n; i++) buf_free(&b.m[i].data);
+            buf_free(&b.notes);
+        }
+        if (attach && !logs) cause = "error";
+        else if (zip.n > MAX_ZIP) cause = "too_large";
+        else {
+            char boundary[64]; LARGE_INTEGER q; QueryPerformanceCounter(&q);
+            snprintf(boundary, sizeof boundary, "ma2-%08lx%08lx%08lx", (unsigned long)GetTickCount(), (unsigned long)q.LowPart, (unsigned long)GetCurrentProcessId());
+            Buf body = { 0 };
+            field(&body, boundary, "id", e->id); field(&body, boundary, "secret", e->secret); field(&body, boundary, "text", words.p);
+            if (logs) {
+                field(&body, boundary, "summary", summary.p ? summary.p : "");
+                buf_addf(&body, "--%s\r\nContent-Disposition: form-data; name=\"zip\"; filename=\"report.zip\"\r\nContent-Type: application/zip\r\n\r\n", boundary);
+                buf_add(&body, zip.p, zip.n); buf_adds(&body, "\r\n");
+            }
+            buf_addf(&body, "--%s--\r\n", boundary);
+            wchar_t hdr[600], wb[80], wver[64], wbuild[128]; u2w(boundary, wb, 80); u2w(g.version, wver, 64); u2w(g.build, wbuild, 128);
+            swprintf(hdr, 600, L"Content-Type: multipart/form-data; boundary=%s\r\nX-MA2-Client: game\r\nX-MA2-Version: %s\r\nX-MA2-Build: %s\r\nAccept: application/json\r\n", wb, wver, wbuild);
+            int status = 0;
+            cause = http_post(L"/v1/answer", hdr, body.p, body.n, &status, &ans);
+            SecureZeroMemory(body.p, body.n); buf_free(&body);
+            if (!strcmp(cause, "sent")) {
+                char msg[1024] = ""; if (ans.p && strchr(ans.p, '{')) json_str(ans.p, "message", msg, sizeof msg);
+                clean_message(msg, message, sizeof message);
+                if (status == 200 && ans.p && json_true(ans.p, "ok")) { ok = 1; store_touch(id); }
+                else cause = status == 404 || status == 409 ? "closed" : status == 429 ? "rate_limited" : status == 413 ? "too_large" :
+                             status >= 400 && status < 500 ? "refused" : "server";
+            }
+        }
+    }
+    result_line(&r, "ok", ok ? "1" : "0");
+    result_line(&r, "cause", cause);
+    result_line(&r, "cause_text", !strcmp(cause, "empty") ? "the answer is empty" : !strcmp(cause, "closed") ? "this conversation has ended" : cause_text(cause));
+    result_line(&r, "message", message);
+    result_line(&r, "logs", logs && ok ? "1" : "0");
+    result_line(&r, "end", "1");
+    if (result_file[0]) {
+        wchar_t tmp[MAX_PATH + 8]; swprintf(tmp, MAX_PATH + 8, L"%s.part", result_file);
+        if (write_file(tmp, r.p, r.n)) MoveFileExW(tmp, result_file, MOVEFILE_REPLACE_EXISTING);
+    }
+    buf_free(&words); buf_free(&r); buf_free(&zip); buf_free(&summary); buf_free(&ans);
+    return ok ? 0 : 1;
 }
 
 /* ============================================================== window */
@@ -1119,7 +1476,7 @@ static void show_result(void) {
         ShowWindow(item(ID_COPY), SW_HIDE); ShowWindow(item(ID_OPEN), SW_HIDE);
     } else if (g_out.sent.ok) {
         snprintf(head, sizeof head, "Report sent. Your report number is %s.", g_out.sent.id);
-        snprintf(body, sizeof body, "%s%sPress Copy number if you want to share it directly with the developer.", g_out.sent.message, g_out.sent.message[0] ? " " : "");
+        snprintf(body, sizeof body, "%s%sPress Copy number if you want to share it directly with the developer. " REPLY_HINT, g_out.sent.message, g_out.sent.message[0] ? " " : "");
         ShowWindow(item(ID_COPY), SW_SHOW); ShowWindow(item(ID_OPEN), SW_HIDE);
     } else {
         folder_of(g_out.zip, where, sizeof where);
@@ -1357,7 +1714,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show) {
     (void)inst; (void)prev; (void)cmd; (void)show;
     int argc = 0; wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     wchar_t text_file[MAX_PATH] = L"", result_file[MAX_PATH] = L"";
-    int game = 0, can_send = 0;
+    int game = 0, can_send = 0, replies = 0, attach = 0, answer = 0, seen_n = 0;
+    char conv_id[16] = "";
     strcpy(g.kind, "manual");
     for (int i = 1; argv && i < argc; i++) {
         const wchar_t *a = argv[i];
@@ -1375,6 +1733,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show) {
         else if (!wcscmp(a, L"--text-file") && i + 1 < argc) wcsncpy(text_file, argv[++i], MAX_PATH - 1);
         else if (!wcscmp(a, L"--result") && i + 1 < argc) wcsncpy(result_file, argv[++i], MAX_PATH - 1);
         else if (!wcscmp(a, L"--can-send")) can_send = 1;
+        else if (!wcscmp(a, L"--replies")) replies = 1;
+        else if (!wcscmp(a, L"--attach")) attach = 1;
+        else if (!wcscmp(a, L"--seen") && i + 2 < argc) { w2u(argv[++i], conv_id, sizeof conv_id); seen_n = _wtoi(argv[++i]); }
+        else if (!wcscmp(a, L"--answer") && i + 1 < argc) { w2u(argv[++i], conv_id, sizeof conv_id); answer = 1; }
     }
     if (argv) LocalFree(argv);
     secrets_init();
@@ -1383,6 +1745,9 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show) {
     if (g_mode == MODE_HANG && !g.failure[0]) snprintf(g.failure, sizeof g.failure, "the game stopped responding");
     if (g_mode == MODE_HANG && !g.sig[0]) strcpy(g.sig, "hang");
     if (can_send) return g_relay[0] ? 0 : 3;
+    if (replies) return run_replies(result_file);
+    if (seen_n) return run_seen(conv_id, seen_n);
+    if (answer) return run_answer(conv_id, text_file, attach, result_file);
     if (game) return run_game_mode(text_file, result_file);
     return run_window();
 }

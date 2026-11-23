@@ -70,10 +70,75 @@ def main():
         r = report.send(zp, kind="hang", client="helper", version="1.1.6", url="http://127.0.0.1:8804")
         assert r["ok"] and r["message"] == "Thanks, fixed in 1.1.7.", r; checks += 1
         print("test_client_compat: %d checks passed (installer report.py vs relay)" % checks)
+        if hasattr(report, "check_replies"):
+            procs.append(start(8805))
+            print("test_client_compat: conversations %d checks passed" % conversation_checks(report, zp, "http://127.0.0.1:8805", tmp))
         return 0
     finally:
         for p in procs:
             p.kill(); p.wait()
+
+
+def owner_reply(base, rid, text, edit=None):
+    body = {"text": text} if edit is None else {"text": text, "edit": edit}
+    req = urllib.request.Request(base + "/v1/report/%s/reply" % rid, data=json.dumps(body).encode(), method="POST",
+                                 headers={"X-MA2-Owner-Key": "local-owner-key", "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=5) as r:
+        return json.loads(r.read())
+
+
+def conversation_checks(report, zp, base, tmp):
+    """1.2.0: the client store and the reply / seen / answer calls of the installer's report.py against the relay."""
+    import datetime
+    n = 0
+    store = os.path.join(tmp, "report-conversations.txt")
+    # the store: format, 60 days after the last message, nothing asked without a live entry
+    day = datetime.date(2026, 11, 22)
+    e = [{"id": "MA2-AAAAAA", "sent": day, "last": day, "secret": "1" * 64},
+         {"id": "MA2-BBBBBB", "sent": day - datetime.timedelta(days=90), "last": day - datetime.timedelta(days=60), "secret": "2" * 64}]
+    text = report.format_store(e)
+    assert "MA2-AAAAAA 2026-11-22 2026-11-22 " + "1" * 64 in text and text.startswith("#"); n += 1
+    assert report.parse_store(text + "garbage line\nMA2-CCCCCC 2026-13-01 2026-13-01 " + "3" * 64 + "\n") == e; n += 1
+    assert [x["id"] for x in report.live(e, day)] == ["MA2-AAAAAA"]; n += 1
+    report.store_write(e, store, now=day)
+    assert [x["id"] for x in report.store_read(store)] == ["MA2-AAAAAA"], "an entry 60 days after its last message is dropped"; n += 1
+    report.store_write([], store, now=day)
+    assert not os.path.exists(store), "no live entry: the file goes"; n += 1
+    assert report.check_replies(url="http://127.0.0.1:9", path=store) == [], "no entry: no request"; n += 1
+    # a report sent with a key; only its hash reaches the relay
+    secret = report.new_secret()
+    assert report.SECRET_RE.match(secret); n += 1
+    r = report.send(zp, kind="manual", client="installer", version="1.2.0", url=base, reply_secret=secret)
+    assert r["ok"], r
+    rid = r["id"]
+    report.store_add(rid, secret, path=store)
+    with open(store, encoding="utf-8") as f:
+        assert rid in f.read(); n += 1
+    assert report.check_replies(url=base, path=store) == [], "no reply yet"; n += 1
+    owner_reply(base, rid, "Thanks for the report.\nDoes it happen with HD textures off?")
+    got = report.check_replies(url=base, path=store)
+    assert len(got) == 1 and got[0]["n"] == 1 and got[0]["can_answer"] and got[0]["text"].startswith("Thanks"), got; n += 1
+    assert report.short_date(got[0]["sent"]) == "%s %d" % (report.MONTHS[got[0]["sent"].month - 1], got[0]["sent"].day); n += 1
+    owner_reply(base, rid, "Thanks for the report. Does it happen with HD textures off?", edit=1)
+    assert report.check_replies(url=base, path=store)[0]["text"] == "Thanks for the report. Does it happen with HD textures off?"; n += 1
+    assert report.mark_seen(rid, 1, url=base, path=store); n += 1
+    assert report.check_replies(url=base, path=store) == [], "shown once"; n += 1
+    # answers: empty refused locally; a scrubbed answer goes; a second one is refused (strict alternation)
+    assert report.send_answer(rid, "   ", url=base, path=store)["cause"] == "empty"; n += 1
+    user = "Jane" + "Doe"
+    a = report.send_answer(rid, "Still happens. My files are in C:\\Users\\%s\\Games" % user, url=base, path=store, version="1.2.0")
+    assert a["ok"] and a["cause"] == "sent", a; n += 1
+    with urllib.request.urlopen(base + "/__mock/comments", timeout=5) as h:
+        comments = json.loads(h.read())
+    assert len(comments) == 1 and "Still happens." in comments[0]["body"] and user not in comments[0]["body"], comments; n += 1
+    a2 = report.send_answer(rid, "again", url=base, path=store)
+    assert not a2["ok"] and a2["cause"] == "closed" and a2["http"] == 409, a2; n += 1
+    # a report from another PC (no store entry) cannot be answered from here
+    assert report.send_answer("MA2-ZZZZZZ", "x", url=base, path=store)["cause"] == "closed"; n += 1
+    # no answer from the relay (offline, or a relay without the route): nothing shown, nothing breaks
+    owner_reply(base, rid, "Follow-up")
+    assert report.check_replies(url="http://127.0.0.1:9", path=store, timeout=3) == []; n += 1
+    return n
 
 
 if __name__ == "__main__":

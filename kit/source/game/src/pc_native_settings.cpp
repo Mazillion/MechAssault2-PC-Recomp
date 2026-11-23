@@ -19,6 +19,7 @@
 #include "backends/imgui_impl_dx11.h"
 #include "ma2_release.h"
 #include "pc_update_check.h"     // 1.1.7: the update line on the main menu
+#include "pc_report_replies.h"   // 1.2.0: the developer's replies to the player's reports
 extern "C" ptrdiff_t g_xbox_mem_offset;
 // The active host pad (xinput_device.c): slot 0 if connected, else the lowest connected slot, switching on a new
 // button press, with empty slots probed once a second. The settings page and the Editor button read it too.
@@ -559,6 +560,299 @@ static void report_send(){
     HANDLE t=CreateThread(nullptr,0,report_send_thread,nullptr,0,nullptr);
     if(t)CloseHandle(t);else{report_outcome=ReportOutcome();report_outcome.cause=L"the report could not be started";report_state=2;}
 }
+/* ---- 1.2.0: the developer's replies to reports sent from this PC (pc_report_replies.h) ----
+ * At start-up, only when report-conversations.txt exists, a worker thread runs "MA2 Report.exe --replies" (the helper
+ * asks the relay only for reports under 60 days old). A reply waiting is shown once, as a box over the main menu (never
+ * in a match, a settings page or a movie); right away "--seen" tells the relay it was shown. The box owns the keyboard,
+ * the mouse and the pad while it is open (pc_frontend_capture). Under the reply: an answer box, "Attach my latest logs"
+ * (on by default), Send and Close. Send runs "--answer" on a worker thread (the helper scrubs the words like report text
+ * and adds a new report bundle when the tick is on). The player can answer only the developer's newest message. */
+// The box's player-facing words (REPLIES-STRINGS.md); the head line "Reply to your report ..." is in pc_report_replies.h.
+static const char *const reply_text_answer="Your answer:";
+static const char *const reply_text_type="(type here)";
+static const char *const reply_text_pad="(Left / Right picks an answer)";
+static const wchar_t *const reply_presets[]={L"Thanks, that fixed it.",L"It still happens.",L"I tried that, but nothing changed.",
+    L"I'll try that and tell you how it went."};
+static const char *const reply_text_attach="Attach my latest logs";
+static const char *const reply_text_send="Send";
+static const char *const reply_text_close="Close";
+static const char *const reply_text_next="Next reply";
+static const char *const reply_text_hint_keys="Tab: Next    Enter: Select    Esc: Close";
+static const char *const reply_text_hint_pad="D-pad: Navigate    A: Select    B: Close";
+static const char *const reply_text_private="Please don't type personal details.";
+static const char *const reply_text_sending="Sending...";
+static const char *const reply_text_sent="Answer sent.";
+static const char *const reply_text_sent_logs="Answer sent with your latest logs.";
+static const char *const reply_text_failed="Could not send your answer (%s).";
+static const char *const reply_text_empty="Type an answer first.";
+static const char *const reply_text_closed="The developer can't take an answer to this message any more.";
+static const int REPLY_PRESETS=(int)(sizeof reply_presets/sizeof *reply_presets);
+static bool report_cursor_on();
+enum {REPLY_BOX,REPLY_TICK,REPLY_SEND,REPLY_CLOSE};
+enum {REPLY_NONE,REPLY_SENT,REPLY_SENT_LOGS,REPLY_FAILED,REPLY_EMPTY,REPLY_CLOSED};
+static SRWLOCK reply_lock=SRWLOCK_INIT;                // guards everything below (window, render, guest and worker threads)
+static std::vector<Ma2Reply> reply_queue;              // replies not shown yet
+static Ma2Reply reply_cur;                              // the one in the box
+static std::atomic<int> reply_state{0};                // 0 no box, 1 box shown, 2 sending
+static std::wstring reply_answer;static int reply_preset=-1;
+static bool reply_attach=true;static int reply_focus=REPLY_BOX,reply_outcome=REPLY_NONE;static std::string reply_reason;
+static float reply_hit[4][4];static bool reply_hit_valid; // client-pixel boxes of the answer box, tick, Send, Close
+static TextDecoder reply_decoder;
+struct ReplyLock{ReplyLock(){AcquireSRWLockExclusive(&reply_lock);}~ReplyLock(){ReleaseSRWLockExclusive(&reply_lock);}};
+static bool reply_answering(){return reply_cur.can_answer&&reply_outcome!=REPLY_SENT&&reply_outcome!=REPLY_SENT_LOGS&&reply_outcome!=REPLY_CLOSED;}
+static bool reply_focus_ok(int f){return f==REPLY_CLOSE||reply_answering();}
+static std::wstring reply_temp_base(const wchar_t *what){
+    wchar_t tmp[MAX_PATH];DWORD n=GetTempPathW(MAX_PATH,tmp);
+    wchar_t name[64];swprintf_s(name,L"ma2-%s-%lu-%lu",what,GetCurrentProcessId(),GetTickCount());
+    return (n&&n<MAX_PATH-40?std::wstring(tmp):std::wstring(L".\\"))+name;
+}
+static std::string reply_read_file(const std::wstring &path){
+    std::string r;HANDLE h=CreateFileW(path.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,0,nullptr);
+    if(h!=INVALID_HANDLE_VALUE){std::vector<char> buf(64*1024);DWORD got=0;if(ReadFile(h,buf.data(),(DWORD)buf.size()-1,&got,nullptr))r.assign(buf.data(),got);CloseHandle(h);}
+    return r;
+}
+static DWORD WINAPI reply_check_thread(LPVOID){
+    std::wstring result=reply_temp_base(L"replies")+L".txt";
+    DWORD code=2,ran=report_run(L"--replies --result \""+result+L"\"",30000,&code);
+    std::string text=reply_read_file(result);DeleteFileW(result.c_str());
+    std::vector<Ma2Reply> got(8);int complete=0;
+    int n=ma2_reply_parse_result(text.c_str(),got.data(),(int)got.size(),&complete);got.resize(n);
+    fprintf(stderr,"[REPLY] check: %d repl%s waiting (helper %s, exit %lu)\n",n,n==1?"y":"ies",ran==1?"ran":ran==2?"timed out":"did not start",code);
+    {ReplyLock l;for(auto &r:got)reply_queue.push_back(r);}
+    return 0;
+}
+static void reply_data_dir(wchar_t *out,DWORD size){
+    DWORD n=GetEnvironmentVariableW(L"MA2_REPORT_DATA_DIR",out,size);
+    if(!n||n>=size)n=GetEnvironmentVariableW(L"RECOMP_REPORT_DATA_DIR",out,size);
+    if(n&&n<size)return;
+    n=GetEnvironmentVariableW(L"LOCALAPPDATA",out,size);
+    if(!n||n+20>=size){out[0]=0;return;}
+    wcscat_s(out,size,L"\\MechAssault2");
+}
+static void reply_check_start(){
+    // Harness runs (RECOMP_SAVE_DIR) never ask the compiled-in relay: only with a test relay (as the update check).
+    if(getenv("RECOMP_SAVE_DIR")&&!getenv("RECOMP_REPORT_RELAY")&&!getenv("MA2_REPORT_RELAY")){fprintf(stderr,"[REPLY] check skipped (test run without a test relay)\n");return;}
+    wchar_t dir[MAX_PATH];reply_data_dir(dir,MAX_PATH);
+    std::wstring store=std::wstring(dir)+L"\\report-conversations.txt";
+    if(!dir[0]||GetFileAttributesW(store.c_str())==INVALID_FILE_ATTRIBUTES){fprintf(stderr,"[REPLY] no report sent from this PC: nothing to check\n");return;}
+    if(!report_helper_ok())return;
+    HANDLE t=CreateThread(nullptr,64*1024,reply_check_thread,nullptr,STACK_SIZE_PARAM_IS_A_RESERVATION,nullptr);
+    if(t){SetThreadPriority(t,THREAD_PRIORITY_BELOW_NORMAL);CloseHandle(t);}
+}
+static DWORD WINAPI reply_seen_thread(LPVOID p){
+    Ma2Reply *r=(Ma2Reply *)p;wchar_t args[64];swprintf_s(args,L"--seen %hs %d",r->id,r->n);
+    DWORD code=2,ran=report_run(args,30000,&code);
+    fprintf(stderr,"[REPLY] %s %d marked seen: %s\n",r->id,r->n,ran==1&&code==0?"yes":"no (it may show again next time)");
+    delete r;return 0;
+}
+static void reply_capture(bool on){pc_frontend_capture(on?1:0);if(game_window)PostMessageA(game_window,PC_WINDOW_CAPTURE_MESSAGE,0,0);}
+// Next reply into the box (lock held). Returns false when none is left.
+static bool reply_next_locked(){
+    if(reply_queue.empty())return false;
+    reply_cur=reply_queue.front();reply_queue.erase(reply_queue.begin());
+    reply_answer.clear();reply_preset=-1;reply_attach=true;reply_outcome=REPLY_NONE;reply_reason.clear();
+    reply_focus=reply_cur.can_answer?REPLY_BOX:REPLY_CLOSE;reply_hit_valid=false;reply_state=1;
+    fprintf(stderr,"[REPLY] box shown: %s reply %d (%s)\n",reply_cur.id,reply_cur.n,reply_cur.can_answer?"can answer":"read only");
+    HANDLE t=CreateThread(nullptr,64*1024,reply_seen_thread,new Ma2Reply(reply_cur),STACK_SIZE_PARAM_IS_A_RESERVATION,nullptr);
+    if(t)CloseHandle(t);
+    return true;
+}
+static void reply_close_locked(){
+    if(reply_state==2)return;
+    if(reply_next_locked())return;
+    reply_state=0;reply_hit_valid=false;reply_capture(false);
+    fprintf(stderr,"[REPLY] box closed\n");
+}
+static DWORD WINAPI reply_send_thread(LPVOID){
+    std::string id,words;bool attach;
+    {ReplyLock l;id=reply_cur.id;words=report_to_utf8(reply_answer);attach=reply_attach;}
+    if(attach){apu_health_request();Sleep(100);}
+    std::wstring base=reply_temp_base(L"answer"),text_file=base+L".txt",result_file=base+L"-result.txt";
+    HANDLE f=CreateFileW(text_file.c_str(),GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,FILE_ATTRIBUTE_TEMPORARY,nullptr);
+    if(f!=INVALID_HANDLE_VALUE){DWORD w=0;WriteFile(f,words.data(),(DWORD)words.size(),&w,nullptr);CloseHandle(f);}
+    wchar_t log[MAX_PATH]=L"";ma2_report_log_path(log,MAX_PATH);
+    wchar_t ini[MAX_PATH]=L"";MultiByteToWideChar(CP_ACP,0,ini_path,-1,ini,MAX_PATH);
+    std::wstring args=L"--answer "+report_from_utf8(id)+L" --text-file \""+text_file+L"\" --result \""+result_file+L"\"";
+    if(attach)args+=L" --attach";
+    if(log[0])args+=L" --log \""+std::wstring(log)+L"\"";
+    if(ini[0])args+=L" --ini \""+std::wstring(ini)+L"\"";
+    DWORD code=2,ran=report_run(args,180000,&code);
+    std::string r="\n"+reply_read_file(result_file);
+    DeleteFileW(text_file.c_str());DeleteFileW(result_file.c_str());
+    auto value=[&](const char *key){std::string k=std::string("\n")+key+"=";size_t a=r.find(k);if(a==std::string::npos)return std::string();
+        a+=k.size();size_t b=r.find('\n',a);return r.substr(a,b==std::string::npos?std::string::npos:b-a);};
+    std::string ok=value("ok"),cause=value("cause"),why=value("cause_text"),logs=value("logs");
+    if(!ran)why="the report helper could not start";else if(ran==2)why="the report helper took too long";else if(why.empty())why="the answer could not be sent";
+    {ReplyLock l;
+        reply_outcome=ok=="1"?(logs=="1"?REPLY_SENT_LOGS:REPLY_SENT):cause=="closed"?REPLY_CLOSED:cause=="empty"?REPLY_EMPTY:REPLY_FAILED;
+        reply_reason=why;reply_state=1;reply_focus=reply_outcome==REPLY_FAILED?REPLY_SEND:REPLY_CLOSE;}
+    fprintf(stderr,"[REPLY] answer to %s: %s%s (exit %lu)\n",id.c_str(),ok=="1"?"sent":"not sent: ",ok=="1"?(logs=="1"?" with logs":""):why.c_str(),code);
+    return 0;
+}
+static void reply_activate_locked(int f){
+    if(reply_state!=1||!reply_focus_ok(f))return;
+    reply_focus=f;
+    if(f==REPLY_BOX)reply_focus=REPLY_SEND;
+    else if(f==REPLY_TICK)reply_attach=!reply_attach;
+    else if(f==REPLY_CLOSE)reply_close_locked();
+    else if(f==REPLY_SEND){
+        std::wstring t=reply_answer;while(!t.empty()&&iswspace(t.back()))t.pop_back();
+        if(t.empty()){reply_outcome=REPLY_EMPTY;reply_focus=REPLY_BOX;return;}
+        reply_state=2;reply_outcome=REPLY_NONE;
+        fprintf(stderr,"[REPLY] sending the answer (%zu characters, logs %s)\n",t.size(),reply_attach?"on":"off");
+        HANDLE h=CreateThread(nullptr,0,reply_send_thread,nullptr,0,nullptr);
+        if(h)CloseHandle(h);else{reply_state=1;reply_outcome=REPLY_FAILED;reply_reason="the answer could not be started";}
+    }
+}
+static void reply_move_locked(int step){
+    if(reply_state!=1)return;
+    int f=reply_focus;for(int i=0;i<4;i++){f=(f+step+4)%4;if(reply_focus_ok(f))break;}
+    reply_focus=f;
+}
+static void reply_preset_step_locked(int direction){
+    if(!reply_answer.empty()&&reply_preset<0)return;              // the player's own words stay
+    reply_preset=reply_preset<0?(direction>0?0:REPLY_PRESETS-1):(reply_preset+direction+REPLY_PRESETS+1)%(REPLY_PRESETS+1);
+    if(reply_preset==REPLY_PRESETS){reply_preset=-1;reply_answer.clear();}else reply_answer=reply_presets[reply_preset];
+}
+static void reply_type_locked(uint32_t code){
+    if(reply_state!=1||!reply_answering())return;
+    reply_focus=REPLY_BOX;if(reply_outcome==REPLY_EMPTY)reply_outcome=REPLY_NONE;
+    if(reply_preset>=0){reply_answer.clear();reply_preset=-1;}
+    if(code==0x16){   // Ctrl+V
+        if(OpenClipboard(nullptr)){HANDLE h=GetClipboardData(CF_UNICODETEXT);
+            if(h){const wchar_t *w=(const wchar_t *)GlobalLock(h);if(w){for(;*w&&reply_answer.size()<REPORT_MAX_TEXT;w++){wchar_t c=*w;if(c==L'\r')continue;if(c==L'\t')c=L' ';if(c==L'\n'||c>=0x20)reply_answer+=c;}GlobalUnlock(h);}}
+            CloseClipboard();}
+    }else if(code>=0x20&&code<0xFFFE&&reply_answer.size()<REPORT_MAX_TEXT)reply_answer+=(wchar_t)code;
+}
+// Window thread: the box owns the keyboard and the mouse while it is shown. Returns 1 when the message was used.
+static int reply_input(HWND window,UINT message,uintptr_t wparam,intptr_t lparam){
+    if(message==WM_CHAR){
+        uint32_t code=wparam==0x16?0x16:reply_decoder.decode(GetACP(),IsWindowUnicode(window)!=FALSE,wparam);
+        if(code==0x16||(code>=0x20&&!(code>=0x7F&&code<0xA0)&&code<0xFFFE&&!(code>=0xD800&&code<=0xDFFF))){ReplyLock l;if(reply_focus==REPLY_BOX||code!=' ')reply_type_locked(code);}
+        return 1;
+    }
+    if(message==WM_KEYDOWN){
+        ReplyLock l;const bool first=!(lparam&(1LL<<30)),box=reply_focus==REPLY_BOX&&reply_answering();
+        if(wparam==VK_BACK&&box){if(!reply_answer.empty()){reply_answer.pop_back();if(reply_answer.empty())reply_preset=-1;}}
+        else if(!first&&wparam!=VK_BACK)return 1;
+        else if(wparam==VK_ESCAPE)reply_close_locked();
+        else if(wparam==VK_TAB)reply_move_locked(GetKeyState(VK_SHIFT)<0?-1:1);
+        else if(wparam==VK_DOWN)reply_move_locked(1);
+        else if(wparam==VK_UP)reply_move_locked(-1);
+        else if((wparam==VK_LEFT||wparam==VK_RIGHT)&&box)reply_preset_step_locked(wparam==VK_LEFT?-1:1);
+        else if(wparam==VK_RETURN)reply_activate_locked(reply_focus);
+        else if(wparam==VK_SPACE&&!box)reply_activate_locked(reply_focus);
+        return 1;
+    }
+    if(message==WM_LBUTTONDOWN){
+        ReplyLock l;float x=(float)GET_X_LPARAM(lparam),y=(float)GET_Y_LPARAM(lparam);
+        if(reply_hit_valid)for(int i=0;i<4;i++){const float *b=reply_hit[i];
+            if(b[2]>b[0]&&x>=b[0]&&x<b[2]&&y>=b[1]&&y<b[3]){if(i==REPLY_BOX){if(reply_answering())reply_focus=REPLY_BOX;}else reply_activate_locked(i);break;}}
+        return 1;
+    }
+    if(message==WM_KEYUP||message==WM_SYSKEYDOWN||message==WM_INPUT||(message>=WM_MOUSEFIRST&&message<=WM_MOUSELAST))return 1;
+    return 0;
+}
+// Guest thread, every menu frame: shows a waiting reply on the main menu and reads the pad while the box is open.
+static void reply_pulse(uint32_t vtable){
+    static WORD last_pad;
+    if(reply_state==0){
+        ReplyLock l;
+        if(!reply_queue.empty()&&vtable==0x481B70&&!opened&&!exit_dialog&&!pc_display_movie_active()&&!modal_available()&&!ma2_scn_editor_note()&&
+           !pc_input_text_captured()){
+            if(reply_next_locked()){reply_capture(true);last_pad=0xFFFF;}
+        }
+        return;
+    }
+    XINPUT_STATE pad={};WORD buttons=(WORD)(test_pad_held|test_pad_tapped.exchange(0));
+    if(xbox_InputPollHostState(&pad)==ERROR_SUCCESS){buttons|=pad.Gamepad.wButtons;
+        if(pad.Gamepad.wButtons)pc_input_note_gamepad(pad.Gamepad.wButtons,pad.Gamepad.bLeftTrigger,pad.Gamepad.bRightTrigger,pad.Gamepad.sThumbLX,pad.Gamepad.sThumbLY,pad.Gamepad.sThumbRX,pad.Gamepad.sThumbRY);}
+    WORD pressed=last_pad==0xFFFF?0:buttons&~last_pad;last_pad=buttons;   // a button held when the box opened does nothing
+    if(!pressed)return;
+    ReplyLock l;const bool box=reply_focus==REPLY_BOX&&reply_answering();
+    if(pressed&XINPUT_GAMEPAD_B)reply_close_locked();
+    else if(pressed&XINPUT_GAMEPAD_A){if(box)reply_preset_step_locked(1);else reply_activate_locked(reply_focus);}
+    else if(pressed&XINPUT_GAMEPAD_DPAD_DOWN)reply_move_locked(1);
+    else if(pressed&XINPUT_GAMEPAD_DPAD_UP)reply_move_locked(-1);
+    else if(pressed&(XINPUT_GAMEPAD_DPAD_LEFT|XINPUT_GAMEPAD_DPAD_RIGHT)){
+        int d=(pressed&XINPUT_GAMEPAD_DPAD_LEFT)?-1:1;
+        if(box)reply_preset_step_locked(d);else if(reply_focus==REPLY_TICK)reply_attach=!reply_attach;else reply_move_locked(d);
+    }
+}
+// Render thread: the box in back-buffer pixels; the hit boxes go to the window thread in client pixels (sx, sy = back buffer / client).
+static void draw_reply_box(ImDrawList *list,float width,float height,float sx,float sy){
+    ReplyLock l;
+    if(!reply_state)return;
+    const float u=std::min(width/640.f,height/480.f),size=std::max(13.f,10.5f*u),pad=12*u;ImFont *font=ImGui::GetFont();
+    const float w=std::min(width-24*u,470*u),x0=(width-w)*.5f,x1=x0+w,inner=w-2*pad;
+    const ImU32 white=IM_COL32(252,251,248,255),muted=IM_COL32(160,190,214,255),yellow=IM_COL32(206,206,72,255),dim=IM_COL32(120,140,160,255),
+                red=IM_COL32(255,140,120,255),green=IM_COL32(150,220,150,255),glow=IM_COL32(170,214,250,235),line=IM_COL32(74,128,178,230);
+    const bool gamepad=pc_input_device()==PC_INPUT_GAMEPAD,answering=reply_answering(),busy=reply_state==2;
+    char head[96];ma2_reply_head(&reply_cur,head,sizeof head);
+    ImVec2 hs=font->CalcTextSizeA(size*1.15f,FLT_MAX,0,head),ms=font->CalcTextSizeA(size,inner,inner,reply_cur.text);
+    // heights first, so the box is centred
+    float h=pad+hs.y+8*u+ms.y+12*u;
+    const float box_h=size*3.4f+8*u,btn_h=size*1.7f;
+    if(answering)h+=size+4*u+box_h+8*u+size*1.3f+8*u;
+    h+=btn_h+8*u+size*1.2f*(reply_outcome!=REPLY_NONE||busy?1:0)+size*2.3f+pad;
+    float y=std::max(8*u,(height-h)*.42f);
+    list->AddRectFilled(ImVec2(x0,y),ImVec2(x1,y+h),IM_COL32(15,26,38,236),4*u);
+    list->AddRect(ImVec2(x0,y),ImVec2(x1,y+h),line,4*u,0,std::max(1.f,1.25f*u));
+    float cx=x0+pad,cy=y+pad;
+    list->AddText(font,size*1.15f,ImVec2(cx,cy),yellow,head);cy+=hs.y+8*u;
+    list->AddText(font,size,ImVec2(cx,cy),white,reply_cur.text,nullptr,inner);cy+=ms.y+12*u;
+    auto rect_px=[&](int i,float a,float b,float c,float d){reply_hit[i][0]=a/sx;reply_hit[i][1]=b/sy;reply_hit[i][2]=c/sx;reply_hit[i][3]=d/sy;};
+    for(auto &b:reply_hit)b[0]=b[1]=b[2]=b[3]=0;
+    auto focus_ring=[&](ImVec2 a,ImVec2 b){for(int i=6;i>=1;i--){float k=i/6.f,s=5*u*k;list->AddRect(ImVec2(a.x-s,a.y-s),ImVec2(b.x+s,b.y+s),IM_COL32(165,210,255,(int)(26*(1-k)+6)),3*u,0,1.5f*u);}};
+    if(answering){
+        list->AddText(font,size,ImVec2(cx,cy),muted,reply_text_answer);cy+=size+4*u;
+        ImVec2 a(cx,cy),b(cx+inner,cy+box_h);bool f=reply_focus==REPLY_BOX&&!busy;
+        if(f)focus_ring(a,b);
+        list->AddRectFilled(a,b,IM_COL32(8,18,30,200),2*u);list->AddRect(a,b,f?glow:line,2*u,0,std::max(1.f,1.25f*u));
+        std::string t=report_to_utf8(reply_answer);const bool empty=t.empty();
+        if(empty&&!f)t=gamepad?reply_text_pad:reply_text_type;
+        else if(f&&!busy&&report_cursor_on())t+="_";
+        float tw=inner-8*u;ImVec2 ts=font->CalcTextSizeA(size,FLT_MAX,tw,t.c_str());
+        float ty=std::min(a.y+4*u,b.y-4*u-ts.y);   // the newest lines stay in view
+        list->PushClipRect(ImVec2(a.x+2,a.y+2),ImVec2(b.x-2,b.y-2),true);
+        list->AddText(font,size,ImVec2(a.x+4*u,ty),empty&&!f?dim:white,t.c_str(),nullptr,tw);
+        list->PopClipRect();
+        rect_px(REPLY_BOX,a.x,a.y,b.x,b.y);cy+=box_h+8*u;
+        // the tick
+        float bs=size*.95f;ImVec2 ta(cx,cy),tb(cx+bs,cy+bs);bool tf=reply_focus==REPLY_TICK&&!busy;
+        if(tf)focus_ring(ta,tb);
+        list->AddRect(ta,tb,tf?glow:muted,2*u,0,std::max(1.f,1.25f*u));
+        if(reply_attach)list->AddRectFilled(ImVec2(ta.x+3*u,ta.y+3*u),ImVec2(tb.x-3*u,tb.y-3*u),tf?glow:yellow,1*u);
+        list->AddText(font,size,ImVec2(tb.x+8*u,cy-1*u),tf?yellow:white,reply_text_attach);
+        ImVec2 ls=font->CalcTextSizeA(size,FLT_MAX,0,reply_text_attach);
+        rect_px(REPLY_TICK,ta.x-4*u,ta.y-4*u,tb.x+8*u+ls.x+4*u,tb.y+4*u);
+        cy+=size*1.3f+8*u;
+    }
+    // buttons: Send (when answering), Close / Next reply
+    auto button=[&](int id,float bx,const char *label){
+        ImVec2 ls=font->CalcTextSizeA(size,FLT_MAX,0,label);float bw=std::max(ls.x+28*u,90*u);
+        ImVec2 a(bx,cy),b(bx+bw,cy+btn_h);bool f=reply_focus==id&&!busy;
+        if(f)focus_ring(a,b);
+        list->AddRectFilled(a,b,f?IM_COL32(50,99,120,230):IM_COL32(26,44,62,230),3*u);list->AddRect(a,b,f?glow:line,3*u,0,std::max(1.f,1.25f*u));
+        list->AddText(font,size,ImVec2(a.x+(bw-ls.x)*.5f,a.y+(btn_h-ls.y)*.5f),busy?dim:f?yellow:white,label);
+        rect_px(id,a.x,a.y,b.x,b.y);return bw;};
+    float bx=cx;
+    if(answering)bx+=button(REPLY_SEND,bx,reply_text_send)+10*u;
+    button(REPLY_CLOSE,bx,reply_queue.empty()?reply_text_close:reply_text_next);
+    cy+=btn_h+8*u;
+    char status[400]="";ImU32 sc=white;
+    if(busy)snprintf(status,sizeof status,"%s",reply_text_sending);
+    else if(reply_outcome==REPLY_SENT){snprintf(status,sizeof status,"%s",reply_text_sent);sc=green;}
+    else if(reply_outcome==REPLY_SENT_LOGS){snprintf(status,sizeof status,"%s",reply_text_sent_logs);sc=green;}
+    else if(reply_outcome==REPLY_EMPTY){snprintf(status,sizeof status,"%s",reply_text_empty);sc=red;}
+    else if(reply_outcome==REPLY_CLOSED){snprintf(status,sizeof status,"%s",reply_text_closed);sc=red;}
+    else if(reply_outcome==REPLY_FAILED){snprintf(status,sizeof status,reply_text_failed,reply_reason.c_str());sc=red;}
+    if(status[0]){list->AddText(font,size,ImVec2(cx,cy),sc,status,nullptr,inner);cy+=size*1.2f;}
+    list->AddText(font,size*.9f,ImVec2(cx,cy),dim,reply_text_private);cy+=size*1.1f;
+    list->AddText(font,size*.9f,ImVec2(cx,cy),muted,gamepad?reply_text_hint_pad:reply_text_hint_keys);
+    reply_hit_valid=true;
+}
+
 // The box text, word-wrapped (about the width of the box in the row font), the last four lines.
 static std::vector<std::wstring> report_lines(const std::wstring &t,size_t width){
     std::vector<std::wstring> out;std::wstring line;size_t i=0;
@@ -862,6 +1156,7 @@ extern "C" void ma2_pc_menu_pulse(uint32_t object,uint32_t vtable)
     // Unavailable features (Xbox Live, System Link, guests) are shown disabled (ma2_bots_ui.c menu policy).
     if(object>=0x10000&&object<0x03FFF000)ma2_menu_policy_pulse(object,vtable);
     if(vtable==0x4827B0&&!opened)report_pause_item(object);
+    reply_pulse(vtable);                       // 1.2.0: a reply waiting shows on the main menu; the pad while its box is open
     ma2_pc_input_context_update();
     sync_text_dialog();
     {   // Name keyboard footer: on keyboard/mouse the confirm prompt reads "Done" (Enter = Done there);
@@ -1248,6 +1543,8 @@ static int window_message(void *window,unsigned message,uintptr_t wparam,intptr_
     if(message==WM_SIZE&&opened&&wparam!=SIZE_MINIMIZED)queue({WM_SIZE,0,0,0});
     // Window shortcuts remain available while a settings page owns input.
     if((message==WM_KEYDOWN||message==WM_KEYUP)&&(wparam==VK_F11||wparam==VK_F8))return 0;
+    // 1.2.0: the reply box owns the keyboard and the mouse while it is shown.
+    if(reply_state.load()&&reply_input((HWND)window,message,wparam,lparam))return 1;
     if(text_message((HWND)window,message,wparam,lparam))return 1;
     if(message==WM_LBUTTONDOWN&&getenv("RECOMP_MENU_TRACE")){
         RECT r={};GetClientRect((HWND)window,&r);
@@ -1321,7 +1618,8 @@ static void render(void *device_ptr,void *context_ptr,void *window_ptr,unsigned 
     bool editor_button=editor_button_shown();const wchar_t *editor_note=ma2_scn_editor_note();
     const bool report_box=opened&&page==5&&page_form&&report_state!=2&&!pc_display_movie_active();
     const char *update_line=update_line_shown();
-    if(show_fps||glow>0.f||editor_button||editor_note||report_box||update_line){
+    const bool reply_box=reply_state.load()!=0&&!pc_display_movie_active();
+    if(show_fps||glow>0.f||editor_button||editor_note||report_box||update_line||reply_box){
         if(!fps_context_initialized){ImGui::CreateContext();ImGui::GetIO().IniFilename=nullptr;ImGui::GetIO().LogFilename=nullptr;
             // The overlay never owns the cursor: menus and mouse aim set it.
             ImGui::GetIO().ConfigFlags|=ImGuiConfigFlags_NoMouseCursorChange;fps_context_initialized=true;}
@@ -1362,6 +1660,10 @@ static void render(void *device_ptr,void *context_ptr,void *window_ptr,unsigned 
                 draw_update_line(ImGui::GetBackgroundDrawList(),box,update_line);
             }
             if(editor_note)draw_editor_note(ImGui::GetForegroundDrawList(),(float)width,(float)height,editor_note);
+            if(reply_box&&client.right>0&&client.bottom>0){
+                static bool logged;if(!logged){logged=true;fprintf(stderr,"[REPLY] box drawn on the main menu\n");}
+                draw_reply_box(ImGui::GetForegroundDrawList(),(float)width,(float)height,(float)width/client.right,(float)height/client.bottom);
+            }
             if(show_fps){
                 ImGui::SetNextWindowPos(ImVec2(16,16));ImGui::SetNextWindowBgAlpha(.55f);
                 ImGui::Begin("Frame rate",nullptr,ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoInputs|ImGuiWindowFlags_NoSavedSettings);
@@ -1389,4 +1691,5 @@ extern "C" void ma2_pc_settings_initialize(const char *ini)
     pc_frontend_register(render,window_message);
     pc_frontend_register_device_lost(device_lost);
     ma2_update_check_start(MA2_PUBLIC_VERSION); // 1.1.7: background thread, off with [Update] CheckForUpdates=0
+    reply_check_start();                        // 1.2.0: only when a report was sent from this PC (MA2 Report.exe asks)
 }

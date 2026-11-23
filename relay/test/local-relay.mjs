@@ -31,7 +31,9 @@ const server = http.createServer(async (req, res) => {
     const chunks = [];
     for await (const c of req) chunks.push(c);
     const body = Buffer.concat(chunks);
-    const url = `http://127.0.0.1:${port}${req.url}`;
+    // the Host the client used (a browser on localhost sends Origin http://localhost:<port>)
+    const host = /^(127\.0\.0\.1|localhost|\[::1\]):\d+$/.test(req.headers.host || "") ? req.headers.host : `127.0.0.1:${port}`;
+    const url = `http://${host}${req.url}`;
     if (req.url === "/__mock/issues") {
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify(gh.issues));
