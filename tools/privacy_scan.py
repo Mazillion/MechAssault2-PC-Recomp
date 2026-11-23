@@ -3,7 +3,8 @@
     python tools/privacy_scan.py                     scan every tracked/untracked file in the repo
     python tools/privacy_scan.py --binaries a.exe b  scan built files (UTF-8 and UTF-16 strings); for the
                                                      single-file installer also every packed file, decompressed
-                                                     (the kit, the bundled Python runtime and the editor)
+                                                     (the kit, the bundled Python runtime and the editor);
+                                                     for a .zip every member (and an installer in it)
 
 It looks for: absolute user-profile paths (C:\\Users\\<name>, /home/<name>), the current Windows user
 name and machine name, this checkout's own absolute path, e-mail addresses (other than GitHub noreply
@@ -179,6 +180,28 @@ def scan_payload(path):
     return hits, len(members)
 
 
+def scan_zip(path):
+    """A release .zip (the RecompLauncher zip): every member decompressed and scanned like a binary, an installer member with its
+    packed files too. ([], 0) for any other file."""
+    import zipfile
+    if Path(path).suffix.lower() != '.zip' or not zipfile.is_zipfile(path):
+        return [], 0
+    hits, tmp = [], Path(os.environ.get('TEMP', '.')) / ('ma2-privacy-zip-%d' % os.getpid())
+    with zipfile.ZipFile(path) as z:
+        names = z.namelist()
+        for name in names:
+            tmp.write_bytes(z.read(name))
+            where = '%s!%s' % (Path(path).name, name)
+            hits += [(where, what) for _, what in scan([tmp], emails=False)]
+            more, n = scan_payload(tmp)
+            hits += [(where + what_name[len(tmp.name):], what) for what_name, what in more]
+            if n:
+                print('%s: %d packed files decompressed and scanned' % (where, n))
+    if tmp.exists():
+        tmp.unlink()
+    return hits, len(names)
+
+
 def main():
     a = sys.argv[1:]
     if a[:1] == ['--binaries']:
@@ -187,6 +210,10 @@ def main():
             more, n = scan_payload(p)
             if n:
                 print('%s: %d packed files decompressed and scanned' % (Path(p).name, n))
+            hits += more
+            more, n = scan_zip(p)
+            if n:
+                print('%s: %d zip members decompressed and scanned' % (Path(p).name, n))
             hits += more
     else:
         files = list(repo_files())

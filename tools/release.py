@@ -1092,8 +1092,12 @@ def st_build(g):
     if code or not exe.is_file():
         return {'status': 'FAIL', 'summary': 'build_release exit %d' % code, 'details': tail(g.logs / 'build.txt')}
     g.state['installer'] = exe
+    zips = sorted((g.clone / 'dist').glob('MechAssault2-PC-Recomp-v*-Windows-x64.zip'))
+    if zips:
+        g.state['zip'] = zips[-1]                 # the RecompLauncher zip (checked by launcher_zip)
     _, kid = packed(exe)
-    return {'status': 'PASS', 'summary': '%s %d bytes sha256 %s kit id %s (%d s)' % (exe.name, exe.stat().st_size, sha_file(exe), kid, secs)}
+    return {'status': 'PASS', 'summary': '%s %d bytes sha256 %s kit id %s (%d s)%s' % (exe.name, exe.stat().st_size, sha_file(exe), kid, secs,
+                                                                                    '; %s' % zips[-1].name if zips else '')}
 
 
 def need_installer(g):
@@ -1101,13 +1105,62 @@ def need_installer(g):
     return exe if exe and Path(exe).is_file() else None
 
 
+def need_zip(g):
+    z = g.state.get('zip')
+    return z if z and Path(z).is_file() else None
+
+
 def binaries(g):
     exe = need_installer(g)
     out = [exe] if exe else []
+    if need_zip(g):
+        out.append(need_zip(g))                   # privacy_scan --binaries opens it: every member, the installer's packed files
     for rel in ('kit/editor/MA2 Scenario Editor.exe', 'installer-exe/stub.exe', 'kit/report/MA2 Report.exe'):
         if (g.clone / rel).is_file():
             out.append(g.clone / rel)
     return out
+
+
+def build_tools(g):
+    """The clone's tools/build_release.py as a module (the zip name and its checks live there)."""
+    sys.path.insert(0, str(g.clone / 'tools'))
+    try:
+        import build_release
+        return build_release
+    finally:
+        sys.path.pop(0)
+
+
+def st_launcher_zip(g):
+    exe = need_installer(g)
+    if not exe:
+        return {'status': 'SKIP', 'summary': 'needs the build'}
+    if not (g.clone / 'recomplauncher.json').is_file():
+        return {'status': 'SKIP', 'summary': 'this commit has no recomplauncher.json'}
+    if g.installer:
+        return {'status': 'SKIP', 'summary': 'a given installer (--installer) comes without its zip'}
+    if g.installer:
+        return {'status': 'SKIP', 'summary': 'a given installer (--installer) comes without its zip'}
+    br = build_tools(g)
+    z = need_zip(g)
+    if not z:
+        return {'status': 'FAIL', 'summary': 'no %s in dist' % br.launcher_zip_name('<version>')}
+    probs = br.check_launcher_zip(z, exe)
+    schema = g.cfg.get('recomplauncher_schema')
+    note = 'schema not configured'
+    if schema and Path(schema).is_file():
+        try:
+            import jsonschema, zipfile
+            with zipfile.ZipFile(z) as zf:
+                prof = json.loads(zf.read(br.LAUNCHER_JSON).decode('utf-8'))
+            errs = list(jsonschema.Draft7Validator(json.loads(Path(schema).read_text(encoding='utf-8'))).iter_errors(prof))
+            probs += ['schema: %s at %s' % (e.message[:160], '/'.join(map(str, e.path))) for e in errs]
+            note = 'schema %d error(s)' % len(errs)
+        except ImportError:
+            note = 'schema configured, jsonschema not installed'
+    return {'status': 'FAIL' if probs else 'PASS', 'summary': '%s %d bytes sha256 %s: %s; %s' % (
+        z.name, z.stat().st_size, sha_file(z), 'members, installer bytes and profile OK' if not probs else '%d problem(s)' % len(probs), note),
+        'details': probs or None}
 
 
 def st_privacy_tree(g):
@@ -1157,6 +1210,13 @@ def st_grepbin(g):
     upstream = lambda k, v: k.startswith('python/') or (k in locked and hashlib.sha256(v).hexdigest() == locked[k])
     runtime = [k for k, v in files.items() if upstream(k, v)]
     blobs += [('packed ' + k, v) for k, v in files.items() if not upstream(k, v)]
+    z = need_zip(g)
+    if z:                                         # the RecompLauncher zip's members (its installer is the exe above, byte for byte)
+        import zipfile
+        with zipfile.ZipFile(z) as zf:
+            exe_sha = sha_file(exe)
+            blobs += [('%s!%s' % (z.name, m), zf.read(m)) for m in zf.namelist()
+                      if hashlib.sha256(zf.read(m)).hexdigest() != exe_sha]
     for name, data in blobs:
         n += 1
         low = data.lower()
@@ -1224,9 +1284,10 @@ def st_helper_build(g):
 
 def suite_env(g, name):
     e, base = g.env('suite-' + name)
-    for k in ('xbe', 'game_files', 'xiso', 'ffmpeg'):
+    for k in ('xbe', 'game_files', 'xiso', 'ffmpeg', 'recomplauncher_schema'):
         if g.cfg.get(k):
-            e['MA2_TEST_%s' % {'xbe': 'XBE', 'game_files': 'GAME_FILES', 'xiso': 'XISO', 'ffmpeg': 'FFMPEG_ZIP'}[k]] = g.cfg[k]
+            e['MA2_TEST_%s' % {'xbe': 'XBE', 'game_files': 'GAME_FILES', 'xiso': 'XISO', 'ffmpeg': 'FFMPEG_ZIP',
+                               'recomplauncher_schema': 'RECOMPLAUNCHER_SCHEMA'}[k]] = g.cfg[k]
     return e
 
 
@@ -1673,8 +1734,10 @@ STEPS = {                       # name: (function, modes, what it checks)
     'deps': (st_deps, 'task rc', 'Capstone (and FFmpeg for the tests) from local copies, hash-checked against the lock'),
     'build': (st_build, 'task rc', 'tools/build_release.py: editor, stub, report helper, pack, privacy check, SHA-256'),
     'privacy_tree': (st_privacy_tree, 'task rc', 'tools/privacy_scan.py over the tree'),
-    'privacy_bin': (st_privacy_bin, 'task rc', 'privacy_scan --binaries: installer (+ every packed file), stub, editor, helper'),
-    'grepbin': (st_grepbin, 'task rc', 'configured words + profile path + user/PC name in every binary and packed file (ASCII, UTF-16)'),
+    'privacy_bin': (st_privacy_bin, 'task rc', 'privacy_scan --binaries: installer (+ every packed file), the RecompLauncher zip (every member), stub, editor, helper'),
+    'grepbin': (st_grepbin, 'task rc', 'configured words + profile path + user/PC name in every binary, packed file and zip member (ASCII, UTF-16)'),
+    'launcher_zip': (st_launcher_zip, 'task rc', 'the RecompLauncher zip: recomplauncher.json + the installer byte for byte, nothing else; '
+                     'the profile parses (and passes the schema in recomplauncher_schema, when configured)'),
     'relay_packed': (st_relay_packed, 'task rc', 'the relay address from report.json is in the packed report.json and MA2 Report.exe; no staging or empty address'),
     'helper_build': (st_helper_build, 'task rc', 'the suites\' own report helper, built without any relay address'),
     'suites': (st_suites, 'task rc', 'every tests/installer/test_*.py'),
@@ -1692,6 +1755,7 @@ STEPS = {                       # name: (function, modes, what it checks)
     'fault': (st_fault, 'rc', 'fault injection (tests/installer/gate_faults.json) in a real install + --diagnostics'),
 }
 NEEDS = {'deps': ['clone'], 'versions': ['clone'], 'build': ['deps'], 'privacy_tree': ['clone'], 'privacy_bin': ['build'], 'grepbin': ['build'],
+         'launcher_zip': ['build'],
          'relay_packed': ['build'], 'helper_build': ['clone'], 'suites': ['build', 'helper_build'], 'ui_flow': ['deps'],
          'relay_tests': ['clone'], 'kit_diff': ['build'], 'sheet': [], 'signoff': [], 'ab_fresh': ['build'], 'relay_installed': ['ab_fresh'],
          'diagnostics': ['ab_fresh'], 'update': ['build'], 'fastpath': ['update'], 'fallback': ['fastpath'], 'fault': ['build']}
@@ -1789,7 +1853,12 @@ def cmd_preview(a):
     final = out / INSTALLER_NAME
     shutil.copy2(exe, final)
     h, size = sha_file(final), final.stat().st_size
-    (out / 'SHA256SUMS.txt').write_text('%s *%s\n' % (h, final.name), encoding='ascii')
+    zips = sorted((clone / 'dist').glob('MechAssault2-PC-Recomp-v*-Windows-x64.zip'))     # the RecompLauncher zip (build_release step 6)
+    zfinal = out / zips[-1].name if zips else None
+    if zfinal:
+        shutil.copy2(zips[-1], zfinal)
+    (out / 'SHA256SUMS.txt').write_text(''.join('%s *%s\n' % (sha_file(f), f.name) for f in (final, zfinal) if f), encoding='ascii')
+    assets = '"%s" %s"%s"' % (final, '"%s" ' % zfinal if zfinal else '', out / 'SHA256SUMS.txt')
     base = a.base or cfg.get('base')
     sheet = None
     if base:
@@ -1804,8 +1873,8 @@ def cmd_preview(a):
     gh = out / 'gh-release-command.txt'
     gh.write_text('\n'.join([
         'NOT RUN BY THE TOOL. Only after the owner says yes, and after the branch with commit %s is on GitHub:' % head, '',
-        'gh release create "v%s" "%s" "%s" --prerelease --target %s --title "MechAssault 2 PC Recomp %s (preview)" --notes-file "%s"'
-        % (ver, final, out / 'SHA256SUMS.txt', head, ver, notes), '']), encoding='utf-8')
+        'gh release create "v%s" %s --prerelease --target %s --title "MechAssault 2 PC Recomp %s (preview)" --notes-file "%s"'
+        % (ver, assets, head, ver, notes), '']), encoding='utf-8')
     say('preview installer %s\n  %d bytes sha256 %s\nnotes draft %s\ncommand file %s%s'
         % (final, size, h, notes, gh, '\nsheet %s (signed part %s)' % (sheet, sh) if sheet else ''))
     if a.keep_install:
@@ -1832,7 +1901,10 @@ def cmd_rc(a):
         out = Path(cfg['work_dir']) / ('rc-%s-%s' % (ver, g.sha[:8]))
         out.mkdir(parents=True, exist_ok=True)
         shutil.copy2(exe, out / INSTALLER_NAME)
-        (out / 'SHA256SUMS.txt').write_text('%s *%s\n' % (sha_file(out / INSTALLER_NAME), INSTALLER_NAME), encoding='ascii')
+        files = [out / INSTALLER_NAME]
+        if need_zip(g):                           # the RecompLauncher zip goes up next to the exe
+            shutil.copy2(need_zip(g), out / need_zip(g).name); files.append(out / need_zip(g).name)
+        (out / 'SHA256SUMS.txt').write_text(''.join('%s *%s\n' % (sha_file(f), f.name) for f in files), encoding='ascii')
         shutil.copy2(g.dir / 'result.md', out / 'gate-result.md'); shutil.copy2(g.dir / 'result.json', out / 'gate-result.json')
         say('release candidate %s (gate %s)' % (out / INSTALLER_NAME, g.overall()))
         if code == 0 and a.keep_install:

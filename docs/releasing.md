@@ -91,6 +91,23 @@ one is an **RC reset**, and the cost is shown before it is decided:
 - a **full reset** (code): the same, plus whatever new tests the code needs; any earlier test of the kept install no
   longer counts.
 
+## The release files
+
+Every release has two downloads, built together by `tools/build_release.py` into `dist/` and listed in `SHA256SUMS.txt`:
+
+| File | For |
+|:--|:--|
+| `MechAssault 2 Recomp Installer.exe` | players who download the installer themselves. The release text, the README and every post point to it: it is never renamed or replaced by the zip |
+| `MechAssault2-PC-Recomp-v<version>-Windows-x64.zip` | [RecompLauncher](https://recomplauncher.com), which installs and updates the game from our GitHub releases. It holds exactly two files: `recomplauncher.json` (from the top of the repository) and the same installer exe, byte for byte |
+
+RecompLauncher unpacks each new release over the player's install folder, then runs the setup step that
+`recomplauncher.json` names: the installer with `--recomplauncher`, which builds the game into
+`MechAssault 2\` inside that folder, updates it from the kept build, or does nothing when that version is already there.
+So the zip must never carry a `pc_settings.ini` or anything else a player changes; `build_release.py` and the gate's
+`launcher_zip` step refuse any other member. Keep `recomplauncher.json` in step with the game: a renamed settings key,
+exe or install file is renamed there too (`tests/installer/test_v118_launcher.py` checks the names it uses).
+Upload both files (and `SHA256SUMS.txt`) to the GitHub release; the commands `preview` and `rc` write out do.
+
 ## The gate
 
 ```bat
@@ -114,8 +131,9 @@ manifests stay). The exit code is 0 when nothing failed.
 | deps | Capstone (and FFmpeg for the tests) from local copies, every file hash-checked against the lock |
 | build | `tools/build_release.py`: editor, stub, report helper, pack, privacy check, SHA-256 |
 | privacy_tree | `tools/privacy_scan.py` over the tree |
-| privacy_bin | `privacy_scan.py --binaries`: the installer and every packed file, the stub, the editor, the helper |
-| grepbin | the configured words, the user-profile path and this PC's user and machine names in every binary and packed file (ASCII and UTF-16) |
+| privacy_bin | `privacy_scan.py --binaries`: the installer and every packed file, the RecompLauncher zip and every member, the stub, the editor, the helper |
+| grepbin | the configured words, the user-profile path and this PC's user and machine names in every binary, packed file and zip member (ASCII and UTF-16) |
+| launcher_zip | the RecompLauncher zip: exactly `recomplauncher.json` and the installer (byte for byte the built exe), no `pc_settings.ini`, a profile that parses and runs the installer (and passes RecompLauncher's schema when `recomplauncher_schema` is configured) |
 | relay_packed | the address in `kit/installer/data/report.json` is in the packed `report.json` and `MA2 Report.exe`; no staging address, no empty `relay_url` |
 | helper_build | the tests' own report helper, built without any relay address (checked: none compiled in) |
 | suites | every `tests/installer/test_*.py` |
@@ -157,6 +175,7 @@ missing is skipped with the reason.
 | `capstone`, `ffmpeg` | extracted copies of the two dependencies (no download) |
 | `previous_installer`, `previous_install` | the last release's installer and a kept install made with it (only ever copied) |
 | `relay_dir`, `node` | the relay's source folder and Node.js, for `relay_tests` |
+| `recomplauncher_schema` | a local copy of https://recomplauncher.com/schema/recomplauncher.json (needs the `jsonschema` package): `launcher_zip` and the installer suites validate `recomplauncher.json` against it |
 | `grep_words` | extra words that must never appear in a binary (names, e-mail domains, time-zone offsets) |
 | `relay_forbidden` | address fragments that must not be in a build (default `-staging`) |
 | `known_failures` | `{"suite": ["test_name", ...]}`: failures that count as a warning, with the reason recorded elsewhere |

@@ -148,5 +148,57 @@ class Gate(unittest.TestCase):
         compile(release.SITECUSTOMIZE % {'hit': 'h.txt', 'faults': []}, 'sitecustomize.py', 'exec')
 
 
+class LauncherZip(unittest.TestCase):
+    """The RecompLauncher zip (build_release step 6): its name, members, checks, privacy scan, and the gate step."""
+    def setUp(self):
+        import build_release
+        self.br = build_release
+        self.tmp = Path(tempfile.mkdtemp(prefix='ma2-zip-'))
+        self.exe = self.tmp / self.br.INSTALLER_EXE; self.exe.write_bytes(b'MZ' + b'installer bytes' * 1000)
+        self.prof = REPO / 'recomplauncher.json'
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_name_and_members(self):
+        self.assertEqual(self.br.launcher_zip_name('1.1.8'), 'MechAssault2-PC-Recomp-v1.1.8-Windows-x64.zip')
+        z = self.br.make_launcher_zip(self.exe, self.prof, self.tmp / 'a.zip', '2026.11.30')
+        import zipfile
+        with zipfile.ZipFile(z) as zf:
+            self.assertEqual(sorted(zf.namelist()), ['MechAssault 2 Recomp Installer.exe', 'recomplauncher.json'])
+            self.assertEqual(zf.read('MechAssault 2 Recomp Installer.exe'), self.exe.read_bytes())
+            self.assertEqual({i.date_time for i in zf.infolist()}, {(2026, 11, 30, 0, 0, 0)})
+        again = self.br.make_launcher_zip(self.exe, self.prof, self.tmp / 'b.zip', '2026.11.30')
+        self.assertEqual(z.read_bytes(), again.read_bytes())                        # same inputs, same zip
+        self.assertEqual(self.br.check_launcher_zip(z, self.exe), [])
+
+    def test_check_refuses_extras_settings_and_another_installer(self):
+        import zipfile
+        bad = self.tmp / 'bad.zip'
+        with zipfile.ZipFile(bad, 'w') as zf:
+            zf.write(self.prof, 'recomplauncher.json'); zf.writestr(self.br.INSTALLER_EXE, b'other'); zf.writestr('pc_settings.ini', b'[Display]')
+        probs = ' | '.join(self.br.check_launcher_zip(bad, self.exe))
+        self.assertIn('members', probs); self.assertIn('pc_settings.ini', probs); self.assertIn('differs', probs)
+        self.assertTrue(self.br.check_launcher_zip(self.tmp / 'missing.zip', self.exe))
+
+    def test_broken_profile_stops_the_build(self):
+        p = self.tmp / 'recomplauncher.json'; p.write_text('{"format": 1,', encoding='utf-8')
+        with self.assertRaises(ValueError):
+            self.br.make_launcher_zip(self.exe, p, self.tmp / 'c.zip', '2026.11.30')
+        self.assertFalse((self.tmp / 'c.zip').exists())
+
+    def test_privacy_scan_opens_the_zip(self):
+        import privacy_scan, zipfile
+        z = self.tmp / 'p.zip'
+        with zipfile.ZipFile(z, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr('recomplauncher.json', 'built in C:' + chr(92) + 'Users' + chr(92) + 'somebody' + chr(92) + 'Desktop')
+        hits, n = privacy_scan.scan_zip(z)
+        self.assertEqual(n, 1); self.assertTrue(hits and hits[0][0].endswith('!recomplauncher.json'), hits)
+        self.assertEqual(privacy_scan.scan_zip(self.exe), ([], 0))
+
+    def test_gate_step(self):
+        self.assertIn('launcher_zip', release.plan_steps('task')); self.assertIn('launcher_zip', release.plan_steps('rc'))
+        self.assertEqual(release.plan_steps('task', only=['launcher_zip']), ['clone', 'deps', 'build', 'launcher_zip'])
+
+
 if __name__ == '__main__':
     unittest.main()
