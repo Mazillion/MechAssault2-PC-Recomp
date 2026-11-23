@@ -1115,7 +1115,7 @@ def collect_diagnostics(dest, out_dir, version='', kit_id='', gpus=None, include
     own = ('install-', 'installer-ui-', 'buildtools-', 'stub-', 'downloads')    # downloads.log: summarised in system.txt
     text_members, file_members, bin_members = {}, {}, {}
     def add_text(arc, path):
-        try: text_members[arc] = redact(Path(path).read_text(encoding='utf-8', errors='replace'))
+        try: text_members[arc] = redact(Path(path).read_text(encoding='utf-8-sig', errors='replace'))   # 1.2.0: no byte-order mark in the copy
         except OSError as e: notes.append('%s could not be read (%s)' % (arc, e.strerror or e))
     if (dest / STAMP).is_file(): add_text(STAMP, dest / STAMP)
     else: notes.append('%s was not found in %s (nothing finished is installed there)' % (STAMP, dest))

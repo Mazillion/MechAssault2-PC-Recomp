@@ -421,8 +421,8 @@ def find_visual_studio(choose=None):
         vcvars = vs / 'VC/Auxiliary/Build/vcvars64.bat'
         cmake_dir = vs / 'Common7/IDE/CommonExtensions/Microsoft/CMake'
         cmake, ninja = cmake_dir / 'CMake/bin/cmake.exe', cmake_dir / 'Ninja/ninja.exe'
-        if not cmake.is_file(): cmake = Path(shutil.which('cmake') or '')
-        if not ninja.is_file(): ninja = Path(shutil.which('ninja') or '')
+        # 1.2.0: only the CMake and Ninja that come with this Visual Studio ("C++ CMake tools for Windows"). A cmake/ninja found on
+        # PATH may be another toolchain's: report MA2-H3DVVH (a clang toolchain's cmcldeps broke the resource compiler, RC1107).
         missing = []
         if i.get('isComplete') is False or not vcvars.is_file() or not next((vs / 'VC/Tools/MSVC').glob('*/bin/Hostx64/x64/cl.exe'), None):
             missing.append('vcvars')
@@ -435,6 +435,16 @@ def find_visual_studio(choose=None):
         vs, ' and '.join(VS_PARTS[m][0] for m in missing), ', '.join('"%s"' % VS_PARTS[m][0] for m in missing)), 'compiler', missing[0])
     e.vs, e.missing = vs, missing
     raise e
+
+def tool_version(exe):
+    """'version X' of cmake.exe / ninja.exe for the log (the first line it prints with --version), or '?'. Never raises."""
+    try:
+        out = subprocess.run([str(exe), '--version'], capture_output=True, text=True, timeout=30,
+                             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)).stdout.strip().splitlines()
+        v = re.sub(r'^cmake version\s+', '', out[0]).strip() if out else ''
+        return 'version %s' % v if v else '?'
+    except Exception:
+        return '?'
 
 def compiler_state(choose=None):
     """{'state': ready|incomplete|missing, 'vs', 'name', 'detail', 'code', 'missing' (codes), 'add' (VS components)} for the Systems page."""
@@ -2102,7 +2112,7 @@ class Installer:
             except Exception as e: self.log('  (the installed files were not checked: %s)' % e)
             if 'install' not in self.state.get('done', []):
                 self.ffmpeg_dir()                  # FFmpeg now: a download problem shows in the first minute, not after the translation
-            self.log('  CMake: %s\n  Ninja: %s' % (self.cmake, self.ninja))
+            self.log('  CMake: %s (%s)\n  Ninja: %s (%s)' % (self.cmake, tool_version(self.cmake), self.ninja, tool_version(self.ninja)))
         if self.opts['textures'] or self.opts['videos']:
             try:
                 self.epy = enhancer_python()

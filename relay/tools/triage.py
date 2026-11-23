@@ -282,7 +282,7 @@ def summarise_zip(data, max_lines=12):
         name = i.filename.lower()
         if not name.endswith(TEXT_EXT) or i.file_size > 64 * 1024 * 1024:
             continue
-        text = z.read(i).decode("utf-8", "replace")
+        text = z.read(i).decode("utf-8-sig", "replace")  # 1.2.0: a log may start with a byte-order mark (MA2-H3DVVH)
         if os.path.basename(name) == "system.txt":
             lines.append("  --- system.txt")
             lines += ["    " + l for l in text.splitlines()[:40]]
@@ -601,6 +601,9 @@ def undo_announce(make_relay, yes=False, ask=None):
 
 
 def main(argv=None):
+    for stream in (sys.stdout, sys.stderr):      # 1.2.0: report text on a cp1252 console never stops the tool (MA2-H3DVVH)
+        try: stream.reconfigure(errors="replace")
+        except Exception: pass
     ap = argparse.ArgumentParser(description="MechAssault 2 report triage")
     ap.add_argument("--relay", default=os.environ.get("MA2_RELAY_URL", "") or DEFAULT_RELAY)
     ap.add_argument("--key", default="", help="the owner key (else MA2_RELAY_KEY, Credential Manager, or a prompt)")

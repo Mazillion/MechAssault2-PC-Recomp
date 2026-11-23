@@ -48,6 +48,13 @@ static std::wstring widen(const std::string &s) {
     return w;
 }
 
+static std::string utf8(const std::wstring &w) {
+    int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), nullptr, 0, nullptr, nullptr);
+    std::string s(n > 0 ? n : 0, '\0');
+    if (n > 0) WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), s.data(), n, nullptr, nullptr);
+    return s;
+}
+
 static std::wstring self_path() {
     std::wstring p(32768, L'\0');
     p.resize(GetModuleFileNameW(nullptr, p.data(), (DWORD)p.size()));
@@ -115,7 +122,10 @@ static void slog(std::wstring line) {
     if (!g_log) return;
     hide_private(line);
     SYSTEMTIME st; GetLocalTime(&st);
-    fwprintf(g_log, L"%02d:%02d:%02d %ls\n", st.wHour, st.wMinute, st.wSecond, line.c_str()); fflush(g_log);
+    // 1.2.0: plain UTF-8 bytes, no byte-order mark (MA2-H3DVVH: a reader that kept the mark failed on a cp1252 console)
+    wchar_t stamp[16]; swprintf(stamp, 16, L"%02d:%02d:%02d ", st.wHour, st.wMinute, st.wSecond);
+    std::string out = utf8(stamp + line + L"\r\n");                // CRLF, as the text mode wrote before
+    fwrite(out.data(), 1, out.size(), g_log); fflush(g_log);
 }
 
 static void open_stub_log() {
@@ -134,7 +144,7 @@ static void open_stub_log() {
     for (size_t i = 0; i + 9 < old.size(); i++) fs::remove(old[i], ec);
     SYSTEMTIME st; GetLocalTime(&st); wchar_t name[64];
     swprintf(name, 64, L"stub-%04d%02d%02d-%02d%02d%02d.log", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
-    g_log = _wfsopen((d / name).c_str(), L"a, ccs=UTF-8", _SH_DENYWR);
+    g_log = _wfsopen((d / name).c_str(), L"ab", _SH_DENYWR);       // bytes: UTF-8 written by slog, no byte-order mark
     if (g_log) g_log_path = (d / name).wstring();
 }
 
