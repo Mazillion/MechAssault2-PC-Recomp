@@ -93,7 +93,7 @@ class Reliability(unittest.TestCase):
         for code in (1602, 1618, 740, 5, 5003, 5004):
             self.assertIn(code, install.BUILD_TOOLS_EXIT)
         self.assertEqual(install.BUILD_TOOLS_EXIT[5003][1], 'network'); self.assertEqual(install.BUILD_TOOLS_EXIT[1602][1], 'cancelled')
-        src = inspect.getsource(install.install_build_tools)
+        src = inspect.getsource(install.install_build_tools) + inspect.getsource(install.run_elevated)   # 1.2.0: the runas part is shared
         self.assertNotIn('powershell', src.lower())
         for need in ('microsoft_signed(boot)', 'get_last_error()', '1223', "'reboot'", 'SetThreadExecutionState', 'GetExitCodeProcess(info.hProcess'):
             self.assertIn(need, src)

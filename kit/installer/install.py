@@ -620,40 +620,11 @@ def install_build_tools(work, log, cancelled=lambda: False):
             % ' and '.join(k for k in ('windows', 'vs') if pending[k]))
     log('  installing Microsoft C++ Build Tools (about 6 GB; approve the administrator prompt; '
         'their own window shows progress, 10-30 minutes)')
-
-    class SEI(ctypes.Structure):
-        _fields_ = [('cbSize', ctypes.c_ulong), ('fMask', ctypes.c_ulong), ('hwnd', ctypes.c_void_p),
-                    ('lpVerb', ctypes.c_wchar_p), ('lpFile', ctypes.c_wchar_p), ('lpParameters', ctypes.c_wchar_p),
-                    ('lpDirectory', ctypes.c_wchar_p), ('nShow', ctypes.c_int), ('hInstApp', ctypes.c_void_p),
-                    ('lpIDList', ctypes.c_void_p), ('lpClass', ctypes.c_wchar_p), ('hkeyClass', ctypes.c_void_p),
-                    ('dwHotKey', ctypes.c_ulong), ('hIcon', ctypes.c_void_p), ('hProcess', ctypes.c_void_p)]
-    info = SEI(); info.cbSize = ctypes.sizeof(SEI); info.fMask = 0x40      # SEE_MASK_NOCLOSEPROCESS
-    info.lpVerb = 'runas'; info.lpFile = str(boot); info.nShow = 1
-    info.lpParameters = subprocess.list2cmdline(BUILD_TOOLS_ARGS)
-    shell32 = ctypes.WinDLL('shell32', use_last_error=True); kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
-    shell32.ShellExecuteExW.argtypes = [ctypes.POINTER(SEI)]; shell32.ShellExecuteExW.restype = ctypes.c_int
-    kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_ulong]; kernel32.WaitForSingleObject.restype = ctypes.c_ulong
-    kernel32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]; kernel32.GetExitCodeProcess.restype = ctypes.c_int
-    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
-    if not shell32.ShellExecuteExW(ctypes.byref(info)) or not info.hProcess:
-        err = ctypes.get_last_error()
-        if err == 1223: raise Stop('The Build Tools installation was cancelled at the administrator prompt (Windows asks for approval; '
-                                   'choose Yes to install them). ' + NO_COMPILER, 'compiler', 'uac')
-        raise Stop('The Build Tools installer could not be started (Windows error %d). ' % err + NO_COMPILER, 'compiler')
-    try:                                          # the PC stays awake while the Build Tools install (as during the install steps)
-        kernel32.SetThreadExecutionState(0x80000001)
-        while True:
-            w = kernel32.WaitForSingleObject(info.hProcess, 1000)
-            if w == 0: break                                              # WAIT_OBJECT_0: it ended
-            if w != 0x102: raise Stop('Lost track of the Build Tools installer (Windows error %d).' % ctypes.get_last_error(), 'compiler')
-            if cancelled(): raise Stop('Cancelled (the Build Tools installer keeps running on its own).', 'cancelled')
-        code = ctypes.c_ulong()
-        if not kernel32.GetExitCodeProcess(info.hProcess, ctypes.byref(code)):
-            raise Stop('The Build Tools installer ended, but its result could not be read (Windows error %d).' % ctypes.get_last_error(), 'compiler')
-    finally:
-        kernel32.CloseHandle(info.hProcess); kernel32.SetThreadExecutionState(0x80000000)
+    code = run_elevated(boot, BUILD_TOOLS_ARGS, cancelled, 'Build Tools installer',
+                        lambda: Stop('The Build Tools installation was cancelled at the administrator prompt (Windows asks for approval; '
+                                     'choose Yes to install them). ' + NO_COMPILER, 'compiler', 'uac'),
+                        lambda err: Stop('The Build Tools installer could not be started (Windows error %d). ' % err + NO_COMPILER, 'compiler'))
     boot.unlink(missing_ok=True)
-    code = code.value
     log('  Build Tools installer exit code %d' % code)
     if code in (3010, 1641):
         mark_build_tools_installed(); log('  ' + REBOOT)
@@ -663,6 +634,89 @@ def install_build_tools(work, log, cancelled=lambda: False):
         raise Stop('%s (Build Tools exit code %d.) ' % (text, code) + ('' if kind == 'cancelled' else NO_COMPILER), kind, code)
     log('  Microsoft C++ Build Tools installed')
     mark_build_tools_installed()
+
+def run_elevated(exe, args, cancelled, what, on_declined, on_failed):
+    """Run exe with args through the administrator prompt (runas), wait for it (the PC stays awake meanwhile) and return its exit
+    code. on_declined() / on_failed(win32_error) make the Stop raised when the prompt is declined / the program cannot start."""
+    class SEI(ctypes.Structure):
+        _fields_ = [('cbSize', ctypes.c_ulong), ('fMask', ctypes.c_ulong), ('hwnd', ctypes.c_void_p),
+                    ('lpVerb', ctypes.c_wchar_p), ('lpFile', ctypes.c_wchar_p), ('lpParameters', ctypes.c_wchar_p),
+                    ('lpDirectory', ctypes.c_wchar_p), ('nShow', ctypes.c_int), ('hInstApp', ctypes.c_void_p),
+                    ('lpIDList', ctypes.c_void_p), ('lpClass', ctypes.c_wchar_p), ('hkeyClass', ctypes.c_void_p),
+                    ('dwHotKey', ctypes.c_ulong), ('hIcon', ctypes.c_void_p), ('hProcess', ctypes.c_void_p)]
+    info = SEI(); info.cbSize = ctypes.sizeof(SEI); info.fMask = 0x40      # SEE_MASK_NOCLOSEPROCESS
+    info.lpVerb = 'runas'; info.lpFile = str(exe); info.nShow = 1
+    info.lpParameters = subprocess.list2cmdline([str(a) for a in args])
+    shell32 = ctypes.WinDLL('shell32', use_last_error=True); kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    shell32.ShellExecuteExW.argtypes = [ctypes.POINTER(SEI)]; shell32.ShellExecuteExW.restype = ctypes.c_int
+    kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_ulong]; kernel32.WaitForSingleObject.restype = ctypes.c_ulong
+    kernel32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]; kernel32.GetExitCodeProcess.restype = ctypes.c_int
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    if not shell32.ShellExecuteExW(ctypes.byref(info)) or not info.hProcess:
+        err = ctypes.get_last_error()
+        if err == 1223: raise on_declined()
+        raise on_failed(err)
+    try:                                          # the PC stays awake while it runs (as during the install steps)
+        kernel32.SetThreadExecutionState(0x80000001)
+        while True:
+            w = kernel32.WaitForSingleObject(info.hProcess, 1000)
+            if w == 0: break                                              # WAIT_OBJECT_0: it ended
+            if w != 0x102: raise Stop('Lost track of the %s (Windows error %d).' % (what, ctypes.get_last_error()), 'compiler')
+            if cancelled(): raise Stop('Cancelled (the %s keeps running on its own).' % what, 'cancelled')
+        code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(info.hProcess, ctypes.byref(code)):
+            raise Stop('The %s ended, but its result could not be read (Windows error %d).' % (what, ctypes.get_last_error()), 'compiler')
+    finally:
+        kernel32.CloseHandle(info.hProcess); kernel32.SetThreadExecutionState(0x80000000)
+    return code.value
+
+def vs_installer_exe():
+    """The Visual Studio Installer (vs_installer.exe), or None."""
+    exe = Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')) / 'Microsoft Visual Studio/Installer/vs_installer.exe'
+    return exe if exe.is_file() else None
+
+def vs_installer_busy():
+    """Is a Visual Studio Installer process still at work (it may hand the change to setup.exe and return early)?"""
+    try:
+        out = subprocess.run(['tasklist', '/fo', 'csv', '/nh'], capture_output=True, text=True, timeout=30,
+                             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)).stdout.lower()
+    except Exception:
+        return False
+    return any(n in out for n in ('"setup.exe"', '"vs_installer.exe"', '"vs_installershell.exe"'))
+
+def add_vs_parts(vs, missing, log, cancelled=lambda: False, wait_minutes=45, run=None, busy=None, sleep=time.sleep):
+    """1.2.0 (report MA2-H3DVVH): add the missing parts (VS_PARTS codes, e.g. ['cmake']) to the Visual Studio in vs through the Visual
+    Studio Installer (administrator prompt, its own passive progress window), then wait until find_visual_studio(vs) is complete.
+    Returns '' when done, else why not (the caller then stops with the usual "add ..." message). Never raises except on Cancel."""
+    exe = vs_installer_exe()
+    if not exe: return 'the Visual Studio Installer was not found'
+    names = ' and '.join(VS_PARTS[m][0] for m in missing)
+    args = ['modify', '--installPath', str(vs)] + [x for m in missing for x in ('--add', VS_PARTS[m][1])] + ['--passive', '--norestart']
+    log('  adding %s to Visual Studio (approve the administrator prompt; the Visual Studio Installer shows its progress, '
+        'usually a few minutes)' % names)
+    run = run or (lambda: run_elevated(exe, args, cancelled, 'Visual Studio Installer',
+                                       lambda: Stop('declined at the administrator prompt', 'compiler', 'uac'),
+                                       lambda err: Stop('it could not be started (Windows error %d)' % err, 'compiler')))
+    busy = busy or vs_installer_busy
+    try:
+        code = run()
+    except Stop as e:
+        if e.kind == 'cancelled': raise
+        return str(e)
+    log('  Visual Studio Installer exit code %d' % code)
+    if code not in (0, 3010, 1641): return 'the Visual Studio Installer ended with %s' % exit_text(code)
+    for _ in range(int(wait_minutes * 6)):        # it may have handed the change to setup.exe: wait for the parts to appear
+        try:
+            find_visual_studio(vs); log('  %s added' % names); return ''
+        except Stop:
+            pass
+        if cancelled(): raise Stop('Cancelled (the Visual Studio Installer keeps running on its own).', 'cancelled')
+        if not busy(): break
+        sleep(10)
+    try:
+        find_visual_studio(vs); log('  %s added' % names); return ''
+    except Stop as e:
+        return 'after the Visual Studio Installer, %s' % str(e)
 
 class _GUID(ctypes.Structure):
     _fields_ = [('a', ctypes.c_ulong), ('b', ctypes.c_ushort), ('c', ctypes.c_ushort), ('d', ctypes.c_ubyte * 8)]
@@ -2096,10 +2150,20 @@ class Installer:
         if not self.game_installed():
             try:
                 self.vcvars, self.cmake, self.ninja, self.vs = find_visual_studio(self.vs_choice)
-            except Stop:
-                if not self.install_build_tools or self.vs_choice: raise
-                self.get_build_tools()
-                self.vcvars, self.cmake, self.ninja, self.vs = find_visual_studio()
+            except Stop as e:
+                miss = getattr(e, 'missing', None) or []
+                if miss == ['cmake'] and getattr(e, 'vs', None):
+                    # 1.2.0 (MA2-H3DVVH): a Visual Studio without its CMake tools gets them added here, never a cmake from PATH;
+                    # only when that fails does the usual "add C++ CMake tools for Windows" stop (with its button) follow.
+                    why = add_vs_parts(e.vs, miss, self.log, lambda: self.cancelled)
+                    if why:
+                        self.log('  (could not add them: %s)' % why)
+                        raise e
+                    self.vcvars, self.cmake, self.ninja, self.vs = find_visual_studio(self.vs_choice)
+                else:
+                    if not self.install_build_tools or self.vs_choice: raise
+                    self.get_build_tools()
+                    self.vcvars, self.cmake, self.ninja, self.vs = find_visual_studio()
             self.log('  C++ compiler: %s' % self.vs)
             self.state['toolchain'] = str(self.vs); self.save()                 # named in Collect diagnostics
             self.remember_install(toolchain=str(self.vs))

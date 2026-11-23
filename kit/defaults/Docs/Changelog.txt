@@ -26,9 +26,6 @@ You have version {{VERSION}} (build {{BUILD}}).
   Recomp)"). The standalone installer works as before.
 - Scenario editor: "Can it get here?" shows where each unit can and
   cannot reach on the map.
-- Installer: if Visual Studio lacks "C++ CMake tools for Windows", the
-  installer now says to add it before building, instead of using another
-  program's CMake and failing partway through the build.
 
 
 1.1.7
