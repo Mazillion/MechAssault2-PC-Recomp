@@ -867,7 +867,8 @@ def load_config(path):
 # the gate
 
 IDENTITY = ['MechAssault 2.exe', 'MA2 Scenario Editor.exe', 'MA2 Report.exe', 'recomp-install.json', 'recomp-manifest.json',
-            'README.txt', 'Controls.txt', 'Docs/*']                 # files that carry the version or the build identity
+            'README.txt', 'Controls.txt', 'Docs/*',                 # files that carry the version or the build identity
+            'MechAssault 2 Recomp Installer.exe']                   # 1.1.7+: the installer copy kept in the install folder
 BUILD_IDENTITY = ['MechAssault 2.exe', 'recomp-install.json', 'recomp-manifest.json']   # differ between two builds of one source
 PLAYER_FILES = ['pc_settings.ini', 'saves/*', 'Saves/*']
 FAULT_MAY_LACK = ['MechAssault 2 Recomp Installer.exe']     # 1.1.7 self-update: the installer copy (fault run: may be missing)
@@ -1525,6 +1526,8 @@ def st_update(g):
     removed, added, diff = compare_manifests(pre, post)
     det = ['added: ' + k for k in added] + ['changed: ' + k for k in diff] + ['removed: ' + k for k in removed]
     bad = []
+    if g.installer and re.fullmatch(re.escape(want) + r'-preview\.\d+', str(stamp.get('public_version'))):
+        want = stamp.get('public_version')        # the gate run on a preview installer (--installer): it stamps X.Y.Z-preview.N
     if stamp.get('public_version') != want:
         bad.append('stamp says %s, not %s' % (stamp.get('public_version'), want))
     fresh = g.state.get('fresh')
