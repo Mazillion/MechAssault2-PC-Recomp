@@ -754,16 +754,42 @@ static int reply_input(HWND window,UINT message,uintptr_t wparam,intptr_t lparam
     return 0;
 }
 // Guest thread, every menu frame: shows a waiting reply on the main menu and reads the pad while the box is open.
-static void reply_pulse(uint32_t object,uint32_t vtable){
-    static WORD last_pad;
-    // The main menu starts the attract movie after 45 s without input (its update compares the game clock 0x4E2430 with
-    // the last-input time at +0x74 against 0xAFC8 ms). The box takes all input from the menu, so it keeps that time fresh:
-    // a player typing an answer is not idle.
-    if(reply_state!=0&&vtable==0x481B70&&object>=0x10000&&object<0x03FFF000){
-        uint32_t now=guest(0x4E2430),last=guest(object+0x74);
-        static bool logged;if(!logged){logged=true;fprintf(stderr,"[REPLY] main menu idle time %u ms (kept at 0 while the box is open)\n",now-last);}
-        if(now-last<=0xAFC8u+10000u)guest(object+0x74)=now;   // only what looks like that time stamp
+/* The main menu screen starts the attract movie after 45 s without input: its update (sub_001F864C) compares the game
+ * clock 0x4E2430 with its last-input time at +0x74 against 0xAFC8 ms, and resets that time only on a pad button, a key
+ * or a stick. The box takes all input from the menu, so while it is open it keeps that time current: a player typing an
+ * answer is not idle. The screen object is found once per box: its vtable is the one holding 0x001F864C (searched in the
+ * XBE's vtable area), and its +0x74 must look like that time stamp. Nothing found = the 1.1.x behaviour (attract after
+ * 45 s; the box comes back after the movie). */
+// Front-end screens with the 45-second attract timer: their update function and the offset of their last-input time.
+// sub_001F34BE is the main menu's (timer at +0x88), sub_001F864C another front-end screen's (+0x74); same 0xAFC8 test.
+static const struct{uint32_t update,offset;}reply_idle_screens[]={{0x001F34BEu,0x88},{0x001F864Cu,0x74}};
+static uint32_t reply_find_screen(uint32_t update,uint32_t offset){
+    uint32_t slot=0;
+    for(uint32_t a=0x480000;a<0x4A0000&&!slot;a+=4)if(guest(a)==update)slot=a;
+    if(!slot)return 0;
+    const uint32_t now=guest(0x4E2430);
+    for(uint32_t a=0x10000;a<0x03FFF000-0x100;a+=4){
+        uint32_t d=guest(a);
+        if(d>slot||slot-d>0x100||(slot-d)&3)continue;          // the object's first dword is that vtable
+        if(now-guest(a+offset)<=0xAFC8u+10000u)return a;
     }
+    return 0;
+}
+static void reply_keep_menu_awake(){
+    static uint32_t screen[2],vt[2];static int tried;
+    if(reply_state==0){tried=0;screen[0]=screen[1]=0;return;}
+    const uint32_t now=guest(0x4E2430);
+    for(int i=0;i<2;i++){
+        if(screen[i]&&guest(screen[i])!=vt[i])screen[i]=0;
+        if(!screen[i]&&tried<3){screen[i]=reply_find_screen(reply_idle_screens[i].update,reply_idle_screens[i].offset);vt[i]=screen[i]?guest(screen[i]):0;
+            fprintf(stderr,"[REPLY] front-end screen %08X: %s%08X (its attract timer waits while the box is open)\n",reply_idle_screens[i].update,screen[i]?"":"not found ",screen[i]);}
+        if(screen[i]){uint32_t &last=guest(screen[i]+reply_idle_screens[i].offset);if(now-last<=0xAFC8u+10000u)last=now;}
+    }
+    if(tried<3&&(!screen[0]||!screen[1]))tried++;
+}
+static void reply_pulse(uint32_t vtable){
+    static WORD last_pad;
+    if(vtable==0x481B70)reply_keep_menu_awake();
     if(reply_state==0){
         ReplyLock l;
         if(!reply_queue.empty()&&vtable==0x481B70&&!opened&&!exit_dialog&&!pc_display_movie_active()&&!modal_available()&&!ma2_scn_editor_note()&&
@@ -797,13 +823,21 @@ static void draw_reply_box(ImDrawList *list,float width,float height,float sx,fl
                 red=IM_COL32(255,140,120,255),green=IM_COL32(150,220,150,255),glow=IM_COL32(170,214,250,235),line=IM_COL32(74,128,178,230);
     const bool gamepad=pc_input_device()==PC_INPUT_GAMEPAD,answering=reply_answering(),busy=reply_state==2;
     char head[96];ma2_reply_head(&reply_cur,head,sizeof head);
+    char status[400]="";ImU32 sc=white;
+    if(busy)snprintf(status,sizeof status,"%s",reply_text_sending);
+    else if(reply_outcome==REPLY_SENT){snprintf(status,sizeof status,"%s",reply_text_sent);sc=green;}
+    else if(reply_outcome==REPLY_SENT_LOGS){snprintf(status,sizeof status,"%s",reply_text_sent_logs);sc=green;}
+    else if(reply_outcome==REPLY_EMPTY){snprintf(status,sizeof status,"%s",reply_text_empty);sc=red;}
+    else if(reply_outcome==REPLY_CLOSED){snprintf(status,sizeof status,"%s",reply_text_closed);sc=red;}
+    else if(reply_outcome==REPLY_FAILED){snprintf(status,sizeof status,reply_text_failed,reply_reason.c_str());sc=red;}
+    const float status_h=status[0]?font->CalcTextSizeA(size,FLT_MAX,inner,status).y+4*u:0.f;
     ImVec2 hs=font->CalcTextSizeA(size*1.15f,FLT_MAX,0,head),ms=font->CalcTextSizeA(size,inner,inner,reply_cur.text);
     // heights first, so the box is centred
     float h=pad+hs.y+8*u+ms.y+12*u;
     const float box_h=size*3.4f+8*u,btn_h=size*1.7f;
     if(answering)h+=size+4*u+box_h+8*u+size*1.3f+8*u;
-    h+=btn_h+8*u+size*1.2f*(reply_outcome!=REPLY_NONE||busy?1:0)+size*2.3f+pad;
-    float y=std::max(8*u,(height-h)*.42f);
+    h+=btn_h+8*u+status_h+size*2.3f+pad;
+    float y=std::max(8*u,std::min((height-h)*.42f,height*.665f-h));   // above the main menu's panel when it fits
     list->AddRectFilled(ImVec2(x0,y),ImVec2(x1,y+h),IM_COL32(15,26,38,236),4*u);
     list->AddRect(ImVec2(x0,y),ImVec2(x1,y+h),line,4*u,0,std::max(1.f,1.25f*u));
     float cx=x0+pad,cy=y+pad;
@@ -848,14 +882,7 @@ static void draw_reply_box(ImDrawList *list,float width,float height,float sx,fl
     if(answering)bx+=button(REPLY_SEND,bx,reply_text_send)+10*u;
     button(REPLY_CLOSE,bx,reply_queue.empty()?reply_text_close:reply_text_next);
     cy+=btn_h+8*u;
-    char status[400]="";ImU32 sc=white;
-    if(busy)snprintf(status,sizeof status,"%s",reply_text_sending);
-    else if(reply_outcome==REPLY_SENT){snprintf(status,sizeof status,"%s",reply_text_sent);sc=green;}
-    else if(reply_outcome==REPLY_SENT_LOGS){snprintf(status,sizeof status,"%s",reply_text_sent_logs);sc=green;}
-    else if(reply_outcome==REPLY_EMPTY){snprintf(status,sizeof status,"%s",reply_text_empty);sc=red;}
-    else if(reply_outcome==REPLY_CLOSED){snprintf(status,sizeof status,"%s",reply_text_closed);sc=red;}
-    else if(reply_outcome==REPLY_FAILED){snprintf(status,sizeof status,reply_text_failed,reply_reason.c_str());sc=red;}
-    if(status[0]){list->AddText(font,size,ImVec2(cx,cy),sc,status,nullptr,inner);cy+=size*1.2f;}
+    if(status[0]){list->AddText(font,size,ImVec2(cx,cy),sc,status,nullptr,inner);cy+=status_h;}
     list->AddText(font,size*.9f,ImVec2(cx,cy),dim,reply_text_private);cy+=size*1.1f;
     list->AddText(font,size*.9f,ImVec2(cx,cy),muted,gamepad?reply_text_hint_pad:reply_text_hint_keys);
     reply_hit_valid=true;
@@ -1164,7 +1191,7 @@ extern "C" void ma2_pc_menu_pulse(uint32_t object,uint32_t vtable)
     // Unavailable features (Xbox Live, System Link, guests) are shown disabled (ma2_bots_ui.c menu policy).
     if(object>=0x10000&&object<0x03FFF000)ma2_menu_policy_pulse(object,vtable);
     if(vtable==0x4827B0&&!opened)report_pause_item(object);
-    reply_pulse(object,vtable);                     // 1.2.0: a reply waiting shows on the main menu; the pad while its box is open
+    reply_pulse(vtable);                     // 1.2.0: a reply waiting shows on the main menu; the pad while its box is open
     ma2_pc_input_context_update();
     sync_text_dialog();
     {   // Name keyboard footer: on keyboard/mouse the confirm prompt reads "Done" (Enter = Done there);
