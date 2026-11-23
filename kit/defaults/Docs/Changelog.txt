@@ -4,6 +4,30 @@ MechAssault 2 PC recompilation - changes
 You have version {{VERSION}} (build {{BUILD}}).
 
 
+1.2.0
+-----
+- Split screen is back. A second player joins with a controller in the
+  Multiplayer menus: choose Add Guest, or just press START on a controller
+  nobody is using yet. While a guest is in, player 1 plays with keyboard
+  and mouse and every controller is a guest. If the match is already full
+  of bots, one bot makes room (from the guest's team in team games) and
+  comes back when the guest leaves. Guests join in the menus, not in the
+  middle of a match.
+- Damage that keeps hitting while you stand in it (collapsing buildings,
+  wreckage, beam weapons) now does the same damage at any frame rate as it
+  did at 30 fps. At 60 fps and above some of it did nothing before,
+  including the final boss's eye beam in the last mission.
+- Windows 10: the game is kept out of Windows' power saving again (it
+  only worked on Windows 11 before).
+- Problem reports and the game's logs now say which power mode and power
+  plan Windows is using and how fast the processor is running.
+- RecompLauncher: the game can be installed, updated and started from
+  RecompLauncher (look for "MechAssault 2: Lone Wolf Expanded (PC
+  Recomp)"). The standalone installer works as before.
+- Scenario editor: "Can it get here?" shows where each unit can and
+  cannot reach on the map.
+
+
 1.1.7
 -----
 - Updates are much quicker. The installer keeps what it built last time
