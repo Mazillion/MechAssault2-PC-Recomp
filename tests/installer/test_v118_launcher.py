@@ -186,6 +186,22 @@ class Run(Base):
         code, made, out = self.run_with(None, '--xiso=C:/discs/MA2.xiso')
         self.assertEqual((code, made, out[-1]), (0, {}, 'progress 1 Already built'))
 
+    def test_both_texture_ticks_mean_4x(self):
+        code, made, out = self.run_with(None, '--xiso=x.iso', textures=['2x', '4x'])
+        self.assertEqual((code, made['args'][0]), (0, ['4x']))
+        a = self.args('--xiso=x.iso', '--textures', '2x', '--textures', '4x')         # two ticks = the flag twice: both kept
+        self.assertEqual(a.textures, ['2x', '4x'])
+
+    def test_a_stop_ends_with_the_approved_sentence(self):
+        def stop(eng): raise install.Stop('it stopped', 'build_failed')
+        code, made, out = self.run_with(stop, '--xiso=x')
+        self.assertEqual(code, 1)
+        self.assertEqual(out[-1], install.LAUNCHER_STOPPED)                       # the last stderr line
+        self.assertTrue(out[-2].startswith('progress ') and out[-2].endswith(install.LAUNCHER_STOPPED), out[-2])
+        self.assertRegex(out[-2], LINE)
+        code, made, out = self.run_with(None)                                    # nothing to install or update
+        self.assertEqual((code, out[-1]), (1, install.LAUNCHER_STOPPED))
+
     def test_engine_events_become_progress_lines(self):
         def engine(eng):
             eng.on_plan(['check', 'build']); eng.kw['step'](1, 2, 'Checking', 'check', False)

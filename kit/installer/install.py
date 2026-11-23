@@ -3302,6 +3302,14 @@ class LauncherProgress:
     def finish(self, text):
         self.write('progress 1 %s' % text)
 
+    def stopped(self, text):
+        """The last progress line when setup stops: the bar stays where it got to, the text says what to do."""
+        with self.guard:
+            self.write('progress %.2f %s' % (self.floor, text))
+
+LAUNCHER_STOPPED = ("Setup didn't finish. The MechAssault 2 installer on the GitHub release page can show what went wrong, "
+                    "repair it, or collect diagnostics for a report.")      # owner-approved (1.2.0)
+
 def run_launcher(a, textures):
     """--recomplauncher (see above). Exit codes as the command line: 0 installed or already built, 1 stopped, 2 optional content failed."""
     selfupdate.switch_off()                       # the launcher brings every release: no installer copy, no Update shortcut, no check
@@ -3314,15 +3322,20 @@ def run_launcher(a, textures):
     plan = launcher_plan(dest)
     write('RecompLauncher setup: %s in %s (%s)' % (plan, dest, build_label()))
     report = LauncherProgress(write)
+    textures = ['4x'] if '4x' in textures else list(textures)     # 1.2.0: both texture ticks on = 4x
     if plan == 'built':
         missing = launcher_missing_extras(dest, textures, a.videos)
         if not missing:
             report.finish('Already built'); return 0
         plan = 'extras'                           # Set Up Again with a new tick: add only that, no rebuild (addons_only)
         write('RecompLauncher setup: adding %s to the installed game' % ' and '.join(missing))
+    def stopped():
+        report.stopped(LAUNCHER_STOPPED)
+        print(LAUNCHER_STOPPED, file=sys.stderr)
+        return 1
     if plan == 'install' and not a.xiso:
         print('INSTALL STOPPED: no disc image was given and %s holds no MechAssault 2 Recomp install to update.' % dest, file=sys.stderr)
-        return 1
+        return stopped()
     def log(line):
         write(line); report.log(line)
     inst = Installer(a.xiso, dest, textures, a.videos, a.jobs, a.keep_work, a.allow_cpu, log=log, step=report.step,
@@ -3343,11 +3356,11 @@ def run_launcher(a, textures):
         stop.set()
         if e.kind == 'extras':
             print('\n%s' % e, file=sys.stderr); return 2
-        print('\nINSTALL STOPPED: %s' % e, file=sys.stderr); return 1
+        print('\nINSTALL STOPPED: %s' % e, file=sys.stderr); return stopped()
     except Exception:
         stop.set()
         import traceback; traceback.print_exc()
-        print('\nINSTALL STOPPED: unexpected error (above). The log is %s' % inst.session_log, file=sys.stderr); return 1
+        print('\nINSTALL STOPPED: unexpected error (above). The log is %s' % inst.session_log, file=sys.stderr); return stopped()
     stop.set()
     for note in inst.notes: write('Note: %s' % note)
     report.finish('Ready to play')
@@ -3358,7 +3371,7 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--xiso', help='MechAssault 2 disc image (.xiso/.iso)')
     ap.add_argument('--dest', help='install folder (empty, or an existing install to add options); optional with --diagnostics')
-    ap.add_argument('--textures', default='', help='enhanced texture packs to generate: 2x, 4x or 2x,4x')
+    ap.add_argument('--textures', action='append', default=[], help='enhanced texture packs to generate: 2x, 4x or 2x,4x (may be given more than once)')
     ap.add_argument('--videos', action='store_true', help='generate the 2x enhanced cutscene videos')
     ap.add_argument('--jobs', type=int, help='parallel compiles (default: from CPU threads and RAM)')
     ap.add_argument('--keep-work', action='store_true', help='keep the whole _work folder')
@@ -3420,7 +3433,7 @@ def main():
         print('Diagnostics written to %s' % res['path'])
         for n in res['notes']: print('Note: %s' % n)
         sys.exit(0)
-    textures = [t.strip().lower() for t in a.textures.split(',') if t.strip()]
+    textures = [t.strip().lower() for v in a.textures for t in v.split(',') if t.strip()]
     if any(t not in ('2x', '4x') for t in textures): ap.error('--textures takes 2x, 4x or 2x,4x')
     shortcuts = [s.strip().lower() for s in a.shortcuts.split(',') if s.strip()]
     if any(s not in ('desktop', 'start', 'editor') for s in shortcuts): ap.error('--shortcuts takes desktop, start, editor')
