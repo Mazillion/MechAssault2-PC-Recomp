@@ -1212,12 +1212,27 @@ static void clear_surface(uint32_t param)
         s_gpu.color_base = base;
     }
 
-    for (y = 0; y < s_gpu.clip_h; y++) {
+    {
+    /* BUG-016: the CPU fallback clears what the D3D11 path clears -- the surface clip cut to
+     * SET_CLEAR_RECT (a split-screen view clears only its half). RECOMP_PB_CPU_CLEAR_RECT=0: the
+     * whole clip, as before. */
+    static int clear_rect_on = -1;
+    uint32_t cx = s_gpu.clip_x, cy = s_gpu.clip_y, cw = s_gpu.clip_w, ch = s_gpu.clip_h;
+    if (clear_rect_on < 0) { const char *v = getenv("RECOMP_PB_CPU_CLEAR_RECT"); clear_rect_on = !(v && *v == '0'); }
+    if (clear_rect_on && s_gpu.clear_rect_set == 3) {
+        uint32_t left = cx > s_gpu.clear_x ? cx : s_gpu.clear_x, top = cy > s_gpu.clear_y ? cy : s_gpu.clear_y;
+        uint32_t right = cx + cw, bottom = cy + ch;
+        if (right > s_gpu.clear_x + s_gpu.clear_w) right = s_gpu.clear_x + s_gpu.clear_w;
+        if (bottom > s_gpu.clear_y + s_gpu.clear_h) bottom = s_gpu.clear_y + s_gpu.clear_h;
+        if (right <= left || bottom <= top) return;
+        cx = left; cy = top; cw = right - left; ch = bottom - top;
+    }
+    for (y = 0; y < ch; y++) {
         uint8_t *row = mem + s_gpu.color_base
-                     + (size_t)(s_gpu.clip_y + y) * s_gpu.pitch;
+                     + (size_t)(cy + y) * s_gpu.pitch;
         if (bpp == 4) {
-            uint32_t *p = (uint32_t *)row + s_gpu.clip_x;
-            for (x = 0; x < s_gpu.clip_w; x++)
+            uint32_t *p = (uint32_t *)row + cx;
+            for (x = 0; x < cw; x++)
                 p[x] = s_gpu.clear_color;
         } else if (bpp == 2) {
             /* The clear value is always given as A8R8G8B8; a 16-bit surface
@@ -1225,10 +1240,11 @@ static void clear_surface(uint32_t param)
             uint16_t v = (uint16_t)(((s_gpu.clear_color >> 8) & 0xF800)
                                   | ((s_gpu.clear_color >> 5) & 0x07E0)
                                   | ((s_gpu.clear_color >> 3) & 0x001F));
-            uint16_t *p = (uint16_t *)row + s_gpu.clip_x;
-            for (x = 0; x < s_gpu.clip_w; x++)
+            uint16_t *p = (uint16_t *)row + cx;
+            for (x = 0; x < cw; x++)
                 p[x] = v;
         }
+    }
     }
     s_gpu.clears++;
     /* Progress markers, interleaved with everything else in the log. The

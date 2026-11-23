@@ -225,6 +225,28 @@ static void configure_pc(void)
     if (!getenv("RECOMP_HEAP_RECLAIM")) _putenv_s("RECOMP_HEAP_RECLAIM", "1");
     if (!getenv("RECOMP_ASYNC_IO")) _putenv_s("RECOMP_ASYNC_IO", "1");
     if (!getenv("RECOMP_USB")) _putenv_s("RECOMP_USB", "1");
+    /* Split screen (on by default since 1.2.0; no menu setting): a second player joins on a
+     * controller in the Multiplayer menus (Add Guest, or Menu/START on a free controller). It lifts
+     * the menu policy's Add Guest block and puts a second pad on the emulated USB bus (it must be
+     * there before the OHCI model starts); the input layer then gives the guest's port its own host
+     * pad and player 1 the keyboard and mouse (xinput_device.c, split_route.h). Hidden off switch:
+     * RECOMP_SPLITSCREEN=0 or [Debug] SplitScreen=0 = the 1.1.7 behaviour (Add Guest greyed, one
+     * pad on the bus). */
+    pc_setting(ini, "Debug", "SplitScreen", "RECOMP_SPLITSCREEN", 1, 0, 1, TRUE);
+    {
+        const char *split = getenv("RECOMP_SPLITSCREEN");
+        if (split && *split && *split != '0') {
+            if (!getenv("RECOMP_SPLITSCREEN_MENUS")) _putenv_s("RECOMP_SPLITSCREEN_MENUS", "1");
+            if (!getenv("RECOMP_USB_PADS")) _putenv_s("RECOMP_USB_PADS", "2");
+            /* XAPI numbers root ports 1-2 as controllers 3-4 and ports 3-4 as 1-2, so the pads go
+             * on ports 3 and 4: the pause menu then shows player 1 as controller 1 and the guest as
+             * 2, as on a console (measured: ports 1-2 gave 3 and 4). Outside split screen the bus
+             * stays as it was (one pad, port 1). */
+            if (!getenv("RECOMP_USB_NDP")) _putenv_s("RECOMP_USB_NDP", "4");
+            if (!getenv("RECOMP_USB_PORT")) _putenv_s("RECOMP_USB_PORT", "2");
+            fprintf(stderr, "[PC-SPLIT] split screen on: Add Guest enabled, %s pads on the USB bus\n", getenv("RECOMP_USB_PADS"));
+        } else fprintf(stderr, "[PC-SPLIT] split screen off (RECOMP_SPLITSCREEN / [Debug] SplitScreen = 0)\n");
+    }
     if (!getenv("RECOMP_INPUT_LATCH")) _putenv_s("RECOMP_INPUT_LATCH", "1");
     if (!getenv("RECOMP_MOUSE_GUEST_POLL")) _putenv_s("RECOMP_MOUSE_GUEST_POLL", "1");
     if (!getenv("RECOMP_EXIT_ON_CLOSE")) _putenv_s("RECOMP_EXIT_ON_CLOSE", "1");
