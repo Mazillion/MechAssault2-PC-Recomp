@@ -2189,6 +2189,8 @@ class App:
                     t = txt.get('1.0', 'end-1c')
                     if len(t) > report.MAX_MESSAGE: txt.delete('1.0 + %d chars' % report.MAX_MESSAGE, 'end'); t = t[:report.MAX_MESSAGE]
                     p['text'] = t
+                    if t.strip() and p['result'] and p['result'].get('cause') == 'empty':      # the "type an answer" note goes
+                        p['result'] = None; self.want_focus = 'rp_text'; self.root.after(1, self.render)
                 except tk.TclError:
                     pass
             txt.bind('<KeyRelease>', keep); txt.bind('<<Paste>>', lambda e: self.root.after(1, keep), add='+')

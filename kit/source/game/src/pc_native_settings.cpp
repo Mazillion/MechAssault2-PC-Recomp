@@ -750,7 +750,7 @@ static int reply_input(HWND window,UINT message,uintptr_t wparam,intptr_t lparam
             if(b[2]>b[0]&&x>=b[0]&&x<b[2]&&y>=b[1]&&y<b[3]){if(i==REPLY_BOX){if(reply_answering())reply_focus=REPLY_BOX;}else reply_activate_locked(i);break;}}
         return 1;
     }
-    if(message==WM_KEYUP||message==WM_SYSKEYDOWN||message==WM_INPUT||(message>=WM_MOUSEFIRST&&message<=WM_MOUSELAST))return 1;
+    if(message==WM_KEYUP||message==WM_INPUT||(message>=WM_MOUSEFIRST&&message<=WM_MOUSELAST))return 1;   // Alt+F4 still closes the game
     return 0;
 }
 // Guest thread, every menu frame: shows a waiting reply on the main menu and reads the pad while the box is open.

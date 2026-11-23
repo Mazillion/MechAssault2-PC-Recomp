@@ -101,7 +101,9 @@ class Replies(unittest.TestCase):
             # empty answer: a note, nothing sent
             app.do_answer(); pump(root, 0.3)
             self.assertIn(gui.RP_EMPTY, screen_text(app))
-            box = app.w['rp_text']; box.insert('1.0', 'Yes, it still stops. I tried it twice.'); app.reply_text()
+            box = app.w['rp_text']; box.insert('1.0', 'Yes, it still stops. I tried it twice.'); app.reply_text(); pump(root, 0.3)
+            self.assertNotIn(gui.RP_EMPTY, screen_text(app), 'the note goes once there is text')
+            self.assertEqual(app.rp['text'], 'Yes, it still stops. I tried it twice.')
             shot(root, 'installer-2-answer-typed.png')
             app.do_answer()
             self.assertTrue(until(root, lambda: app.rp['result'] is not None, 120))
