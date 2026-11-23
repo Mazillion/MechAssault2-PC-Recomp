@@ -18,6 +18,7 @@ namespace ma2 { struct Json; }
 #include "../core/dictionary.h"
 #include "../core/gamedata.h"
 #include "../core/placement.h"
+#include "../core/reach_rules.h"
 #include "../core/scenario.h"
 #include "../core/snap.h"
 #include "../core/templates.h"
@@ -40,6 +41,8 @@ struct ImDrawList;
 struct ImGuiStyle;
 
 namespace ed {
+
+struct ReachState;  // the "Can it get here?" worker and results (app_reach.cpp)
 
 // Overlapping palette groups beyond the two in app_tabs.cpp: (name, tooltip). palette_search.cpp.
 const std::vector<std::pair<const char*, const char*>>& palette_extra_groups();
@@ -186,6 +189,7 @@ public:
     std::string automation_joints(float near_px, int limit);  // Join points of placed pieces near the mouse, JSON
     std::string automation_project(float x, float y, float z) const;  // world point -> mouse-command coordinates, JSON
     std::string automation_ground(float x, float z) const;  // heights and ground type at a world point, JSON
+    std::string automation_reach(float x, float z) const;   // the `reach` pipe command: "Can it get here?" verdicts at a world point, JSON (app_reach.cpp)
     std::string automation_triggers() const;             // The trigger list, sections and counts, JSON
     std::string automation_trigger(uint32_t uid) const;  // One trigger: actions, orders, warnings, JSON (uid 0 = the picked one)
     std::string automation_env();  // The lean `env` read (look, fog, weather, lightning, sun), JSON
@@ -1007,6 +1011,23 @@ private:
     bool show_steep_ = false;    // what is drawn now (settings_.show_steep, or on automatically while Ramp is armed)
     bool steep_auto_ = false;    // Ramp turned it on; leaving the tool turns it off again
     float steep_acc_ = 0;        // time since the overlay was rebuilt during a stroke (at most 4 times a second)
+    // "Can it get here?" (app_reach.cpp): a reachability tint, face arrows, roof outlines, hover readout and a floating panel. The picks
+    // (unit, team, driver, compare) live in settings_.reach_*; the answer is made on a worker thread from copies of the scenario.
+    std::shared_ptr<ReachState> reach_;
+    bool reach_on_ = false;        // drawn now (settings_.reach_show and a scenario open)
+    uint32_t objects_rev_ = 0;     // bumped by every rebuild_objects(): the object list may have changed
+    void reach_frame(float dt);    // per frame: sync the switch, copy inputs, debounce, start the worker, take its result
+    void reach_collect();          // the object / water / spawn copies for the worker
+    bool reach_computing() const;
+    bool reach_paint(ma2::Image& img) const;   // the ground tint; false when there is no answer yet
+    void draw_reach_arrows();      // face arrows and roof outlines (gizmo_draw)
+    void draw_reach_readout(const ma2::Vec3& g, float y_extra);   // the text at the cursor
+    std::vector<std::string> reach_lines(float x, float z) const;
+    void ui_reach_panel();         // the floating "Can it get here?" panel
+    int reach_unit_index() const;
+    ma2::ReachDriver reach_driver() const;
+    bool reach_script(const std::string& arg);   // developer flag --reach "<unit>,<red|blue>,<player|bots>[,compare|single]"
+    ma2::Json reach_state_json() const;          // state.overlay.reach
     // The Ramp tool (app_ramp.cpp): click 1 = start A, click 2 = end B (applied on click 2). Esc / right-click after click 1 drops A.
     int ramp_stage_ = 0;
     ma2::Vec3 ramp_a_{};

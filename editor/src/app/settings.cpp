@@ -115,6 +115,11 @@ void Settings::reset_general() {
     ramp_width = 16.f;
     tool_strength[0] = 1.f; tool_strength[1] = tool_strength[2] = tool_strength[3] = tool_strength[4] = 0.5f;
     show_steep = false;
+    reach_show = false;
+    reach_unit = "Stiletto";
+    reach_team = 1;
+    reach_driver = 0;
+    reach_compare = true;
     sc_density = 40.f; sc_spacing = 1.f; sc_lean = 0.f; sc_slope = 60.f;
     sc_facing = true; sc_follow = false; sc_keep_off = true; sc_skip_steep = false;
     slope_plate = SlopeMode::Level;
@@ -176,6 +181,11 @@ void Settings::load() {
     build_up = flag("Brush", "BuildUp", false);
     ramp_width = ini_float(ini, "Brush", "RampWidth", 16.f, 4.f, 200.f);
     show_steep = flag("Brush", "ShowSteep", false);
+    reach_show = flag("Reach", "Show", false);
+    reach_unit = ini.get("Reach", "Unit", "Stiletto");
+    reach_team = std::clamp(atoi(ini.get("Reach", "Team", "1").c_str()), 1, 2);
+    reach_driver = std::clamp(atoi(ini.get("Reach", "Driver", "0").c_str()), 0, 1);
+    reach_compare = flag("Reach", "Compare", true);
     sc_density = ini_float(ini, "Scatter", "Density", 40.f, 1.f, 400.f);
     sc_spacing = ini_float(ini, "Scatter", "Spacing", 1.f, 0.3f, 3.f);
     sc_lean = ini_float(ini, "Scatter", "Lean", 0.f, 0.f, 20.f);
@@ -225,6 +235,7 @@ void Settings::save() const {
     t += "[Brush]\r\nRaiseAmount=" + f2s(raise_amount) + "\r\nBuildUp=" + b01(build_up) + "\r\nRampWidth=" + f2s(ramp_width) + "\r\nShowSteep=" + b01(show_steep) +
          "\r\nStrengthTexture=" + f2s(tool_strength[0]) + "\r\nStrengthTint=" + f2s(tool_strength[1]) + "\r\nStrengthSmooth=" + f2s(tool_strength[2]) +
          "\r\nStrengthFlatten=" + f2s(tool_strength[3]) + "\r\nStrengthPlants=" + f2s(tool_strength[4]) + "\r\n";
+    t += "[Reach]\r\nShow=" + b01(reach_show) + "\r\nUnit=" + reach_unit + "\r\nTeam=" + std::to_string(reach_team) + "\r\nDriver=" + std::to_string(reach_driver) + "\r\nCompare=" + b01(reach_compare) + "\r\n";
     t += "[Scatter]\r\nDensity=" + f2s(sc_density) + "\r\nSpacing=" + f2s(sc_spacing) + "\r\nRandomFacing=" + b01(sc_facing) + "\r\nLean=" + f2s(sc_lean) +
          "\r\nFollowSlope=" + b01(sc_follow) + "\r\nKeepOff=" + b01(sc_keep_off) + "\r\nSkipSteep=" + b01(sc_skip_steep) + "\r\nSlopeLimit=" + f2s(sc_slope) + "\r\n";
     t += snap_prefs_text(snap);

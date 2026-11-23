@@ -535,6 +535,11 @@ bool Automation::step(App& app) {
         return true;
     }
     if (cmd == "fail_next_build") { ma2::ScenarioIO::test_fail_alloc = true; finish(ok); return true; }  // F-V5R-1: the next Save / Test / autosave build throws std::bad_alloc once
+    if (cmd == "reach") {
+        if (!c.get("x") || !c.get("z")) { fail("reach needs \"x\" and \"z\" (world metres)"); return true; }
+        merged(app.automation_reach(float(c.num("x")), float(c.num("z"))));
+        return true;
+    }
     if (cmd == "triggers") { merged(app.automation_triggers()); return true; }
     if (cmd == "trigger") { merged(app.automation_trigger(uint32_t(c.num("uid", 0)))); return true; }
     if (cmd == "env") { merged(app.automation_env()); return true; }

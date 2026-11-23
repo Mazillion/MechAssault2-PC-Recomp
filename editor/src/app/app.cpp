@@ -1539,6 +1539,8 @@ void App::script(const std::wstring& cmd, const std::wstring& arg) {
         }
         fprintf(stderr, "%s", list.c_str());
         write_file(fs::path(L"place-all-units.txt"), list.data(), list.size());
+    } else if (cmd == L"--reach" && doc_) {  // developer: "<unit label>,<red|blue>,<player|bots>[,compare|single]" turns "Can it get here?" on (tools/AUTOMATION.md)
+        if (!reach_script(a)) fprintf(stderr, "--reach: no unit called in '%s'\n", a.c_str());
     } else if (cmd == L"--start-in" && doc_ && io_) {  // developer checks: player start container uid (or a choice label)
         uint32_t c = uint32_t(strtoul(a.c_str(), nullptr, 10));
         for (auto& ch : io_->start_choices()) if (iequals(ch.label, a)) c = ch.container;
@@ -2763,6 +2765,7 @@ void App::road_view(const WObj& o, ObjView& v) {
 
 void App::rebuild_objects() {
     objects_dirty_ = false;
+    objects_rev_++;  // "Can it get here?" (app_reach.cpp) copies the objects again after any rebuild
     gfx_scan_ = true;  // the live graphics figure recounts the templates on the map
     views_.clear();
     placed_n_ = 0;
@@ -3726,6 +3729,10 @@ void App::rebuild_overlay() {
         r_.params.overlay = true;
         return;
     }
+    if (reach_on_) {  // "Can it get here?" (app_reach.cpp): above the steep and Boundaries tints
+        Image ri;
+        if (reach_paint(ri)) { r_.set_overlay(ri); r_.params.overlay = true; return; }
+    }
     const bool tm_on = doc_ && !doc_->typemap.empty() && show_typemap_;
     if (!doc_ || (!tm_on && !show_steep_)) { r_.clear_overlay(); r_.params.overlay = false; return; }
     if (show_steep_) {
@@ -3988,6 +3995,7 @@ void App::frame(float dt, int fb_w, int fb_h) {
             steep_acc_ += dt;
             if (steep_acc_ >= 0.25f) { steep_acc_ = 0; overlay_dirty_ = true; }
         } else steep_acc_ = 0;
+        reach_frame(dt);  // "Can it get here?": inputs, worker, result (may set overlay_dirty_)
         if (overlay_dirty_) rebuild_overlay();
         if (cpv_.on) cutscene_preview_step(dt);
         else if (frame_.on) frame_step();
@@ -4418,6 +4426,8 @@ void App::handle_viewport_input(float dt) {
         r_.params.brush_radius = 0;
         if (tool_ == Tool::Ramp && have_ground && vp_hover_ && !orbiting_ && editable()) draw_ramp_preview(g);
     }
+    if (reach_on_ && have_ground && vp_hover_ && !orbiting_)  // "Can it get here?": the readout sits under the brush's own label when there is one
+        draw_reach_readout(g, (brush_tool || tool_ == Tool::ScatterTrees) ? 2.f * (ImGui::GetTextLineHeight() + 1.f) + 6.f * dpi_ : 0.f);
     // Placement preview: what the click will place, red where it cannot go.
     preview_on_ = false;
     preview_y_ = std::numeric_limits<float>::quiet_NaN();
@@ -5199,6 +5209,8 @@ void App::ui_menu() {
         if (ImGui::MenuItem("Where players may go (overlay)", nullptr, &show_typemap_)) overlay_dirty_ = true, typemap_auto_ = false;
         if (bool st = show_steep_; ImGui::MenuItem("Steep ground (overlay)", nullptr, &st)) { settings_.show_steep = st; show_steep_ = st; steep_auto_ = false; settings_.save(); overlay_dirty_ = true; }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Tints steep ground by who can get up it: yellow over %.0f%% (bots' 'Mechs won't walk up it; jump-jet 'Mechs may jet up a short face), orange over %.0f%% (very steep: bots won't route here; some 'Mechs may still climb it).", double(kSteepBot) * 100.0, double(kSteepLight) * 100.0);
+        if (bool rc = settings_.reach_show; ImGui::MenuItem("Can it get here?", nullptr, &rc)) { settings_.reach_show = rc; settings_.save(); overlay_dirty_ = true; }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Pick a unit and a team: the ground turns green where it gets to by walking or driving, amber where only jets, claws or a VTOL ride get it there, and red where it never gets. Arrows on cliffs show which way up or down works. Hover the ground for the details.");
         ImGui::SeparatorText("Look like the game");
         if (ImGui::MenuItem("3D models (off = simple boxes)", nullptr, &show_models_)) objects_dirty_ = true;
         ImGui::MenuItem("Sky", nullptr, &show_sky_);
@@ -5487,6 +5499,7 @@ void App::ui_right_panel() {
     ImGui::End();
     ui_legend();
     snap_bar();
+    ui_reach_panel();
     level_tree_window();
 }
 
@@ -6712,7 +6725,7 @@ std::string App::automation_state() const {
                                  .with("ha", Json::number(std::round(ramp_ha_ * 100.f) / 100.f)).with("hb", Json::number(std::round(ramp_hb_ * 100.f) / 100.f))
                                  .with("width", Json::number(settings_.ramp_width)).with("slope", Json::number(std::round(ramp_slope_ * 1000.f) / 1000.f))
                                  .with("length", Json::number(std::round(ramp_len_ * 10.f) / 10.f)).with("label", Json::string(ramp_label_)).with("typed", Json::boolean(ramp_typed_)));
-    j.with("overlay", Json::object().with("steep", Json::boolean(show_steep_)).with("typemap", Json::boolean(show_typemap_)).with("plants", Json::boolean(overlay_plants_ >= 0)));
+    j.with("overlay", Json::object().with("steep", Json::boolean(show_steep_)).with("typemap", Json::boolean(show_typemap_)).with("plants", Json::boolean(overlay_plants_ >= 0)).with("reach", reach_state_json()));
     j.with("box_selecting", Json::boolean(box_selecting_)).with("dragging", Json::boolean(dragging_));
     j.with("orbiting", Json::boolean(orbiting_)).with("orb_press", Json::boolean(orb_press_));  // Alt+left-drag turning the view / an Alt press waiting to be a click or a turn
     j.with("context_menu_open", Json::boolean(objmenu_open_)).with("paste_armed", Json::boolean(tool_ == Tool::PasteGhost));
