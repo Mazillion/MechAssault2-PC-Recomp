@@ -270,7 +270,7 @@ class Manifest(unittest.TestCase):
     def test_programs_and_paths_match_the_installer(self):
         p, s = self.m['prepare'], self.m['start']
         self.assertEqual(p['program'], ['MechAssault 2 Recomp Installer.exe'])
-        self.assertEqual(s['program'], ['MechAssault 2/MechAssault 2.exe'])
+        self.assertEqual(s['program'], ['MechAssault 2/MechAssault 2.exe', 'MechAssault 2 Recomp Installer.exe'])   # 1.2.0: the second is in the zip
         self.assertIn('--recomplauncher', p['args'])
         self.assertIn('--xiso={input:game}', p['args'])                       # one argument: keeps_copy leaves it out
         self.assertTrue(p['keeps_copy'])

@@ -56,12 +56,19 @@
         "note": "Slightly sharper pre-rendered movies. A small difference for a long wait: many hours, adds 3.5 GB and needs 25 GB free while it runs. You can add it later with Set Up Again.",
         "default": false,
         "args": ["--videos"]
+      },
+      {
+        "id": "installer_window",
+        "label": "PLACEHOLDER: Show the installer window",
+        "note": "PLACEHOLDER: Setup opens the MechAssault 2 installer's own window in this folder, to choose its options yourself, repair the game or collect diagnostics. Close it when it says Ready to play.",
+        "default": false,
+        "args": ["--window"]
       }
     ]
   },
   "start": {
-    "program": ["MechAssault 2/MechAssault 2.exe"],
-    "env": { "RECOMP_UPDATE_CHECK": "0" }
+    "program": ["MechAssault 2/MechAssault 2.exe", "MechAssault 2 Recomp Installer.exe"],
+    "env": { "RECOMP_UPDATE_CHECK": "0", "MA2_RECOMPLAUNCHER_DEST": "{install}/MechAssault 2" }
   },
   "folders": {
     "game": [{ "path": "{install}/MechAssault 2" }],

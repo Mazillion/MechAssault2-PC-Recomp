@@ -58,6 +58,9 @@ def check_launcher_zip(path, exe):
                     probs.append('recomplauncher.json: format must be 1')
                 if (prof.get('prepare') or {}).get('program') != [INSTALLER_EXE]:
                     probs.append('recomplauncher.json: prepare.program must be [%r]' % INSTALLER_EXE)
+                if INSTALLER_EXE not in ((prof.get('start') or {}).get('program') or []):      # 1.2.0: a file the zip has
+                    probs.append("recomplauncher.json: start.program must also list %r (the built game is not in the zip: "
+                                 "without a file of the release there, RecompLauncher's Developer tab shows a red problem)" % INSTALLER_EXE)
             bad = z.testzip()
             if bad:
                 probs.append('damaged member %s' % bad)

@@ -38,6 +38,8 @@ run again with the same folders. Running it again on a finished install adds opt
                 a folder with it extracted, or a URL (MA2_TEXTURE_ENGINE=vulkan|pytorch picks the texture upscaler)
   --recomplauncher  RecompLauncher's setup step (recomplauncher.json): installs, updates, or does nothing when this version is
                 already installed in --dest; prints "progress <0..1> <text>" lines; no shortcuts, installer copy or self-update
+  --window      with --recomplauncher: the installer's own window instead, locked to --dest (the player's choice in the launcher);
+                the same lines and exit codes when the window closes
   Exit code 0: installed. 1: stopped (an update puts the previous version back). 2: the game is installed, but optional
   content (enhanced textures or videos) failed; running the installer again resumes only that.
   Paths may be relative to the folder you run it from, and may be quoted.
@@ -3331,7 +3333,14 @@ class LauncherProgress:
         import progress as model_mod
         self.mod, self.write, self.clock, self.every = model_mod, write, clock, every
         self.model, self.quick, self.last, self.at, self.floor = None, False, None, None, 0.0
+        self.waiting = None                       # --window: the text while the window waits for the player (no run going)
         self.guard = threading.RLock()            # the engine's thread and the once-a-minute line
+
+    def wait(self, text):
+        """--window: no run is going (the window waits for the player), or one starts (None): the waiting text stands in for the
+        stage, at the same fraction, so a line still comes at least once a minute."""
+        with self.guard:
+            self.waiting = text; self.emit()
 
     def plan(self, names):
         with self.guard:
@@ -3363,9 +3372,12 @@ class LauncherProgress:
 
     def emit(self):
         with self.guard:
-            if not self.model: return
-            try: f, text = self.model.fraction(), self.text()
-            except Exception: return               # a progress line is never worth a failed install
+            if self.waiting:
+                f, text = 0.0, self.waiting
+            elif not self.model: return
+            else:
+                try: f, text = self.model.fraction(), self.text()
+                except Exception: return           # a progress line is never worth a failed install
             self.floor = max(self.floor, min(0.99, f))
             cur = ('%.2f' % self.floor, text)
             now = self.clock()
@@ -3383,6 +3395,45 @@ class LauncherProgress:
 
 LAUNCHER_STOPPED = ("Setup didn't finish. The MechAssault 2 installer on the GitHub release page can show what went wrong, "
                     "repair it, or collect diagnostics for a report.")      # owner-approved (1.2.0)
+LAUNCHER_WAITING = 'PLACEHOLDER: Waiting for you in the installer window'   # NOT approved (1.2.0 --window): the owner words it
+
+def launcher_exit(dest, last):
+    """--window: the exit code when the player closes the window. 0 when this version is installed in dest (built now or already
+    built), 2 when it is but the last run's optional content failed, 1 otherwise (closed before finishing, or stopped)."""
+    if launcher_plan(dest) != 'built': return 1
+    return 2 if last == 'extras' else 0
+
+def run_launcher_window(a, textures, dest, plan, write, report):
+    """--recomplauncher --window: the installer window, locked to dest. Returns the exit code, or None when the window could not
+    start (the caller then runs the hidden step: the launcher always gets an answer)."""
+    try:
+        import gui
+    except Exception:
+        import traceback; traceback.print_exc()
+        write('RecompLauncher setup: the installer window could not start; setting up without it'); return None
+    stop = threading.Event()
+    def beat():                                   # a line at least once a minute, whatever the window is doing
+        while not stop.wait(10):
+            report.emit()
+    report.wait(LAUNCHER_WAITING)
+    threading.Thread(target=beat, daemon=True).start()
+    try:
+        res = gui.launcher_window(dest, a.xiso, textures, a.videos, report=report, waiting=LAUNCHER_WAITING)
+    finally:
+        stop.set()
+    if res is None:
+        report.wait(None)
+        write('RecompLauncher setup: the installer window could not start; setting up without it'); return None
+    code = launcher_exit(dest, res.get('last'))
+    report.waiting = None
+    if code == 0:
+        report.finish('Ready to play' if res.get('ran') else 'Already built')
+    elif code == 2:
+        print('\n%s' % (res.get('extras') or 'The optional content did not finish.'), file=sys.stderr)
+    else:
+        report.stopped(LAUNCHER_STOPPED)
+        print(LAUNCHER_STOPPED, file=sys.stderr)
+    return code
 
 def run_launcher(a, textures):
     """--recomplauncher (see above). Exit codes as the command line: 0 installed or already built, 1 stopped, 2 optional content failed."""
@@ -3390,13 +3441,17 @@ def run_launcher(a, textures):
     try: sys.stdout.reconfigure(encoding='utf-8', errors='replace', line_buffering=True)
     except Exception: pass
     lock = threading.Lock()
+    out = sys.stdout                              # --window: the window's own "ui:" lines go to its log, these stay on stdout
     def write(line):
-        with lock: print(line, flush=True)
+        with lock: print(line, file=out, flush=True)
     dest = Path(precheck.clean_path(a.dest)).resolve()
     plan = launcher_plan(dest)
-    write('RecompLauncher setup: %s in %s (%s)' % (plan, dest, build_label()))
+    write('RecompLauncher setup: %s in %s (%s)%s' % (plan, dest, build_label(), ' with the installer window' if a.window else ''))
     report = LauncherProgress(write)
     textures = sorted(set(textures))              # one tick per pack (--textures 2x --textures 4x): both ticked = both packs
+    if a.window:
+        code = run_launcher_window(a, textures, dest, plan, write, report)
+        if code is not None: return code
     if plan == 'built':
         missing = launcher_missing_extras(dest, textures, a.videos)
         if not missing:
@@ -3476,6 +3531,8 @@ def main():
                     'GitHub, check it, and let it update the install (keeps settings and saves)')
     ap.add_argument('--recomplauncher', action='store_true', help='RecompLauncher setup step: install, update, or (when this version is '
                     'already installed) do nothing in --dest; prints "progress <0..1> <text>" lines; no shortcuts, no installer copy, no self-update')
+    ap.add_argument('--window', action='store_true', help='with --recomplauncher: open the installer window, locked to --dest, '
+                    'instead of the hidden setup step (the same progress lines and exit codes when it closes)')
     ap.add_argument('--no-self-update', action='store_true', help='do not keep a copy of the installer in the install folder or make '
                     'the Update MechAssault 2 shortcut, and never look for a newer installer (also: set MA2_SELF_UPDATE=0)')
     a = ap.parse_args()
