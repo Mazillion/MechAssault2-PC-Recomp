@@ -1603,7 +1603,7 @@ static LRESULT CALLBACK wnd_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
             { ID_RESULT, L"EDIT", ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL, L"" },
             { ID_LABEL, L"STATIC", SS_LEFT, L"What happened? (optional)" },
             { ID_EDIT, L"EDIT", WS_BORDER | WS_TABSTOP | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN, L"" },
-            { ID_PRIVACY, L"STATIC", SS_LEFT, L"Please don't include personal details." },
+            { ID_PRIVACY, L"STATIC", SS_LEFT, L"Please don't type personal details. You're anonymous if you don't." },
             { ID_NOTE, L"STATIC", SS_LEFT, L"Sends logs, settings and PC details to the developer. No names or personal files." },
             { ID_LINKS, L"SysLink", WS_TABSTOP, L"<a id=\"what\">What's included?</a>     <a id=\"save\">Save a copy instead</a>" },
             { ID_STATUS, L"STATIC", SS_LEFT, L"" }, { ID_PROGRESS, PROGRESS_CLASSW, PBS_MARQUEE, L"" },
