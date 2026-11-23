@@ -1397,6 +1397,46 @@ int ma2_vtol_snap_keep(uint32_t body)
     return tx * tx + tz * tz >= gate;
 }
 
+/* DotCarry (RECOMP_DOT_CARRY, default on; 0 = up to 1.1.7): continuous damage as at 30 fps at any frame rate (BUG-001,
+ * ma2_dot_carry.h). The hit resolver sub_000DC60D calls these with its own _ftol(dt * dps) result; source = the damaging
+ * entity (edi), victim = the MACorporeal being hit ([ebp-4]). RECOMP_DOT_TRACE=1 logs every continuous hit ([DOT]). */
+#include "ma2_dot_carry.h"
+#define DOT_U32(a) (*(volatile uint32_t *)(g_xbox_mem_offset + (uint32_t)(a)))
+#define DOT_U8(a)  (*(volatile uint8_t *)(g_xbox_mem_offset + (uint32_t)(a)))
+#define DOT_F(a)   (*(volatile float *)(g_xbox_mem_offset + (uint32_t)(a)))
+#define DOT_D(a)   (*(volatile double *)(g_xbox_mem_offset + (uint32_t)(a)))
+static int dot_env(const char *name, int dflt)
+{
+    const char *e = getenv(name);
+    return e && *e ? *e != '0' : dflt;
+}
+static int32_t dot_apply(int32_t orig, uint32_t src, uint32_t victim, double dps, char path)
+{
+    static int on = -1, trace = -1;
+    static ma2_dot_slot tab[MA2_DOT_SLOTS];
+    if (on < 0) { on = dot_env("RECOMP_DOT_CARRY", 1); trace = dot_env("RECOMP_DOT_TRACE", 0); }
+    int32_t r = on ? ma2_dot_carry_step(tab, src, victim, DOT_D(0x4E2440), DOT_D(0x4E2428), dps, orig) : orig;
+    if (trace)
+        fprintf(stderr, "[DOT] t=%.4f dt=%.5f path=%c src=%08X victim=%08X dps=%.1f orig=%d dmg=%d carry=%d\n",
+                DOT_D(0x4E2440), DOT_D(0x4E2428), path, src, victim, dps, orig, r, on);
+    return r;
+}
+static int dot_addr_ok(uint32_t a) { return a >= 0x10000u && a < 0x3FFF000u; }
+/* paths A and B: dps = the float at src+off (MABuildingDestroyed +0x1B8, MACorporealDestroyed +0x1B0) */
+int32_t ma2_dot_rate(int32_t orig, uint32_t src, uint32_t victim, uint32_t off)
+{
+    if (!dot_addr_ok(src) || !dot_addr_ok(victim)) return orig;
+    return dot_apply(orig, src, victim, (double)DOT_F(src + off), off == 0x1B8u ? 'A' : 'B');
+}
+/* path C and the beam record: a beam MABarrel (class [0x4EAF08], BeamBarrel +0x7A bit 0) does BarrelDamage (+0x148) a
+ * second; anything else keeps the game's own value */
+int32_t ma2_dot_beam(int32_t orig, uint32_t src, uint32_t victim)
+{
+    if (!dot_addr_ok(src) || !dot_addr_ok(victim)) return orig;
+    if (DOT_U32(src + 0x28) != DOT_U32(0x4EAF08u) || !(DOT_U8(src + 0x7A) & 1)) return orig;
+    return dot_apply(orig, src, victim, (double)DOT_U32(src + 0x148), 'C');
+}
+
 /* RECOMP_LENS_TRACE=1 (diagnostic, off by default): MAModSubObjectLensFilter updates (sub_0013FC88) and lens
  * filter draws (sub_000AFCB0) with the game clock, to see whether a drawn screen flash is still being faded. */
 static int lens_trace_on(void)
