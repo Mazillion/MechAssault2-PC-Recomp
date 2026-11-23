@@ -992,7 +992,7 @@ test("conversation: a 1.1.x client (no secret) or a malformed secret works as be
   }
   assert.equal((await reply(old.body.id, "Hello")).body.error, "noreplies");
   assert.equal((await worker.fetch(await answerReq({ id: old.body.id }), env, ctx)).status, 404);
-  assert.deepEqual((await polled([{ id: old.body.id, secret: SECRET }])).body, { ok: true, replies: [] });
+  assert.deepEqual((await polled([{ id: old.body.id, secret: SECRET }])).body, { ok: true, replies: [], state: [] });
 });
 
 test("conversation: only the secret holder reads a reply; a wrong secret or unknown id returns nothing", async () => {
@@ -1007,7 +1007,7 @@ test("conversation: only the secret holder reads a reply; a wrong secret or unkn
   assert.equal(good.body.replies[0].can_answer, true);
   for (const e of [{ id, secret: OTHER }, { id, secret: SECRET.toUpperCase().slice(0, 63) }, { id: "MA2-ZZZZZZ", secret: SECRET }, { id, secret: null }, { id }]) {
     const res = await polled([e]);
-    assert.deepEqual(res.body, { ok: true, replies: [] }, JSON.stringify(e));
+    assert.deepEqual(res.body, { ok: true, replies: [], state: [] }, JSON.stringify(e));
   }
   // garbage requests
   assert.equal((await worker.fetch(new Request(`${BASE}/v1/replies`, { method: "POST", body: "nope" }), env, ctx)).status, 400);
@@ -1195,4 +1195,50 @@ test("conversation: postPendingComments without a token or issue record posts no
   const conv = { id: "MA2-AAAAAA", received: new Date().toISOString(), messages: [{ n: 1, from: "player", text: "x", at: "", comment: "pending" }] };
   assert.equal(await postPendingComments({ ...env, GITHUB_TOKEN: "" }, conv), 0);
   assert.equal(await postPendingComments(env, conv), 0);
+});
+
+// ---------------------------------------------------------------- 1.2.0 Messages: reply state and release notes
+
+test("replies: state tells the other client what was read and answered (seen_upto, newest, newest_from)", async () => {
+  const { body: { id } } = await sendWithSecret();
+  await reply(id, "Q1");
+  let p = await polled([{ id, secret: SECRET }]);
+  assert.deepEqual(p.body.state, [{ id, seen_upto: 0, newest: 1, newest_from: "owner" }]);
+  await polled([{ id, secret: SECRET, seen: 1 }]);
+  await worker.fetch(await answerReq({ id }), env, ctx);
+  await ctx.drain();
+  p = await polled([{ id, secret: SECRET }]);
+  assert.deepEqual(p.body.state, [{ id, seen_upto: 1, newest: 2, newest_from: "player" }]);
+  assert.deepEqual((await polled([{ id, secret: OTHER }])).body.state, [], "a wrong key learns nothing");
+});
+
+const NOTES = "- Split screen is back.\n- Damage over time is the same at any frame rate.";
+function announceReq(body) {
+  return owner("/v1/admin/latest", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+}
+const GOOD = { version: "1.2.1", sha256: "a".repeat(64), size: 2 * 1024 * 1024 };
+
+test("latest notes: announce stores the Changelog section; /v1/latest returns it as notes; nothing about the caller is kept", async () => {
+  let res = await worker.fetch(announceReq({ ...GOOD, notes: NOTES + "\r\n" }), env, ctx);
+  assert.equal(res.status, 200);
+  const before = env.GATE.storageOf()?.dump() ?? "";
+  const keys = env.REPORTS.map.size;
+  res = await worker.fetch(new Request(`${BASE}/v1/latest`, { headers: { "cf-connecting-ip": "198.51.100.5" } }), env, ctx);
+  const b = await res.json();
+  assert.equal(b.latest, "1.2.1");
+  assert.equal(b.notes, NOTES);
+  assert.equal(res.headers.get("cache-control"), "public, max-age=3600");
+  assert.equal(env.REPORTS.map.size, keys, "nothing stored by the GET");
+  assert.equal(env.GATE.storageOf()?.dump() ?? "", before, "no limiter call");
+});
+
+test("latest notes: optional, capped and plain text only; an announce without notes gives no notes field", async () => {
+  for (const notes of ["x".repeat(6001), "bad\u0007bell", "dir\u202Eection", 42]) {
+    const res = await worker.fetch(announceReq({ ...GOOD, notes }), env, ctx);
+    assert.equal(res.status, 400, JSON.stringify(notes).slice(0, 40));
+  }
+  await worker.fetch(announceReq(GOOD), env, ctx);
+  const b = await (await worker.fetch(new Request(`${BASE}/v1/latest`), env, ctx)).json();
+  assert.equal(b.latest, "1.2.1");
+  assert.equal("notes" in b, false);
 });

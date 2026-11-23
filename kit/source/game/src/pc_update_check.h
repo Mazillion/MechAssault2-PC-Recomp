@@ -30,7 +30,7 @@
 #define MA2_UPDATE_RELAY "https://ma2-report-relay.ma2-relay.workers.dev"
 #endif
 #define MA2_UPDATE_TIMEOUT_MS 5000
-#define MA2_UPDATE_MAX_BODY 4096
+#define MA2_UPDATE_MAX_BODY 16384   /* 1.2.0: room for the release notes */
 
 #ifdef __cplusplus
 extern "C" {
@@ -99,6 +99,53 @@ static int ma2_update_parse_reply(const char *body, char *out, size_t out_size)
     return 1;
 }
 
+/* 1.2.0 Messages: the release's list of changes, "notes": "..." in the same answer (absent from older relays). Decodes the
+ * JSON string (\n, \", \\, \uXXXX incl. surrogate pairs) into UTF-8; control characters other than new lines are dropped.
+ * Returns 1 when found (out may be cut at out_size - 1 on a character boundary), 0 otherwise (out = ""). */
+static int ma2_update_parse_notes(const char *body, char *out, size_t out_size)
+{
+    const char *p = body ? strstr(body, "\"notes\"") : NULL;
+    size_t k = 0;
+    if (out && out_size) out[0] = 0;
+    if (!p || !out || out_size < 2) return 0;
+    p += 7; while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n' || *p == ':') p++;
+    if (*p != '"') return 0;
+    for (p++; *p && *p != '"'; ) {
+        unsigned c = (unsigned char)*p++;
+        char enc[4]; int n = 0;
+        if (c == '\\') {
+            unsigned e = (unsigned char)*p++;
+            if (e == 'u') {
+                unsigned v = 0;
+                for (int i = 0; i < 4; i++) {
+                    unsigned h = (unsigned char)p[i];
+                    if (!h) return 0;
+                    v = v * 16 + (h >= '0' && h <= '9' ? h - '0' : h >= 'a' && h <= 'f' ? h - 'a' + 10 : h >= 'A' && h <= 'F' ? h - 'A' + 10 : 0);
+                }
+                p += 4;
+                if (v >= 0xD800 && v < 0xDC00 && p[0] == '\\' && p[1] == 'u') {
+                    unsigned lo = 0;
+                    for (int i = 2; i < 6; i++) { unsigned h = (unsigned char)p[i]; if (!h) return 0;
+                        lo = lo * 16 + (h >= '0' && h <= '9' ? h - '0' : h >= 'a' && h <= 'f' ? h - 'a' + 10 : h >= 'A' && h <= 'F' ? h - 'A' + 10 : 0); }
+                    if (lo >= 0xDC00 && lo < 0xE000) { v = 0x10000 + ((v - 0xD800) << 10) + (lo - 0xDC00); p += 6; }
+                }
+                if (v < 0x20 && v != '\n') continue;
+                if (v < 0x80) enc[n++] = (char)v;
+                else if (v < 0x800) { enc[n++] = (char)(0xC0 | (v >> 6)); enc[n++] = (char)(0x80 | (v & 0x3F)); }
+                else if (v < 0x10000) { enc[n++] = (char)(0xE0 | (v >> 12)); enc[n++] = (char)(0x80 | ((v >> 6) & 0x3F)); enc[n++] = (char)(0x80 | (v & 0x3F)); }
+                else { enc[n++] = (char)(0xF0 | (v >> 18)); enc[n++] = (char)(0x80 | ((v >> 12) & 0x3F)); enc[n++] = (char)(0x80 | ((v >> 6) & 0x3F)); enc[n++] = (char)(0x80 | (v & 0x3F)); }
+            } else if (e == 'n') enc[n++] = '\n';
+            else if (e == 't') enc[n++] = ' ';
+            else if (e == '"' || e == '\\' || e == '/') enc[n++] = (char)e;
+            else if (!e) return 0;
+        } else if (c >= 0x20 || c >= 0x80) enc[n++] = (char)c;
+        if (k + (size_t)n >= out_size) break;
+        memcpy(out + k, enc, (size_t)n); k += (size_t)n;
+    }
+    out[k] = 0;
+    return 1;
+}
+
 /* An override address: https://<host>..., or plain http to this PC only (127.0.0.1, localhost or [::1],
  * followed by a port, a path or the end: "http://localhost.example" is not this PC). */
 static int ma2_update_relay_ok(const char *u)
@@ -123,6 +170,7 @@ static volatile LONG g_update_state;
 static char g_update_latest[16];
 static char g_update_url[512];
 static char g_update_own[32];
+static char g_update_notes[8192];   /* 1.2.0: the newer release's list of changes ("" when the relay gives none) */
 
 /* This install's version: recomp-install.json "public_version" beside the exe, else the build's own. */
 static void ma2_update_own_version(char *out, size_t size, const char *fallback)
@@ -243,6 +291,7 @@ static DWORD WINAPI ma2_update_thread(LPVOID unused)
     if (status == 200 && ma2_update_parse_reply(body, latest, sizeof latest)) {
         if (ma2_update_is_newer(latest, g_update_own)) {
             strcpy(g_update_latest, latest);
+            ma2_update_parse_notes(body, g_update_notes, sizeof g_update_notes);
             fprintf(stderr, "[UPDATE] latest=%s own=%s: the main menu shows the update line (%lu ms)\n", latest, g_update_own,
                     (unsigned long)(GetTickCount() - t0));
             InterlockedExchange(&g_update_state, 3);
@@ -287,6 +336,9 @@ static void ma2_update_check_start(const char *build_version)
     CloseHandle(t);
     fprintf(stderr, "[UPDATE] check on (%s), version %s\n", pc_switch_source_name(source), g_update_own);
 }
+
+/* 1.2.0: the newer release's notes (UTF-8, may be empty) once ma2_update_available() gives a version. */
+static const char *ma2_update_notes(void) { return g_update_notes; }
 
 /* The newer version to show, or NULL. */
 static const char *ma2_update_available(void)

@@ -3187,6 +3187,13 @@ class Installer:
         stamp['options'] = {'textures': [s for s in ('2x', '4x') if (self.dest / 'game_files/texture_packs' / s / 'index.json').is_file()],
                             'videos': (self.dest / 'game_files/Movie/Enhanced/2x').is_dir()}
         if self.state.get('shortcuts'): stamp['shortcuts'] = self.state['shortcuts']
+        # 1.2.0: who updates this folder (the game's Messages "Update now" reads it). RecompLauncher's setup step marks it
+        # "recomplauncher"; a standalone run marks it "installer" unless the folder already belongs to RecompLauncher: the
+        # launcher keeps its folder (the standalone window never offers it, and a later command-line Repair must not take it over).
+        if getattr(self, 'launcher', False) or (old or self.old_stamp or {}).get('managed_by') == 'recomplauncher':
+            stamp['managed_by'] = 'recomplauncher'
+        else:
+            stamp['managed_by'] = 'installer'
         try:
             low = self.lowmem_record()                 # 1.1.5: the game was built in low-memory mode (only then is the key written)
             if low: stamp['low_memory_build'] = low

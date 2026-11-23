@@ -225,6 +225,65 @@ class BothAtStart(Replies):
                 else: os.environ[k] = v
 
 
+class UpdateRoute(unittest.TestCase):
+    """1.2.0 Messages "Update now": the install stamp says who updates the folder; the installer copy started by the game
+    opens on that folder and starts its self-update by itself."""
+    def stamp_after(self, launcher, old=None):
+        import types, install
+        d = Path(tempfile.mkdtemp(prefix='ma2-stamp-', dir=str(REPO / 'tests' / 'tmp')))
+        if old is not None: (d / precheck.STAMP).write_text(json.dumps(old), encoding='utf-8')
+        fake = types.SimpleNamespace(dest=d, old_stamp=old, state={}, launcher=launcher, ini_ours=None, log=lambda s: None)
+        fake.game_installed = lambda: old is not None
+        fake.lowmem_record = lambda: None
+        install.Installer.write_stamp(fake, d / 'pc_settings.ini')
+        return json.loads((d / precheck.STAMP).read_text(encoding='utf-8'))
+
+    def test_stamp_records_who_updates(self):
+        self.assertEqual(self.stamp_after(True)['managed_by'], 'recomplauncher')
+        self.assertEqual(self.stamp_after(False)['managed_by'], 'installer')
+        # a later standalone run on a launcher folder keeps it the launcher's
+        self.assertEqual(self.stamp_after(False, {'version': 'x', 'managed_by': 'recomplauncher'})['managed_by'], 'recomplauncher')
+        # an install made before 1.2.0 gets the field on its next standalone run
+        self.assertEqual(self.stamp_after(False, {'version': 'x'})['managed_by'], 'installer')
+
+    def test_game_update_env_starts_the_self_update(self):
+        import shutil, mock_update, install, selfupdate
+        game_files = Path(os.environ.get('MA2_TEST_GAME_FILES') or '')
+        if not (game_files / 'ma2.xbe').is_file(): self.skipTest('set MA2_TEST_GAME_FILES=<extracted disc folder> (a dummy install needs ma2.xbe)')
+        srv = mock_update.MockUpdate(b'MZ' + os.urandom(2 * 1024 * 1024), latest='1.2.1').start()
+        saved = {k: os.environ.get(k) for k in ('MA2_SELF_UPDATE', 'MA2_SELF_UPDATE_TEST', 'MA2_UPDATE_RELAY', 'MA2_SELF_UPDATE_GITHUB', 'MA2_GAME_UPDATE')}
+        launched = []
+        real = selfupdate.launch
+        selfupdate.launch = lambda exe, sha, dest, own, cli_args=None, log=None: launched.append((str(exe), sha, str(dest)))
+        tmp = Path(tempfile.mkdtemp(prefix='ma2-gameupdate-', dir=str(REPO / 'tests' / 'tmp')))
+        dest = tmp / 'Games' / 'MechAssault 2'
+        os.environ.update(MA2_SELF_UPDATE='1', MA2_SELF_UPDATE_TEST='1', MA2_UPDATE_RELAY=srv.base, MA2_SELF_UPDATE_GITHUB=srv.base,
+                          MA2_GAME_UPDATE=str(dest))
+        try:
+            for f in ('MechAssault 2.exe', 'pc_assets/common.mgf'):
+                p = dest / f; p.parent.mkdir(parents=True, exist_ok=True); p.write_bytes(b'old')
+            (dest / 'game_files').mkdir(parents=True, exist_ok=True); shutil.copy2(game_files / 'ma2.xbe', dest / 'game_files' / 'ma2.xbe')
+            (dest / precheck.STAMP).write_text(json.dumps({'kit_id': install.KIT_ID, 'version': install.VERSION, 'public_version': install.PUBLIC_VERSION,
+                                                           'managed_by': 'installer'}))
+            root, app = rig.make()
+            try:
+                self.assertTrue(app.su_auto and os.path.normcase(str(Path(app.dest))) == os.path.normcase(str(dest)))
+                self.assertNotIn('MA2_GAME_UPDATE', os.environ, 'read once')
+                self.assertTrue(until(root, lambda: launched, 60), (app.screen, app.su))
+                self.assertEqual(launched[0][1], srv.sha, 'the download was checked against the announced SHA-256')
+                self.assertEqual(Path(launched[0][2]), dest, 'handed over to update this folder')
+                self.assertEqual(Path(launched[0][0]).read_bytes(), srv.payload)
+                shutil.rmtree(Path(launched[0][0]).parent, ignore_errors=True)
+            finally:
+                if not app.closing: root.destroy()
+        finally:
+            selfupdate.launch = real
+            srv.stop()
+            for k, v in saved.items():
+                if v is None: os.environ.pop(k, None)
+                else: os.environ[k] = v
+
+
 class GameSide(unittest.TestCase):
     """The game's reply box: the helper result parser (C unit test, built when the MSVC tools are found) and the wiring."""
     def test_parser_c_unit_test(self):
@@ -307,14 +366,17 @@ class HelperReplies(unittest.TestCase):
         self.assertEqual(entries[0]['sent'], report.today())
         self.assertTrue(self.owner('/v1/report/%s/conversation' % rid)['replies'])
         code, lines = self.result('--replies')
-        self.assertEqual((code, lines), (0, ['count=0', 'end=1']))
+        self.assertEqual((code, [l for l in lines if not l.startswith('state=')]), (0, ['count=0', 'end=1']))
+        self.assertIn('state=%s 0 0 0' % rid, lines)
         self.owner('/v1/report/%s/reply' % rid, {'text': 'Thanks! Does it freeze in "mission 3" too?\nTell me \\ please. \u00e9t\u00e9'})
         code, lines = self.result('--replies')
         self.assertEqual(code, 0)
         self.assertEqual(lines[0], 'reply=%s 1 %s 1 Thanks! Does it freeze in "mission 3" too?\\nTell me \\\\ please. \u00e9t\u00e9'
                          % (rid, report.today().isoformat()), lines)
         self.assertEqual(self.run_helper('--seen', rid, '1').returncode, 0)
-        self.assertEqual(self.result('--replies')[1], ['count=0', 'end=1'], 'shown once')
+        lines = self.result('--replies')[1]
+        self.assertEqual([l for l in lines if not l.startswith('state=')], ['count=0', 'end=1'], 'shown once')
+        self.assertIn('state=%s 1 1 0' % rid, lines, 'the game learns it was read')
         # the answer, scrubbed, with a new bundle
         user = 'Jane' + 'Doe'
         af = self.tmp / 'answer.txt'; af.write_text('Yes, in mission 3 too. Files: C:\\Users\\%s\\x' % user, encoding='utf-8')

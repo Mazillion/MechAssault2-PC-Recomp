@@ -840,7 +840,7 @@ export async function handleReplies(request, env) {
     return json({ ok: false, replies: [] }, 400);
   }
   if (!b || !Array.isArray(b.reports)) return json({ ok: false, replies: [] }, 400);
-  const out = [];
+  const out = [], state = [];
   const now = new Date().toISOString();
   for (const e of b.reports.slice(0, MAX_POLL)) {
     if (!e || typeof e !== "object" || !ID_RE.test(String(e.id))) continue;
@@ -858,8 +858,12 @@ export async function handleReplies(request, env) {
     for (const m of conv.messages)
       if (m.from === "owner" && !m.seen)
         out.push({ id: conv.id, n: m.n, text: m.text, at: m.at, can_answer: m === newest });
+    // 1.2.0 inbox: what the other client (installer / game) already did, so both show the same read and answered state.
+    const ownerSeen = conv.messages.filter((m) => m.from === "owner" && m.seen).map((m) => m.n);
+    state.push({ id: conv.id, seen_upto: ownerSeen.length ? Math.max(...ownerSeen) : 0, newest: newest ? newest.n : 0,
+                 newest_from: newest ? newest.from : "" });
   }
-  return json({ ok: true, replies: out });
+  return json({ ok: true, replies: out, state });
 }
 
 // POST /v1/answer (multipart id, secret, text, [summary, zip]): the player's answer to the newest owner message.
@@ -1237,6 +1241,7 @@ const LATEST_KEY = "config/latest.json";
 const LATEST_PREV_KEY = "config/latest.prev.json";
 const LATEST_TTL_MS = 60 * 1000;
 const NOTICE_MAX = 200;
+const NOTES_MAX = 6000;                                // the Changelog section of one release (1.2.0 Messages)
 const latestCache = new WeakMap();                     // env -> {at, value}: one bucket read per minute per isolate
 
 function validSize(n) {
@@ -1260,8 +1265,17 @@ export function validateLatest(b) {
     if (notice.length > NOTICE_MAX) return { error: `notice must be at most ${NOTICE_MAX} characters` };
     if (/[\u0000-\u001F\u007F-\u009F\u2028\u2029\u202A-\u202E\u2066-\u2069]/.test(notice)) return { error: "notice must not contain control characters" };
   }
+  // 1.2.0: the release's Changelog section (plain text, line breaks kept), shown in the game's Messages.
+  let notes = "";
+  if (b.notes !== undefined && b.notes !== null) {
+    if (typeof b.notes !== "string") return { error: "notes must be text" };
+    notes = b.notes.replace(/\r\n?/g, "\n").replace(/\t/g, "  ").trim();
+    if (notes.length > NOTES_MAX) return { error: `notes must be at most ${NOTES_MAX} characters` };
+    if (/[\u0000-\u0009\u000B-\u001F\u007F-\u009F\u2028\u2029\u202A-\u202E\u2066-\u2069]/.test(notes)) return { error: "notes must not contain control characters" };
+  }
   const value = { version, sha256, size, asset: INSTALLER_ASSET };
   if (notice) value.notice = notice;
+  if (notes) value.notes = notes;
   return { value };
 }
 
@@ -1293,7 +1307,8 @@ export async function currentLatest(env, fresh = false) {
   if (!fresh && c && Date.now() - c.at < LATEST_TTL_MS) return c.value;
   const file = await readLatestFile(env);
   const value = file
-    ? { source: "file", version: file.version, sha256: file.sha256, size: file.size, ...(file.notice ? { notice: file.notice } : {}) }
+    ? { source: "file", version: file.version, sha256: file.sha256, size: file.size, ...(file.notice ? { notice: file.notice } : {}),
+        ...(file.notes ? { notes: file.notes } : {}) }
     : latestFromEnv(env);
   latestCache.set(env, { at: Date.now(), value });
   return value;
@@ -1303,6 +1318,7 @@ function latestBody(cur) {
   const body = { ok: true, latest: cur.version || null };
   if (body.latest && cur.notice) body.notice = cur.notice;
   if (body.latest && cur.sha256 && cur.size) Object.assign(body, { sha256: cur.sha256, size: cur.size, asset: INSTALLER_ASSET });
+  if (body.latest && cur.notes) body.notes = cur.notes;   // 1.2.0: older clients ignore it
   return body;
 }
 

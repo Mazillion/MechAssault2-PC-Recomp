@@ -3,6 +3,53 @@
 #include <stdio.h>
 #include <string.h>
 #include "../../kit/source/game/src/pc_report_replies.h"
+#include "../../kit/source/game/src/pc_messages.h"
+#define MA2_UPDATE_NO_NETWORK
+#include "../../kit/source/game/src/pc_update_check.h"
+
+static const char *CHANGELOG =
+    "MechAssault 2 PC recompilation - changes\r\n========================================\r\n\r\nYou have version 1.2.0 (build x).\r\n\r\n\r\n"
+    "1.2.1\r\n-----\r\n- Fixed the music stopping.\r\n  Second line of it.\r\n\r\n"
+    "1.2.0\r\n-----\r\n- Split screen is back.\r\n\r\n1.1.10\r\n------\r\n- Older.\r\n";
+
+static int messages_tests(void)
+{
+    int fails = 0;
+    char out[512], back[512], d[11];
+#define MCHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); fails++; } } while (0)
+    MCHECK(ma2_changelog_section(CHANGELOG, "1.2.1", out, sizeof out) && !strcmp(out, "- Fixed the music stopping.\n  Second line of it."));
+    MCHECK(ma2_changelog_section(CHANGELOG, "1.2.0", out, sizeof out) && !strcmp(out, "- Split screen is back."));
+    MCHECK(ma2_changelog_section(CHANGELOG, "1.1.10", out, sizeof out) && !strcmp(out, "- Older."));
+    MCHECK(ma2_changelog_section(CHANGELOG, "1.1.1", out, sizeof out) == 0 && out[0] == 0);
+    MCHECK(ma2_changelog_section(CHANGELOG, "9.9.9", out, sizeof out) == 0);
+    MCHECK(ma2_changelog_section(CHANGELOG, "1.2.1", out, 10) == 9);                 /* cut, never overrun */
+    ma2_msg_escape("a\\b\nc\td\r", out, sizeof out);
+    MCHECK(!strcmp(out, "a\\\\b\\nc\\td"));
+    ma2_msg_unescape(out, back, sizeof back);
+    MCHECK(!strcmp(back, "a\\b\nc\td"));
+    MCHECK(ma2_msg_parse_date("2026-11-23") - ma2_msg_parse_date("2026-05-24") == 183);
+    ma2_msg_format_date(ma2_msg_parse_date("2024-02-29") + 1, d);
+    MCHECK(!strcmp(d, "2024-03-01"));
+    MCHECK(ma2_msg_parse_date("2026-13-01") == -1);
+    ma2_msg_short_date("2026-11-03", out, sizeof out);
+    MCHECK(!strcmp(out, "Nov 3"));
+    MCHECK(ma2_update_action(1, 1, 1) == MA2_UPDATE_IN_LAUNCHER);
+    MCHECK(ma2_update_action(1, 0, 1) == MA2_UPDATE_RUN_INSTALLER);
+    MCHECK(ma2_update_action(1, 0, 0) == MA2_UPDATE_RELEASES_PAGE);
+    MCHECK(ma2_update_action(0, 0, 1) == MA2_UPDATE_HISTORY);
+    /* who updates: the stamp decides; RECOMPLAUNCHER only when the stamp says nothing */
+    MCHECK(ma2_managed_by_launcher("{\"version\":\"1\",\"managed_by\": \"recomplauncher\"}", 0) == 1);   /* launcher stamp, no env */
+    MCHECK(ma2_managed_by_launcher("{\"managed_by\":\"installer\"}", 1) == 0);                          /* standalone + stray env */
+    MCHECK(ma2_managed_by_launcher("{\"version\":\"1.1.8\"}", 1) == 1);                                 /* old stamp: the env */
+    MCHECK(ma2_managed_by_launcher("{\"version\":\"1.1.8\"}", 0) == 0);
+    MCHECK(ma2_managed_by_launcher(NULL, 0) == 0);
+    /* the relay's notes in /v1/latest */
+    MCHECK(ma2_update_parse_notes("{\"ok\":true,\"latest\":\"1.2.1\",\"notes\":\"- A \\\"fix\\\"\\n- caf\\u00e9 \\ud83d\\ude00\\tx\\u0007\"}", out, sizeof out)
+           && !strcmp(out, "- A \"fix\"\n- caf\xC3\xA9 \xF0\x9F\x98\x80 x"));
+    MCHECK(!ma2_update_parse_notes("{\"ok\":true,\"latest\":\"1.2.1\"}", out, sizeof out) && out[0] == 0);
+    MCHECK(ma2_update_parse_notes("{\"notes\":\"abcdef\"}", out, 4) && !strcmp(out, "abc"));
+    return fails;
+}
 
 static int fails;
 #define CHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); fails++; } } while (0)
@@ -40,6 +87,7 @@ int main(void)
         memset(big + strlen(big), 'x', MA2_REPLY_MAX_TEXT + 100);
         CHECK(ma2_reply_parse_line(big, &r) && strlen(r.text) == MA2_REPLY_MAX_TEXT - 1);
     }
+    fails += messages_tests();
     printf(fails ? "report_replies_test: %d failed\n" : "report_replies_test: all passed\n", fails);
     return fails ? 1 : 0;
 }

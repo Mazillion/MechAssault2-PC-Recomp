@@ -624,8 +624,37 @@ def show_live(relay):
     return res
 
 
-def announce(make_relay, version, installer, notice="", yes=False, force=False, ask=None):
-    """Check, summarise, ask, then POST /v1/admin/latest. make_relay() is called only after the question was answered."""
+DEFAULT_CHANGELOG = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "kit", "defaults", "Docs", "Changelog.txt"))
+NOTES_MAX = 6000
+_VERSION_HEAD = re.compile(r"^\d{1,4}(\.\d{1,4}){1,3}$")
+
+
+def changelog_section(text, version):
+    """The lines under the heading `version` (a line of its own, then a line of dashes) up to the next such heading,
+    without leading and trailing blank lines. '' when the version has no section."""
+    lines = str(text or "").replace("\r\n", "\n").split("\n")
+    out, inside = [], False
+    for i, line in enumerate(lines):
+        nxt = lines[i + 1] if i + 1 < len(lines) else ""
+        is_head = _VERSION_HEAD.match(line.strip() or "-") and nxt.strip() and set(nxt.strip()) == {"-"}
+        if is_head:
+            if inside:
+                break
+            inside = line.strip() == version
+            continue
+        if inside and not (set(line.strip()) == {"-"} and not out):
+            out.append(line.rstrip())
+    while out and not out[0].strip():
+        out.pop(0)
+    while out and not out[-1].strip():
+        out.pop()
+    return "\n".join(out)
+
+
+def announce(make_relay, version, installer, notice="", yes=False, force=False, ask=None, changelog=None):
+    """Check, summarise, ask, then POST /v1/admin/latest. make_relay() is called only after the question was answered.
+    1.2.0: the release's Changelog section for `version` (from `changelog`, default the repo's kit/defaults/Docs/Changelog.txt)
+    goes along as notes; the game shows it in Messages."""
     ask = ask or input
     if not version or not ANNOUNCE_VERSION.match(version):
         raise SystemExit("Give the release number as X.Y.Z, for example: announce 1.1.8 --installer <file>")
@@ -634,6 +663,17 @@ def announce(make_relay, version, installer, notice="", yes=False, force=False, 
     if os.path.basename(installer) != INSTALLER_ASSET:
         print(f'Note: the file is named "{os.path.basename(installer)}"; the release asset must be "{INSTALLER_ASSET}".')
     sha, size = file_facts(installer)
+    notes = ""
+    path = changelog or DEFAULT_CHANGELOG
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            notes = changelog_section(f.read(), version)
+    except OSError:
+        print(f"Note: no Changelog at {path}; the game shows the update without the list of changes.")
+    if notes and len(notes) > NOTES_MAX:
+        notes = notes[:NOTES_MAX - 1].rsplit("\n", 1)[0] + "\n…"
+    if not notes and os.path.isfile(path):
+        print(f"Note: the Changelog has no section for {version}; the game shows the update without the list of changes.")
     problems = release_problems(github_release(version), version, sha, size)
     if problems and not force:
         raise SystemExit("Not announced: " + "; ".join(problems) + ".")
@@ -645,6 +685,7 @@ def announce(make_relay, version, installer, notice="", yes=False, force=False, 
     print(f"  Release   {release_url(version)}")
     if notice:
         print(f"  Notice    {notice}")
+    print(f"  Changes   {len(notes.splitlines())} lines from {os.path.basename(path)}" if notes else "  Changes   (none)")
     if problems:
         print("")
         print("  WARNING (--force): " + "; ".join(problems) + ".")
@@ -657,6 +698,8 @@ def announce(make_relay, version, installer, notice="", yes=False, force=False, 
     body = {"version": version, "sha256": sha, "size": size, "asset": INSTALLER_ASSET}
     if notice:
         body["notice"] = notice
+    if notes:
+        body["notes"] = notes
     res = relay.call("POST", "/v1/admin/latest", body)
     print(f"Announced {res.get('announced')}. The relay now answers: " + json.dumps(res.get("live")))
     return res
@@ -708,6 +751,7 @@ def main(argv=None):
     p.add_argument("--notice", default="", help="optional text shown to older versions after Send report (200 characters)")
     p.add_argument("--yes", action="store_true", help="do not ask (after the owner's go)")
     p.add_argument("--force", action="store_true", help="announce even when the GitHub check fails (prints a warning)")
+    p.add_argument("--changelog", default="", help="the release's Changelog.txt (default: the repo's kit/defaults/Docs/Changelog.txt); its section for the version goes to the game's Messages")
     p.add_argument("--show", action="store_true", help="show what is announced now")
     p.add_argument("--undo", action="store_true", help="go back to the previous announcement")
     a = ap.parse_args(argv)
@@ -730,7 +774,7 @@ def main(argv=None):
         elif a.undo:
             undo_announce(make_relay, yes=a.yes)
         else:
-            announce(make_relay, a.version.strip(), a.installer, a.notice.strip(), yes=a.yes, force=a.force)
+            announce(make_relay, a.version.strip(), a.installer, a.notice.strip(), yes=a.yes, force=a.force, changelog=a.changelog or None)
         return 0
     key, source = resolve_key(a.key)
     relay = Relay(relay_url, key, on_success=(lambda: offer_save(key)) if source == "prompt" else None)

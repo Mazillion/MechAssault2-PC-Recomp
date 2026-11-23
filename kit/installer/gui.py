@@ -289,6 +289,13 @@ class App:
         if hd and install.is_install(precheck.clean_path(hd)):
             self.dest = hd; self.handoff = True
             print('ui: started by the self-update of %s' % hd, flush=True)
+        # 1.2.0: "Update now" in the game's Messages starts this installer copy with MA2_GAME_UPDATE=<its install folder>: open on
+        # that folder and start the self-update (download from GitHub, SHA-256 + size check, hand-over) as soon as it is offered.
+        self.su_auto = False
+        gu = os.environ.pop('MA2_GAME_UPDATE', '')
+        if gu and not self.handoff and install.is_install(precheck.clean_path(gu)):
+            self.dest = gu; self.su_auto = True
+            print('ui: started by Update now in the game for %s' % gu, flush=True)
         self.mode = self.mode_for(self.dest)
         self.load_installed_choices()
         self.check_dest()
@@ -972,6 +979,8 @@ class App:
                     self.su.update(state='offer' if ok else 'none', info=res if ok else None)
                     print('ui: self-update check: %s' % (res.get('cause') if isinstance(res, dict) else res), flush=True)
                     if ok and self.screen == 'setup' and self.mode in ('update', 'maintain'): self.render()
+                    if ok and self.su_auto:
+                        self.su_auto = False; print('ui: starting the update the game asked for', flush=True); self.self_update_start()
                 self.bg(lambda: selfupdate.check(install.PUBLIC_VERSION, log=lambda s: print('ui: ' + s, flush=True)), done)
             return self.su.get('info') if self.su.get('state') == 'offer' else None
         except Exception as e:

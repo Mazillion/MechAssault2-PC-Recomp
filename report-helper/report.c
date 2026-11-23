@@ -1345,6 +1345,37 @@ static int run_replies(const wchar_t *result_file) {
                 if (*p != ',') break;
             }
             if (count) store_save();
+            /* 1.2.0 inbox: "state=<id> <seen up to n> <newest n> <newest is the player's 0|1>" per report, so the game shows a
+               reply read or answered in the installer as read / answered too. */
+            const char *s = strstr(ans.p, "\"state\"");
+            s = s ? strchr(s, '[') : NULL;
+            while (s && *s) {
+                s = json_ws(s + 1);
+                if (*s != '{') break;
+                char sid[16] = "", from[16] = ""; int seen = 0, newest = 0;
+                for (s = json_ws(s + 1); *s && *s != '}'; s = json_ws(s)) {
+                    Buf key = { 0 };
+                    s = json_read_str(s, &key); if (!s) { buf_free(&key); break; }
+                    s = json_ws(s); if (*s == ':') s = json_ws(s + 1);
+                    if (*s == '"') {
+                        Buf val = { 0 }; s = json_read_str(s, &val);
+                        if (key.p && val.p && strlen(val.p) < 16) { if (!strcmp(key.p, "id")) strcpy(sid, val.p); else if (!strcmp(key.p, "newest_from")) strcpy(from, val.p); }
+                        buf_free(&val);
+                        if (!s) { buf_free(&key); break; }
+                    } else {
+                        const char *e = s; while (*e && *e != ',' && *e != '}') e++;
+                        if (key.p && !strcmp(key.p, "seen_upto")) seen = atoi(s);
+                        if (key.p && !strcmp(key.p, "newest")) newest = atoi(s);
+                        s = e;
+                    }
+                    buf_free(&key);
+                    s = json_ws(s); if (*s == ',') s++;
+                }
+                if (!s || *s != '}') break;
+                if (valid_id(sid) && store_find(sid)) buf_addf(&r, "state=%s %d %d %d\n", sid, seen, newest, !strcmp(from, "player"));
+                s = json_ws(s + 1);
+                if (*s != ',') break;
+            }
         }
     }
     buf_addf(&r, "count=%d\nend=1\n", count);
