@@ -1629,3 +1629,44 @@ int ma2_lens_test_skip(uint32_t lf)
     fprintf(stderr, "[LENS] TEST freeze lf=%08X filt=%08X a=%.3f for %.1fs at t=%.3f\n", lf, f, LT_F(f + 0x18), secs, now);
     return 1;
 }
+
+/* F6 (split screen, 1.2.0): CameraManager_RestoreAllPlayerSlots (sub_0016B3FC) runs slots 1..min(players, 12)
+ * after a fullscreen (slot 0) camera exits, and a slot with no default camera falls back to sub_0016B7CE,
+ * which reads +0x88 of the (slot-1)-th local player from sub_000C98E7 with no NULL check. With bots the
+ * player count passes the local players, so a bot's slot read guest address 0x88 (decomp MAP.md P0#3;
+ * committed memory on PC, so no crash was seen, but it is a wild read). Bots never own a camera slot
+ * (ma2_bot_cam_set), so the loop is bounded to the local players (sub_000C98E7's own test: +0x244 bit 2)
+ * and the read is NULL-checked. RECOMP_FIX_CAM_SLOT_RESTORE=0 restores the retail behaviour. */
+static int cam_slot_fix_on(void)
+{
+    static int on = -1;
+    if (on < 0) on = dot_env("RECOMP_FIX_CAM_SLOT_RESTORE", 1);
+    return on;
+}
+static uint32_t cam_local_players(void)
+{
+    uint32_t begin = GUEST32(0x50E280), end = GUEST32(0x50E284), n = 0;
+    if (end < begin || end - begin > 64 * 4 || begin < 0x10000 || end > 0x03FFF000) return 0;
+    for (uint32_t e = begin; e < end; e += 4) {
+        uint32_t p = GUEST32(e);
+        if (p >= 0x10000 && p < 0x03FFF000 && (GUEST32(p + 0x244) & 4)) n++;
+    }
+    return n;
+}
+int ma2_cam_slot_restore_ok(uint32_t slot)
+{
+    if (!cam_slot_fix_on()) return 1;
+    if (slot >= 1 && slot <= cam_local_players()) return 1;
+    {   static int logged;
+        if (logged < 4) { logged++; fprintf(stderr, "[PC-CAM] slot restore: slot %u has no local player, skipped (F6)\n", slot); } }
+    return 0;
+}
+uint32_t ma2_cam_slot_uid(uint32_t player)
+{
+    if (!player && cam_slot_fix_on()) {
+        static int logged;
+        if (logged < 4) { logged++; fprintf(stderr, "[PC-CAM] slot restore: no local player for the slot, uid 0 (F6)\n"); }
+        return 0;
+    }
+    return GUEST32(player + 0x88);
+}

@@ -84,19 +84,22 @@ DWORD xbox_InputActiveSlot(void)
     return (DWORD)InterlockedCompareExchange(&xi_active_slot, 0, 0);
 }
 
-/* ---- split screen (RECOMP_SPLITSCREEN, 1.1.8 prototype) -------------------
+/* ---- split screen (RECOMP_SPLITSCREEN, on by default since 1.2.0) ---------
  *
- * One player has one virtual pad on one guest port; the guest (Add Guest) is the
- * next guest port. Outside split screen guest port 0 follows whichever host pad
- * pressed a button last (xi_poll_active), so a second player's pad would take over
- * player 1 the moment it pressed A to join. In split screen every guest port has
- * its own host pad instead, assigned in host slot order among the CONNECTED pads
- * (a pad in slot 2 with slot 1 empty is still player 2):
- *   - default: player 1 = the first pad (keyboard and mouse merged on top, as
- *     always), player 2 = the second pad;
- *   - RECOMP_SPLITSCREEN_KBM=1 ([Debug] SplitScreenKeyboard=1): player 1 = the
- *     keyboard and mouse only, player 2 = the first pad, player 3 = the second.
+ * One player has one virtual pad on one guest port; the guest (Add Guest) is guest
+ * port 1. The rules are in split_route.h:
+ *   - nobody joined: port 0 = keyboard and mouse + the active pad (the hop below),
+ *     exactly as with split screen off, so a solo player keeps the pad;
+ *   - a guest in: port 0 = keyboard and mouse only, port 1 = the guest's pad
+ *     (xi_split_guest), every other pad reaches nobody;
+ *   - a join press (START on a pad that is not player 1's, only while the game says
+ *     the Multiplayer menus are up) never hops: the game side takes it
+ *     (xbox_SplitTakeJoin) and joins the guest through the game's own Add Guest
+ *     path, or, in the Add Guest dialog, the press is handed to port 1 where the
+ *     dialog itself sees it (xi_split_replay).
+ * RECOMP_SPLITSCREEN=0 ([Debug] SplitScreen=0): none of this; one pad on the bus.
  * Mouse aim already follows guest port 0 (recomp_manual.c ma2_primary_input_slot). */
+#include "split_route.h"
 static int xi_split_mode(void)
 {
     static int on = -1;
@@ -106,33 +109,79 @@ static int xi_split_mode(void)
     }
     return on;
 }
-static int xi_split_kbm(void)
-{
-    static int on = -1;
-    if (on < 0) {
-        const char *v = getenv("RECOMP_SPLITSCREEN_KBM");
-        on = (v && *v && *v != '0') ? 1 : 0;
-    }
-    return on;
-}
 #define XI_NO_SLOT 0xFFFFFFFFu
+static volatile LONG xi_split_guest = SPLIT_NO_SLOT;     /* host slot of the guest's pad */
+static volatile LONG xi_split_join = SPLIT_NO_SLOT;      /* a quick-join press the game side has not taken yet */
+static volatile LONG xi_split_window_tick, xi_split_dialog_tick;   /* GetTickCount of the game side's last "menus up" */
+static volatile LONG xi_split_replay_tick;               /* dialog join: port 1 replays START from this tick */
+static volatile LONG xi_split_hold_start;                /* port 1: START stays masked until the pad lets go */
+#define XI_SPLIT_WINDOW_MS 400       /* the game side reports every menu frame; older = not in the menus */
+#define XI_SPLIT_REPLAY_UP_MS 120    /* dialog join: START released this long, then pressed ... */
+#define XI_SPLIT_REPLAY_DOWN_MS 320  /* ... until here, so the dialog sees a clean press on port 1 */
+
+static int xi_split_recent(volatile LONG *tick)
+{
+    LONG t = InterlockedCompareExchange(tick, 0, 0);
+    return t && (DWORD)(GetTickCount() - (DWORD)t) < XI_SPLIT_WINDOW_MS;
+}
+/* Game side (bots/ma2_bots_ui.c), every frame of a Multiplayer menu screen: joins are allowed now.
+ * dialog = the game's Add Guest dialog is open. */
+void xbox_SplitJoinWindow(int dialog)
+{
+    LONG now = (LONG)GetTickCount();
+    if (!now) now = 1;
+    InterlockedExchange(&xi_split_window_tick, now);
+    InterlockedExchange(&xi_split_dialog_tick, dialog ? now : 0);
+}
+/* The host slot of a quick-join press (START outside the dialog), or -1; taking it clears it. */
+int xbox_SplitTakeJoin(void)
+{
+    return (int)InterlockedExchange(&xi_split_join, SPLIT_NO_SLOT);
+}
+/* The guest's pad: a host slot, or -1 when no guest is in (player 1 gets the hop back). */
+void xbox_SplitSetGuest(int slot)
+{
+    LONG old = InterlockedExchange(&xi_split_guest, slot >= 0 && slot < 4 ? slot : SPLIT_NO_SLOT);
+    if (old != (LONG)slot) {
+        if (slot >= 0) InterlockedExchange(&xi_split_hold_start, 1);   /* the join press itself is not a menu press */
+        fprintf(stderr, "[PC-SPLIT] guest pad: %s%d (player 1: %s)\n", slot >= 0 ? "host slot " : "none ",
+                slot >= 0 ? slot : 0, slot >= 0 ? "keyboard and mouse only" : "keyboard, mouse and the active pad");
+        fflush(stderr);
+    }
+}
+int xbox_SplitGuestSlot(void)
+{
+    return (int)InterlockedCompareExchange(&xi_split_guest, 0, 0);
+}
+int xbox_SplitScreenOn(void) { return xi_split_mode(); }
+
 /* The host slot that drives guest port `port` in split screen, or XI_NO_SLOT. */
 static DWORD xi_split_slot(DWORD port)
 {
-    DWORD want = port, slot = XI_NO_SLOT;
-    int i;
-    if (xi_split_kbm()) {
-        if (port == 0) return XI_NO_SLOT;
-        want = port - 1;
-    }
+    int active = SPLIT_NO_SLOT, slot;
     AcquireSRWLockShared(&xi_lock);
-    for (i = 0; i < 4; i++) {
-        if (!xi_slot[i].connected) continue;
-        if (want == 0) { slot = (DWORD)i; break; }
-        want--;
-    }
+    if (xi_slot[xi_active_slot].connected) active = (int)xi_active_slot;
     ReleaseSRWLockShared(&xi_lock);
-    return slot;
+    slot = split_port_slot((int)port, (int)InterlockedCompareExchange(&xi_split_guest, 0, 0), active,
+                           (int)InterlockedCompareExchange(&xi_split_join, 0, 0));
+    return slot == SPLIT_NO_SLOT ? XI_NO_SLOT : (DWORD)slot;
+}
+/* Port 1 after a dialog join: START is replayed as a fresh press, then the pad's own START is
+ * masked until it is let go (the press that joined must not also choose a menu item). */
+static void xi_split_port1_filter(XINPUT_STATE *state)
+{
+    LONG t = InterlockedCompareExchange(&xi_split_replay_tick, 0, 0);
+    if (t) {
+        DWORD age = GetTickCount() - (DWORD)t;
+        if (age < XI_SPLIT_REPLAY_UP_MS) { state->Gamepad.wButtons &= (WORD)~SPLIT_PAD_START; return; }
+        if (age < XI_SPLIT_REPLAY_DOWN_MS) { state->Gamepad.wButtons |= (WORD)SPLIT_PAD_START; return; }
+        InterlockedExchange(&xi_split_replay_tick, 0);
+    }
+    if (InterlockedCompareExchange(&xi_split_hold_start, 0, 0)) {
+        if (state->Gamepad.wButtons & (SPLIT_PAD_START | SPLIT_PAD_A))
+            state->Gamepad.wButtons &= (WORD)~(SPLIT_PAD_START | SPLIT_PAD_A);
+        else InterlockedExchange(&xi_split_hold_start, 0);
+    }
 }
 
 /* Guest port 0 is the active host slot; ports 1-3 keep their own host slots. */
@@ -157,7 +206,7 @@ static DWORD xi_poll_active(XINPUT_STATE *out, BOOL *lost)
     DWORD now = GetTickCount(), previous_active, active;
     BOOL was_connected, stop_old;
     DWORD result;
-    int i;
+    int i, split = xi_split_mode(), split_guest = SPLIT_NO_SLOT, split_pending = SPLIT_NO_SLOT;
 
     if (lost) *lost = FALSE;
     AcquireSRWLockExclusive(&xi_lock);
@@ -183,12 +232,44 @@ static DWORD xi_poll_active(XINPUT_STATE *out, BOOL *lost)
             s->next_probe = now + XI_PROBE_MS;
         }
     }
+    if (split) {
+        /* Split screen: a join press in the Multiplayer menus (split_route.h) never hops. */
+        int guest = (int)InterlockedCompareExchange(&xi_split_guest, 0, 0);
+        int pending = (int)InterlockedCompareExchange(&xi_split_join, 0, 0);
+        if (guest == SPLIT_NO_SLOT && pending == SPLIT_NO_SLOT && xi_split_recent(&xi_split_window_tick)) {
+            unsigned short pressed[4] = { 0, 0, 0, 0 };
+            unsigned connected = 0;
+            int p1 = xi_slot[active].connected && pc_input_device() == PC_INPUT_GAMEPAD ? (int)active : SPLIT_NO_SLOT;
+            int dialog = xi_split_recent(&xi_split_dialog_tick), slot;
+            for (i = 0; i < 4; i++) if (fresh[i]) {
+                connected |= 1u << i;
+                pressed[i] = (unsigned short)(state[i].Gamepad.wButtons & ~xi_slot[i].prev_buttons);
+            }
+            slot = split_join_slot(connected, pressed, p1, guest, dialog);
+            if (slot != SPLIT_NO_SLOT) {
+                if (dialog) {
+                    /* The game's Add Guest dialog is waiting for START on a free controller: give it
+                     * this pad on port 1 and replay the press there. */
+                    InterlockedExchange(&xi_split_guest, slot);
+                    InterlockedExchange(&xi_split_hold_start, 1);
+                    InterlockedExchange(&xi_split_replay_tick, (LONG)(now ? now : 1));
+                } else InterlockedExchange(&xi_split_join, slot);
+                fprintf(stderr, "[PC-SPLIT] join press on host slot %d (%s; player 1 on %s)\n", slot,
+                        dialog ? "Add Guest dialog: handed to port 1" : "quick join",
+                        p1 == SPLIT_NO_SLOT ? "keyboard and mouse" : "the active pad");
+                guest = dialog ? slot : guest;
+                pending = dialog ? pending : slot;
+            }
+        }
+        split_guest = guest; split_pending = pending;
+    }
     if (!xi_slot[active].connected) {
-        for (i = 0; i < 4; i++) if (xi_slot[i].connected) { active = (DWORD)i; break; }
-    } else if (!xi_split_mode()) {   /* split screen: a guest's press must not take player 1's port */
+        for (i = 0; i < 4; i++) if (xi_slot[i].connected && (!split || split_hop_allowed(i, split_guest, split_pending))) { active = (DWORD)i; break; }
+    } else {
         for (i = 0; i < 4; i++) {
             const XINPUT_GAMEPAD *g;
             if ((DWORD)i == active || !xi_slot[i].connected || !fresh[i]) continue;
+            if (split && !split_hop_allowed(i, split_guest, split_pending)) continue;   /* the guest's or a joining pad */
             g = &state[i].Gamepad;
             if ((g->wButtons & ~xi_slot[i].prev_buttons) ||
                 (g->bLeftTrigger > XI_TRIGGER_PRESS && xi_slot[i].prev_lt <= XI_TRIGGER_PRESS) ||
@@ -756,16 +837,15 @@ static DWORD xi_get_state_core(DWORD dwPort, XBOX_INPUT_STATE *pState)
     if (dwPort == 0) {
         BOOL lost = FALSE;
         result = xi_poll_active(&xi_state, &lost);   /* also refreshes every slot's connected state */
-        if (xi_split_mode()) {
-            /* Split screen: port 0 keeps its own pad (or none, keyboard and mouse only). */
-            DWORD slot = xi_split_slot(0);
-            result = slot == XI_NO_SLOT ? ERROR_DEVICE_NOT_CONNECTED : xi_get(slot, &xi_state);
-        }
+        /* Split screen with a guest in: player 1 is the keyboard and mouse only (the poll above
+         * already read the active pad, which is player 1's whenever split_port_slot allows one). */
+        if (xi_split_mode() && xi_split_slot(0) == XI_NO_SLOT) result = ERROR_DEVICE_NOT_CONNECTED;
         if (lost && pc_input_device() == PC_INPUT_GAMEPAD && pc_input_context() == PC_INPUT_GAMEPLAY)
             xi_arm_pause_tap();
     } else if (xi_split_mode()) {
         DWORD slot = xi_split_slot(dwPort);
         result = slot == XI_NO_SLOT ? ERROR_DEVICE_NOT_CONNECTED : xi_get(slot, &xi_state);
+        if (result == ERROR_SUCCESS && dwPort == 1) xi_split_port1_filter(&xi_state);
     } else result = xi_get(dwPort, &xi_state);
     if (result != ERROR_SUCCESS) {
         g_controller_connected[dwPort] = FALSE;

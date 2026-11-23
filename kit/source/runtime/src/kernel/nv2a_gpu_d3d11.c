@@ -416,6 +416,19 @@ static int gpu_option(const char *name, int fallback)
     const char *v=getenv(name);
     return v && *v?atoi(v):fallback;
 }
+/* The far (right or bottom) edge of a clip in host pixels. Edges round up so a clip covers every
+ * pixel it touches -- except an edge at the middle of the target, the seam between two split-screen
+ * views: there the near edge of the other view rounds down, so rounding up too made the two views
+ * overlap by one pixel whenever the host size is odd (BUG-015: 1707 px wide at 16:9, 853.5 -> 854 vs
+ * 853). The seam rounds down on both sides. RECOMP_SCISSOR_EXACT_EDGE=0: always round up (1.1.7). */
+static LONG clip_far_edge(uint32_t edge,uint32_t dim,uint32_t pixels)
+{
+    static int exact=-1;
+    if(exact<0)exact=gpu_option("RECOMP_SCISSOR_EXACT_EDGE",1);
+    if(!dim)return 0;
+    if(exact && edge*2==dim)return (LONG)((uint64_t)edge*pixels/dim);
+    return (LONG)(((uint64_t)edge*pixels+dim-1)/dim);
+}
 
 /* A colour surface whose SET_SURFACE_FORMAT type (bits 8-11) is 2 is written
  * swizzled by the NV2A, at the log2 size in bits 16-23/24-31; the pitch is
@@ -1932,7 +1945,7 @@ static int draw_batch(const Nv2aGpuState *g,const void *vertices,uint32_t stride
     }
     D3D11_VIEWPORT vp={0,0,(float)target->pixel_width,(float)target->pixel_height,0,1};
     D3D11_RECT scissor={(LONG)((uint64_t)g->clip_x*target->pixel_width/target->width),(LONG)((uint64_t)g->clip_y*target->pixel_height/target->height),
-        (LONG)(((uint64_t)(g->clip_x+g->clip_w)*target->pixel_width+target->width-1)/target->width),(LONG)(((uint64_t)(g->clip_y+g->clip_h)*target->pixel_height+target->height-1)/target->height)};
+        clip_far_edge(g->clip_x+g->clip_w,target->width,target->pixel_width),clip_far_edge(g->clip_y+g->clip_h,target->height,target->pixel_height)};
     if(!s.pipeline_valid || memcmp(&s.bound_viewport,&vp,sizeof(vp))) {
         ID3D11DeviceContext_RSSetViewports(s.context,1,&vp);s.bound_viewport=vp;
     }
@@ -2574,7 +2587,7 @@ int nv2a_gpu_clear(const Nv2aGpuState *g,uint32_t mask,uint32_t color,float dept
         if(target->format==0xA){rgba[0]=0;rgba[3]=1;}
         if(s.context1) {
             D3D11_RECT r={(LONG)((uint64_t)g->clip_x*target->pixel_width/target->width),(LONG)((uint64_t)g->clip_y*target->pixel_height/target->height),
-                (LONG)(((uint64_t)(g->clip_x+g->clip_w)*target->pixel_width+target->width-1)/target->width),(LONG)(((uint64_t)(g->clip_y+g->clip_h)*target->pixel_height+target->height-1)/target->height)};
+                clip_far_edge(g->clip_x+g->clip_w,target->width,target->pixel_width),clip_far_edge(g->clip_y+g->clip_h,target->height,target->pixel_height)};
             ID3D11DeviceContext1_ClearView(s.context1,(ID3D11View *)target->rtv,rgba,&r,1);
         } else ID3D11DeviceContext_ClearRenderTargetView(s.context,target->rtv,rgba);
         target->dirty=1;

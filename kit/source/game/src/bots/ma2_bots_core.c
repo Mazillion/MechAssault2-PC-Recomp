@@ -48,6 +48,7 @@ void xbox_log_redact(char *text, size_t size);
 #include "ma2_bot_api.h"
 #include "ma2_bot_track.h"
 #include "ma2_bots_core.h"
+#include "ma2_split_slots.h"   /* split screen: room for bots next to the humans */
 #include "platform/pc_frontend.h"   /* pc_binding_get: RECOMP_TEST_HIJACK answers the minigame with the bound keys */
 #include "ma2_bot_env.h"   /* getenv, cached (the bot code asks every tick) */
 int ma2_scn_level_custom(void);   /* scenario/ma2_scenario.c: the level being played is a scenario (F21) */
@@ -394,26 +395,23 @@ static void compute_roster(uint32_t session, Roster *r)
     int humans = popcount4(mask), hr = 0, hb = 0;
     for (int c = 0; c < 4; c++)
         if (mask & (1u << c)) { uint32_t t = MEM32(session + 0x3A8 + c * 4); if (t == 1) hb++; else hr++; }   /* ew-b8 B8.6: the same rule as ma2_bots_ui.c human_sides */
-    int room = total_cap() - humans;
-    if (room > MA2_BOT_MAX_PLAYERS - humans) room = MA2_BOT_MAX_PLAYERS - humans;
-    if (room > MAX_BOTS) room = MAX_BOTS;
+    int cap_all = total_cap();
+    if (cap_all > MA2_BOT_MAX_PLAYERS) cap_all = MA2_BOT_MAX_PLAYERS;
+    if (cap_all - humans > MAX_BOTS) cap_all = MAX_BOTS + humans;
     r->game_type = (int)MEM32(session + 0x44);
     r->team_mode = team_mode_of(MEM32(session + 0x44));
     r->humans_red = r->team_mode ? hr : humans; r->humans_blue = r->team_mode ? hb : 0;
-    if (r->game_type == 6 && room > 1) room = 1;      /* Grinder: two-player co-op against the waves -- one bot */
-    if (room <= 0) return;
+    /* Each side's bots as set, up to 6 players a side (MechAssault 2's team size) with its humans; in
+     * free-for-all up to 12 players. AutoBalance no longer splits the total evenly (1 Red + 4 Blue had
+     * become 3v3 with you): it places player 1 on the short side when the counts are set (ma2_bots_ui.c).
+     * Split screen (1.2.0): a guest takes a bot's place when the slots are full -- in a team mode on the
+     * guest's own side, read here from the lobby, so a side switch in the Briefing Room moves the gap
+     * with it; the saved counts are untouched and the bot is back once the guest leaves. Grinder:
+     * two-player co-op against the waves, one bot at most (ma2_split_slots.h split_roster). */
     int br = 0, bb = 0;
-    if (!r->team_mode) {
-        br = clampi(cfg->ffa, 0, room);
-    } else {
-        /* Each side's bots as set, up to 6 players a side (MechAssault 2's team size) with its humans.
-         * AutoBalance no longer splits the total evenly (1 Red + 4 Blue had become 3v3 with you):
-         * it places the players on the short side when the counts are set (ma2_bots_ui.c). */
-        int cap = total_cap() / 2;
-        br = clampi(cfg->red, 0, cap - hr > 0 ? cap - hr : 0);
-        bb = clampi(cfg->blue, 0, cap - hb > 0 ? cap - hb : 0);
-        if (br + bb > room) bb = room - br > 0 ? room - br : 0;
-    }
+    split_roster(r->team_mode, r->game_type == 6, cap_all, cfg->red, cfg->blue, cfg->ffa,
+                 r->team_mode ? hr : humans, r->team_mode ? hb : 0, &br, &bb);
+    if (br + bb <= 0) return;
     r->n = br + bb;
     if (env_on("RECOMP_BOT_DIAG")) {   /* once per change: the humans' teams as read, the bots per side */
         static int last = -1; int key = hr | hb << 4 | br << 8 | bb << 12 | (int)mask << 16 | r->team_mode << 20;

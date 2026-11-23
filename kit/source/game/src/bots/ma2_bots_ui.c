@@ -40,6 +40,7 @@
 #include <string.h>
 #include "ma2_bot_env.h"   /* getenv, cached (the bot code asks every tick) */
 #include "ma2_bot_c7.h"    /* C7 switches + counters */
+#include "ma2_split_slots.h" /* split screen: room for bots next to the humans */
 #define eax g_eax
 #define ecx g_ecx
 #define edx g_edx
@@ -260,6 +261,7 @@ typedef struct Ui {
     int frames, populated, team;        /* team: -1 unknown, 0 FFA, 1 team */
     int cur[ROWS];                      /* last synchronised selection values */
     int placed;                         /* the local players were put on a side for these counts */
+    unsigned mask;                      /* the local-player mask the rows were last shown for (split screen) */
 } Ui;
 static Ui g_ui;
 
@@ -344,11 +346,22 @@ static void human_sides(uint32_t session, int *red, int *blue) {
  * Briefing Room stands. */
 #define LOBBY_MENU_VT 0x00482240u
 static struct { int pending, frames; uint32_t side[4]; } g_place;
+/* Split screen: the guest's team. Owner decision 2026-11-23: a joining guest keeps the ORIGINAL
+ * game's own team assignment and may switch sides in the Briefing Room; no rule of ours places it.
+ * THE ONE PLACE TO CHANGE THAT: set SPLIT_PLACE_GUEST to 1 and the short-side rule below places the
+ * guest like player 1 (each human on the side the counts leave short). */
+#define SPLIT_PLACE_GUEST 0
+static int lowest_human(unsigned m) { for (int c = 0; c < 4; c++) if (m & (1u << c)) return c; return -1; }
+static int placed_human(unsigned m, int c) { return SPLIT_PLACE_GUEST || c == lowest_human(m); }
 static void place_humans(uint32_t session, int red_bots, int blue_bots) {
     unsigned m = MEM32(0x50C9AC) & 0xF;
     int red = red_bots, blue = blue_bots;
+    for (int c = 0; c < 4; c++) {   /* a human the rule does not place still fills its side first */
+        if (!(m & (1u << c)) || placed_human(m, c)) continue;
+        if (MEM32(session + 0x3A8 + c * 4) == 1) blue++; else red++;
+    }
     for (int c = 0; c < 4; c++) {
-        if (!(m & (1u << c))) continue;
+        if (!(m & (1u << c)) || !placed_human(m, c)) continue;
         uint32_t at = session + 0x3A8 + c * 4, side = MEM32(at) == 1 ? 1u : 0u;
         if (red < blue) side = 0; else if (blue < red) side = 1;
         if (MEM32(at) != side) {
@@ -365,7 +378,7 @@ static void place_hold(void) {
     unsigned m = MEM32(0x50C9AC) & 0xF;
     if (!g_place.pending || !valid_widget(session) || MEM32(session + 0x4C) != 2) return;
     for (int c = 0; c < 4; c++) {
-        if (!(m & (1u << c))) continue;
+        if (!(m & (1u << c)) || !placed_human(m, c)) continue;
         uint32_t at = session + 0x3A8 + c * 4;
         if (MEM32(at) != g_place.side[c]) {
             MEM32(at) = g_place.side[c];
@@ -964,10 +977,13 @@ void ma2_gui_dump(uint32_t owner, const char *why) {
  * A fork that adds a backend can leave items alone:
  *   - RECOMP_ONLINE_MENUS=1: Conquest, System Link, Xbox Live and the Live status;
  *   - RECOMP_SPLITSCREEN_MENUS=1: Add Guest (also needs RECOMP_USB_PADS=2..4, so that a second
- *     controller exists on the bus); RECOMP_SPLITSCREEN=1 / [Debug] SplitScreen=1 (main.c) sets
- *     both and gives each player's port its own host pad (xinput_device.c);
+ *     controller exists on the bus). Since 1.2.0 split screen is on by default: main.c sets both
+ *     unless RECOMP_SPLITSCREEN=0 / [Debug] SplitScreen=0, and gives the guest's port its own host
+ *     pad (xinput_device.c, split_route.h). The pause menu's Add Guest stays disabled either way:
+ *     a guest joins only in the Multiplayer menus, never mid-match (owner rule, 1.2.0; offline the
+ *     pause menu's slot is Quit to Main Hub anyway);
  *   - RECOMP_DEMO_MENUS=1: Game Demos. */
-enum { FEATURE_ONLINE = 1, FEATURE_SPLITSCREEN = 2, FEATURE_DEMOS = 3 };
+enum { FEATURE_ONLINE = 1, FEATURE_SPLITSCREEN = 2, FEATURE_DEMOS = 3, FEATURE_MIDMATCH_GUEST = 4 };
 int ma2_scn_mission_count(void);   /* scenario/ma2_scenario.c: FEATURE_DEMOS = Custom Scenarios */
 /* text_lo..text_hi: the item's text id (+0xE8) must be in that range (0, 0 = any text). */
 typedef struct { uint32_t menu_vt, item_vt, action; int feature; const char *what; uint32_t text_lo, text_hi; } DisabledItem;
@@ -977,7 +993,7 @@ static const DisabledItem k_disabled[] = {
     { 0x0048C228u, 0x004874A8u,   2, FEATURE_ONLINE,      "multiplayer SYSTEM LINK", 0, 0 },
     { 0x0048C228u, 0x004874A8u,   3, FEATURE_ONLINE,      "multiplayer XBOX LIVE", 0, 0 },
     { 0x0048C228u, 0x004874A8u,   4, FEATURE_SPLITSCREEN, "multiplayer ADD GUEST", 0, 0 },
-    { 0x004827B0u, 0x004830F0u, 600, FEATURE_SPLITSCREEN, "pause Add Guest", 0x7D00u, 0x7D01u },
+    { 0x004827B0u, 0x004830F0u, 600, FEATURE_MIDMATCH_GUEST, "pause Add Guest", 0x7D00u, 0x7D01u },
 };
 #define PAUSE_MENU_VT   0x004827B0u
 #define CREDITS_MENU_VT 0x0048BD88u
@@ -990,10 +1006,12 @@ static int feature_off(int feature) {
     /* The Game Demos slot is Custom Scenarios now (scenario/ma2_scenario.c) and stays enabled: with
      * no missions it offers the Scenario Editor instead of the picker (ma2_scn_custom_enter). */
     (void)demos;
+    if (feature == FEATURE_MIDMATCH_GUEST) return 1;   /* never: guests join in the Multiplayer menus only */
     return feature == FEATURE_ONLINE ? online : feature == FEATURE_SPLITSCREEN ? split : 0;
 }
 int ma2_menu_policy_online(void) { return !feature_off(FEATURE_ONLINE); }
-int ma2_menu_policy_splitscreen(void) { return !feature_off(FEATURE_SPLITSCREEN); }
+/* The pause menu's free-controller test (recomp_0052.c): Add Guest mid-match stays off (owner rule, 1.2.0). */
+int ma2_menu_policy_splitscreen(void) { return !feature_off(FEATURE_MIDMATCH_GUEST); }
 /* Widgets the current menu keeps disabled, rebuilt each menu frame (render thread never reads it). */
 static uint32_t g_kept[16]; static unsigned g_kept_n;
 int ma2_menu_policy_keeps_disabled(uint32_t widget) {
@@ -1034,9 +1052,11 @@ static void policy_widget(uint32_t w, int depth, PolicyCtx *ctx) {
     }
 }
 void ma2_scn_menu_frame(uint32_t object, uint32_t vtable);   /* scenario/ma2_scenario.c */
+static void split_frame(uint32_t object, uint32_t vtable);
 void ma2_menu_policy_pulse(uint32_t object, uint32_t vtable) {
     if (!valid_widget(object)) return;
     ma2_scn_menu_frame(object, vtable);   /* custom scenarios: Test file selected in the mission picker */
+    split_frame(object, vtable);          /* split screen: guest join (quick join, Add Guest dialog) */
     if (vtable == LOBBY_MENU_VT) place_hold();
     int relevant = vtable == PAUSE_MENU_VT || vtable == CREDITS_MENU_VT;
     for (size_t i = 0; i < sizeof k_disabled / sizeof *k_disabled; i++) relevant |= k_disabled[i].menu_vt == vtable;
@@ -1051,7 +1071,88 @@ void ma2_menu_policy_pulse(uint32_t object, uint32_t vtable) {
     memcpy(g_kept, ctx.kept, sizeof g_kept); g_kept_n = ctx.kept_n;
 }
 
+/* ============================ split screen: guest join ============================ */
+/* Owner scope (1.2.0): split screen on by default; the guest joins only in the Multiplayer menus,
+ * with the original Add Guest item, or by pressing Menu/START on a connected controller that is not
+ * player 1's ("quick join"). A quick join goes through the very function the Add Guest dialog ends
+ * in: sub_00224753 (eax = controller, args (menu, 1)) -- the dialog's completion in the Multiplayer
+ * menu's update (sub_00224362, 0x2243C3) calls it with the controller that pressed START. It adds the
+ * player (sub_001F4BCB: local mask 0x50C9AC), sets 0x50C9B0 and re-splits the views (sub_0016B6D7).
+ * Offline it does not touch the menu argument (that is only written when the session object
+ * 0x524C14 has flag 0x18 bit 2, a networked session); the join is refused then off the Multiplayer menu.
+ * The input layer decides which pad is free and routes it (xinput_device.c, split_route.h). */
+#define MP_MENU_VT 0x0048C228u          /* Multiplayer: LOCAL XBOX / SYSTEM LINK / XBOX LIVE / ADD GUEST */
+#define NEWGAME_MENU_VT 0x0048C2F8u     /* New Game (Game Type, map, bots) */
+int  xbox_SplitScreenOn(void);
+void xbox_SplitJoinWindow(int dialog);
+int  xbox_SplitTakeJoin(void);
+void xbox_SplitSetGuest(int slot);
+int  xbox_SplitGuestSlot(void);
+static int split_join_screen(uint32_t vtable) {
+    static int lobby = -1;   /* RECOMP_SPLIT_JOIN_LOBBY=1: the Briefing Room too (test; see RESULT-splitscreen.md) */
+    if (lobby < 0) lobby = env_or("RECOMP_SPLIT_JOIN_LOBBY", 0) != 0;
+    return vtable == MP_MENU_VT || vtable == NEWGAME_MENU_VT || (lobby && vtable == LOBBY_MENU_VT);
+}
+static int popcount4u(unsigned m) { int n = 0; for (m &= 0xF; m; m &= m - 1) n++; return n; }
+/* sub_00224753 with add = 1: what the Add Guest dialog calls once a controller pressed START. */
+static int guest_add(uint32_t controller, uint32_t menu) {
+    GuiRegisters r = save_registers();
+    eax = controller;
+    PUSH32(esp, 1); PUSH32(esp, menu);
+    PUSH32(esp, 0x002243D5u); RECOMP_ABI_CALL(0x00224753u, sub_00224753);
+    int ok = (int)(eax & 0xFF);
+    restore_registers(&r);
+    return ok;
+}
+static void split_frame(uint32_t object, uint32_t vtable) {
+    static int on = -1, gone;
+    if (on < 0) on = xbox_SplitScreenOn() != 0;
+    if (!on) return;
+    unsigned mask = MEM32(0x50C9AC) & 0xF;
+    int humans_in = popcount4u(mask);
+    int dialog = vtable == MP_MENU_VT && valid_widget(MEM32(object + 0x8C)) && MEM32(object + 0x80) != 0;
+    int screen = split_join_screen(vtable);
+    if (screen && humans_in < 2) xbox_SplitJoinWindow(dialog);
+    int slot = xbox_SplitTakeJoin();
+    if (slot >= 0) {
+        uint32_t session = MEM32(0x524C14);
+        uint32_t flags = valid_widget(session) ? MEM32(session + 0x18) : 0;
+        int p1 = lowest_human(mask), controller = p1 == 0 ? 1 : -1;   /* the guest's pad is on guest port 1 */
+        const char *why = !screen ? "not in the Multiplayer menus" : humans_in != 1 ? "a guest is already in"
+                        : xbox_SplitGuestSlot() >= 0 ? "a pad is joining" : controller < 0 ? "player 1 is not controller 1"
+                        : (flags & 0x10) ? "the session refuses guests" : ((flags & 4) && vtable != MP_MENU_VT) ? "networked session" : NULL;
+        if (why) fprintf(stderr, "[PC-SPLIT] quick join from host slot %d ignored: %s\n", slot, why);
+        else {
+            xbox_SplitSetGuest(slot);
+            int ok = guest_add((uint32_t)controller, vtable == MP_MENU_VT ? object : 0);
+            unsigned after = MEM32(0x50C9AC) & 0xF;
+            fprintf(stderr, "[PC-SPLIT] quick join: host slot %d -> controller %d (%s; local mask %X -> %X, menu %08X, session flags %X)\n",
+                    slot, controller + 1, ok && popcount4u(after) >= 2 ? "joined" : "refused by the game", mask, after, vtable, flags);
+            if (popcount4u(after) < 2) xbox_SplitSetGuest(-1);
+            mask = after; humans_in = popcount4u(after);
+        }
+    }
+    /* The guest left (Remove Guest) or a dialog join was refused: player 1 gets the active pad back. */
+    if (xbox_SplitGuestSlot() >= 0 && humans_in < 2 && !dialog) {
+        if (++gone >= 3) { xbox_SplitSetGuest(-1); gone = 0; }
+    } else gone = 0;
+    {   static unsigned last = 0xFFFF;
+        if (mask != last) { fprintf(stderr, "[PC-SPLIT] local players mask %X (%d)\n", mask, humans_in); last = mask; } }
+}
+
 /* ============================ per-frame hook ============================ */
+/* F5 (split screen): the free-for-all row's help says how many bots fit ("Bot opponents, up to 11.").
+ * With a guest in the room is 10: the same sentence with the number the room allows, in every
+ * language (the first "11" in the text is the count). */
+static const wchar_t *ffa_row_text(const wchar_t *w, int room) {
+    static wchar_t buf[256];
+    const wchar_t *at = w ? wcsstr(w, L"11") : NULL;
+    if (!at || room == 11 || room < 1 || room > 99 || wcslen(w) + 2 >= sizeof buf / sizeof *buf) return w;
+    size_t head = (size_t)(at - w);
+    wmemcpy(buf, w, head);
+    swprintf(buf + head, sizeof buf / sizeof *buf - head, L"%d%ls", room, at + 2);
+    return buf;
+}
 int ma2_bots_newgame_update(uint32_t menu) {
     if (!valid_widget(menu)) return 0;
     uint32_t form = MEM32(menu + 0x9C);
@@ -1069,52 +1170,52 @@ int ma2_bots_newgame_update(uint32_t menu) {
     const Ma2BotConfig *cfg = ma2_bots_config();
     Ma2BotConfig c = *cfg;
     int team = team_mode(menu, session);
-    int max_each = total_cap() - humans();              /* bots we can add next to the humans */
-    if (max_each < 1) max_each = 1;
-
-    if (!u->populated) populate(u, &c, team, max_each);
+    int grinder = g_ui_gametype == 6;
+    /* The rows list every count a match can have (11 = total slots minus one player); what a row
+     * shows is cut to the room there is next to the humans (split screen: a guest takes a bot's
+     * place), without saving the cut: the bot is back when the guest leaves (ma2_split_slots.h). */
+    if (!u->populated) populate(u, &c, team, total_cap() - 1);
 
     /* Mode change (FFA <-> team): relabel row 910 and swap its saved value. */
     if (u->team != team) {
         u->team = team;
         if (valid_widget(u->label[ROW_RED])) ma2_gui_text(u->label[ROW_RED], guest_text(team ? TEXT_ROW_RED : TEXT_ROW_BOTS));
-        u->cur[ROW_RED] = team ? c.red : c.ffa;
-        barrel_select(u->barrel[ROW_RED], u->cur[ROW_RED], 0);
+        u->cur[ROW_RED] = -1;   /* shown afresh below; the barrel's value is not a pick */
     }
 
-    /* Read what the player chose and persist changes. */
+    /* Read what the player chose. */
     int r = barrel_value(u->barrel[ROW_RED]), b = barrel_value(u->barrel[ROW_BLUE]), s = barrel_value(u->barrel[ROW_SKILL]);
-    if (r < 0) r = u->cur[ROW_RED];
-    if (b < 0) b = u->cur[ROW_BLUE];
+    if (u->cur[ROW_RED] < 0) r = -1;
     if (s < 0) s = u->cur[ROW_SKILL];
-    {   /* Grinder is two-player co-op: the row offers no bot or one. Showing 1 is not saved -- the
-         * count for the other modes stays and comes back on leaving Grinder; Off is saved. */
-        static int was_grinder;
-        int grinder = g_ui_gametype == 6;
-        if (grinder) {
-            if (r > 1) { r = 1; barrel_select(u->barrel[ROW_RED], 1, 0); }
-            if (r == 1) u->cur[ROW_RED] = 1;
-        } else if (was_grinder && !team) { r = c.ffa; barrel_select(u->barrel[ROW_RED], r, 0); u->cur[ROW_RED] = r; }
-        was_grinder = grinder;
-    }
+    int saved_r = team ? c.red : c.ffa, saved_b = c.blue;
+    int room_r, room_b = side_cap();
+    unsigned mask = MEM32(0x50C9AC) & 0xF;
     if (team) {
         /* Each row is that side's bots, as set (no longer split evenly round the players). A side
-         * holds 6 players: the players' own side one bot fewer each. Changing a count (or opening
-         * the screen) places the players on the side the counts leave short; a team picked in the
-         * Briefing Room afterwards stands. */
+         * holds 6 players, humans included. Changing a count (or opening the screen, or a guest
+         * joining) places player 1 on the side the counts leave short; a team picked in the
+         * Briefing Room afterwards stands. The guest keeps the game's own side (SPLIT_PLACE_GUEST). */
         int cap = side_cap(), hr = 0, hb = 0;
-        if (r > cap) { r = cap; barrel_select(u->barrel[ROW_RED], r, 0); }
-        if (b > cap) { b = cap; barrel_select(u->barrel[ROW_BLUE], b, 0); }
-        if (!u->placed || r != u->cur[ROW_RED] || b != u->cur[ROW_BLUE]) {
+        int want_r = split_bots_pick(saved_r, u->cur[ROW_RED], r, cap), want_b = split_bots_pick(saved_b, u->cur[ROW_BLUE], b, cap);
+        if (!u->placed || want_r != saved_r || want_b != saved_b || mask != u->mask) {
             u->placed = 1;
             /* F48: the design rule (players on the short side) no longer hangs on the hidden
              * AutoBalance key; it has its own switch, [Bots] ShortSide / RECOMP_BOT_SHORT_SIDE. */
-            if (c7_on("shortside", "RECOMP_BOT_SHORT_SIDE", "ShortSide", 1)) { place_humans(session, r, b); c7_add("shortside", "placed", 1); }
+            if (c7_on("shortside", "RECOMP_BOT_SHORT_SIDE", "ShortSide", 1)) { place_humans(session, want_r, want_b); c7_add("shortside", "placed", 1); }
         }
         human_sides(session, &hr, &hb);
-        if (r + hr > cap) { r = cap - hr < 0 ? 0 : cap - hr; barrel_select(u->barrel[ROW_RED], r, 0); }
-        if (b + hb > cap) { b = cap - hb < 0 ? 0 : cap - hb; barrel_select(u->barrel[ROW_BLUE], b, 0); }
+        room_r = split_side_room(cap, hr); room_b = split_side_room(cap, hb);
+    } else {
+        /* Free-for-all: total slots minus humans. Grinder is two-player co-op as the game has it:
+         * no bot or one, guest or not; showing 1 is not saved, Off is. */
+        room_r = grinder ? 1 : split_ffa_room(total_cap(), humans());
     }
+    u->mask = mask;
+    int new_r = split_bots_pick(saved_r, u->cur[ROW_RED], r, room_r);
+    int new_b = team ? split_bots_pick(saved_b, u->cur[ROW_BLUE], b, room_b) : saved_b;
+    int show_r = split_bots_shown(new_r, room_r), show_b = split_bots_shown(new_b, room_b);
+    if (r != show_r) barrel_select(u->barrel[ROW_RED], show_r, 0);
+    if (team && b != show_b) barrel_select(u->barrel[ROW_BLUE], show_b, 0);
     {   /* The Bot Skill row focused: its one-line description replaces the screen's (see ma2_bots_desc_override). */
         uint32_t sb = u->barrel[ROW_SKILL];
         /* focus: the game shows a barrel's step arrows only while it has focus (sub_00212113); +0x74 bit 3 stays set */
@@ -1128,8 +1229,9 @@ int ma2_bots_newgame_update(uint32_t menu) {
                 if (!valid_widget(cb)) continue;
                 barrel_arrows(cb, &ca, &cr);
                 if (!((valid_widget(ca) && (MEM32(ca + 0x74) & 2)) || (valid_widget(cr) && (MEM32(cr + 0x74) & 2)))) continue;
-                int text = team ? MA2_TEXT_DESC_TEAM_ROWS : g_ui_gametype == 6 ? MA2_TEXT_DESC_GRINDER_ROW : MA2_TEXT_DESC_FFA_ROW;
+                int text = team ? MA2_TEXT_DESC_TEAM_ROWS : grinder ? MA2_TEXT_DESC_GRINDER_ROW : MA2_TEXT_DESC_FFA_ROW;
                 w = ma2_bot_text(text, bots_language());
+                if (text == MA2_TEXT_DESC_FFA_ROW) w = ffa_row_text(w, room_r);   /* split screen: "up to 10" with a guest */
             }
         }
         static int had;
@@ -1139,12 +1241,21 @@ int ma2_bots_newgame_update(uint32_t menu) {
         g_desc_widget = w && valid_widget(u->desc) ? u->desc : 0;
         g_desc_text = g_desc_widget ? ma2_pc_wide(w) : 0;
     }
-    if (r != u->cur[ROW_RED] || b != u->cur[ROW_BLUE] || s != u->cur[ROW_SKILL]) {
-        if (team) c.red = r; else c.ffa = r;
-        c.blue = b; c.skill = s;
+    if (new_r != saved_r || (team && new_b != saved_b) || s != u->cur[ROW_SKILL]) {
+        if (team) c.red = new_r; else c.ffa = new_r;
+        if (team) c.blue = new_b;
+        c.skill = s;
         ma2_bots_config_set(&c);
-        u->cur[ROW_RED] = r; u->cur[ROW_BLUE] = b; u->cur[ROW_SKILL] = s;
     }
+    if (show_r != u->cur[ROW_RED] || show_b != u->cur[ROW_BLUE]) {
+        static int last = -1; int key = show_r | show_b << 8 | (int)mask << 16 | team << 24;
+        if (key != last && (getenv("RECOMP_BOT_DIAG") || (mask & (mask - 1)))) {   /* always with a guest in (proof) */
+            last = key;
+            fprintf(stderr, "[BOT-UI] rows %s: shown %d/%d (saved %d/%d, room %d/%d, humans mask %X)\n", team ? "team" : grinder ? "grinder" : "ffa",
+                    show_r, show_b, new_r, new_b, room_r, room_b, mask);
+        }
+    }
+    u->cur[ROW_RED] = show_r; u->cur[ROW_BLUE] = show_b; u->cur[ROW_SKILL] = s;
 
     /* Layout: stack under the lowest visible original row (29 px pitch). */
     static const unsigned original_rows[] = { 0x88, 0x74, 0x70, 0x84, 0x80, 0x7C, 0x78 };  /* 800,100,200,300,400,600,500 */
