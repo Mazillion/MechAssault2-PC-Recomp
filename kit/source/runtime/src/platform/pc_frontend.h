@@ -61,6 +61,8 @@ void pc_input_register_output_policy_callback(PcInputOutputPolicyCallback callba
 void pc_input_set_context(enum PcInputContext context);
 enum PcInputContext pc_input_context(void);
 void pc_input_note_keyboard(void);
+void pc_input_note_keyboard_press(void);          /* a key or mouse button: also player 1's device (split screen) */
+enum PcInputDevice pc_input_p1_device(void);       /* keyboard/mouse or pad, by the last key, click or pad press */
 void pc_input_note_gamepad(unsigned buttons, unsigned left_trigger, unsigned right_trigger,
     int left_x, int left_y, int right_x, int right_y);
 enum PcInputDevice pc_input_device(void);

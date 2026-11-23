@@ -1052,7 +1052,9 @@ static void ma2_aim_command_trace(uint32_t object, uint32_t history)
 
 void ma2_input_context(uint32_t controller)
 {
-    ma2_mouse_primary_context=controller && GUEST32(controller)==ma2_primary_input_slot;
+    {   extern int xbox_SplitP1Keyboard(void);   /* split screen: no mouse aim while player 1 is locked to a pad */
+        ma2_mouse_primary_context=controller && GUEST32(controller)==ma2_primary_input_slot && xbox_SplitP1Keyboard();
+    }
     if(ma2_diag(DIAG_BOT)&&controller){
         static DWORD last;DWORD now=GetTickCount();
         if(now-last>=1000){last=now;
