@@ -100,6 +100,24 @@ class Progress(Base):
         self.assertTrue(any(l.endswith('Reading your disc') for l in out), out)
         self.assertLess(max(nums[:-1]), 1.0)
 
+    def test_an_update_with_the_kept_build_never_goes_back_a_stage(self):
+        """As the real 1.1.7 -> 1.1.8 update ran: verify (outside the stages), translation kept, a short build."""
+        out, clock, p = self.lines()
+        names = ['check', 'verify', 'analyze', 'recompile', 'generate', 'patch', 'build', 'assets', 'install', 'finish']
+        p.plan(names)
+        for i, n in enumerate(names, 1):
+            kept = n in ('analyze', 'recompile', 'generate')
+            p.step(i, len(names), n, n, kept)
+            if not kept:
+                clock.t += 5; p.emit()
+                if n == 'build':
+                    for k in (1, 2, 3): p.log('[%d/3] Building C object a%d.obj' % (k, k))
+        p.finish('Ready to play')
+        titles = [t for _, t, _ in p.model.stages]
+        seen = [l.split(' ', 2)[2] for l in out]
+        order = [titles.index(t) for t in seen if t in titles]
+        self.assertEqual(order, sorted(order), seen)
+
     def test_a_line_at_least_once_a_minute_even_without_change(self):
         out, clock, p = self.lines()
         p.plan(['check', 'build'])

@@ -3269,9 +3269,11 @@ class LauncherProgress:
             if self.model: self.model.feed(line); self.emit()
 
     def text(self):
+        """The stage of the step that runs now (its detail when it has one); a step outside the stages keeps the last text."""
         m = self.model
-        for sid, title, _ in m.stages:
-            if m.stage_status(sid) == 'active': return m.stage_detail(sid) or title
+        for sid, title, names in m.stages:
+            if m.current in names: return m.stage_detail(sid) or title
+        if self.last: return self.last[1]
         return m.stages[0][1] if m.stages else 'Starting'
 
     def emit(self):
