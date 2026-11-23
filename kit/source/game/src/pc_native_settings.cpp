@@ -754,8 +754,16 @@ static int reply_input(HWND window,UINT message,uintptr_t wparam,intptr_t lparam
     return 0;
 }
 // Guest thread, every menu frame: shows a waiting reply on the main menu and reads the pad while the box is open.
-static void reply_pulse(uint32_t vtable){
+static void reply_pulse(uint32_t object,uint32_t vtable){
     static WORD last_pad;
+    // The main menu starts the attract movie after 45 s without input (its update compares the game clock 0x4E2430 with
+    // the last-input time at +0x74 against 0xAFC8 ms). The box takes all input from the menu, so it keeps that time fresh:
+    // a player typing an answer is not idle.
+    if(reply_state!=0&&vtable==0x481B70&&object>=0x10000&&object<0x03FFF000){
+        uint32_t now=guest(0x4E2430),last=guest(object+0x74);
+        static bool logged;if(!logged){logged=true;fprintf(stderr,"[REPLY] main menu idle time %u ms (kept at 0 while the box is open)\n",now-last);}
+        if(now-last<=0xAFC8u+10000u)guest(object+0x74)=now;   // only what looks like that time stamp
+    }
     if(reply_state==0){
         ReplyLock l;
         if(!reply_queue.empty()&&vtable==0x481B70&&!opened&&!exit_dialog&&!pc_display_movie_active()&&!modal_available()&&!ma2_scn_editor_note()&&
@@ -1156,7 +1164,7 @@ extern "C" void ma2_pc_menu_pulse(uint32_t object,uint32_t vtable)
     // Unavailable features (Xbox Live, System Link, guests) are shown disabled (ma2_bots_ui.c menu policy).
     if(object>=0x10000&&object<0x03FFF000)ma2_menu_policy_pulse(object,vtable);
     if(vtable==0x4827B0&&!opened)report_pause_item(object);
-    reply_pulse(vtable);                       // 1.2.0: a reply waiting shows on the main menu; the pad while its box is open
+    reply_pulse(object,vtable);                     // 1.2.0: a reply waiting shows on the main menu; the pad while its box is open
     ma2_pc_input_context_update();
     sync_text_dialog();
     {   // Name keyboard footer: on keyboard/mouse the confirm prompt reads "Done" (Enter = Done there);
