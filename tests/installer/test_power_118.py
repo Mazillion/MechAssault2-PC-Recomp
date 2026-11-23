@@ -25,7 +25,7 @@ class PowerThrottle(unittest.TestCase):
         (SRC / 'pc_power_throttle.h').read_bytes().decode('ascii')
 
     def test_power_state_is_logged(self):
-        self.assertIn('[POWER] %s cpus=%u', (RT / 'platform' / 'pc_cpu_topo.c').read_text(encoding='utf-8'))
+        self.assertIn(r'"[POWER] %s cpus=%u\n", txt',(RT / 'platform' / 'pc_cpu_topo.c').read_text(encoding='utf-8'))
         health = (RT / 'apu' / 'apu_core.c').read_text(encoding='utf-8')
         self.assertIn('nvs=%ld %s', health)
         self.assertIn('pc_power_state_read(&pw)', health)
