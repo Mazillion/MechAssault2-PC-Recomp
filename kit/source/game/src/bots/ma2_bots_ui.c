@@ -964,7 +964,8 @@ void ma2_gui_dump(uint32_t owner, const char *why) {
  * A fork that adds a backend can leave items alone:
  *   - RECOMP_ONLINE_MENUS=1: Conquest, System Link, Xbox Live and the Live status;
  *   - RECOMP_SPLITSCREEN_MENUS=1: Add Guest (also needs RECOMP_USB_PADS=2..4, so that a second
- *     controller exists on the bus);
+ *     controller exists on the bus); RECOMP_SPLITSCREEN=1 / [Debug] SplitScreen=1 (main.c) sets
+ *     both and gives each player's port its own host pad (xinput_device.c);
  *   - RECOMP_DEMO_MENUS=1: Game Demos. */
 enum { FEATURE_ONLINE = 1, FEATURE_SPLITSCREEN = 2, FEATURE_DEMOS = 3 };
 int ma2_scn_mission_count(void);   /* scenario/ma2_scenario.c: FEATURE_DEMOS = Custom Scenarios */

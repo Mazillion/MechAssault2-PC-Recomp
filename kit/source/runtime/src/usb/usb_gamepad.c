@@ -336,6 +336,13 @@ typedef struct {
 
 static PadStep s_script[PAD_SCRIPT_MAX];
 static int     s_script_len = -1;
+/* RECOMP_TEST_PAD2 (split-screen tests, no second real pad needed): the same
+ * syntax, but a step without a "pN-" prefix is for pad 2 (the guest).
+ *   RECOMP_TEST_PAD2=40000:a,42000:lup:2000   a timeline, or @file
+ *   RECOMP_TEST_PAD2=live:<file>              lines appended while it runs
+ * It drives the virtual pad at the point every host pad is fed to the bus
+ * (usb_gamepad_report), so the game sees exactly what a real pad 2 sends. */
+static uint8_t s_parse_default_pad;
 
 static int same_word(const char *a, const char *b, size_t n)
 {
@@ -393,6 +400,7 @@ static void pad_script_parse(const char *text)
         if (!*p)
             break;
         memset(&st, 0, sizeof st);
+        st.pad = s_parse_default_pad;
         st.hold_ms = 150;
         st.at_ms = strtoul(p, &end, 0);
         if (end == p || *end != ':') {
@@ -422,11 +430,22 @@ static void pad_script_parse(const char *text)
     }
 }
 
+static void pad_script_load_spec(const char *spec);
 static void pad_script_load(void)
 {
-    const char *spec = getenv("RECOMP_PAD_SCRIPT");
+    const char *test2 = getenv("RECOMP_TEST_PAD2");
 
     s_script_len = 0;
+    pad_script_load_spec(getenv("RECOMP_PAD_SCRIPT"));
+    if (test2 && *test2 && strncmp(test2, "live:", 5) != 0) {
+        s_parse_default_pad = 1;
+        pad_script_load_spec(test2);
+        s_parse_default_pad = 0;
+    }
+}
+
+static void pad_script_load_spec(const char *spec)
+{
     if (!spec || !*spec)
         return;
     if (spec[0] == '@') {
@@ -469,12 +488,18 @@ static void pad_live_poll(unsigned long t)
     static char pending[512];
     static size_t npending;
     static unsigned long next_free[USB_GAMEPAD_MAX];
+    static uint8_t live_pad;    /* 1 when the file came from RECOMP_TEST_PAD2=live: */
     FILE *f;
     int c;
 
     if (!checked) {
+        const char *test2 = getenv("RECOMP_TEST_PAD2");
         checked = 1;
         path = getenv("RECOMP_PAD_LIVE");
+        if ((!path || !*path) && test2 && !strncmp(test2, "live:", 5)) {
+            path = test2 + 5;
+            live_pad = 1;
+        }
         if (path && *path) {
             fprintf(stderr, "  PAD: live input from %s\n", path);
             fflush(stderr);
@@ -503,13 +528,15 @@ static void pad_live_poll(unsigned long t)
                  * pad 1's -- split-screen players press at the same time. */
                 int pd = (pending[0] == 'p' || pending[0] == 'P')
                          && pending[1] >= '1' && pending[1] <= '4'
-                         && pending[2] == '-' ? pending[1] - '1' : 0;
+                         && pending[2] == '-' ? pending[1] - '1' : live_pad;
                 unsigned long at = t > next_free[pd] ? t : next_free[pd];
                 pending[npending] = 0;
                 snprintf(line, sizeof line, "%lu:%s", at, pending);
                 if (s_script_len >= PAD_SCRIPT_MAX - 1)
                     pad_script_compact(t);
+                s_parse_default_pad = live_pad;
                 pad_script_parse(line);
+                s_parse_default_pad = 0;
                 if (s_script_len > 0)
                     next_free[pd] = at + s_script[s_script_len - 1].hold_ms + 200;
                 fprintf(stderr, "  PAD: live \"%s\" at t=%lu ms\n", pending, at);
