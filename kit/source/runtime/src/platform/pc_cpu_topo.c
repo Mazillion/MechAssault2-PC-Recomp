@@ -677,8 +677,7 @@ static void pc_cpu_topo_init(void)
     {   /* 1.1.8: the power mode, plan and clocks (pc_power_state.h; "unknown" when Windows does not say) */
         pc_power_state ps2; char txt[160];
         pc_power_state_read(&ps2); pc_power_state_text(&ps2, txt, sizeof txt);
-        fprintf(stderr, "[POWER] %s cpus=%u
-", txt, ps2.ncpu);
+        fprintf(stderr, "[POWER] %s cpus=%u\n", txt, ps2.ncpu);
     }
     if (t->tier == PC_CPU_TIER_FLOOR)
         fprintf(stderr, "[CPU-TOPO] below 4-thread floor (logical=%u): thread placement stays off\n", t->logical);
