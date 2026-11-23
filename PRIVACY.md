@@ -28,10 +28,20 @@ Before you send, **What's included?** lists the exact files. **Save a copy inste
 ## Where it goes and how long it is kept
 
 1. A small service on Cloudflare receives the report. Its code is in [`relay/`](relay/).
-2. The report file is stored in Cloudflare storage and **deleted automatically after 60 days**.
+2. The report file is stored in Cloudflare storage and **deleted automatically 60 days after the last message** (60 days after it arrived when nobody replied; see [Replies to your report](#replies-to-your-report)).
 3. A short entry is opened in a **private** GitHub repository that only the developer can see. It holds the report number, what you typed, and a short summary: version, Windows, CPU, memory, graphics card, and the error. This entry is kept until the developer deletes it.
 
 A copy of every report also stays on your PC, in `%LOCALAPPDATA%\MechAssault2\Diagnostics`. You can delete it there at any time.
+
+## Replies to your report
+
+The developer can reply to a report you sent, and you can answer. This works only for reports sent from version 1.2.0 or later.
+
+- **On your PC.** When a report is sent, your PC keeps its report number, the date, and a random key in `%LOCALAPPDATA%\MechAssault2\report-conversations.txt`. The key is what lets only your PC read a reply. The report service keeps only a scrambled form of it, which can't be turned back into the key. A line is removed 60 days after the last message. Deleting the file stops all of this.
+- **Looking for replies.** Only while that file has a report less than 60 days old, the game (when it starts) and the installer (when it opens) send the report numbers and keys to the report service, and nothing else. The update check never does this. Your IP address is treated the same way as for a report: only scrambled, to limit how often one connection can ask, and never stored.
+- **A reply** is shown once: on the main menu when the game starts, or first thing when the installer opens. After that it is marked as read and is not shown again.
+- **Your answer** goes only to the developer. It is cleaned like the report text (user and PC names, profile folders and e-mail addresses are replaced) and can be up to 1000 characters. With "Attach my latest logs" ticked (the default), a new report file goes with it, made and cleaned exactly like a report. Your answer appears on the report's entry in the developer's **private** GitHub repository, so the developer is notified.
+- **How long it is kept.** The report, the replies, your answers and the files you attached are deleted 60 days after the **last** message. Your answers on the private GitHub entry are deleted then as well.
 
 ## Deleting a report
 

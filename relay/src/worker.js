@@ -35,7 +35,7 @@
 //   GET  /v1/open/forget         clears the cookie on this browser
 // The cookie value is HMAC-SHA256(OWNER_KEY, "owner-cookie-v1"): rotating OWNER_KEY revokes every cookie. It is
 // HttpOnly, Secure, SameSite=Lax (Lax so that a click on the link in a github.com issue still carries it), Path=/v1/.
-// It authorizes report downloads only: every other owner route still needs the X-MA2-Owner-Key header. No key or cookie
+// It authorizes report downloads and (1.2.0) the conversation page with its reply and edit forms only: every other owner route still needs the X-MA2-Owner-Key header. No key or cookie
 // value is ever put in a URL or a log line.
 //
 // Retention (1.1.7): every report is deleted KEEP_DAYS (60) days after it arrived. The hourly cron deletes the R2
