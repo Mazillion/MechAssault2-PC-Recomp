@@ -1,12 +1,16 @@
 <p align="center"><img src="docs/img/banner.jpg" alt="MechAssault 2 PC Recomp" width="100%"></p>
 
+# MechAssault 2: Lone Wolf Expanded (PC Recomp)
+
 An unofficial PC port of MechAssault 2: Lone Wolf (Xbox, 2004). You need your own copy of the game to use it. There are no game files in this repo or in the releases.
+
+**This is an offline-focused version of the game.** The goal is to bring new and interesting ways to play MechAssault 2 on your own or with friends on the same PC. So far that means offline bot matches in every multiplayer mode, split screen, and a scenario editor for building your own missions and maps.
 
 <!-- trailer goes here -->
 
 MechAssault 2 never came out on PC. This project takes the game's code off your own disc, recompiles it into a native Windows program using [xboxrecomp](https://github.com/sp00nznet/xboxrecomp), and puts a PC layer on top for graphics, input and settings. It's the original game code running natively, not a full emulator, although the Xbox audio chip and GPU are still emulated.
 
-This is a personal project of mine, so it hasn't undergone extensive testing beyond my two systems, but I thought I would share it with the world in case others want to give feedback or build on it. There is no online multiplayer support, since that isn't my interest, would be a lot of work, and is a niche already filled by XLink Kai. Split screen is disabled too, since getting it to work would have taken a lot more development on a feature I personally didn't need.
+This is a personal project of mine, so it hasn't undergone extensive testing beyond my two systems, but I thought I would share it with the world in case others want to give feedback or build on it. There is no online multiplayer support, since that isn't my interest, would be a lot of work, and is a niche already filled by XLink Kai.
 
 Not affiliated with Microsoft, Day 1 Studios or anyone who owns BattleTech / MechWarrior.
 
@@ -94,7 +98,7 @@ You can run the installer again later to update, repair or uninstall.
 - The first time you load each level it can run badly for a few seconds while shaders compile. It's fine after that.
 - Only the US disc works. PAL and Japanese discs aren't supported.
 - Every mission and cutscene loads and runs, but I haven't played all of them through to the end on this build.
-- No online multiplayer, and split screen is turned off.
+- No online multiplayer.
 
 The full list is in [Known issues.txt](kit/defaults/Docs/Known%20issues.txt). If the game crashes or something goes wrong, use Report a problem (in the window that opens after a crash, the pause menu, the Start menu or the installer's Help menu) and press Send report: it sends the logs, settings and PC details (plus a crash dump after a crash, or the last few minutes of a bot match), with your user name and PC name removed, and shows a report number. Nothing is sent until you press it, and sent reports are kept for 60 days. [PRIVACY.md](PRIVACY.md) lists exactly what a report contains and what it never collects. You can quote the number in an [issue](https://github.com/Mazillion/MechAssault2-PC-Recomp/issues). Don't attach game files.
 
