@@ -180,6 +180,51 @@ class Replies(unittest.TestCase):
         self.assertEqual(before, owner('/v1/admin/conversations'))
 
 
+class BothAtStart(Replies):
+    """An existing install, a newer release announced AND a reply waiting: the reply comes first; after Close the update
+    offer ("Version X is available." + "Update to X") is on the screen as without a reply."""
+    test_1_make_and_send_keeps_the_key = test_2_reply_screen_first_answer_with_logs_then_shown_once = None   # Replies' own tests run there
+    test_3_failed_send_and_a_reply_that_cannot_be_answered = test_4_no_entries_no_request = None
+
+    def test_reply_first_then_the_update_offer(self):
+        import shutil, mock_update, install
+        game_files = Path(os.environ.get('MA2_TEST_GAME_FILES') or '')
+        if not (game_files / 'ma2.xbe').is_file(): self.skipTest('set MA2_TEST_GAME_FILES=<extracted disc folder> (a dummy install needs ma2.xbe)')
+        srv = mock_update.MockUpdate(b'MZ' + os.urandom(2 * 1024 * 1024), latest='1.2.1').start()
+        saved = {k: os.environ.get(k) for k in ('MA2_SELF_UPDATE', 'MA2_SELF_UPDATE_TEST', 'MA2_UPDATE_RELAY', 'MA2_SELF_UPDATE_GITHUB')}
+        os.environ.update(MA2_SELF_UPDATE='1', MA2_SELF_UPDATE_TEST='1', MA2_UPDATE_RELAY=srv.base, MA2_SELF_UPDATE_GITHUB=srv.base)
+        try:
+            dest = self.tmp / 'Games' / 'MechAssault 2'
+            for f in ('MechAssault 2.exe', 'pc_assets/common.mgf'):
+                p = dest / f; p.parent.mkdir(parents=True, exist_ok=True); p.write_bytes(b'old')
+            (dest / 'game_files').mkdir(parents=True, exist_ok=True); shutil.copy2(game_files / 'ma2.xbe', dest / 'game_files' / 'ma2.xbe')
+            (dest / precheck.STAMP).write_text(json.dumps({'kit_id': install.KIT_ID, 'version': install.VERSION, 'public_version': install.PUBLIC_VERSION}))
+            d = Path(os.environ['LOCALAPPDATA']) / 'MechAssault2'; d.mkdir(parents=True, exist_ok=True)
+            (d / 'installer.json').write_text(json.dumps({'dest': str(dest)}))
+            rid = self.send_report()
+            owner('/v1/report/%s/reply' % rid, {'text': 'Thanks for the report. Version 1.2.1 fixes this crash: please update and tell me if it still happens.'})
+            root, app = rig.make()
+            try:
+                self.assertTrue(until(root, lambda: app.screen == 'reply', 20), app.screen)
+                pump(root, 1.0)
+                self.assertEqual(app.reply_back, 'setup')
+                shot(root, 'installer-5-reply-first-with-update-announced.png')
+                app.reply_close()
+                self.assertTrue(until(root, lambda: 'selfupdate' in app.w, 15))
+                pump(root, 0.3)
+                t = screen_text(app)
+                self.assertIn(gui.SU_OFFER % '1.2.1', t)
+                self.assertEqual(app.w['selfupdate'].text, gui.SU_LINK % '1.2.1')
+                shot(root, 'installer-6-after-close-the-update-offer.png')
+            finally:
+                root.destroy()
+        finally:
+            srv.stop()
+            for k, v in saved.items():
+                if v is None: os.environ.pop(k, None)
+                else: os.environ[k] = v
+
+
 class GameSide(unittest.TestCase):
     """The game's reply box: the helper result parser (C unit test, built when the MSVC tools are found) and the wiring."""
     def test_parser_c_unit_test(self):

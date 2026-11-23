@@ -837,7 +837,7 @@ static void draw_reply_box(ImDrawList *list,float width,float height,float sx,fl
     const float box_h=size*3.4f+8*u,btn_h=size*1.7f;
     if(answering)h+=size+4*u+box_h+8*u+size*1.3f+8*u;
     h+=btn_h+8*u+status_h+size*2.3f+pad;
-    float y=std::max(8*u,std::min((height-h)*.42f,height*.665f-h));   // above the main menu's panel when it fits
+    float y=std::max(8*u,std::min((height-h)*.42f,height*.65f-h));    // above the main menu's panel (its top is at 0.665) when it fits
     list->AddRectFilled(ImVec2(x0,y),ImVec2(x1,y+h),IM_COL32(15,26,38,236),4*u);
     list->AddRect(ImVec2(x0,y),ImVec2(x1,y+h),line,4*u,0,std::max(1.f,1.25f*u));
     float cx=x0+pad,cy=y+pad;
