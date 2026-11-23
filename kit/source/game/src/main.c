@@ -224,6 +224,12 @@ static void configure_pc(void)
             _putenv_s("RECOMP_WINDOW_HEIGHT", "960");
         }
     }
+    /* 1.1.8: started from RecompLauncher's Big Picture mode (its full-screen controller view): full screen for this
+     * launch, unless RECOMP_FULLSCREEN already says otherwise. Without RecompLauncher nothing changes. */
+    if (!getenv("RECOMP_FULLSCREEN")) {
+        const char *launcher_mode = getenv("RECOMPLAUNCHER_MODE");
+        if (launcher_mode && !_stricmp(launcher_mode, "bigpicture")) _putenv_s("RECOMP_FULLSCREEN", "1");
+    }
     pc_setting(ini, "Display", "Fullscreen", "RECOMP_FULLSCREEN", 0, 0, 1, FALSE);
     pc_setting(ini, "Display", "PreserveAspect", "RECOMP_PRESERVE_ASPECT", 1, 0, 1, FALSE);
     pc_setting(ini, "Display", "SmoothScaling", "RECOMP_SCALE_FILTER", 1, 0, 1, FALSE);
