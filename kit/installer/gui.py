@@ -2056,7 +2056,7 @@ class App:
                 ('A report helps the developer fix it.' if r['failure'] else 'Tell the developer what went wrong.')
         self.T(40, 62, intro, 'body', 'muted', width=780)
         self.T(40, 100, 'What happened?' + (' (optional)' if r['failure'] else ''), 'row', anchor='w')
-        self.T(840, 100, 'Please don\'t include personal details.', 'small', 'muted', anchor='e')
+        self.T(840, 100, RP_PRIVATE, 'small', 'muted', anchor='e')
         f = tk.Frame(cv, bg=P['panel2'], highlightthickness=k.line(), highlightbackground=P['steel'], highlightcolor=P['amber'])
         txt = tk.Text(f, bg=P['panel2'], fg=P['text'], font=k.fonts['small'], bd=0, wrap='word', padx=dp(6), pady=dp(4),
                       insertbackground=P['text'], height=4, takefocus=1)

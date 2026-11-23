@@ -1291,7 +1291,7 @@ static std::wstring report_row_text(int row){
         if(box&&report_state==0&&i==lines.size()-1)t+=report_cursor_on()?L"_":L" ";
         return L" "+t;}
     case 5:return L"Sends logs, settings and PC details to the developer.";
-    case 6:return L"No names or personal files. Please don't type personal details.";
+    case 6:return L"Please don't type personal details. You're anonymous if you don't.";
     case REPORT_SEND:
         if(report_state==1)return L"   Sending...";
         return marker(row)+(report_can_send==0?L"Save report":L"Send report");
