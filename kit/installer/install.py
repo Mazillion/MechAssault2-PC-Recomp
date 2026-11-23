@@ -3408,8 +3408,8 @@ class LauncherProgress:
         with self.guard:
             self.write('progress %.2f %s' % (self.floor, text))
 
-LAUNCHER_STOPPED = ("Setup didn't finish. The MechAssault 2 installer on the GitHub release page can show what went wrong, "
-                    "repair it, or collect diagnostics for a report.")      # owner-approved (1.2.0)
+LAUNCHER_STOPPED = ('Setup didn\'t finish. Choose Set Up Again and tick "Use the standalone installer instead" to see what '
+                    'went wrong, repair it, or send a report.')      # owner-approved (1.2.0, final)
 LAUNCHER_WAITING = 'Continue in the MechAssault 2 installer window.'   # owner-approved (1.2.0 --window)
 
 def launcher_exit(dest, last):

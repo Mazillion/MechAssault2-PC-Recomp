@@ -59,8 +59,8 @@
       },
       {
         "id": "installer_window",
-        "label": "PLACEHOLDER: Show the installer window",
-        "note": "PLACEHOLDER: Setup opens the MechAssault 2 installer's own window in this folder, to choose its options yourself, repair the game or collect diagnostics. Close it when it says Ready to play.",
+        "label": "Use the standalone installer instead",
+        "note": "Shows each step in detail, with repair and problem reporting if something goes wrong. Setup works the same either way.",
         "default": false,
         "args": ["--window"]
       }

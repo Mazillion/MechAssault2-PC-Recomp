@@ -381,7 +381,10 @@ class Manifest(unittest.TestCase):
         opts = self.m['prepare']['options']
         o = opts[-1]                                                            # last on the setup screen, after the content ticks
         self.assertEqual((o['id'], o['args'], o['default']), ('installer_window', ['--window'], False))
-        self.assertTrue(o['label'].startswith('PLACEHOLDER:') and o['note'].startswith('PLACEHOLDER:'))      # not approved yet
+        self.assertEqual(o['label'], 'Use the standalone installer instead')                  # owner-approved (1.2.0, final)
+        self.assertEqual(o['note'], 'Shows each step in detail, with repair and problem reporting if something goes wrong. '
+                                    'Setup works the same either way.')
+        self.assertIn('"%s"' % o['label'], install.LAUNCHER_STOPPED)              # the stop line names the tick as it reads
         self.assertNotIn('required', o); self.assertNotIn('license', o)
         self.assertNotIn('--window', self.m['prepare']['args'])                # unticked: the hidden step, unchanged
 
