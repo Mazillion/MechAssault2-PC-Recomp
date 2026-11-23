@@ -37,6 +37,13 @@ static int messages_tests(void)
     MCHECK(ma2_update_action(1, 0, 1) == MA2_UPDATE_RUN_INSTALLER);
     MCHECK(ma2_update_action(1, 0, 0) == MA2_UPDATE_RELEASES_PAGE);
     MCHECK(ma2_update_action(0, 0, 1) == MA2_UPDATE_HISTORY);
+    {   /* reflow: a bullet's continuation lines join; new bullets and blank lines stay */
+        char t[256] = "- Split screen is back. In the menus, choose Add Guest or\n  press START on a second controller.\n- Second bullet.\n\nAfter a blank line\n  joined too.";
+        ma2_msg_reflow(t);
+        MCHECK(!strcmp(t, "- Split screen is back. In the menus, choose Add Guest or press START on a second controller.\n- Second bullet.\n\nAfter a blank line joined too."));
+        ma2_msg_reflow(t);
+        MCHECK(!strcmp(t, "- Split screen is back. In the menus, choose Add Guest or press START on a second controller.\n- Second bullet.\n\nAfter a blank line joined too."));
+    }
     /* who updates: the stamp decides; RECOMPLAUNCHER only when the stamp says nothing */
     MCHECK(ma2_managed_by_launcher("{\"version\":\"1\",\"managed_by\": \"recomplauncher\"}", 0) == 1);   /* launcher stamp, no env */
     MCHECK(ma2_managed_by_launcher("{\"managed_by\":\"installer\"}", 1) == 0);                          /* standalone + stray env */

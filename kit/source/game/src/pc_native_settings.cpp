@@ -625,6 +625,7 @@ static std::wstring msg_file(){std::wstring p;wchar_t w[MAX_PATH];MultiByteToWid
     size_t s=p.find_last_of(L"\\/");return (s==std::wstring::npos?std::wstring(L"."):p.substr(0,s))+L"\\messages.txt";}
 static std::string msg_today(){SYSTEMTIME st;GetSystemTime(&st);char d[11];snprintf(d,sizeof d,"%04u-%02u-%02u",st.wYear,st.wMonth,st.wDay);return d;}
 static std::string msg_esc(const std::string &s){std::vector<char> b(s.size()*2+2);ma2_msg_escape(s.c_str(),b.data(),b.size());return b.data();}
+static std::string msg_reflow(const std::string &t){std::vector<char> b(t.begin(),t.end());b.push_back(0);ma2_msg_reflow(b.data());return b.data();}
 static std::string msg_unesc(const std::string &s){std::vector<char> b(s.size()+2);ma2_msg_unescape(s.c_str(),b.data(),b.size());return b.data();}
 static bool msg_kept(const InboxMsg &m,int today){int d=ma2_msg_parse_date(m.date.c_str());if(d<0)return false;
     return today-d<(m.kind=="reply"?MA2_MSG_REPLY_DAYS:MA2_MSG_KEEP_DAYS);}
@@ -641,7 +642,7 @@ static void msg_load_locked(){
         if(line.empty()||line[0]=='#')continue;
         std::vector<std::string> f;size_t a=0;for(;;){size_t t=line.find('\t',a);f.push_back(line.substr(a,t==std::string::npos?std::string::npos:t-a));if(t==std::string::npos)break;a=t+1;}
         if(f.size()!=7||(f[0]!="update"&&f[0]!="whatsnew"&&f[0]!="reply"))continue;
-        InboxMsg m;m.kind=f[0];m.key=f[1];m.date=f[2];m.read=f[3]=="1";m.title=msg_unesc(f[5]);m.body=msg_unesc(f[6]);
+        InboxMsg m;m.kind=f[0];m.key=f[1];m.date=f[2];m.read=f[3]=="1";m.title=msg_unesc(f[5]);m.body=msg_unesc(f[6]);if(m.kind!="reply")m.body=msg_reflow(m.body);
         if(m.kind=="reply"){char sent[16]="";int can=0,ans=0;sscanf(f[4].c_str(),"sent=%15s can=%d answered=%d",sent,&can,&ans);m.sent=sent;m.can_answer=can!=0;m.answered=ans!=0;
             if(m.key.size()<12||!ma2_reply_id_ok(m.key.substr(0,10).c_str()))continue;}
         if(msg_kept(m,today))inbox.push_back(m);
@@ -678,7 +679,7 @@ static void msg_whats_new_locked(){
     if(!msg_find_locked("whatsnew",msg_own_version)){
         InboxMsg m;m.kind="whatsnew";m.key=msg_own_version;m.date=msg_today();
         char t[96];snprintf(t,sizeof t,last[0]?msg_text_updated:msg_text_whats_new,msg_own_version.c_str());m.title=t;
-        m.body=sec[0]?sec.data():msg_text_no_notes;inbox.insert(inbox.begin(),m);
+        m.body=sec[0]?msg_reflow(sec.data()):msg_text_no_notes;inbox.insert(inbox.begin(),m);
         fprintf(stderr,"[MSG] what's new in %s added (%s, changes %s)\n",msg_own_version.c_str(),last[0]?"updated":"first record",sec[0]?"from Changelog.txt":"not found");
     }
     WritePrivateProfileStringA("Messages","LastVersion",msg_own_version.c_str(),ini_path);
@@ -693,7 +694,7 @@ static void msg_merge_update(){
     if(update_merged)return;
     const char *v=ma2_update_available();if(!v)return;
     update_merged=true;
-    ReplyLock l;std::string notes=ma2_update_notes();
+    ReplyLock l;std::string notes=msg_reflow(ma2_update_notes());
     InboxMsg *m=msg_find_locked("update",v);
     if(!m){InboxMsg n;n.kind="update";n.key=v;n.date=msg_today();char t[96];snprintf(t,sizeof t,msg_text_update_title,v);n.title=t;
         n.body=notes.empty()?msg_text_no_notes:notes;inbox.insert(inbox.begin(),n);fprintf(stderr,"[MSG] update %s added (%s)\n",v,notes.empty()?"no notes":"with notes");}
@@ -708,7 +709,7 @@ static std::wstring reply_temp_base(const wchar_t *what){
 }
 static DWORD WINAPI reply_check_thread(LPVOID){
     std::wstring result=reply_temp_base(L"replies")+L".txt";
-    DWORD code=2,ran=report_run(L"--replies --result \""+result+L"\"",30000,&code);
+    DWORD code=2,ran=report_run(L"--replies --result \""+result+L"\"",60000,&code);
     std::string text=msg_read_text(result,64*1024);DeleteFileW(result.c_str());
     std::vector<Ma2Reply> got(16);int complete=0;
     int n=ma2_reply_parse_result(text.c_str(),got.data(),(int)got.size(),&complete);got.resize(n);
@@ -1037,14 +1038,15 @@ static void draw_envelope(ImDrawList *list,float width,float height,float sx,flo
     ReplyLock l;
     const float u=std::min(width/640.f,height/480.f),s=26*u,x1=width-18*u,x0=x1-s*1.35f,y0=16*u,y1=y0+s;
     const int unread=msg_unread_locked();const ImU32 c=hover?C_YELLOW:C_WHITE;
-    list->AddRectFilled(ImVec2(x0-6*u,y0-6*u),ImVec2(x1+6*u,y1+22*u),IM_COL32(15,26,38,hover?200:140),4*u);
+    list->AddRectFilled(ImVec2(x0-6*u,y0-6*u),ImVec2(x1+6*u,y1+5*u),IM_COL32(15,26,38,hover?220:170),4*u);
     list->AddRect(ImVec2(x0,y0),ImVec2(x1,y1),c,2*u,0,std::max(1.5f,2*u));
     list->AddLine(ImVec2(x0+1*u,y0+1*u),ImVec2((x0+x1)*.5f,y0+s*.55f),c,std::max(1.5f,2*u));
     list->AddLine(ImVec2(x1-1*u,y0+1*u),ImVec2((x0+x1)*.5f,y0+s*.55f),c,std::max(1.5f,2*u));
     ImFont *font=ImGui::GetFont();float ks=std::max(11.f,8.5f*u);
     const char *key=pc_input_device()==PC_INPUT_GAMEPAD?msg_text_key_pad:msg_text_key_keys;
-    ImVec2 kt=font->CalcTextSizeA(ks,FLT_MAX,0,key);
-    list->AddText(font,ks,ImVec2((x0+x1-kt.x)*.5f,y1+5*u),C_MUTED,key);
+    ImVec2 kt=font->CalcTextSizeA(ks,FLT_MAX,0,key);ImVec2 kp((x0+x1-kt.x)*.5f,y1+6*u);
+    list->AddRectFilled(ImVec2(kp.x-6*u,kp.y-3*u),ImVec2(kp.x+kt.x+6*u,kp.y+kt.y+3*u),IM_COL32(15,26,38,220),3*u);
+    list->AddText(font,ks,kp,hover?C_YELLOW:C_WHITE,key);
     if(unread){char n[8];snprintf(n,sizeof n,"%d",std::min(unread,99));float r=7.5f*u;ImVec2 cc(x1,y0);
         list->AddCircleFilled(cc,r,IM_COL32(200,40,40,255),20);ImVec2 nt=font->CalcTextSizeA(ks,FLT_MAX,0,n);
         list->AddText(font,ks,ImVec2(cc.x-nt.x*.5f,cc.y-nt.y*.5f),C_WHITE,n);}
@@ -1079,7 +1081,7 @@ static void draw_inbox(ImDrawList *list,float width,float height,float sx,float 
     list->AddLine(ImVec2(x0+pad,top-4*u),ImVec2(x1-pad,top-4*u),C_LINE,t);
     list->AddText(font,size*.9f,ImVec2(x0+pad,bottom+4*u),C_MUTED,gamepad?msg_text_hint_pad:msg_text_hint_keys);
     // the list
-    const float ih=size*2.6f;const int fit=std::max(1,(int)((bottom-top)/ih));
+    const float ih=size*3.0f;const int fit=std::max(1,(int)((bottom-top)/ih));
     if(inbox_sel<inbox_list_top)inbox_list_top=inbox_sel;
     if(inbox_sel>=inbox_list_top+fit)inbox_list_top=inbox_sel-fit+1;
     inbox_items_shown=0;
@@ -1093,7 +1095,7 @@ static void draw_inbox(ImDrawList *list,float width,float height,float sx,float 
         list->AddText(font,size,ImVec2(a.x+14*u,iy+3*u),m.read?C_WHITE:C_YELLOW,elide(font,size,m.title,lw-18*u).c_str());
         char d[16];ma2_msg_short_date(m.date.c_str(),d,sizeof d);
         std::string sub=std::string(m.kind=="update"?msg_text_kind_update:m.kind=="whatsnew"?msg_text_kind_whatsnew:msg_text_kind_reply)+"  "+d;
-        list->AddText(font,size*.85f,ImVec2(a.x+14*u,iy+3*u+size*1.15f),C_MUTED,sub.c_str());
+        list->AddText(font,size*.85f,ImVec2(a.x+14*u,iy+4*u+size*1.25f),C_MUTED,sub.c_str());
         float *hb=inbox_item_hit[inbox_items_shown++];hb[0]=a.x/sx;hb[1]=a.y/sy;hb[2]=b.x/sx;hb[3]=b.y/sy;
     }
     list->AddLine(ImVec2(x0+pad*.5f+lw+8*u,top),ImVec2(x0+pad*.5f+lw+8*u,bottom),C_LINE,t);

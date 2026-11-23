@@ -146,6 +146,29 @@ static int ma2_managed_by_launcher(const char *stamp_json, int env_recomplaunche
     return env_recomplauncher ? 1 : 0;
 }
 
+/* Changelog text is wrapped at about 76 columns: a line that starts with spaces continues the line above it (a bullet's
+ * next line) and is joined to it with one space, so the reader can wrap it to its own width. Blank lines and "- " lines
+ * start anew. In place; safe to run twice. */
+static void ma2_msg_reflow(char *s)
+{
+    char *r = s, *w = s;
+    if (!s) return;
+    while (*r) {
+        if (*r == '\n' && w > s && w[-1] != '\n') {
+            const char *q = r + 1;
+            while (*q == ' ' || *q == '\t') q++;
+            if (q > r + 1 && *q && *q != '\n' && *q != '\r' && !(q[0] == '-' && q[1] == ' ')) {
+                while (w > s && (w[-1] == ' ' || w[-1] == '\r')) w--;
+                *w++ = ' ';
+                r = (char *)q;
+                continue;
+            }
+        }
+        *w++ = *r++;
+    }
+    *w = 0;
+}
+
 /* What "Update now" does for an update message. */
 enum { MA2_UPDATE_HISTORY = 0, MA2_UPDATE_IN_LAUNCHER = 1, MA2_UPDATE_RUN_INSTALLER = 2, MA2_UPDATE_RELEASES_PAGE = 3 };
 static int ma2_update_action(int newer_than_installed, int from_recomplauncher, int installer_copy_exists)
