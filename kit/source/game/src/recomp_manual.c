@@ -1655,6 +1655,9 @@ static uint32_t cam_local_players(void)
 }
 int ma2_cam_slot_restore_ok(uint32_t slot)
 {
+    {   static int seen;   /* proof the path ran, and with which switch */
+        if (!seen) { seen = 1; fprintf(stderr, "[PC-CAM] slot restore-all reached (slot %u, %u local players, F6 %s)\n", slot,
+                                       cam_local_players(), cam_slot_fix_on() ? "on" : "off: RECOMP_FIX_CAM_SLOT_RESTORE=0"); } }
     if (!cam_slot_fix_on()) return 1;
     if (slot >= 1 && slot <= cam_local_players()) return 1;
     {   static int logged;

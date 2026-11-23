@@ -351,8 +351,17 @@ static struct { int pending, frames; uint32_t side[4]; } g_place;
  * THE ONE PLACE TO CHANGE THAT: set SPLIT_PLACE_GUEST to 1 and the short-side rule below places the
  * guest like player 1 (each human on the side the counts leave short). */
 #define SPLIT_PLACE_GUEST 0
+/* Measured 2026-11-23 (RESULT-splitscreen.md): building the Briefing Room, the game itself puts controller 1
+ * (player 1) on Red and the guest (controller 2) on Blue -- head to head. Player 1's short-side rule ran
+ * on the New Game screen before that, from the guest's old side, and could move player 1 onto the guest's
+ * team. So while a guest is in, the game's own sides stand for both players (0); 1 = player 1 is still put
+ * on the short side with a guest in. Bots fill each side to 6 either way (ma2_split_slots.h). */
+#define SPLIT_PLACE_P1_WITH_GUEST 0
 static int lowest_human(unsigned m) { for (int c = 0; c < 4; c++) if (m & (1u << c)) return c; return -1; }
-static int placed_human(unsigned m, int c) { return SPLIT_PLACE_GUEST || c == lowest_human(m); }
+static int placed_human(unsigned m, int c) {
+    if ((m & (m - 1)) && !SPLIT_PLACE_P1_WITH_GUEST && !SPLIT_PLACE_GUEST) return 0;   /* a guest is in */
+    return SPLIT_PLACE_GUEST || c == lowest_human(m);
+}
 static void place_humans(uint32_t session, int red_bots, int blue_bots) {
     unsigned m = MEM32(0x50C9AC) & 0xF;
     int red = red_bots, blue = blue_bots;
@@ -1082,7 +1091,7 @@ void ma2_menu_policy_pulse(uint32_t object, uint32_t vtable) {
  * 0x524C14 has flag 0x18 bit 2, a networked session); the join is refused then off the Multiplayer menu.
  * The input layer decides which pad is free and routes it (xinput_device.c, split_route.h). */
 #define MP_MENU_VT 0x0048C228u          /* Multiplayer: LOCAL XBOX / SYSTEM LINK / XBOX LIVE / ADD GUEST */
-#define NEWGAME_MENU_VT 0x0048C2F8u     /* New Game (Game Type, map, bots) */
+#define NEWGAME_MENU_VT 0x0048C668u     /* New Game (Game Type, map, bots; seen in [PC-MENU] menu=0048C668) */
 int  xbox_SplitScreenOn(void);
 void xbox_SplitJoinWindow(int dialog);
 int  xbox_SplitTakeJoin(void);
@@ -1110,7 +1119,15 @@ static void split_frame(uint32_t object, uint32_t vtable) {
     if (!on) return;
     unsigned mask = MEM32(0x50C9AC) & 0xF;
     int humans_in = popcount4u(mask);
-    int dialog = vtable == MP_MENU_VT && valid_widget(MEM32(object + 0x8C)) && MEM32(object + 0x80) != 0;
+    /* The Add Guest dialog: the Multiplayer menu keeps its handle at +0x8C (sub_001FB8DA, read back with
+     * sub_001FBB86 in sub_00224362) and the controller-wait object at +0x80 (sub_0024AD3E) while it is up. */
+    int dialog = vtable == MP_MENU_VT && MEM32(object + 0x8C) != 0 && MEM32(object + 0x80) != 0;
+    {   static int was = -1;
+        if (dialog != was && vtable == MP_MENU_VT) {
+            fprintf(stderr, "[PC-SPLIT] Add Guest dialog %s (menu %08X +80=%08X +8C=%08X)\n", dialog ? "open" : "closed", object,
+                    MEM32(object + 0x80), MEM32(object + 0x8C));
+            was = dialog;
+        } }
     int screen = split_join_screen(vtable);
     if (screen && humans_in < 2) xbox_SplitJoinWindow(dialog);
     int slot = xbox_SplitTakeJoin();
