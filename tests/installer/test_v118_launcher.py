@@ -136,18 +136,42 @@ class Progress(Base):
 
 class Run(Base):
     """run_launcher with a stand-in engine: what it is asked to do, and what reaches stdout."""
-    def run_with(self, engine_run=None, *extra):
+    def run_with(self, engine_run=None, *extra, textures=()):
         made, out = {}, []
         class Engine:
             def __init__(eng, xiso, dest, *a, **kw):
-                made.update(xiso=xiso, dest=dest, kw=kw); eng.notes = []; eng.session_log = 'x.log'
+                made.update(xiso=xiso, dest=dest, kw=kw, args=a); eng.notes = []; eng.session_log = 'x.log'
                 eng.on_plan = eng.on_reuse = lambda *a: None; eng.kw = kw
             def run(eng):
                 if engine_run: engine_run(eng)
         a = self.args(*extra)
         with mock.patch.object(install, 'Installer', Engine), mock.patch('builtins.print', lambda *x, **k: out.append(' '.join(map(str, x)))):
-            code = install.run_launcher(a, [])
+            code = install.run_launcher(a, list(textures))
         return code, made, out
+
+    def test_set_up_again_with_a_new_tick_adds_only_that(self):
+        fake_install(self.dest, kit_id=install.KIT_ID)                           # this version, no packs
+        code, made, out = self.run_with(None, '--xiso=x.iso', '--videos', textures=['2x'])
+        self.assertEqual(code, 0)
+        self.assertFalse(made['kw']['update'])                                   # addons only: no update, no rebuild
+        self.assertEqual(made['args'][0:2], (['2x'], True))
+        self.assertIn('RecompLauncher setup: adding enhanced textures 2x and enhanced cutscenes to the installed game', out)
+        st = json.loads((self.dest / precheck.STAMP).read_text(encoding='utf-8'))
+        st['options'] = {'textures': ['2x'], 'videos': True}                     # what settle writes once the packs are on disk
+        (self.dest / precheck.STAMP).write_text(json.dumps(st), encoding='utf-8')
+        code, made, out = self.run_with(None, '--xiso=x.iso', '--videos', textures=['2x'])
+        self.assertEqual((code, made, out[-1]), (0, {}, 'progress 1 Already built'))
+        code, made, out = self.run_with(None, '--xiso=x.iso', textures=['4x'])   # another pack: only that one
+        self.assertEqual(code, 0); self.assertIn('adding enhanced textures 4x to the installed game', out[1])
+
+    def test_missing_extras_reads_the_stamp(self):
+        self.assertEqual(install.launcher_missing_extras(self.dest, ['2x'], True), ['enhanced textures 2x', 'enhanced cutscenes'])
+        fake_install(self.dest, kit_id=install.KIT_ID)
+        st = json.loads((self.dest / precheck.STAMP).read_text(encoding='utf-8'))
+        st['options'] = {'textures': ['2x', '4x'], 'videos': False}
+        (self.dest / precheck.STAMP).write_text(json.dumps(st), encoding='utf-8')
+        self.assertEqual(install.launcher_missing_extras(self.dest, ['4x'], False), [])
+        self.assertEqual(install.launcher_missing_extras(self.dest, [], True), ['enhanced cutscenes'])
 
     def test_install_update_and_built(self):
         code, made, out = self.run_with(None, '--xiso=C:/discs/MA2.xiso')
@@ -261,11 +285,12 @@ class Manifest(unittest.TestCase):
 
     def test_plain_player_texts(self):
         texts = [self.m['inputs'][0]['label'], self.m['prepare']['label']] + list(self.m['exit_codes'].values())
-        texts += [o[k] for o in self.m['prepare']['options'] for k in ('label', 'note')]
+        texts += [o['label'] for o in self.m['prepare']['options']]
         texts += [s[k] for s in self.m['settings'] for k in ('label', 'help')] + [c['label'] for s in self.m['settings'] for c in s['choices']]
-        for t in texts:
+        notes = [o['note'] for o in self.m['prepare']['options']]     # 1.2.0: the owner's approved notes are one short paragraph
+        for t in texts + notes:
             self.assertNotRegex(t.lower(), r'reddit|discord|github|ninja|cmake|xdvdfs|\bini\b')
-            self.assertLessEqual(len(t), 130, t)
+            self.assertLessEqual(len(t), 300 if t in notes else 130, t)
 
     def test_against_the_schema_when_given(self):
         path = os.environ.get('MA2_TEST_RECOMPLAUNCHER_SCHEMA')

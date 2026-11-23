@@ -3231,6 +3231,17 @@ def run_self_update(dest, log=lambda line: print(line, flush=True), progress=Non
 # so it decides by itself: build into an empty folder, update an older (or newer) install, finish an interrupted run, or
 # do nothing when this version is already installed. Without the flag nothing here runs.
 
+def launcher_missing_extras(dest, textures, videos):
+    """The optional content a launcher run asks for that the install in dest does not have yet (its stamp's 'options', which
+    settle writes from the packs on disk): e.g. ['enhanced textures 2x', 'enhanced cutscenes']. An unreadable stamp = all asked."""
+    try: have = (precheck.read_stamp(Path(dest)) or {}).get('options') or {}
+    except Exception: have = {}
+    if not isinstance(have, dict): have = {}
+    got = set(have.get('textures') or [])
+    out = ['enhanced textures %s' % s for s in sorted(set(textures)) if s not in got]
+    if videos and not have.get('videos'): out.append('enhanced cutscenes')
+    return out
+
 def launcher_plan(dest):
     """'resume' (an unfinished run: its state decides), 'built' (this installer's version is installed), 'update', 'install'."""
     dest = Path(precheck.clean_path(str(dest)))
@@ -3304,7 +3315,11 @@ def run_launcher(a, textures):
     write('RecompLauncher setup: %s in %s (%s)' % (plan, dest, build_label()))
     report = LauncherProgress(write)
     if plan == 'built':
-        report.finish('Already built'); return 0
+        missing = launcher_missing_extras(dest, textures, a.videos)
+        if not missing:
+            report.finish('Already built'); return 0
+        plan = 'extras'                           # Set Up Again with a new tick: add only that, no rebuild (addons_only)
+        write('RecompLauncher setup: adding %s to the installed game' % ' and '.join(missing))
     if plan == 'install' and not a.xiso:
         print('INSTALL STOPPED: no disc image was given and %s holds no MechAssault 2 Recomp install to update.' % dest, file=sys.stderr)
         return 1
