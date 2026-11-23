@@ -79,6 +79,34 @@ class Progress(Base):
         self.assertTrue(all(LINE.match(l) for l in out), out)
 
 
+class Texts(unittest.TestCase):
+    def test_owner_approved_forms(self):
+        self.assertEqual(install.LAUNCHER_WAITING, 'Continue in the MechAssault 2 installer window.')
+        lt = install.launcher_text
+        self.assertEqual(lt('compile', 'Compiling the game', 'Compiling 111 of 283 files'), 'Building the game: compiling 111 of 283 files')
+        self.assertEqual(lt('read', 'Reading your disc', ''), 'Building the game: reading your disc')
+        self.assertEqual(lt('analyze', 'Analysing the Xbox program', ''), 'Building the game: analysing the Xbox program')
+        self.assertEqual(lt('translate', 'Translating to C', 'Translating 25,850 functions'), 'Building the game: translating 25,850 functions')
+        self.assertEqual(lt('menus', 'Building PC menus', ''), 'Building the game: building PC menus')
+        self.assertEqual(lt('install', 'Installing', ''), 'Building the game: installing')
+        self.assertEqual(lt('textures-2x', 'Enhanced textures 2x', ''), 'Enhanced textures 2x')
+        self.assertEqual(lt('videos', 'Enhanced cutscenes', 'Enhanced 12 of 300'), 'Enhanced cutscenes: enhanced 12 of 300')
+
+    def test_every_line_of_a_run_has_its_prefix(self):
+        out, clock = [], Clock()
+        p = install.LauncherProgress(out.append, clock=clock)
+        names = ['check', 'disc', 'extract', 'analyze', 'recompile', 'generate', 'patch', 'build', 'assets', 'install', 'finish', 'textures-2x']
+        p.plan(names)
+        for i, n in enumerate(names, 1):
+            p.step(i, len(names), n, n, False); clock.t += 30
+            if n == 'build': p.log('[3/9] Building C object x.obj')
+            if n == 'textures-2x': p.log('  120/600 textures')
+        texts = [l.split(' ', 2)[2] for l in out]
+        self.assertTrue(all(t.startswith(('Building the game: ', 'Enhanced textures 2x')) for t in texts), texts)
+        self.assertIn('Building the game: compiling 3 of 9 files', texts)
+        self.assertIn('Enhanced textures 2x: enhanced 120 of 600', texts)
+
+
 class ExitCodes(Base):
     def test_exit_follows_what_is_in_the_folder(self):
         self.assertEqual(install.launcher_exit(self.dest, None), 1)                  # nothing built: closed before finishing
@@ -161,6 +189,37 @@ def footer_overlaps(app):
         if b and b[1] >= top - 2: boxes.append((b[0], b[2], cv.itemcget(i, 'text') if cv.type(i) == 'text' else cv.type(i)))
     boxes.sort()
     return [(a, b) for a, b in zip(boxes, boxes[1:]) if b[0] < a[1] - 4]
+
+
+class Standalone(Base):
+    """1.2.0 fixes in the standalone window (no launcher): the footer total never runs into Legal, and ADD CONTENT's total
+    does not say "Rebuilds the game" (it doesn't rebuild)."""
+    def test_long_total_moves_collect_diagnostics_to_help(self):
+        if not XISO: self.skipTest('MA2_TEST_XISO not set')
+        root, app = rig.make(scale=1.0); pump(root, 0.4)
+        app.set_disc(XISO); until(root, lambda: app.image is not None and not app.disc_checking and app.folder is not None, 30)
+        app.render(); pump(root, 0.2)
+        self.assertIn('f_diag', app.w)                                          # a short total: the link stays
+        app.texture = '4x'; app.videos = True; app.check_dest(keep=True); until(root, lambda: app.folder is not None, 20)
+        app.render(); pump(root, 0.2)
+        self.assertEqual(footer_overlaps(app), [])
+        self.assertNotIn('f_diag', app.w)                                       # Help > Collect diagnostics instead
+        app.close()
+
+    def test_add_content_total_is_not_a_rebuild(self):
+        root, app = rig.make(scale=1.0); pump(root, 0.4)
+        fake_install(self.dest)
+        st = json.loads((self.dest / precheck.STAMP).read_text(encoding='utf-8'))
+        app.set_dest(str(self.dest)); until(root, lambda: app.folder is not None, 20)
+        def foot():
+            cv = app.cv; top = app.k.dp(app.H) - app.k.dp(66)
+            return ''.join(cv.itemcget(i, 'text') for i in cv.find_withtag('s') if cv.type(i) == 'text' and (cv.bbox(i) or (0, 0))[1] >= top)
+        app.texture = '2x'; app.check_dest(keep=True); until(root, lambda: app.folder is not None, 20); app.render(); pump(root, 0.2)
+        self.assertEqual((app.action(), app.primary.text), ('addons', 'ADD CONTENT'))
+        self.assertNotIn('Rebuilds the game', foot()); self.assertIn('Needs ', foot())
+        app.texture = 'original'; app.render(); pump(root, 0.2)
+        if app.action() == 'repair' and app.primary.enabled: self.assertIn('Rebuilds the game', foot())     # Repair still says so
+        app.close()
 
 
 class Window(Base):

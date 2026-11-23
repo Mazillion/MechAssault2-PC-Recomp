@@ -673,11 +673,7 @@ class App:
         W, H = dp(self.W), dp(self.H); top = H - dp(64); cy = top + dp(32)
         cv.create_rectangle(0, top, W, H, fill=P['panel'], outline='', tags='s')
         cv.create_line(0, top, W, top, fill=P['line'], width=k.line(), tags='s')
-        def width(it):
-            if isinstance(it, tuple):
-                if it[0] == 'text': return k.fonts[it[2]].measure(it[1])
-                return sum(k.fonts[it[2]].measure(s) for s, _ in it[1])
-            return it.winfo_reqwidth()
+        width = self.footer_width
         def draw(it, x):
             if isinstance(it, tuple):
                 if it[0] == 'text': cv.create_text(x, cy, text=it[1], font=k.fonts[it[2]], fill=P.get(it[3], it[3]), anchor='w', tags='s')
@@ -779,8 +775,7 @@ class App:
         opt = self.link('options', 'Install options', lambda: self.go('options'), icon='gear')
         self.put(opt, 36, zb + 112)
         self.setup_strip(zb + 150, ready)
-        self.std_footer(self.install_primary(ready), diag=not self.launcher)     # --window: Help > Collect diagnostics (the footer
-                                                                                  # is full with the launcher's pre-ticked HD content)
+        self.std_footer(self.install_primary(ready), diag=True)
 
     def install_primary(self, ready, label='INSTALL'):
         """(total item, primary button) for Setup-type screens."""
@@ -806,7 +801,23 @@ class App:
             left.append(self.link('f_diag', 'Collect diagnostics', self.open_diag, quiet=True, bg='panel'))
         if legal:
             left += [('text', 'Unofficial fan project', 'small', 'muted'), self.link('legal', 'Legal', lambda: self.show_page('legal'), quiet=True, bg='panel')]
+        if diag and self.footer_crowded(left, [total, prim]):         # 1.2.0: a long total (Ultra HD + movies) ran into Legal:
+            d = self.w.pop('f_diag'); left.remove(d); d.destroy()     # Collect diagnostics stays in Help
         self.footer(left, [total, prim])
+
+    def footer_width(self, it):
+        k = self.k
+        if isinstance(it, tuple):
+            if it[0] == 'text': return k.fonts[it[2]].measure(it[1])
+            return sum(k.fonts[it[2]].measure(s) for s, _ in it[1])
+        return it.winfo_reqwidth()
+
+    def footer_crowded(self, left, right):
+        """The footer's left items would reach its right items (as footer() places them, with a gap to spare)."""
+        dp = self.k.dp
+        lend = dp(40) - dp(4) + sum(self.footer_width(it) + dp(14) for it in left)
+        rstart = dp(self.W) - dp(24) + dp(5) - sum(self.footer_width(it) + dp(14) for it in right) + dp(14)
+        return lend > rstart - dp(10)
 
     def setup_strip(self, y, ready):
         """At most one notice under the rows: a folder problem, then the space stop, then a note, then Smart App Control."""
@@ -954,7 +965,7 @@ class App:
             tp = self.install_primary(bool(ok), label)
         exe = Path(precheck.clean_path(self.dest)) / 'MechAssault 2.exe'
         if m in ('update', 'maintain') or (m == 'resume' and core_done):
-            if m in ('update', 'maintain') and tp[0][0] == 'segs': tp = (('segs', [('Rebuilds the game \u00b7 ', 'text')] + tp[0][1][1:], 'mono'), tp[1])
+            if m in ('update', 'maintain') and tp[0][0] == 'segs' and self.action() != 'addons': tp = (('segs', [('Rebuilds the game \u00b7 ', 'text')] + tp[0][1][1:], 'mono'), tp[1])
             if exe.is_file():
                 total, prim = tp
                 hl = self.link('help', 'Help', self.open_menu, quiet=True, bg='panel')

@@ -3325,6 +3325,19 @@ def launcher_plan(dest):
     if is_install(dest): return 'built' if install_relation(dest) == 'same' else 'update'
     return 'install'
 
+LAUNCHER_BUILD = 'Building the game'          # owner-approved (1.2.0): the prefix of every core stage under "Getting the extras"
+
+def launcher_text(sid, title, detail):
+    """A progress text for RecompLauncher (owner-approved form, 1.2.0): what the stage is part of + ": " + the stage's detail
+    when it has one, else its name, first letter lower case. The core stages are all "Building the game" (the launcher shows
+    our step under its own fixed "Getting the extras"); an enhanced-content stage is its own name.
+      Building the game: compiling 111 of 283 files     Enhanced textures 2x: enhanced 120 of 600"""
+    import progress as model_mod
+    head = model_mod.ENHANCED.get(sid, LAUNCHER_BUILD)
+    tail = detail or (title if head != title else '')
+    if not tail: return head
+    return '%s: %s' % (head, tail[:1].lower() + tail[1:])
+
 class LauncherProgress:
     """Turns the engine's plan, step and log events into "progress <fraction> <text>" lines (the window's own progress model and
     stage names). A line is printed when the rounded fraction or the text changes, and at least once a minute: the launcher
@@ -3363,12 +3376,14 @@ class LauncherProgress:
             if self.model: self.model.feed(line); self.emit()
 
     def text(self):
-        """The stage of the step that runs now (its detail when it has one); a step outside the stages keeps the last text."""
+        """The stage of the step that runs now (its detail when it has one), after the name of what it is part of, as
+        launcher_text words it; a step outside the stages keeps the last text."""
         m = self.model
         for sid, title, names in m.stages:
-            if m.current in names: return m.stage_detail(sid) or title
-        if self.last: return self.last[1]
-        return m.stages[0][1] if m.stages else 'Starting'
+            if m.current in names:
+                self.last_stage = launcher_text(sid, title, m.stage_detail(sid)); return self.last_stage
+        if getattr(self, 'last_stage', None): return self.last_stage
+        return launcher_text(m.stages[0][0], m.stages[0][1], '') if m.stages else 'Starting'
 
     def emit(self):
         with self.guard:
@@ -3395,7 +3410,7 @@ class LauncherProgress:
 
 LAUNCHER_STOPPED = ("Setup didn't finish. The MechAssault 2 installer on the GitHub release page can show what went wrong, "
                     "repair it, or collect diagnostics for a report.")      # owner-approved (1.2.0)
-LAUNCHER_WAITING = 'PLACEHOLDER: Waiting for you in the installer window'   # NOT approved (1.2.0 --window): the owner words it
+LAUNCHER_WAITING = 'Continue in the MechAssault 2 installer window.'   # owner-approved (1.2.0 --window)
 
 def launcher_exit(dest, last):
     """--window: the exit code when the player closes the window. 0 when this version is installed in dest (built now or already
