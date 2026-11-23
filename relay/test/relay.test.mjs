@@ -735,7 +735,7 @@ async function cookieFor(e = env) {
   return `ma2_owner=${await ownerCookieValue(e)}`;
 }
 
-test("open: no cookie gives the key page (no-store, no framing, no referrer), never the zip", async () => {
+test("open: no cookie gives the key page (no-store, no framing, no referrer to other sites), never the zip", async () => {
   const r = await send(await reportRequest({ zip: tinyZip(100) }));
   const res = await worker.fetch(openReq(r.body.id), env, ctx);
   assert.equal(res.status, 200);
@@ -743,7 +743,7 @@ test("open: no cookie gives the key page (no-store, no framing, no referrer), ne
   assert.equal(res.headers.get("cache-control"), "no-store");
   assert.equal(res.headers.get("x-frame-options"), "DENY");
   assert.match(res.headers.get("content-security-policy"), /frame-ancestors 'none'/);
-  assert.equal(res.headers.get("referrer-policy"), "no-referrer");
+  assert.equal(res.headers.get("referrer-policy"), "same-origin");
   const html = await res.text();
   assert.ok(html.includes(OPEN_TEXT.ask) && html.includes('type="password"') && html.includes(OPEN_TEXT.remember));
   assert.ok(!html.includes("PK"), "no zip bytes");
@@ -833,12 +833,25 @@ test("open: a POST from another origin (or a cross-site fetch) is refused before
   assert.equal(res.headers.get("set-cookie"), null);
   res = await worker.fetch(formReq(r.body.id, { key: env.OWNER_KEY }, { origin: "null" }), env, ctx);
   assert.equal(res.status, 403);
+  res = await worker.fetch(formReq(r.body.id, { key: env.OWNER_KEY }, { origin: "null", "sec-fetch-site": "cross-site" }), env, ctx);
+  assert.equal(res.status, 403);
   const noOrigin = formReq(r.body.id, { key: env.OWNER_KEY }, { "sec-fetch-site": "cross-site" });
   noOrigin.headers.delete("origin");
   res = await worker.fetch(noOrigin, env, ctx);
   assert.equal(res.status, 403);
   res = await worker.fetch(openReq(r.body.id, { method: "POST", headers: { origin: BASE, "content-type": "application/json" }, body: "{}" }), env, ctx);
   assert.equal(res.status, 415);
+});
+
+test("open: the key form works with the headers a real browser sends (Origin null + same-origin, or the page origin)", async () => {
+  const r = await send(await reportRequest());
+  const ask = await worker.fetch(openReq(r.body.id), env, ctx);
+  assert.equal(ask.headers.get("referrer-policy"), "same-origin");
+  let res = await worker.fetch(formReq(r.body.id, { key: env.OWNER_KEY }, { origin: "null", "sec-fetch-site": "same-origin" }), env, ctx);
+  assert.equal(res.status, 303);
+  assert.ok(res.headers.get("set-cookie"));
+  res = await worker.fetch(formReq(r.body.id, { key: env.OWNER_KEY }, { "sec-fetch-site": "same-origin" }), env, ctx);
+  assert.equal(res.status, 303);
 });
 
 test("open: key tries are limited per connection (10 an hour), then the page says so; a right key is also refused then", async () => {

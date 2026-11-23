@@ -596,7 +596,9 @@ const PAGE_HEADERS = {
   "cache-control": "no-store",
   "x-frame-options": "DENY",
   "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
-  "referrer-policy": "no-referrer",
+  // same-origin (not no-referrer): under no-referrer a browser sends "Origin: null" on the key form's POST,
+  // which sameOrigin() refused, so the page never worked in a real browser. Nothing is sent to other sites.
+  "referrer-policy": "same-origin",
   "x-content-type-options": "nosniff",
 };
 export const OPEN_TEXT = {
@@ -657,8 +659,11 @@ function askPage(id, status, error) {
 
 function sameOrigin(request, url) {
   const origin = request.headers.get("origin");
-  if (origin !== null && origin !== url.origin) return false;
   const site = request.headers.get("sec-fetch-site");
+  // "null" is what a browser sends under a no-referrer policy (e.g. a page cached before the policy changed);
+  // accept it only when the browser itself says the request came from this site.
+  if (origin === "null") return site === "same-origin";
+  if (origin !== null && origin !== url.origin) return false;
   return !(site && site !== "same-origin" && site !== "none");
 }
 
