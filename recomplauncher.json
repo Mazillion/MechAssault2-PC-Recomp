@@ -37,11 +37,18 @@
         "args": []
       },
       {
-        "id": "enhanced_textures",
+        "id": "enhanced_textures_2x",
         "label": "Enhanced textures 2x (AI upscaled, recommended)",
-        "note": "Makes the 'Mechs look much sharper. Environments improve more subtly. Textures are upscaled by AI on your graphics card during setup, which takes a few hours (2x) or several hours (4x), and you can't play until it finishes. Many players start without it and add it later with Set Up Again.",
+        "note": "Makes the 'Mechs look much sharper. Environments improve more subtly. Textures are upscaled by AI on your graphics card during setup, which takes a few hours and adds about 0.6 GB, and you can't play until it finishes. Many players start without it and add it later with Set Up Again.",
         "default": false,
         "args": ["--textures", "2x"]
+      },
+      {
+        "id": "enhanced_textures_4x",
+        "label": "Enhanced textures 4x (AI upscaled)",
+        "note": "Even sharper than 2x, for large or high-resolution screens. Takes several hours and adds about 2.2 GB, and you can't play until it finishes.",
+        "default": false,
+        "args": ["--textures", "4x"]
       },
       {
         "id": "enhanced_cutscenes",

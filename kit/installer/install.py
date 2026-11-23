@@ -3322,7 +3322,7 @@ def run_launcher(a, textures):
     plan = launcher_plan(dest)
     write('RecompLauncher setup: %s in %s (%s)' % (plan, dest, build_label()))
     report = LauncherProgress(write)
-    textures = ['4x'] if '4x' in textures else list(textures)     # 1.2.0: both texture ticks on = 4x
+    textures = sorted(set(textures))              # one tick per pack (--textures 2x --textures 4x): both ticked = both packs
     if plan == 'built':
         missing = launcher_missing_extras(dest, textures, a.videos)
         if not missing:

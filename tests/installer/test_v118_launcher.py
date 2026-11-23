@@ -186,9 +186,9 @@ class Run(Base):
         code, made, out = self.run_with(None, '--xiso=C:/discs/MA2.xiso')
         self.assertEqual((code, made, out[-1]), (0, {}, 'progress 1 Already built'))
 
-    def test_both_texture_ticks_mean_4x(self):
-        code, made, out = self.run_with(None, '--xiso=x.iso', textures=['2x', '4x'])
-        self.assertEqual((code, made['args'][0]), (0, ['4x']))
+    def test_both_texture_ticks_make_both_packs(self):
+        code, made, out = self.run_with(None, '--xiso=x.iso', textures=['4x', '2x', '2x'])
+        self.assertEqual((code, made['args'][0]), (0, ['2x', '4x']))
         a = self.args('--xiso=x.iso', '--textures', '2x', '--textures', '4x')         # two ticks = the flag twice: both kept
         self.assertEqual(a.textures, ['2x', '4x'])
 
