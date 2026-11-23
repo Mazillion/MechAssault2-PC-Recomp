@@ -7,7 +7,8 @@
 //       MOCK_DELAY_MS = n                            wait before answering uploads (timeout tests)
 //       OWNER_KEY, DAILY_CAP, PER_IP_PER_HOUR, MAX_UPLOAD_BYTES, ACCEPT_REPORTS, NOTICE, LATEST_VERSION,
 //       LATEST_SHA256, LATEST_SIZE, UPDATE_NOTICE, MIN_VERSION, ISSUE_PLAYER_TEXT, DELETE_ISSUES  (as on the Worker)
-// Extra test-only route: GET /__mock/issues  -> the issues the mock GitHub received.
+// Extra test-only routes: GET /__mock/issues  -> the issues the mock GitHub received; GET /__mock/comments -> its comments.
+//       REPLY_POLLS_PER_HOUR (1.2.0 reply checks)
 import http from "node:http";
 import worker from "../src/worker.js";
 import { makeEnv, MockCtx, MockGitHub } from "./mocks.mjs";
@@ -15,7 +16,7 @@ import { makeEnv, MockCtx, MockGitHub } from "./mocks.mjs";
 const port = parseInt(process.argv[2] || "8787", 10);
 const over = {};
 for (const k of ["OWNER_KEY", "DAILY_CAP", "PER_IP_PER_HOUR", "MAX_UPLOAD_BYTES", "ACCEPT_REPORTS", "NOTICE", "OFF_MESSAGE",
-  "LATEST_VERSION", "LATEST_SHA256", "LATEST_SIZE", "UPDATE_NOTICE", "MIN_VERSION", "ISSUE_PLAYER_TEXT", "DELETE_ISSUES"])
+  "LATEST_VERSION", "LATEST_SHA256", "LATEST_SIZE", "UPDATE_NOTICE", "MIN_VERSION", "ISSUE_PLAYER_TEXT", "DELETE_ISSUES", "REPLY_POLLS_PER_HOUR"])
   if (process.env[k] !== undefined) over[k] = process.env[k];
 over.PUBLIC_URL = `http://127.0.0.1:${port}`;
 const env = makeEnv({ OWNER_KEY: "local-owner-key", ...over });
@@ -34,6 +35,10 @@ const server = http.createServer(async (req, res) => {
     if (req.url === "/__mock/issues") {
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify(gh.issues));
+    }
+    if (req.url === "/__mock/comments") {
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify(gh.comments));
     }
     if (req.url === "/v1/report" && delay) await new Promise((r) => setTimeout(r, delay));
     if (req.url === "/v1/report" && forced) {

@@ -159,6 +159,7 @@ export class MockGitHub {
     this.canDelete = false;   // GraphQL deleteIssue: true = the token has admin rights, false = FORBIDDEN
     this.deleted = [];
     this.locked = [];
+    this.comments = [];
     this.realFetch = globalThis.fetch;
   }
   install() {
@@ -186,8 +187,25 @@ export class MockGitHub {
         if (!this.canDelete)
           return new Response('{"data":{"deleteIssue":null},"errors":[{"type":"FORBIDDEN","message":"no admin rights"}]}', { status: 200 });
         this.deleted.push(this.issues[i].number);
+        this.comments = this.comments.filter((c) => c.issue !== this.issues[i].number);
         this.issues.splice(i, 1);
         return new Response('{"data":{"deleteIssue":{"clientMutationId":null}}}', { status: 200 });
+      }
+      // 1.2.0: comments (the player's answers)
+      const cm = url.pathname.match(/^\/repos\/[^/]+\/[^/]+\/issues\/(\d+)\/comments$/);
+      if (cm && req.method === "POST") {
+        const issue = this.issues.find((x) => x.number === Number(cm[1]));
+        if (!issue) return new Response('{"message":"Not Found"}', { status: 404 });
+        const c = { id: 9000 + this.comments.length + 1, issue: issue.number, ...(await req.json()) };
+        this.comments.push(c);
+        return new Response(JSON.stringify(c), { status: 201 });
+      }
+      const dm = url.pathname.match(/^\/repos\/[^/]+\/[^/]+\/issues\/comments\/(\d+)$/);
+      if (dm && req.method === "DELETE") {
+        const i = this.comments.findIndex((x) => x.id === Number(dm[1]));
+        if (i < 0) return new Response('{"message":"Not Found"}', { status: 404 });
+        this.comments.splice(i, 1);
+        return new Response(null, { status: 204 });
       }
       let im = url.pathname.match(/^\/repos\/[^/]+\/[^/]+\/issues\/(\d+)(\/lock)?$/);
       if (im) {

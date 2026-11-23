@@ -25,6 +25,13 @@ Commands:
                                          copies in the reports folder. Asks you to type the number again (or --yes)
     python triage.py expire              run the relay's 60-day clean-up now (it also runs every hour)
     python triage.py forget-key          remove the owner key saved in Windows Credential Manager
+    python triage.py conversations       reports with a conversation, newest first, and whose turn it is
+    python triage.py conversation MA2-XXXXXX     show one conversation (oldest first)
+    python triage.py reply MA2-XXXXXX [--text "..."] [--edit N]
+                                         show the conversation, then reply (asks for the text without --text); --edit N
+                                         changes your message N while the player has not seen it. The Download page of
+                                         the issue does the same in the browser
+    python triage.py get-logs MA2-XXXXXX N   download the logs the player attached to answer N
     python triage.py draft-issue MA2-XXXXXX   write a PUBLIC issue draft (Markdown, never posted) from the report's
                                          text and summary, with private details removed; read it before using it
     python triage.py announce 1.1.8 --installer "MechAssault 2 Recomp Installer.exe" [--notice "..."]
@@ -464,6 +471,75 @@ def delete_report(relay, rid, out, yes=False, ask=input):
     return res
 
 
+# ---------------------------------------------------------------- report conversations (1.2.0)
+# The web page (the Download link in each issue) is the main way to reply; these do the same from a console.
+
+def print_conversation(res):
+    conv = res.get("conversation")
+    if not res.get("replies") or not conv:
+        print("This report came from a version without replies, so the player can't see a reply.")
+        return
+    if not conv["messages"]:
+        print("No messages yet.")
+    for m in conv["messages"]:
+        who = "You" if m["from"] == "owner" else "Player"
+        extra = ""
+        if m["from"] == "owner":
+            extra = f"  (seen {m['seen'][:16]})" if m.get("seen") else "  (not seen yet)"
+        if m.get("logs_bytes"):
+            extra += f"  [logs attached: python triage.py get-logs {conv['id']} {m['n']}]"
+        print(f"--- {m['n']}. {who}, {m['at'][:16].replace('T', ' ')} UTC{extra}")
+        print(m["text"])
+    print("---")
+
+
+def reply_cmd(relay, rid, text=None, edit=None, ask=input):
+    """Show the conversation, then send a reply (or edit the newest one while the player has not seen it)."""
+    res = relay.call("GET", f"/v1/report/{rid}/conversation")
+    print_conversation(res)
+    if not res.get("replies"):
+        return None
+    if text is None:
+        text = ask("Your reply (one line; empty = cancel): ").strip()
+    if not text:
+        print("Nothing sent.")
+        return None
+    body = {"text": text}
+    if edit is not None:
+        body["edit"] = edit
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(relay.base + f"/v1/report/{rid}/reply", data=data, method="POST")
+    req.add_header("X-MA2-Owner-Key", relay.key)
+    req.add_header("User-Agent", "ma2-triage")
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=relay.timeout) as r:
+            out = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            raise SystemExit(KEY_REJECTED)
+        try:
+            out = json.loads(e.read())
+        except ValueError:
+            raise SystemExit(f"relay error {e.code}")
+        raise SystemExit("Not sent: " + str(out.get("message") or out.get("error")))
+    print("Edited." if edit is not None else "Sent. The player sees it the next time they start the game or the installer.")
+    return out
+
+
+def get_logs(relay, rid, n, out):
+    data = relay.call("GET", f"/v1/report/{rid}/logs/{int(n)}", raw=True)
+    if data is None:
+        raise SystemExit(f"{rid}: no logs with answer {n}")
+    os.makedirs(out, exist_ok=True)
+    path = os.path.join(out, f"{rid}-answer-{int(n)}.zip")
+    with open(path, "wb") as f:
+        f.write(data)
+    print(path)
+    print("\n".join(summarise_zip(data)))
+    return path
+
+
 # ---------------------------------------------------------------- announce a release (1.1.7 self-updating installer)
 # The relay tells every game ("Version X is available") and every installer ("Update to X") about the newest release, and
 # gives the installer the SHA-256 and size it must find in the file it downloads from GitHub. This sets those values from
@@ -619,6 +695,11 @@ def main(argv=None):
     p = sub.add_parser("delete"); p.add_argument("id"); p.add_argument("--yes", action="store_true")
     sub.add_parser("expire")
     sub.add_parser("forget-key")
+    sub.add_parser("conversation").add_argument("id")
+    p = sub.add_parser("reply"); p.add_argument("id"); p.add_argument("--text", default=None)
+    p.add_argument("--edit", type=int, default=None, help="change your newest message (only while the player has not seen it)")
+    sub.add_parser("conversations")
+    p = sub.add_parser("get-logs"); p.add_argument("id"); p.add_argument("n", type=int)
     p = sub.add_parser("switch"); p.add_argument("state", nargs="?", choices=["on", "off"])
     p.add_argument("--message", default="")
     p = sub.add_parser("announce", help="tell every player's game and installer about a published release")
@@ -695,6 +776,17 @@ def main(argv=None):
                "queued": "GitHub could not be reached: the relay retires the issue at its next hourly run."}.get(issue, ""))
     elif a.cmd == "expire":
         print(json.dumps(relay.call("POST", "/v1/admin/expire"), indent=1))
+    elif a.cmd == "conversation":
+        print_conversation(relay.call("GET", f"/v1/report/{check_id(a.id)}/conversation"))
+    elif a.cmd == "reply":
+        reply_cmd(relay, check_id(a.id), a.text, a.edit)
+    elif a.cmd == "conversations":
+        convs = relay.call("GET", "/v1/admin/conversations")["conversations"]
+        for c in convs:
+            print(f"{c['id']}  last {c['last'][:16].replace('T', ' ')}  {c['messages']} messages  waiting for {c['waiting']}")
+        print(f"{len(convs)} conversations")
+    elif a.cmd == "get-logs":
+        get_logs(relay, check_id(a.id), a.n, a.out)
     elif a.cmd == "draft-issue":
         rid = check_id(a.id)
         path, n = write_draft(relay, rid, a.out)
