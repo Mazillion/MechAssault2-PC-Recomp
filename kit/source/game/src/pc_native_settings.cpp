@@ -618,6 +618,7 @@ static std::wstring reply_answer;static int reply_preset=-1;
 static bool reply_attach=true;static int reply_outcome=REPLY_NONE;static std::string reply_reason,update_note;
 static float inbox_hit[F_COUNT][4],inbox_item_hit[16][4],envelope_hit[4];static int inbox_items_shown;static bool inbox_hit_valid,envelope_shown;
 static TextDecoder reply_decoder;
+static std::atomic<int> inbox_pad{-1};                // -1 follow the game's device, 0 keyboard / mouse, 1 controller
 static std::string msg_own_version;                     // this install's version (recomp-install.json)
 static bool update_merged;
 // ---- storage
@@ -800,6 +801,7 @@ static void inbox_select_locked(int i){
 }
 static void inbox_open_locked(const char *how){
     if(reply_state)return;
+    inbox_pad=strcmp(how,"View button")?0:1;
     reply_state=1;inbox_focus=F_LIST;inbox_list_top=0;inbox_hit_valid=false;
     int first=0;for(int i=0;i<(int)inbox.size();i++)if(!inbox[i].read){first=i;break;}
     inbox_sel=-1;inbox_select_locked(first);
@@ -941,8 +943,11 @@ static void inbox_key_locked(int vk,bool shift){
 }
 // Window thread: the inbox owns the keyboard and the mouse while it is open. Returns 1 when the message was used.
 static int reply_input(HWND window,UINT message,uintptr_t wparam,intptr_t lparam){
+    // A real key, click or wheel turns the hints to the keyboard's (the VK_GAMEPAD_* range 0xC3-0xDA is the controller).
+    if((message==WM_KEYDOWN&&!(wparam>=0xC3&&wparam<=0xDA))||message==WM_LBUTTONDOWN||message==WM_MOUSEWHEEL)inbox_pad=0;
     if(message==WM_CHAR){
         uint32_t code=wparam==0x16?0x16:reply_decoder.decode(GetACP(),IsWindowUnicode(window)!=FALSE,wparam);
+        if(code>=0x20&&code<0xFFFE)inbox_pad=0;
         if(code==0x16||(code>=0x20&&!(code>=0x7F&&code<0xA0)&&code<0xFFFE&&!(code>=0xD800&&code<=0xDFFF))){ReplyLock l;if(inbox_focus==F_BOX)reply_type_locked(code);}
         return 1;
     }
@@ -1014,6 +1019,7 @@ static void reply_pulse(uint32_t vtable){
     test_pad_tapped.exchange(0);
     if(pad.Gamepad.wButtons)pc_input_note_gamepad(pad.Gamepad.wButtons,pad.Gamepad.bLeftTrigger,pad.Gamepad.bRightTrigger,pad.Gamepad.sThumbLX,pad.Gamepad.sThumbLY,pad.Gamepad.sThumbRX,pad.Gamepad.sThumbRY);
     if(!pressed)return;
+    inbox_pad=1;
     ReplyLock l;const bool box=inbox_focus==F_BOX&&reply_answering_locked();
     if(pressed&XINPUT_GAMEPAD_B)inbox_key_locked(VK_ESCAPE,false);
     else if(pressed&XINPUT_GAMEPAD_A){if(box)reply_preset_step_locked(1);else inbox_activate_locked(inbox_focus);}
@@ -1065,7 +1071,7 @@ static void draw_inbox(ImDrawList *list,float width,float height,float sx,float 
     if(!reply_state)return;
     const float u=std::min(width/640.f,height/480.f),size=std::max(13.f,10.5f*u),pad=12*u;ImFont *font=ImGui::GetFont();
     const float w=std::min(width-24*u,620*u),h=std::min(height-24*u,440*u),x0=(width-w)*.5f,y0=(height-h)*.5f,x1=x0+w,y1=y0+h,t=std::max(1.f,1.25f*u);
-    const bool gamepad=pc_input_device()==PC_INPUT_GAMEPAD,busy=reply_state==2;
+    const bool gamepad=inbox_pad>=0?inbox_pad==1:pc_input_device()==PC_INPUT_GAMEPAD,busy=reply_state==2;
     auto px=[&](int f,float a,float b,float c,float d){inbox_hit[f][0]=a/sx;inbox_hit[f][1]=b/sy;inbox_hit[f][2]=c/sx;inbox_hit[f][3]=d/sy;};
     for(auto &b:inbox_hit)b[0]=b[1]=b[2]=b[3]=0;
     list->AddRectFilled(ImVec2(0,0),ImVec2(width,height),IM_COL32(0,0,0,110));
@@ -1154,10 +1160,10 @@ static void draw_inbox(ImDrawList *list,float width,float height,float sx,float 
             if(f)draw_focus_ring(list,a,b,u);
             list->AddRectFilled(a,b,IM_COL32(8,18,30,200),2*u);list->AddRect(a,b,f?C_GLOW:C_LINE,2*u,0,t);
             std::string txt=report_to_utf8(reply_answer);const bool empty=txt.empty();
-            if(empty&&!f)txt=gamepad?reply_text_pad:reply_text_type;else if(f&&report_cursor_on())txt+="_";
+            const bool hint=empty&&(!f||gamepad);if(hint)txt=gamepad?reply_text_pad:reply_text_type;else if(f&&report_cursor_on())txt+="_";
             float tw=rw-8*u;ImVec2 tsz=font->CalcTextSizeA(size,FLT_MAX,tw,txt.c_str());float ty=std::min(a.y+4*u,b.y-4*u-tsz.y);
             list->PushClipRect(ImVec2(a.x+2,a.y+2),ImVec2(b.x-2,b.y-2),true);
-            list->AddText(font,size,ImVec2(a.x+4*u,ty),empty&&!f?C_DIM:C_WHITE,txt.c_str(),nullptr,tw);
+            list->AddText(font,size,ImVec2(a.x+4*u,ty),hint?C_DIM:C_WHITE,txt.c_str(),nullptr,tw);
             list->PopClipRect();px(F_BOX,a.x,a.y,b.x,b.y);cy+=box_h+6*u;
             float bsz=size*.95f;ImVec2 ta(rx,cy),tb(rx+bsz,cy+bsz);bool tf=inbox_focus==F_TICK&&!busy;
             if(tf)draw_focus_ring(list,ta,tb,u);
