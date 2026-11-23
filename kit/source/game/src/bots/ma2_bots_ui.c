@@ -1095,8 +1095,9 @@ void ma2_menu_policy_pulse(uint32_t object, uint32_t vtable) {
 int  xbox_SplitScreenOn(void);
 void xbox_SplitJoinWindow(int dialog);
 int  xbox_SplitTakeJoin(void);
-void xbox_SplitSetGuest(int slot);
-int  xbox_SplitGuestSlot(void);
+void xbox_SplitAssign(int port, int slot);
+int  xbox_SplitPortSlot(int port);
+int  xbox_SplitNextPort(unsigned local_mask);
 static int split_join_screen(uint32_t vtable) {
     static int lobby = -1;   /* RECOMP_SPLIT_JOIN_LOBBY=1: the Briefing Room too (test; see RESULT-splitscreen.md) */
     if (lobby < 0) lobby = env_or("RECOMP_SPLIT_JOIN_LOBBY", 0) != 0;
@@ -1113,8 +1114,34 @@ static int guest_add(uint32_t controller, uint32_t menu) {
     restore_registers(&r);
     return ok;
 }
+/* Two local players in 1.2.0 (owner 2026-11-23). The game keeps ONE guest controller in the session (+0x58,
+ * written by sub_001F4BCB; Remove Guest removes that one, sub_001F4B24) and one guest bit set
+ * (0x50C9B0 = 1 << controller in sub_00224753, cleared bit by bit on removal), while the local-player
+ * mask 0x50C9AC, the cameras (sub_0016B7DD has 3- and 4-player quadrants), the input ports and the
+ * lobby's team words (session+0x3A8, 4 controllers) all take 4. So a 3rd and 4th guest join through
+ * the same sub_00224753, and the PC layer keeps the single-guest fields pointing at a guest that is
+ * still in: 0x50C9B0 = every guest's bit, session+0x58 = the newest guest still in. Remove Guest then
+ * removes guests one at a time, newest first, until the menu item reads Add Guest again.
+ * 1.2.0 allows player 1 and one guest, as the original game shipped split screen; 3-4 players
+ * are on branch splitscreen-4p-wip (wiki pack t76_splitscreen_4p). */
+static int split_max_players(void) { return 2; }
+static void split_guest_fields(unsigned mask) {
+    uint32_t session = MEM32(0x4EBBFC);
+    unsigned guests = mask & ~1u;
+    if (!guests || !valid_widget(session)) return;
+    if ((MEM32(0x50C9B0) & 0xF) != guests) {
+        fprintf(stderr, "[PC-SPLIT] guest bits 0x50C9B0 %X -> %X\n", MEM32(0x50C9B0) & 0xF, guests);
+        MEM32(0x50C9B0) = (MEM32(0x50C9B0) & ~0xFu) | guests;
+    }
+    uint32_t g = MEM32(session + 0x58);
+    if (g > 3 || !(guests & (1u << g))) {
+        int newest = 3; while (newest > 0 && !(guests & (1u << newest))) newest--;
+        fprintf(stderr, "[PC-SPLIT] session guest controller %u -> %d\n", g + 1, newest + 1);
+        MEM32(session + 0x58) = (uint32_t)newest;
+    }
+}
 static void split_frame(uint32_t object, uint32_t vtable) {
-    static int on = -1, gone;
+    static int on = -1, gone[4];
     if (on < 0) on = xbox_SplitScreenOn() != 0;
     if (!on) return;
     unsigned mask = MEM32(0x50C9AC) & 0xF;
@@ -1129,30 +1156,36 @@ static void split_frame(uint32_t object, uint32_t vtable) {
             was = dialog;
         } }
     int screen = split_join_screen(vtable);
-    if (screen && humans_in < 2) xbox_SplitJoinWindow(dialog);
+    if (screen && humans_in < split_max_players()) xbox_SplitJoinWindow(dialog);
     int slot = xbox_SplitTakeJoin();
     if (slot >= 0) {
         uint32_t session = MEM32(0x524C14);
         uint32_t flags = valid_widget(session) ? MEM32(session + 0x18) : 0;
-        int p1 = lowest_human(mask), controller = p1 == 0 ? 1 : -1;   /* the guest's pad is on guest port 1 */
-        const char *why = !screen ? "not in the Multiplayer menus" : humans_in != 1 ? "a guest is already in"
-                        : xbox_SplitGuestSlot() >= 0 ? "a pad is joining" : controller < 0 ? "player 1 is not controller 1"
-                        : (flags & 0x10) ? "the session refuses guests" : ((flags & 4) && vtable != MP_MENU_VT) ? "networked session" : NULL;
+        int port = xbox_SplitNextPort(mask);   /* guest port = the game's controller index */
+        const char *why = !screen ? "not in the Multiplayer menus" : humans_in < 1 ? "no player 1"
+                        : humans_in >= split_max_players() ? "every player slot is taken" : lowest_human(mask) != 0 ? "player 1 is not controller 1"
+                        : port < 0 ? "no free controller port" : (flags & 0x10) ? "the session refuses guests"
+                        : ((flags & 4) && vtable != MP_MENU_VT) ? "networked session" : NULL;
         if (why) fprintf(stderr, "[PC-SPLIT] quick join from host slot %d ignored: %s\n", slot, why);
         else {
-            xbox_SplitSetGuest(slot);
-            int ok = guest_add((uint32_t)controller, vtable == MP_MENU_VT ? object : 0);
+            xbox_SplitAssign(port, slot);
+            int ok = guest_add((uint32_t)port, vtable == MP_MENU_VT ? object : 0);
             unsigned after = MEM32(0x50C9AC) & 0xF;
+            int joined = ok && (after & (1u << port));
             fprintf(stderr, "[PC-SPLIT] quick join: host slot %d -> controller %d (%s; local mask %X -> %X, menu %08X, session flags %X)\n",
-                    slot, controller + 1, ok && popcount4u(after) >= 2 ? "joined" : "refused by the game", mask, after, vtable, flags);
-            if (popcount4u(after) < 2) xbox_SplitSetGuest(-1);
+                    slot, port + 1, joined ? "joined" : "refused by the game", mask, after, vtable, flags);
+            if (!joined) xbox_SplitAssign(port, -1);
             mask = after; humans_in = popcount4u(after);
         }
     }
-    /* The guest left (Remove Guest) or a dialog join was refused: player 1 gets the active pad back. */
-    if (xbox_SplitGuestSlot() >= 0 && humans_in < 2 && !dialog) {
-        if (++gone >= 3) { xbox_SplitSetGuest(-1); gone = 0; }
-    } else gone = 0;
+    split_guest_fields(mask);
+    /* A guest left (Remove Guest) or a dialog join was refused: free its port. The last one out gives
+     * player 1 both devices back (xinput_device.c). */
+    for (int p = 1; p < 4; p++) {
+        if (xbox_SplitPortSlot(p) >= 0 && !(mask & (1u << p)) && !dialog) {
+            if (++gone[p] >= 3) { xbox_SplitAssign(p, -1); gone[p] = 0; }
+        } else gone[p] = 0;
+    }
     {   static unsigned last = 0xFFFF;
         if (mask != last) { fprintf(stderr, "[PC-SPLIT] local players mask %X (%d)\n", mask, humans_in); last = mask; } }
 }

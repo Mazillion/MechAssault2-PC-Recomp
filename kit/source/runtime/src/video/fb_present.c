@@ -303,7 +303,7 @@ static LRESULT CALLBACK fb_wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
         }
     }
     if(m==WM_KEYDOWN || m==WM_LBUTTONDOWN || m==WM_RBUTTONDOWN ||
-       m==WM_MBUTTONDOWN || m==WM_XBUTTONDOWN)pc_input_note_keyboard();
+       m==WM_MBUTTONDOWN || m==WM_XBUTTONDOWN)pc_input_note_keyboard_press();
     /* W-10 (D-3): pause in play and mute while another window has focus. [Input] PauseOnFocusLoss /
      * RECOMP_PAUSE_ON_FOCUS_LOSS and [Audio] MuteInBackground / RECOMP_MUTE_IN_BACKGROUND, both default 1.
      * A hidden harness window never pauses (unless RECOMP_TEST_FOCUS_PAUSE), so sweeps are unaffected. */

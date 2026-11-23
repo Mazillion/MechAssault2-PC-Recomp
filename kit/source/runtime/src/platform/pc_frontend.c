@@ -62,6 +62,7 @@ static PcAtomic captured;
 static PcAtomic settings[PC_SETTING_COUNT], bindings[PC_BINDING_COUNT];
 static PcAtomic input_context, input_device, input_revision;
 static PcAtomic pad_buttons, pad_axes[6];
+static PcAtomic p1_device;   /* split screen: the device player 1 last used on purpose (no mouse motion) */
 static PcAtomic menu_buttons[8],camera_capture,text_capture;
 static PcAtomic display_size, render_size, movie_count, movie_skip, cinematic, cinematic_view, cinematic_fps;
 void pc_render_size(unsigned width,unsigned height) {
@@ -205,6 +206,11 @@ static void pc_input_note(enum PcInputDevice d) {
     }
 }
 void pc_input_note_keyboard(void) { pc_input_note(PC_INPUT_KEYBOARD_MOUSE); }
+/* A key or a mouse button: player 1 is using the keyboard and mouse on purpose. Mouse motion alone
+ * changes the prompts (pc_input_note_keyboard) but not this, so a pad player who nudges the mouse
+ * keeps the pad as player 1's (split screen join rules, xinput_device.c). */
+void pc_input_note_keyboard_press(void) { pc_input_note(PC_INPUT_KEYBOARD_MOUSE); pc_store(&p1_device,(int)PC_INPUT_KEYBOARD_MOUSE); }
+enum PcInputDevice pc_input_p1_device(void) { return (enum PcInputDevice)pc_load(&p1_device); }
 enum PcInputDevice pc_input_device(void) { return (enum PcInputDevice)pc_load(&input_device); }
 unsigned pc_input_revision(void) { return (unsigned)pc_load(&input_revision); }
 void pc_input_note_gamepad(unsigned buttons,unsigned lt,unsigned rt,int lx,int ly,int rx,int ry)
@@ -222,5 +228,5 @@ void pc_input_note_gamepad(unsigned buttons,unsigned lt,unsigned rt,int lx,int l
             pc_store(&pad_axes[i],values[i]);active=1;
         }
     }
-    if(active)pc_input_note(PC_INPUT_GAMEPAD);
+    if(active){pc_input_note(PC_INPUT_GAMEPAD);pc_store(&p1_device,(int)PC_INPUT_GAMEPAD);}
 }

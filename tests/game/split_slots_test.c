@@ -57,32 +57,51 @@ int main(void)
     check(split_bots_pick(8, 10, 11, 10) == 10, "a pick past the room from below saves the room");
     check(split_bots_pick(4, 4, -1, 10) == 4, "no value: saved stays");
 
+    /* ---- 3 and 4 players: the room ---- */
+    roster(0, 0, 0, 0, 11, 3, 0, 9, 0, "ffa 11 bots + 2 guests: 9");
+    roster(0, 0, 0, 0, 11, 4, 0, 8, 0, "ffa 11 bots + 3 guests: 8");
+    roster(1, 0, 5, 6, 0, 2, 2, 4, 4, "team 5/6, two humans a side: 6v6");
+    roster(1, 0, 5, 6, 0, 1, 3, 5, 3, "team 5/6, P1 red + 3 guests blue: 6v6");
+    roster(1, 0, 6, 6, 0, 3, 1, 3, 5, "team 6/6, 3 red humans + 1 blue: 6v6");
+
     /* ---- input: which press joins ---- */
     {
+        const int none_in[SPLIT_PORTS] = { SPLIT_NO_SLOT, SPLIT_NO_SLOT, SPLIT_NO_SLOT, SPLIT_NO_SLOT };
+        const int one_in[SPLIT_PORTS] = { SPLIT_NO_SLOT, 1, SPLIT_NO_SLOT, SPLIT_NO_SLOT };
+        const int full[SPLIT_PORTS] = { SPLIT_NO_SLOT, 1, 2, 3 };
         unsigned short none[4] = { 0, 0, 0, 0 }, start1[4] = { 0, SPLIT_PAD_START, 0, 0 }, start0[4] = { SPLIT_PAD_START, 0, 0, 0 };
-        unsigned short a1[4] = { 0, SPLIT_PAD_A, 0, 0 };
-        check(split_join_slot(0x3, none, 0, SPLIT_NO_SLOT, 0) == SPLIT_NO_SLOT, "no press, no join");
-        check(split_join_slot(0x3, start1, 0, SPLIT_NO_SLOT, 0) == 1, "START on the second pad joins (P1 on pad 0)");
-        check(split_join_slot(0x3, start0, 0, SPLIT_NO_SLOT, 0) == SPLIT_NO_SLOT, "START on player 1's own pad is player 1's");
-        check(split_join_slot(0x1, start0, SPLIT_NO_SLOT, SPLIT_NO_SLOT, 0) == 0, "one pad, P1 on keyboard: START on it joins");
-        check(split_join_slot(0x3, a1, 0, SPLIT_NO_SLOT, 0) == SPLIT_NO_SLOT, "A does not quick-join");
-        check(split_join_slot(0x3, a1, 0, SPLIT_NO_SLOT, 1) == 1, "A joins in the Add Guest dialog");
-        check(split_join_slot(0x3, start1, 0, 1, 0) == SPLIT_NO_SLOT, "no second guest");
-        check(split_join_slot(0x1, start1, SPLIT_NO_SLOT, SPLIT_NO_SLOT, 0) == SPLIT_NO_SLOT, "a slot with no pad never joins");
+        unsigned short a1[4] = { 0, SPLIT_PAD_A, 0, 0 }, start2[4] = { 0, 0, SPLIT_PAD_START, 0 };
+        int p1pad = split_p1_pad(SPLIT_P1_NONE, 0, 1), p1kbm = split_p1_pad(SPLIT_P1_NONE, 0, 0);
+        check(p1pad == 0 && p1kbm == SPLIT_NO_SLOT, "player 1's pad: the active pad only while player 1 uses a pad");
+        check(split_p1_pad(SPLIT_P1_KBM, 0, 1) == SPLIT_NO_SLOT, "locked to the keyboard: no pad is player 1's");
+        check(split_p1_pad(2, 0, 0) == 2, "locked to pad 2: pad 2 is player 1's whatever was used last");
+        check(split_join_slot(0x3, none, p1pad, none_in, 0) == SPLIT_NO_SLOT, "no press, no join");
+        check(split_join_slot(0x3, start1, p1pad, none_in, 0) == 1, "START on the second pad joins (P1 on pad 0)");
+        check(split_join_slot(0x3, start0, p1pad, none_in, 0) == SPLIT_NO_SLOT, "START on player 1's own pad never joins");
+        check(split_join_slot(0x1, start0, p1kbm, none_in, 0) == 0, "one pad, P1 on the keyboard on purpose: START on it joins");
+        check(split_join_slot(0x3, a1, p1pad, none_in, 0) == SPLIT_NO_SLOT, "A does not quick-join");
+        check(split_join_slot(0x3, a1, p1pad, none_in, 1) == 1, "A joins in the Add Guest dialog");
+        check(split_join_slot(0x7, start1, p1pad, one_in, 0) == SPLIT_NO_SLOT, "a guest's own START is not a new join");
+        check(split_join_slot(0x7, start2, p1pad, one_in, 0) == SPLIT_NO_SLOT, "1.2.0: a third pad never joins (two players)");
+        check(split_join_slot(0xF, start0, SPLIT_P1_KBM == -1 ? SPLIT_NO_SLOT : 0, full, 0) == SPLIT_NO_SLOT, "4 players: no free port, no join");
+        check(split_join_slot(0x1, start1, SPLIT_NO_SLOT, none_in, 0) == SPLIT_NO_SLOT, "a slot with no pad never joins");
+        check(split_next_port(none_in, 0x1) == 1 && split_next_port(one_in, 0x3) == SPLIT_NO_SLOT && split_next_port(full, 0xF) == SPLIT_NO_SLOT,
+              "1.2.0: the guest takes port 1, no further port");
+        /* ---- input: who drives which port ---- */
+        check(split_port_slot(0, none_in, SPLIT_P1_NONE, 0, SPLIT_NO_SLOT) == 0, "solo: player 1 keeps the active pad (the hop)");
+        check(split_port_slot(0, none_in, SPLIT_P1_NONE, 0, 0) == SPLIT_NO_SLOT, "a joining pad's press never reaches player 1");
+        check(split_port_slot(0, one_in, SPLIT_P1_KBM, 0, SPLIT_NO_SLOT) == SPLIT_NO_SLOT, "guest in, locked to keyboard: no pad for player 1");
+        check(split_port_slot(0, one_in, 0, 2, SPLIT_NO_SLOT) == 0, "guest in, locked to pad 0: pad 0 even when another pad hopped");
+        check(split_port_slot(1, one_in, 0, 0, SPLIT_NO_SLOT) == 1 && split_port_slot(3, full, 0, 0, SPLIT_NO_SLOT) == 3, "guest ports: their own pads");
+        check(split_port_slot(2, one_in, 0, 0, SPLIT_NO_SLOT) == SPLIT_NO_SLOT, "a free guest port has no pad");
+        check(split_p1_keyboard(SPLIT_P1_NONE) && split_p1_keyboard(SPLIT_P1_KBM) && !split_p1_keyboard(0),
+              "the keyboard drives player 1 unless player 1 is locked to a pad");
+        check(split_p1_lock_for(0, 1, 1) == 0, "first guest joins while P1 uses pad 0: P1 locked to pad 0");
+        check(split_p1_lock_for(0, 0, 1) == SPLIT_P1_KBM, "first guest joins while P1 uses the keyboard: locked to keyboard");
+        check(split_p1_lock_for(0, 1, 0) == SPLIT_P1_KBM, "the joining pad itself never becomes player 1's lock");
+        check(!split_hop_allowed(1, one_in, SPLIT_NO_SLOT) && !split_hop_allowed(2, none_in, 2) && split_hop_allowed(2, one_in, SPLIT_NO_SLOT),
+              "the hop never takes a guest's or a joining pad");
     }
-    /* ---- input: who drives which port ---- */
-    check(split_port_slot(0, SPLIT_NO_SLOT, 0, SPLIT_NO_SLOT) == 0, "solo: player 1 keeps the active pad (the hop)");
-    check(split_port_slot(0, SPLIT_NO_SLOT, 2, SPLIT_NO_SLOT) == 2, "solo: the hop's pad, any slot");
-    check(split_port_slot(1, SPLIT_NO_SLOT, 0, SPLIT_NO_SLOT) == SPLIT_NO_SLOT, "solo: port 1 has no pad");
-    check(split_port_slot(0, 1, 0, SPLIT_NO_SLOT) == SPLIT_NO_SLOT, "guest in: player 1 = keyboard and mouse only");
-    check(split_port_slot(0, 0, 0, SPLIT_NO_SLOT) == SPLIT_NO_SLOT, "guest on the only pad: player 1 = keyboard and mouse");
-    check(split_port_slot(1, 1, 0, SPLIT_NO_SLOT) == 1, "guest in: port 1 = the guest's pad");
-    check(split_port_slot(2, 1, 0, SPLIT_NO_SLOT) == SPLIT_NO_SLOT, "ports 2-3: nobody");
-    check(split_port_slot(0, SPLIT_NO_SLOT, 0, 0) == SPLIT_NO_SLOT, "a joining pad's press never reaches player 1");
-    check(split_port_slot(0, SPLIT_NO_SLOT, 0, 1) == 0, "another pad joining: player 1 keeps the active pad");
-    check(!split_hop_allowed(1, 1, SPLIT_NO_SLOT), "the hop never takes the guest's pad");
-    check(!split_hop_allowed(2, SPLIT_NO_SLOT, 2), "the hop never takes a joining pad");
-    check(split_hop_allowed(2, 1, SPLIT_NO_SLOT), "a third pad may hop for player 1 (only while no guest: port 0 ignores pads then)");
 
     printf("split_slots_test: %d checks, %d failed\n", checks, failures);
     return failures ? 1 : 0;
