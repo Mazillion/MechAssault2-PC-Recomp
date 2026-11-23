@@ -147,6 +147,18 @@ def main():
         assert live == {"ok": True, "latest": "1.1.8", "notice": "Please update to 1.1.8.", "sha256": sha, "size": size,
                         "asset": ASSET}, live; checks += 1
         assert "Announced 1.1.8" in out; checks += 1
+        assert "Changes   (none)" in out, out; checks += 1          # the repo Changelog has no 1.1.8 section
+
+        # 1.2.0: --changelog: the version's section goes along as notes (the game's Messages), the other sections do not.
+        cl = os.path.join(tmp, "Changelog.txt")
+        with open(cl, "w", encoding="utf-8") as f:
+            f.write("MechAssault 2 PC recompilation - changes\n=====\n\nYou have version {{VERSION}}.\n\n\n"
+                    "1.1.8\n-----\n- Fixed the music stopping.\n- Faster loading.\n\n1.1.7\n-----\n- Older change.\n")
+        res, out, asked = run(["announce", "1.1.8", "--installer", exe, "--changelog", cl, "--notice", "Please update to 1.1.8."], ["y"])
+        assert res == 0 and "Changes   2 lines from Changelog.txt" in out, (res, out); checks += 1
+        live = latest()
+        assert live.get("notes") == "- Fixed the music stopping.\n- Faster loading.", live; checks += 1
+        assert triage.changelog_section(open(cl, encoding="utf-8").read(), "1.1.7") == "- Older change."; checks += 1
 
         # --show
         res, out, asked = run(["announce", "--show"])

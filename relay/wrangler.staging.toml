@@ -34,6 +34,8 @@ DELETE_ISSUES = "on"
 DAILY_CAP = "20"
 PER_IP_PER_HOUR = "5"
 MAX_UPLOAD_BYTES = "26214400"
+# 1.2.0 report conversations: reply checks (POST /v1/replies) per connection per hour. Answers use the report limits.
+REPLY_POLLS_PER_HOUR = "30"
 
 [[r2_buckets]]
 binding = "REPORTS"

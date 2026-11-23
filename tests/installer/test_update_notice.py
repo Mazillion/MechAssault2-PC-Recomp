@@ -69,8 +69,10 @@ class UpdateNotice(unittest.TestCase):
     def test_game_starts_the_check_once_and_shows_one_line(self):
         cpp = (SRC / 'pc_native_settings.cpp').read_text(encoding='utf-8')
         self.assertEqual(cpp.count('ma2_update_check_start('), 1)
-        self.assertIn('"Version %s is available. Run the installer to update."', cpp)
-        self.assertIn('menu_kind!=0x481B70', cpp)                              # main menu only
+        # 1.2.0: the line is replaced by Messages (an update message "Version %s is available" with Update now), main menu only
+        self.assertNotIn('draw_update_line(', cpp)
+        self.assertIn('msg_text_update_title="Version %s is available"', cpp)
+        self.assertIn('menu_kind==0x481B70', cpp[cpp.index('static bool envelope_visible'):])
 
     def test_default_on_in_the_defaults_ini(self):
         keys, order = precheck._ini_keys((KIT / 'defaults' / 'pc_settings.ini').read_text(encoding='utf-8'))

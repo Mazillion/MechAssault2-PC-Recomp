@@ -19,6 +19,9 @@
 #include "backends/imgui_impl_dx11.h"
 #include "ma2_release.h"
 #include "pc_update_check.h"     // 1.1.7: the update line on the main menu
+#include "pc_report_replies.h"   // 1.2.0: the developer's replies to the player's reports
+#include "pc_messages.h"         // 1.2.0: Messages (updates, what's new, replies)
+#include <shellapi.h>
 extern "C" ptrdiff_t g_xbox_mem_offset;
 // The active host pad (xinput_device.c): slot 0 if connected, else the lowest connected slot, switching on a new
 // button press, with empty slots probed once a second. The settings page and the Editor button read it too.
@@ -190,7 +193,7 @@ static unsigned test_pad_bit(uintptr_t vk){
     switch(vk){case 0xC3:return XINPUT_GAMEPAD_A;case 0xC4:return XINPUT_GAMEPAD_B;case 0xC5:return XINPUT_GAMEPAD_X;
     case 0xC6:return XINPUT_GAMEPAD_Y;case 0xC7:return XINPUT_GAMEPAD_RIGHT_SHOULDER;case 0xC8:return XINPUT_GAMEPAD_LEFT_SHOULDER;
     case 0xCB:return XINPUT_GAMEPAD_DPAD_UP;case 0xCC:return XINPUT_GAMEPAD_DPAD_DOWN;case 0xCD:return XINPUT_GAMEPAD_DPAD_LEFT;
-    case 0xCE:return XINPUT_GAMEPAD_DPAD_RIGHT;}
+    case 0xCE:return XINPUT_GAMEPAD_DPAD_RIGHT;case 0xD0:return XINPUT_GAMEPAD_BACK;}   // 0xD0 VK_GAMEPAD_VIEW: Messages
     return 0;
 }
 // ma2_scenario.c, back from the editor: focus returns to the scenario row before it posts any key.
@@ -288,22 +291,8 @@ static void draw_editor_note(ImDrawList *list,float width,float height,const wch
     list->AddRectFilled(ImVec2(x-14,y-8),ImVec2(x+ts.x+14,y+ts.y+8),IM_COL32(15,26,38,220));
     list->AddText(font,size,ImVec2(x,y),IM_COL32(252,251,248,255),text,nullptr,wrap);
 }
-/* 1.1.7: "Version X is available. Run the installer to update." under the main menu's footer, only on
- * the main menu (never in a match, a settings page, the exit prompt or a movie), only when the start-up
- * check (pc_update_check.h) found a newer release. Box b in back-buffer pixels. */
-static const float UPDATE_X0=0,UPDATE_X1=640,UPDATE_Y0=450,UPDATE_Y1=468;
-static const char *update_line_shown(){
-    if(opened||exit_dialog||!menu_available()||menu_kind!=0x481B70||pc_display_movie_active()||ma2_scn_editor_note())return nullptr;
-    return ma2_update_available();
-}
-static void draw_update_line(ImDrawList *list,const float b[4],const char *latest){
-    char text[96];snprintf(text,sizeof(text),"Version %s is available. Run the installer to update.",latest);
-    const float h=b[3]-b[1],size=std::max(12.f,h*.8f);ImFont *font=ImGui::GetFont();
-    ImVec2 ts=font->CalcTextSizeA(size,FLT_MAX,0,text);
-    float x=(b[0]+b[2]-ts.x)*.5f,y=(b[1]+b[3]-ts.y)*.5f;
-    list->AddText(font,size,ImVec2(x+1,y+1),IM_COL32(0,0,0,160),text);
-    list->AddText(font,size,ImVec2(x,y),IM_COL32(160,190,214,255),text);
-}
+/* 1.1.7's update line under the main menu ("Version X is available. Run the installer to update.") is replaced in 1.2.0 by
+ * Messages: the envelope's count and an update message with the list of changes and Update now (see Messages below). */
 // "Esc: Back" at the end of the settings pages' hint line (keyboard text): its
 // glyphs in 640x480 units (x), and relative to the hint row top (y). It is the
 // clickable part of the line, with a small margin.
@@ -559,6 +548,681 @@ static void report_send(){
     HANDLE t=CreateThread(nullptr,0,report_send_thread,nullptr,0,nullptr);
     if(t)CloseHandle(t);else{report_outcome=ReportOutcome();report_outcome.cause=L"the report could not be started";report_state=2;}
 }
+/* ---- 1.2.0: Messages on the main menu (pc_messages.h, pc_report_replies.h) ----
+ * An envelope in the main menu's top-right corner with the count of unread messages, opened with M, the controller's
+ * View (Back) button or a click. With unread messages a short "1 new message" line fades in beside it at launch; nothing
+ * opens by itself. The inbox: a list (newest first, unread marked) and a reader. Three kinds of message:
+ *   update    "Version X is available" + that release's list of changes (/v1/latest "notes"); "Update now" closes the
+ *             game and starts the installer copy in the install folder (RecompLauncher: update there instead; no copy:
+ *             the releases page). It replaces the 1.1.7 update line on the main menu.
+ *   whatsnew  "Updated to X" (or "What's new in X" when no earlier version was recorded) with that version's section of
+ *             the install's Docs\Changelog.txt, once per version.
+ *   reply     the developer's reply to a report sent from this PC (MA2 Report.exe --replies, only when
+ *             report-conversations.txt exists) with the answer box, "Attach my latest logs" and Send (--answer).
+ * Stored in messages.txt next to pc_settings.ini (format: pc_messages.h); updates and what's new kept 6 months, replies
+ * 60 days. Reading a reply tells the relay it was seen (--seen), so the installer does not show it again; a reply read or
+ * answered in the installer comes back as read / answered here ("state=" lines). */
+// The player-facing words (REPLIES-STRINGS.md). The head line of a reply is ma2_reply_head() in pc_report_replies.h.
+static const char *const msg_text_title="Messages";
+static const char *const msg_text_new_one="1 new message";
+static const char *const msg_text_new_many="%d new messages";
+static const char *const msg_text_none="No messages yet.";
+static const char *const msg_text_close="Close";
+static const char *const msg_text_update_title="Version %s is available";
+static const char *const msg_text_update_now="Update now";
+static const char *const msg_text_update_now_note="The game closes and the installer opens to update it.";
+static const char *const msg_text_update_launcher="The game closes and RecompLauncher opens on this game: press Update there.";
+static const char *const msg_text_update_page="Open the releases page";
+static const char *const msg_text_update_page_note="Get the new installer from the project's releases page.";
+static const char *const msg_text_update_have="This version is installed.";
+static const char *const msg_text_update_failed="The installer could not be started.";
+static const char *const msg_text_no_notes="The list of changes is on the project's releases page.";
+static const char *const msg_text_updated="Updated to %s";
+static const char *const msg_text_whats_new="What's new in %s";
+static const char *const msg_text_answered="You answered this message.";
+static const char *const msg_text_older="Only the newest message of a conversation can be answered.";
+static const char *const msg_text_kind_update="Update";
+static const char *const msg_text_kind_whatsnew="What's new";
+static const char *const msg_text_kind_reply="Reply";
+static const char *const msg_text_hint_keys="Up/Down: Choose    Enter: Open    Tab: Next    PgUp/PgDn: Scroll    Esc: Back";
+static const char *const msg_text_hint_pad="D-pad: Choose    A: Select    LB/RB: Scroll    B: Back";
+static const char *const msg_text_key_keys="M";
+static const char *const msg_text_key_pad="View";
+static const char *const msg_releases_url="https://github.com/Mazillion/MechAssault2-PC-Recomp/releases";
+static const char *const reply_text_answer="Your answer:";
+static const char *const reply_text_type="(type here)";
+static const char *const reply_text_pad="(Left / Right picks an answer)";
+static const wchar_t *const reply_presets[]={L"Thanks, that fixed it.",L"It still happens.",L"I tried that, but nothing changed.",
+    L"I'll try that and tell you how it went."};
+static const char *const reply_text_attach="Attach my latest logs";
+static const char *const reply_text_send="Send";
+static const char *const reply_text_private="Please don't type personal details. You're anonymous if you don't.";
+static const char *const reply_text_sending="Sending...";
+static const char *const reply_text_sent="Answer sent.";
+static const char *const reply_text_sent_logs="Answer sent with your latest logs.";
+static const char *const reply_text_failed="Could not send your answer (%s).";
+static const char *const reply_text_empty="Type an answer first.";
+static const char *const reply_text_closed="The developer can't take an answer to this message any more.";
+static const int REPLY_PRESETS=(int)(sizeof reply_presets/sizeof *reply_presets);
+static bool report_cursor_on();
+enum {F_LIST,F_BODY,F_BOX,F_TICK,F_SEND,F_BUTTON,F_CLOSE,F_COUNT};
+enum {REPLY_NONE,REPLY_SENT,REPLY_SENT_LOGS,REPLY_FAILED,REPLY_EMPTY,REPLY_CLOSED};
+struct InboxMsg{std::string kind,key,date,title,body,sent;bool read=false,can_answer=false,answered=false;};
+static SRWLOCK reply_lock=SRWLOCK_INIT;                // guards everything below (window, render, guest and worker threads)
+struct ReplyLock{ReplyLock(){AcquireSRWLockExclusive(&reply_lock);}~ReplyLock(){ReleaseSRWLockExclusive(&reply_lock);}};
+static std::vector<InboxMsg> inbox;                     // newest first
+static std::atomic<int> reply_state{0};                // 0 inbox closed, 1 open, 2 open and sending an answer
+static int inbox_sel=0,inbox_focus=F_LIST,inbox_list_top=0,inbox_launch_unread=-1;static DWORD inbox_launch_at;
+static float inbox_scroll=0,inbox_scroll_max=0,inbox_scroll_step=40;
+static std::wstring reply_answer;static int reply_preset=-1;
+static bool reply_attach=true;static int reply_outcome=REPLY_NONE;static std::string reply_reason,update_note;
+static float inbox_hit[F_COUNT][4],inbox_item_hit[16][4],envelope_hit[4];static int inbox_items_shown;static bool inbox_hit_valid,envelope_shown;
+static TextDecoder reply_decoder;
+static std::atomic<int> inbox_pad{-1};                // -1 follow the game's device, 0 keyboard / mouse, 1 controller
+static std::string msg_own_version;                     // this install's version (recomp-install.json)
+static bool update_merged;
+// ---- storage
+static std::wstring msg_file(){std::wstring p;wchar_t w[MAX_PATH];MultiByteToWideChar(CP_ACP,0,ini_path,-1,w,MAX_PATH);p=w;
+    size_t s=p.find_last_of(L"\\/");return (s==std::wstring::npos?std::wstring(L"."):p.substr(0,s))+L"\\messages.txt";}
+static std::string msg_today(){SYSTEMTIME st;GetSystemTime(&st);char d[11];snprintf(d,sizeof d,"%04u-%02u-%02u",st.wYear,st.wMonth,st.wDay);return d;}
+static std::string msg_esc(const std::string &s){std::vector<char> b(s.size()*2+2);ma2_msg_escape(s.c_str(),b.data(),b.size());return b.data();}
+static std::string msg_reflow(const std::string &t){std::vector<char> b(t.begin(),t.end());b.push_back(0);ma2_msg_reflow(b.data());return b.data();}
+static std::string msg_unesc(const std::string &s){std::vector<char> b(s.size()+2);ma2_msg_unescape(s.c_str(),b.data(),b.size());return b.data();}
+static bool msg_kept(const InboxMsg &m,int today){int d=ma2_msg_parse_date(m.date.c_str());if(d<0)return false;
+    return today-d<(m.kind=="reply"?MA2_MSG_REPLY_DAYS:MA2_MSG_KEEP_DAYS);}
+static void msg_sort(){std::stable_sort(inbox.begin(),inbox.end(),[](const InboxMsg &a,const InboxMsg &b){return a.date>b.date;});}
+static void msg_load_locked(){
+    inbox.clear();std::string all;
+    HANDLE h=CreateFileW(msg_file().c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,0,nullptr);
+    if(h!=INVALID_HANDLE_VALUE){std::vector<char> buf(1<<20);DWORD got=0;if(ReadFile(h,buf.data(),(DWORD)buf.size()-1,&got,nullptr))all.assign(buf.data(),got);CloseHandle(h);}
+    const int today=ma2_msg_parse_date(msg_today().c_str());
+    size_t p=0;
+    while(p<all.size()){
+        size_t e=all.find('\n',p);std::string line=all.substr(p,e==std::string::npos?std::string::npos:e-p);p=e==std::string::npos?all.size():e+1;
+        if(!line.empty()&&line.back()=='\r')line.pop_back();
+        if(line.empty()||line[0]=='#')continue;
+        std::vector<std::string> f;size_t a=0;for(;;){size_t t=line.find('\t',a);f.push_back(line.substr(a,t==std::string::npos?std::string::npos:t-a));if(t==std::string::npos)break;a=t+1;}
+        if(f.size()!=7||(f[0]!="update"&&f[0]!="whatsnew"&&f[0]!="reply"))continue;
+        InboxMsg m;m.kind=f[0];m.key=f[1];m.date=f[2];m.read=f[3]=="1";m.title=msg_unesc(f[5]);m.body=msg_unesc(f[6]);if(m.kind!="reply")m.body=msg_reflow(m.body);
+        if(m.kind=="reply"){char sent[16]="";int can=0,ans=0;sscanf(f[4].c_str(),"sent=%15s can=%d answered=%d",sent,&can,&ans);m.sent=sent;m.can_answer=can!=0;m.answered=ans!=0;
+            if(m.key.size()<12||!ma2_reply_id_ok(m.key.substr(0,10).c_str()))continue;}
+        if(msg_kept(m,today))inbox.push_back(m);
+    }
+    msg_sort();
+}
+static void msg_save_locked(){
+    std::string out="# MechAssault 2 messages: kind, key, date, read, extra, title, text (kept 6 months; replies 60 days). Never sent anywhere.\n";
+    for(auto &m:inbox){
+        std::string extra=m.kind=="reply"?"sent="+m.sent+" can="+(m.can_answer?"1":"0")+" answered="+(m.answered?"1":"0"):"";
+        out+=m.kind+"\t"+msg_esc(m.key)+"\t"+m.date+"\t"+(m.read?"1":"0")+"\t"+extra+"\t"+msg_esc(m.title)+"\t"+msg_esc(m.body)+"\n";
+    }
+    std::wstring f=msg_file(),tmp=f+L".part";
+    HANDLE h=CreateFileW(tmp.c_str(),GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,0,nullptr);
+    if(h==INVALID_HANDLE_VALUE)return;
+    DWORD w=0;BOOL ok=WriteFile(h,out.data(),(DWORD)out.size(),&w,nullptr);CloseHandle(h);
+    if(ok&&w==out.size())MoveFileExW(tmp.c_str(),f.c_str(),MOVEFILE_REPLACE_EXISTING);else DeleteFileW(tmp.c_str());
+}
+static InboxMsg *msg_find_locked(const std::string &kind,const std::string &key){for(auto &m:inbox)if(m.kind==kind&&m.key==key)return &m;return nullptr;}
+static int msg_unread_locked(){int n=0;for(auto &m:inbox)if(!m.read)n++;return n;}
+static std::string msg_read_text(const std::wstring &path,size_t cap){
+    std::string r;HANDLE h=CreateFileW(path.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,0,nullptr);
+    if(h!=INVALID_HANDLE_VALUE){std::vector<char> buf(cap);DWORD got=0;if(ReadFile(h,buf.data(),(DWORD)buf.size()-1,&got,nullptr))r.assign(buf.data(),got);CloseHandle(h);}
+    return r;
+}
+static std::wstring msg_exe_dir(){wchar_t p[MAX_PATH];DWORD n=GetModuleFileNameW(nullptr,p,MAX_PATH);std::wstring s(p,n);size_t k=s.find_last_of(L"\\/");return k==std::wstring::npos?L".":s.substr(0,k);}
+static bool msg_newer(const std::string &v){return ma2_update_is_newer(v.c_str(),msg_own_version.c_str())!=0;}
+// What's new: once per version, from the install's own Changelog (Docs\Changelog.txt).
+static void msg_whats_new_locked(){
+    char last[32]="";GetPrivateProfileStringA("Messages","LastVersion","",last,sizeof last,ini_path);
+    if(msg_own_version.empty()||msg_own_version==last)return;
+    std::string text=msg_read_text(msg_exe_dir()+L"\\Docs\\Changelog.txt",256*1024);
+    std::vector<char> sec(8192);ma2_changelog_section(text.c_str(),msg_own_version.c_str(),sec.data(),sec.size());
+    if(!msg_find_locked("whatsnew",msg_own_version)){
+        InboxMsg m;m.kind="whatsnew";m.key=msg_own_version;m.date=msg_today();
+        char t[96];snprintf(t,sizeof t,last[0]?msg_text_updated:msg_text_whats_new,msg_own_version.c_str());m.title=t;
+        m.body=sec[0]?msg_reflow(sec.data()):msg_text_no_notes;inbox.insert(inbox.begin(),m);
+        fprintf(stderr,"[MSG] what's new in %s added (%s, changes %s)\n",msg_own_version.c_str(),last[0]?"updated":"first record",sec[0]?"from Changelog.txt":"not found");
+    }
+    WritePrivateProfileStringA("Messages","LastVersion",msg_own_version.c_str(),ini_path);
+}
+static void msg_initialize(){
+    char own[32];ma2_update_own_version(own,sizeof own,MA2_PUBLIC_VERSION);msg_own_version=own;
+    ReplyLock l;msg_load_locked();msg_whats_new_locked();msg_save_locked();
+    fprintf(stderr,"[MSG] %zu messages, %d unread\n",inbox.size(),msg_unread_locked());
+}
+// An update announced by the start-up check (pc_update_check.h): one message per version; it replaces the 1.1.7 line.
+static void msg_merge_update(){
+    if(update_merged)return;
+    const char *v=ma2_update_available();if(!v)return;
+    update_merged=true;
+    ReplyLock l;std::string notes=msg_reflow(ma2_update_notes());
+    InboxMsg *m=msg_find_locked("update",v);
+    if(!m){InboxMsg n;n.kind="update";n.key=v;n.date=msg_today();char t[96];snprintf(t,sizeof t,msg_text_update_title,v);n.title=t;
+        n.body=notes.empty()?msg_text_no_notes:notes;inbox.insert(inbox.begin(),n);fprintf(stderr,"[MSG] update %s added (%s)\n",v,notes.empty()?"no notes":"with notes");}
+    else if(!notes.empty()&&m->body!=notes){m->body=notes;}
+    msg_save_locked();
+}
+// ---- replies (MA2 Report.exe)
+static std::wstring reply_temp_base(const wchar_t *what){
+    wchar_t tmp[MAX_PATH];DWORD n=GetTempPathW(MAX_PATH,tmp);
+    wchar_t name[64];swprintf_s(name,L"ma2-%s-%lu-%lu",what,GetCurrentProcessId(),GetTickCount());
+    return (n&&n<MAX_PATH-40?std::wstring(tmp):std::wstring(L".\\"))+name;
+}
+static DWORD WINAPI reply_check_thread(LPVOID){
+    std::wstring result=reply_temp_base(L"replies")+L".txt";
+    DWORD code=2,ran=report_run(L"--replies --result \""+result+L"\"",60000,&code);
+    std::string text=msg_read_text(result,64*1024);DeleteFileW(result.c_str());
+    std::vector<Ma2Reply> got(16);int complete=0;
+    int n=ma2_reply_parse_result(text.c_str(),got.data(),(int)got.size(),&complete);got.resize(n);
+    int added=0,synced=0;
+    {ReplyLock l;
+        for(auto &r:got){
+            char key[24];snprintf(key,sizeof key,"%s/%d",r.id,r.n);
+            InboxMsg *m=msg_find_locked("reply",key);
+            if(!m){InboxMsg x;x.kind="reply";x.key=key;x.date=msg_today();char d[16];snprintf(d,sizeof d,"%04d-%02d-%02d",r.year,r.month,r.day);x.sent=d;
+                char head[96];ma2_reply_head(&r,head,sizeof head);x.title=head;x.body=r.text;x.can_answer=r.can_answer!=0;inbox.insert(inbox.begin(),x);added++;}
+            else if(!m->read){m->body=r.text;m->can_answer=r.can_answer!=0;}          // edited by the developer before it was read
+        }
+        // what the installer (or an earlier run) did: "state=<id> <seen up to> <newest n> <newest is the player's>"
+        for(size_t p=0;p<text.size();){
+            size_t e=text.find('\n',p);std::string line=text.substr(p,e==std::string::npos?std::string::npos:e-p);p=e==std::string::npos?text.size():e+1;
+            char id[16];int seen=0,newest=0,player=0;
+            if(sscanf(line.c_str(),"state=%15s %d %d %d",id,&seen,&newest,&player)!=4||!ma2_reply_id_ok(id))continue;
+            for(auto &m:inbox){
+                if(m.kind!="reply"||m.key.compare(0,10,id))continue;
+                int n2=atoi(m.key.c_str()+11);
+                if(n2<=seen&&!m.read){m.read=true;synced++;}
+                bool can=!player&&n2==newest&&!m.answered;
+                if(m.can_answer!=can){m.can_answer=can;if(player&&n2<newest)m.answered=true;synced++;}
+            }
+        }
+        if(added||synced)msg_save_locked();
+    }
+    fprintf(stderr,"[REPLY] check: %d new, %d updated from the other client (helper %s, exit %lu)\n",added,synced,ran==1?"ran":ran==2?"timed out":"did not start",code);
+    return 0;
+}
+static void reply_data_dir(wchar_t *out,DWORD size){
+    DWORD n=GetEnvironmentVariableW(L"MA2_REPORT_DATA_DIR",out,size);
+    if(!n||n>=size)n=GetEnvironmentVariableW(L"RECOMP_REPORT_DATA_DIR",out,size);
+    if(n&&n<size)return;
+    n=GetEnvironmentVariableW(L"LOCALAPPDATA",out,size);
+    if(!n||n+20>=size){out[0]=0;return;}
+    wcscat_s(out,size,L"\\MechAssault2");
+}
+static void reply_check_start(){
+    // Harness runs (RECOMP_SAVE_DIR) never ask the compiled-in relay: only with a test relay (as the update check).
+    if(getenv("RECOMP_SAVE_DIR")&&!getenv("RECOMP_REPORT_RELAY")&&!getenv("MA2_REPORT_RELAY")){fprintf(stderr,"[REPLY] check skipped (test run without a test relay)\n");return;}
+    wchar_t dir[MAX_PATH];reply_data_dir(dir,MAX_PATH);
+    std::wstring store=std::wstring(dir)+L"\\report-conversations.txt";
+    if(!dir[0]||GetFileAttributesW(store.c_str())==INVALID_FILE_ATTRIBUTES){fprintf(stderr,"[REPLY] no report sent from this PC: nothing to check\n");return;}
+    if(!report_helper_ok())return;
+    HANDLE t=CreateThread(nullptr,64*1024,reply_check_thread,nullptr,STACK_SIZE_PARAM_IS_A_RESERVATION,nullptr);
+    if(t){SetThreadPriority(t,THREAD_PRIORITY_BELOW_NORMAL);CloseHandle(t);}
+}
+static DWORD WINAPI reply_seen_thread(LPVOID p){
+    std::string *key=(std::string *)p;char id[16]="";int n=0;sscanf(key->c_str(),"%10s",id);n=atoi(key->c_str()+11);
+    wchar_t args[64];swprintf_s(args,L"--seen %hs %d",id,n);
+    DWORD code=2,ran=report_run(args,30000,&code);
+    fprintf(stderr,"[REPLY] %s %d marked seen: %s\n",id,n,ran==1&&code==0?"yes":"no (the relay is asked again next time)");
+    delete key;return 0;
+}
+static void reply_capture(bool on){pc_frontend_capture(on?1:0);if(game_window)PostMessageA(game_window,PC_WINDOW_CAPTURE_MESSAGE,0,0);}
+static InboxMsg *inbox_cur_locked(){return inbox_sel>=0&&inbox_sel<(int)inbox.size()?&inbox[inbox_sel]:nullptr;}
+static bool reply_answering_locked(){InboxMsg *m=inbox_cur_locked();
+    return m&&m->kind=="reply"&&m->can_answer&&!m->answered&&reply_outcome!=REPLY_SENT&&reply_outcome!=REPLY_SENT_LOGS&&reply_outcome!=REPLY_CLOSED;}
+static int update_action_locked(const InboxMsg &m){
+    static int managed=-1;   // who updates this install: recomp-install.json "managed_by", RECOMPLAUNCHER only as the fallback
+    if(managed<0){std::string stamp=msg_read_text(msg_exe_dir()+L"\\recomp-install.json",65536);managed=ma2_managed_by_launcher(stamp.c_str(),getenv("RECOMPLAUNCHER")!=nullptr);
+        fprintf(stderr,"[MSG] updates for this install come from %s\n",managed?"RecompLauncher":"the installer");}
+    return ma2_update_action(msg_newer(m.key),managed,
+        GetFileAttributesW((msg_exe_dir()+L"\\MechAssault 2 Recomp Installer.exe").c_str())!=INVALID_FILE_ATTRIBUTES);
+}
+static bool inbox_focus_ok_locked(int f){
+    InboxMsg *m=inbox_cur_locked();
+    if(f==F_LIST||f==F_CLOSE)return true;
+    if(!m)return false;
+    if(f==F_BODY)return true;
+    if(f==F_BOX||f==F_TICK||f==F_SEND)return reply_answering_locked();
+    if(f==F_BUTTON){if(m->kind!="update")return false;int a=update_action_locked(*m);return a==MA2_UPDATE_RUN_INSTALLER||a==MA2_UPDATE_RELEASES_PAGE||a==MA2_UPDATE_IN_LAUNCHER;}
+    return false;
+}
+// The message under the cursor is shown: it is read now (a reply: the relay is told, so the installer does not show it).
+static void inbox_select_locked(int i){
+    if(inbox.empty()){inbox_sel=0;return;}
+    i=std::clamp(i,0,(int)inbox.size()-1);
+    if(i!=inbox_sel){reply_answer.clear();reply_preset=-1;reply_attach=true;reply_outcome=REPLY_NONE;reply_reason.clear();update_note.clear();}
+    inbox_sel=i;inbox_scroll=0;
+    InboxMsg &m=inbox[i];
+    if(!m.read){
+        m.read=true;msg_save_locked();
+        if(m.kind=="reply"){HANDLE t=CreateThread(nullptr,64*1024,reply_seen_thread,new std::string(m.key),STACK_SIZE_PARAM_IS_A_RESERVATION,nullptr);if(t)CloseHandle(t);}
+        fprintf(stderr,"[MSG] read: %s %s\n",m.kind.c_str(),m.key.c_str());
+    }
+}
+static void inbox_open_locked(const char *how){
+    if(reply_state)return;
+    inbox_pad=strcmp(how,"View button")?0:1;
+    reply_state=1;inbox_focus=F_LIST;inbox_list_top=0;inbox_hit_valid=false;
+    int first=0;for(int i=0;i<(int)inbox.size();i++)if(!inbox[i].read){first=i;break;}
+    inbox_sel=-1;inbox_select_locked(first);
+    reply_capture(true);
+    fprintf(stderr,"[MSG] inbox opened (%s): %zu messages\n",how,inbox.size());
+}
+static void inbox_close_locked(){
+    if(reply_state!=1)return;
+    reply_state=0;inbox_hit_valid=false;reply_capture(false);
+    fprintf(stderr,"[MSG] inbox closed\n");
+}
+static DWORD WINAPI reply_send_thread(LPVOID){
+    std::string id,key,words;bool attach;
+    {ReplyLock l;InboxMsg *m=inbox_cur_locked();if(!m){reply_state=1;return 0;}key=m->key;id=key.substr(0,10);words=report_to_utf8(reply_answer);attach=reply_attach;}
+    if(attach){apu_health_request();Sleep(100);}
+    std::wstring base=reply_temp_base(L"answer"),text_file=base+L".txt",result_file=base+L"-result.txt";
+    HANDLE f=CreateFileW(text_file.c_str(),GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,FILE_ATTRIBUTE_TEMPORARY,nullptr);
+    if(f!=INVALID_HANDLE_VALUE){DWORD w=0;WriteFile(f,words.data(),(DWORD)words.size(),&w,nullptr);CloseHandle(f);}
+    wchar_t log[MAX_PATH]=L"";ma2_report_log_path(log,MAX_PATH);
+    wchar_t ini[MAX_PATH]=L"";MultiByteToWideChar(CP_ACP,0,ini_path,-1,ini,MAX_PATH);
+    std::wstring args=L"--answer "+report_from_utf8(id)+L" --text-file \""+text_file+L"\" --result \""+result_file+L"\"";
+    if(attach)args+=L" --attach";
+    if(log[0])args+=L" --log \""+std::wstring(log)+L"\"";
+    if(ini[0])args+=L" --ini \""+std::wstring(ini)+L"\"";
+    DWORD code=2,ran=report_run(args,180000,&code);
+    std::string r="\n"+msg_read_text(result_file,8192);
+    DeleteFileW(text_file.c_str());DeleteFileW(result_file.c_str());
+    auto value=[&](const char *k){std::string kk=std::string("\n")+k+"=";size_t a=r.find(kk);if(a==std::string::npos)return std::string();
+        a+=kk.size();size_t b=r.find('\n',a);return r.substr(a,b==std::string::npos?std::string::npos:b-a);};
+    std::string ok=value("ok"),cause=value("cause"),why=value("cause_text"),logs=value("logs");
+    if(!ran)why="the report helper could not start";else if(ran==2)why="the report helper took too long";else if(why.empty())why="the answer could not be sent";
+    {ReplyLock l;
+        reply_outcome=ok=="1"?(logs=="1"?REPLY_SENT_LOGS:REPLY_SENT):cause=="closed"?REPLY_CLOSED:cause=="empty"?REPLY_EMPTY:REPLY_FAILED;
+        reply_reason=why;reply_state=1;
+        InboxMsg *m=msg_find_locked("reply",key);
+        if(m&&(ok=="1"||cause=="closed")){m->answered=ok=="1";m->can_answer=false;msg_save_locked();}
+        inbox_focus=reply_outcome==REPLY_FAILED?F_SEND:F_LIST;}
+    fprintf(stderr,"[REPLY] answer to %s: %s%s (exit %lu)\n",id.c_str(),ok=="1"?"sent":"not sent: ",ok=="1"?(logs=="1"?" with logs":""):why.c_str(),code);
+    return 0;
+}
+// RecompLauncher installs: never our installer. Its only deep link opens a game's page (recomplauncher://game/<id>, see
+// INBOX-PROGRESS.md for the sources); the player presses Update there. The id is the launcher's folder for this game: the
+// parent of the install folder ({install}/MechAssault 2). Tests: RECOMP_LAUNCHER_LINK_TEST=<file> writes the link there.
+static std::string launcher_game_id(){
+    std::wstring dir=msg_exe_dir();size_t s=dir.find_last_of(L"\\/");std::wstring parent=s==std::wstring::npos?L"":dir.substr(0,s);
+    size_t t=parent.find_last_of(L"\\/");std::wstring name=t==std::wstring::npos?parent:parent.substr(t+1);
+    std::string id;for(wchar_t c:name){if(c<128&&(iswalnum(c)||c==L'-'))id+=(char)c;else{id.clear();break;}}
+    if(id.empty()||id.size()>80)id="gh-mazillion-mechassault2-pc-recomp";
+    return id;
+}
+static void update_in_launcher_locked(const InboxMsg &m){
+    std::string url="recomplauncher://game/"+launcher_game_id();
+    const char *test=getenv("RECOMP_LAUNCHER_LINK_TEST");
+    if(test&&*test){FILE *f=fopen(test,"w");if(f){fprintf(f,"%s\n",url.c_str());fclose(f);}}
+    else if((INT_PTR)ShellExecuteA(nullptr,"open",url.c_str(),nullptr,nullptr,SW_SHOWNORMAL)<=32){
+        update_note=msg_text_update_failed;fprintf(stderr,"[MSG] update %s: RecompLauncher could not be opened\n",m.key.c_str());return;}
+    fprintf(stderr,"[MSG] update %s: RecompLauncher opened on %s%s, closing the game\n",m.key.c_str(),url.c_str(),test&&*test?" (test hook: written, not opened)":"");fflush(stderr);
+    inbox_close_locked();
+    PostMessageA(game_window,WM_CLOSE,0,0);
+}
+// "Update now": start the installer copy in the install folder (it opens on this install and offers the new version),
+// then close the game the normal way. No copy: the releases page in the browser.
+static void update_now_locked(const InboxMsg &m){
+    int a=update_action_locked(m);
+    if(a==MA2_UPDATE_IN_LAUNCHER){update_in_launcher_locked(m);return;}
+    if(a==MA2_UPDATE_RELEASES_PAGE){ShellExecuteA(nullptr,"open",msg_releases_url,nullptr,nullptr,SW_SHOWNORMAL);fprintf(stderr,"[MSG] update %s: releases page opened\n",m.key.c_str());return;}
+    if(a!=MA2_UPDATE_RUN_INSTALLER)return;
+    std::wstring dir=msg_exe_dir(),exe=dir+L"\\MechAssault 2 Recomp Installer.exe",cmd=L"\""+exe+L"\"";
+    std::vector<wchar_t> line(cmd.begin(),cmd.end());line.push_back(0);
+    STARTUPINFOW si={};si.cb=sizeof si;PROCESS_INFORMATION pi={};
+    SetEnvironmentVariableW(L"MA2_GAME_UPDATE",dir.c_str());   // the installer opens on this folder and starts its self-update
+    if(!CreateProcessW(exe.c_str(),line.data(),nullptr,nullptr,FALSE,0,nullptr,dir.c_str(),&si,&pi)){
+        update_note=msg_text_update_failed;fprintf(stderr,"[MSG] update %s: the installer could not be started (error %lu)\n",m.key.c_str(),GetLastError());return;}
+    CloseHandle(pi.hThread);CloseHandle(pi.hProcess);
+    fprintf(stderr,"[MSG] update %s: installer started (pid %lu), closing the game\n",m.key.c_str(),pi.dwProcessId);fflush(stderr);
+    inbox_close_locked();
+    PostMessageA(game_window,WM_CLOSE,0,0);
+}
+static void inbox_activate_locked(int f){
+    if(reply_state!=1||!inbox_focus_ok_locked(f))return;
+    InboxMsg *m=inbox_cur_locked();
+    inbox_focus=f;
+    if(f==F_CLOSE){inbox_close_locked();return;}
+    if(f==F_LIST){int first=F_BODY;for(int g:{F_BOX,F_BUTTON})if(inbox_focus_ok_locked(g)){first=g;break;}inbox_focus=first;return;}
+    if(f==F_BODY){for(int g:{F_BOX,F_BUTTON})if(inbox_focus_ok_locked(g)){inbox_focus=g;break;}return;}
+    if(f==F_BOX){inbox_focus=F_SEND;return;}
+    if(f==F_TICK){reply_attach=!reply_attach;return;}
+    if(f==F_BUTTON&&m){update_now_locked(*m);return;}
+    if(f==F_SEND){
+        std::wstring t=reply_answer;while(!t.empty()&&iswspace(t.back()))t.pop_back();
+        if(t.empty()){reply_outcome=REPLY_EMPTY;inbox_focus=F_BOX;return;}
+        reply_state=2;reply_outcome=REPLY_NONE;
+        fprintf(stderr,"[REPLY] sending the answer (%zu characters, logs %s)\n",t.size(),reply_attach?"on":"off");
+        HANDLE h=CreateThread(nullptr,0,reply_send_thread,nullptr,0,nullptr);
+        if(h)CloseHandle(h);else{reply_state=1;reply_outcome=REPLY_FAILED;reply_reason="the answer could not be started";}
+    }
+}
+static void inbox_move_locked(int step){   // Tab / D-pad in the reader: the next control that is there
+    static const int order[]={F_LIST,F_BODY,F_BOX,F_TICK,F_SEND,F_BUTTON};
+    int at=0;for(int i=0;i<6;i++)if(order[i]==inbox_focus)at=i;
+    for(int k=0;k<6;k++){at=(at+step+6)%6;if(inbox_focus_ok_locked(order[at]))break;}
+    inbox_focus=order[at];
+}
+static void inbox_scroll_locked(float d){inbox_scroll=std::clamp(inbox_scroll+d,0.f,inbox_scroll_max);}
+static void reply_preset_step_locked(int direction){
+    if(!reply_answer.empty()&&reply_preset<0)return;              // the player's own words stay
+    reply_preset=reply_preset<0?(direction>0?0:REPLY_PRESETS-1):(reply_preset+direction+REPLY_PRESETS+1)%(REPLY_PRESETS+1);
+    if(reply_preset==REPLY_PRESETS){reply_preset=-1;reply_answer.clear();}else reply_answer=reply_presets[reply_preset];
+}
+static void reply_type_locked(uint32_t code){
+    if(reply_state!=1||!reply_answering_locked())return;
+    inbox_focus=F_BOX;if(reply_outcome==REPLY_EMPTY)reply_outcome=REPLY_NONE;
+    if(reply_preset>=0){reply_answer.clear();reply_preset=-1;}
+    if(code==0x16){   // Ctrl+V
+        if(OpenClipboard(nullptr)){HANDLE h=GetClipboardData(CF_UNICODETEXT);
+            if(h){const wchar_t *w=(const wchar_t *)GlobalLock(h);if(w){for(;*w&&reply_answer.size()<REPORT_MAX_TEXT;w++){wchar_t c=*w;if(c==L'\r')continue;if(c==L'\t')c=L' ';if(c==L'\n'||c>=0x20)reply_answer+=c;}GlobalUnlock(h);}}
+            CloseClipboard();}
+    }else if(code>=0x20&&code<0xFFFE&&reply_answer.size()<REPORT_MAX_TEXT)reply_answer+=(wchar_t)code;
+}
+// One key of the inbox (keyboard, or the pad mapped onto keys).
+static void inbox_key_locked(int vk,bool shift){
+    if(reply_state!=1)return;
+    const bool box=inbox_focus==F_BOX&&reply_answering_locked();
+    if(vk==VK_ESCAPE){if(inbox_focus==F_LIST)inbox_close_locked();else inbox_focus=F_LIST;}
+    else if(vk==VK_BACK&&box){if(!reply_answer.empty()){reply_answer.pop_back();if(reply_answer.empty())reply_preset=-1;}}
+    else if(vk==VK_TAB)inbox_move_locked(shift?-1:1);
+    else if(vk==VK_UP||vk==VK_DOWN){int d=vk==VK_UP?-1:1;
+        if(inbox_focus==F_LIST)inbox_select_locked(inbox_sel+d);else if(inbox_focus==F_BODY)inbox_scroll_locked(d*inbox_scroll_step);else inbox_move_locked(d);}
+    else if(vk==VK_PRIOR||vk==VK_NEXT)inbox_scroll_locked((vk==VK_PRIOR?-1:1)*inbox_scroll_step*6);
+    else if(vk==VK_HOME&&inbox_focus==F_LIST)inbox_select_locked(0);
+    else if(vk==VK_END&&inbox_focus==F_LIST)inbox_select_locked((int)inbox.size()-1);
+    else if(vk==VK_LEFT||vk==VK_RIGHT){int d=vk==VK_LEFT?-1:1;
+        if(box)reply_preset_step_locked(d);
+        else if(inbox_focus==F_TICK)reply_attach=!reply_attach;
+        else if(d<0)inbox_focus=F_LIST;
+        else if(inbox_focus==F_LIST)inbox_activate_locked(F_LIST);}
+    else if(vk==VK_RETURN)inbox_activate_locked(inbox_focus);
+    else if(vk==VK_SPACE&&!box)inbox_activate_locked(inbox_focus);
+}
+// Window thread: the inbox owns the keyboard and the mouse while it is open. Returns 1 when the message was used.
+static int reply_input(HWND window,UINT message,uintptr_t wparam,intptr_t lparam){
+    // A real key, click or wheel turns the hints to the keyboard's (the VK_GAMEPAD_* range 0xC3-0xDA is the controller).
+    if((message==WM_KEYDOWN&&!(wparam>=0xC3&&wparam<=0xDA))||message==WM_LBUTTONDOWN||message==WM_MOUSEWHEEL)inbox_pad=0;
+    if(message==WM_CHAR){
+        uint32_t code=wparam==0x16?0x16:reply_decoder.decode(GetACP(),IsWindowUnicode(window)!=FALSE,wparam);
+        if(code>=0x20&&code<0xFFFE)inbox_pad=0;
+        if(code==0x16||(code>=0x20&&!(code>=0x7F&&code<0xA0)&&code<0xFFFE&&!(code>=0xD800&&code<=0xDFFF))){ReplyLock l;if(inbox_focus==F_BOX)reply_type_locked(code);}
+        return 1;
+    }
+    if(message==WM_KEYDOWN){
+        ReplyLock l;const bool first=!(lparam&(1LL<<30));
+        if(first||wparam==VK_BACK||wparam==VK_UP||wparam==VK_DOWN||wparam==VK_PRIOR||wparam==VK_NEXT)inbox_key_locked((int)wparam,GetKeyState(VK_SHIFT)<0);
+        return 1;
+    }
+    if(message==WM_MOUSEWHEEL){ReplyLock l;inbox_scroll_locked(-GET_WHEEL_DELTA_WPARAM(wparam)/120.f*inbox_scroll_step*2);return 1;}
+    if(message==WM_LBUTTONDOWN){
+        ReplyLock l;float x=(float)GET_X_LPARAM(lparam),y=(float)GET_Y_LPARAM(lparam);
+        auto in=[&](const float *b){return b[2]>b[0]&&x>=b[0]&&x<b[2]&&y>=b[1]&&y<b[3];};
+        if(!inbox_hit_valid||reply_state!=1)return 1;
+        for(int i=0;i<inbox_items_shown;i++)if(in(inbox_item_hit[i])){inbox_select_locked(inbox_list_top+i);inbox_focus=F_LIST;return 1;}
+        for(int f=F_BODY;f<F_COUNT;f++)if(in(inbox_hit[f])){if(f==F_BODY||f==F_BOX){if(inbox_focus_ok_locked(f))inbox_focus=f;}else inbox_activate_locked(f);return 1;}
+        return 1;
+    }
+    if(message==WM_KEYUP||message==WM_INPUT||(message>=WM_MOUSEFIRST&&message<=WM_MOUSELAST))return 1;   // Alt+F4 still closes the game
+    return 0;
+}
+/* The main menu screen starts the attract movie after 45 s without input: its update (sub_001F34BE) compares the game
+ * clock 0x4E2430 with its last-input time at +0x88 against 0xAFC8 ms (another front-end screen, sub_001F864C, uses +0x74),
+ * and resets that time only on a pad button, a key or a stick. The inbox takes all input from the menu, so while it is
+ * open it keeps that time current. The screens are found once per opening by their vtable (searched in the XBE's vtable
+ * area) and a plausible time stamp. Nothing found = attract after 45 s; the inbox stays open behind it. */
+static const struct{uint32_t update,offset;}reply_idle_screens[]={{0x001F34BEu,0x88},{0x001F864Cu,0x74}};
+static uint32_t reply_find_screen(uint32_t update,uint32_t offset){
+    uint32_t slot=0;
+    for(uint32_t a=0x480000;a<0x4A0000&&!slot;a+=4)if(guest(a)==update)slot=a;
+    if(!slot)return 0;
+    const uint32_t now=guest(0x4E2430);
+    for(uint32_t a=0x10000;a<0x03FFF000-0x100;a+=4){
+        uint32_t d=guest(a);
+        if(d>slot||slot-d>0x100||(slot-d)&3)continue;          // the object's first dword is that vtable
+        if(now-guest(a+offset)<=0xAFC8u+10000u)return a;
+    }
+    return 0;
+}
+static void reply_keep_menu_awake(){
+    static uint32_t screen[2],vt[2];static int tried;
+    if(reply_state==0){tried=0;screen[0]=screen[1]=0;return;}
+    const uint32_t now=guest(0x4E2430);
+    for(int i=0;i<2;i++){
+        if(screen[i]&&guest(screen[i])!=vt[i])screen[i]=0;
+        if(!screen[i]&&tried<3){screen[i]=reply_find_screen(reply_idle_screens[i].update,reply_idle_screens[i].offset);vt[i]=screen[i]?guest(screen[i]):0;
+            fprintf(stderr,"[MSG] front-end screen %08X: %s%08X (its attract timer waits while the inbox is open)\n",reply_idle_screens[i].update,screen[i]?"":"not found ",screen[i]);}
+        if(screen[i]){uint32_t &last=guest(screen[i]+reply_idle_screens[i].offset);if(now-last<=0xAFC8u+10000u)last=now;}
+    }
+    if(tried<3&&(!screen[0]||!screen[1]))tried++;
+}
+static bool envelope_visible(){
+    return !opened&&!exit_dialog&&menu_available()&&menu_kind==0x481B70&&!pc_display_movie_active()&&!ma2_scn_editor_note()&&!modal_available();
+}
+// Guest thread, every menu frame: the update message, the View button on the main menu, the pad while the inbox is open.
+static void reply_pulse(uint32_t vtable){
+    static WORD last_pad;
+    msg_merge_update();
+    if(vtable==0x481B70)reply_keep_menu_awake();
+    XINPUT_STATE pad={};WORD buttons=(WORD)(test_pad_held|test_pad_tapped.load());
+    if(xbox_InputPollHostState(&pad)==ERROR_SUCCESS)buttons|=pad.Gamepad.wButtons;
+    WORD pressed=buttons&~last_pad;last_pad=buttons;
+    if(reply_state==0){
+        if(vtable!=0x481B70)return;
+        {ReplyLock l;if(inbox_launch_unread<0&&envelope_visible()){inbox_launch_unread=msg_unread_locked();inbox_launch_at=GetTickCount();
+            if(inbox_launch_unread)fprintf(stderr,"[MSG] main menu: %d unread, the launch line shows\n",inbox_launch_unread);}}
+        if((pressed&XINPUT_GAMEPAD_BACK)&&envelope_visible()&&!pc_input_text_captured()){test_pad_tapped&=~(unsigned)XINPUT_GAMEPAD_BACK;ReplyLock l;inbox_open_locked("View button");}
+        return;
+    }
+    test_pad_tapped.exchange(0);
+    if(pad.Gamepad.wButtons)pc_input_note_gamepad(pad.Gamepad.wButtons,pad.Gamepad.bLeftTrigger,pad.Gamepad.bRightTrigger,pad.Gamepad.sThumbLX,pad.Gamepad.sThumbLY,pad.Gamepad.sThumbRX,pad.Gamepad.sThumbRY);
+    if(!pressed)return;
+    inbox_pad=1;
+    ReplyLock l;const bool box=inbox_focus==F_BOX&&reply_answering_locked();
+    if(pressed&XINPUT_GAMEPAD_B)inbox_key_locked(VK_ESCAPE,false);
+    else if(pressed&XINPUT_GAMEPAD_A){if(box)reply_preset_step_locked(1);else inbox_activate_locked(inbox_focus);}
+    else if(pressed&XINPUT_GAMEPAD_DPAD_DOWN)inbox_key_locked(VK_DOWN,false);
+    else if(pressed&XINPUT_GAMEPAD_DPAD_UP)inbox_key_locked(VK_UP,false);
+    else if(pressed&XINPUT_GAMEPAD_DPAD_LEFT)inbox_key_locked(VK_LEFT,false);
+    else if(pressed&XINPUT_GAMEPAD_DPAD_RIGHT)inbox_key_locked(VK_RIGHT,false);
+    else if(pressed&XINPUT_GAMEPAD_LEFT_SHOULDER)inbox_scroll_locked(-inbox_scroll_step*4);
+    else if(pressed&XINPUT_GAMEPAD_RIGHT_SHOULDER)inbox_scroll_locked(inbox_scroll_step*4);
+    else if(pressed&XINPUT_GAMEPAD_BACK)inbox_close_locked();
+}
+// ---- drawing (render thread, back-buffer pixels; hit boxes go to the window thread in client pixels)
+static const ImU32 C_WHITE=IM_COL32(252,251,248,255),C_MUTED=IM_COL32(160,190,214,255),C_YELLOW=IM_COL32(206,206,72,255),C_DIM=IM_COL32(120,140,160,255),
+    C_RED=IM_COL32(255,140,120,255),C_GREEN=IM_COL32(150,220,150,255),C_GLOW=IM_COL32(170,214,250,235),C_LINE=IM_COL32(74,128,178,230),C_FILL=IM_COL32(15,26,38,240);
+static void draw_focus_ring(ImDrawList *list,ImVec2 a,ImVec2 b,float u){for(int i=6;i>=1;i--){float k=i/6.f,s=5*u*k;list->AddRect(ImVec2(a.x-s,a.y-s),ImVec2(b.x+s,b.y+s),IM_COL32(165,210,255,(int)(26*(1-k)+6)),3*u,0,1.5f*u);}}
+static std::string elide(ImFont *font,float size,const std::string &t,float w){
+    if(font->CalcTextSizeA(size,FLT_MAX,0,t.c_str()).x<=w)return t;
+    std::string s=t;while(!s.empty()&&font->CalcTextSizeA(size,FLT_MAX,0,(s+"...").c_str()).x>w){s.pop_back();while(!s.empty()&&((unsigned char)s.back()&0xC0)==0x80)s.pop_back();}
+    return s+"...";
+}
+/* The mouse-over light of the envelope and of everything clickable in the inbox: the footer prompts' hover glow
+ * (draw_glow), faded in over 0.1 s. The pointer is in back-buffer pixels (x<0 = none: a controller, another window).
+ * Each frame the drawing reports what is under the pointer (item); begin() of the next frame fades that one in. */
+static struct{
+    float x=-1,y=-1,alpha=0;int shown=-1,seen=-1;LARGE_INTEGER last{};
+    void begin(float px,float py){
+        LARGE_INTEGER now,frequency;QueryPerformanceCounter(&now);QueryPerformanceFrequency(&frequency);
+        float dt=last.QuadPart?std::min((float)(now.QuadPart-last.QuadPart)/frequency.QuadPart,.1f):0.f;last=now;
+        if(seen!=shown){shown=seen;alpha=0;}
+        if(shown>=0)alpha=std::min(1.f,alpha+dt/.10f);
+        seen=-1;x=px;y=py;
+    }
+    bool over(ImVec2 a,ImVec2 b)const{return x>=0&&x>=a.x&&x<b.x&&y>=a.y&&y<b.y;}
+    // hit = the clickable area, a/b = what lights up (the same unless a label sits beside the control)
+    void item(ImDrawList *list,int id,ImVec2 ha,ImVec2 hb,ImVec2 a,ImVec2 b){
+        if(!over(ha,hb))return;
+        seen=id;if(id==shown&&alpha>0){const float r[4]={a.x,a.y,b.x,b.y};draw_glow(list,r,alpha);}
+    }
+}hover_light;
+enum{HL_ENVELOPE=100,HL_LIST=200};
+static void draw_envelope(ImDrawList *list,float width,float height,float sx,float sy,bool hover){
+    ReplyLock l;
+    const float u=std::min(width/640.f,height/480.f),s=26*u,x1=width-18*u,x0=x1-s*1.35f,y0=16*u,y1=y0+s;
+    const int unread=msg_unread_locked();const ImU32 c=hover?C_YELLOW:C_WHITE;
+    list->AddRectFilled(ImVec2(x0-6*u,y0-6*u),ImVec2(x1+6*u,y1+5*u),IM_COL32(15,26,38,hover?220:170),4*u);
+    if(hover){hover_light.seen=HL_ENVELOPE;
+        if(hover_light.shown==HL_ENVELOPE&&hover_light.alpha>0){const float r[4]={x0-6*u,y0-6*u,x1+6*u,y1+5*u};draw_glow(list,r,hover_light.alpha);}}
+    list->AddRect(ImVec2(x0,y0),ImVec2(x1,y1),c,2*u,0,std::max(1.5f,2*u));
+    list->AddLine(ImVec2(x0+1*u,y0+1*u),ImVec2((x0+x1)*.5f,y0+s*.55f),c,std::max(1.5f,2*u));
+    list->AddLine(ImVec2(x1-1*u,y0+1*u),ImVec2((x0+x1)*.5f,y0+s*.55f),c,std::max(1.5f,2*u));
+    ImFont *font=ImGui::GetFont();float ks=std::max(11.f,8.5f*u);
+    const char *key=pc_input_device()==PC_INPUT_GAMEPAD?msg_text_key_pad:msg_text_key_keys;
+    ImVec2 kt=font->CalcTextSizeA(ks,FLT_MAX,0,key);ImVec2 kp((x0+x1-kt.x)*.5f,y1+6*u);
+    list->AddRectFilled(ImVec2(kp.x-6*u,kp.y-3*u),ImVec2(kp.x+kt.x+6*u,kp.y+kt.y+3*u),IM_COL32(15,26,38,220),3*u);
+    list->AddText(font,ks,kp,hover?C_YELLOW:C_WHITE,key);
+    if(unread){char n[8];snprintf(n,sizeof n,"%d",std::min(unread,99));float r=7.5f*u;ImVec2 cc(x1,y0);
+        list->AddCircleFilled(cc,r,IM_COL32(200,40,40,255),20);ImVec2 nt=font->CalcTextSizeA(ks,FLT_MAX,0,n);
+        list->AddText(font,ks,ImVec2(cc.x-nt.x*.5f,cc.y-nt.y*.5f),C_WHITE,n);}
+    envelope_hit[0]=(x0-6*u)/sx;envelope_hit[1]=(y0-8*u)/sy;envelope_hit[2]=(x1+8*u)/sx;envelope_hit[3]=(y1+22*u)/sy;envelope_shown=true;
+    // the launch line: "1 new message", 6 s, then a fade of 1 s
+    if(inbox_launch_unread>0){DWORD age=GetTickCount()-inbox_launch_at;
+        if(age<7000){float a=age<6000?1.f:1.f-(age-6000)/1000.f;char t[48];
+            if(inbox_launch_unread==1)snprintf(t,sizeof t,"%s",msg_text_new_one);else snprintf(t,sizeof t,msg_text_new_many,inbox_launch_unread);
+            float ts=std::max(13.f,10.5f*u);ImVec2 tt=font->CalcTextSizeA(ts,FLT_MAX,0,t);
+            ImVec2 p(x0-14*u-tt.x,(y0+y1-tt.y)*.5f);
+            list->AddRectFilled(ImVec2(p.x-8*u,p.y-5*u),ImVec2(p.x+tt.x+8*u,p.y+tt.y+5*u),IM_COL32(15,26,38,(int)(200*a)),4*u);
+            list->AddText(font,ts,p,IM_COL32(206,206,72,(int)(255*a)),t);}}
+}
+static void draw_inbox(ImDrawList *list,float width,float height,float sx,float sy){
+    ReplyLock l;
+    if(!reply_state)return;
+    // The text grows a little more than the panel on tall screens (a 1440-1600 line screen shows it about a third larger).
+    const float u=std::min(width/640.f,height/480.f),big=std::clamp(height/1200.f,1.f,1.35f),size=std::max(13.f,10.5f*u*big),pad=12*u;ImFont *font=ImGui::GetFont();
+    const float w=std::min(width-24*u,620*u),h=std::min(height-24*u,440*u),x0=(width-w)*.5f,y0=(height-h)*.5f,x1=x0+w,y1=y0+h,t=std::max(1.f,1.25f*u);
+    const bool gamepad=inbox_pad>=0?inbox_pad==1:pc_input_device()==PC_INPUT_GAMEPAD,busy=reply_state==2;
+    auto px=[&](int f,float a,float b,float c,float d){inbox_hit[f][0]=a/sx;inbox_hit[f][1]=b/sy;inbox_hit[f][2]=c/sx;inbox_hit[f][3]=d/sy;};
+    for(auto &b:inbox_hit)b[0]=b[1]=b[2]=b[3]=0;
+    list->AddRectFilled(ImVec2(0,0),ImVec2(width,height),IM_COL32(0,0,0,110));
+    list->AddRectFilled(ImVec2(x0,y0),ImVec2(x1,y1),C_FILL,4*u);
+    list->AddRect(ImVec2(x0,y0),ImVec2(x1,y1),C_LINE,4*u,0,t);
+    // title bar with Close
+    list->AddText(font,size*1.25f,ImVec2(x0+pad,y0+pad*.8f),C_YELLOW,msg_text_title);
+    ImVec2 cs=font->CalcTextSizeA(size,FLT_MAX,0,msg_text_close);ImVec2 ca(x1-pad-cs.x-16*u,y0+pad*.6f),cb(x1-pad,ca.y+size*1.6f);
+    if(inbox_focus==F_CLOSE)draw_focus_ring(list,ca,cb,u);
+    hover_light.item(list,F_CLOSE,ca,cb,ca,cb);
+    list->AddRect(ca,cb,inbox_focus==F_CLOSE?C_GLOW:C_LINE,3*u,0,t);
+    list->AddText(font,size,ImVec2(ca.x+8*u,(ca.y+cb.y-cs.y)*.5f),inbox_focus==F_CLOSE?C_YELLOW:C_WHITE,msg_text_close);px(F_CLOSE,ca.x,ca.y,cb.x,cb.y);
+    const float top=y0+pad*.8f+size*1.25f+10*u,bottom=y1-pad-size*1.2f,lw=std::min(200*u*big,w*.36f);
+    list->AddLine(ImVec2(x0+pad,top-4*u),ImVec2(x1-pad,top-4*u),C_LINE,t);
+    list->AddText(font,size*.9f,ImVec2(x0+pad,bottom+4*u),C_MUTED,gamepad?msg_text_hint_pad:msg_text_hint_keys);
+    // the list
+    const float ih=size*3.0f;const int fit=std::max(1,(int)((bottom-top)/ih));
+    if(inbox_sel<inbox_list_top)inbox_list_top=inbox_sel;
+    if(inbox_sel>=inbox_list_top+fit)inbox_list_top=inbox_sel-fit+1;
+    inbox_items_shown=0;
+    if(inbox.empty())list->AddText(font,size,ImVec2(x0+pad,top+4*u),C_DIM,msg_text_none);
+    for(int i=inbox_list_top;i<(int)inbox.size()&&inbox_items_shown<fit&&inbox_items_shown<16;i++){
+        const InboxMsg &m=inbox[i];float iy=top+(i-inbox_list_top)*ih;ImVec2 a(x0+pad*.5f,iy),b(x0+pad*.5f+lw,iy+ih-3*u);
+        bool sel=i==inbox_sel;
+        if(sel)list->AddRectFilled(a,b,inbox_focus==F_LIST?IM_COL32(50,99,120,230):IM_COL32(30,52,72,230),3*u);
+        if(sel&&inbox_focus==F_LIST)list->AddRect(a,b,C_GLOW,3*u,0,t);
+        // the light stays inside the list column (the halo would cross the divider and the frame)
+        list->PushClipRect(ImVec2(x0+t*2,top-4*u),ImVec2(x0+pad*.5f+lw+7*u,bottom),true);hover_light.item(list,HL_LIST+i,a,b,a,b);list->PopClipRect();
+        if(!m.read)list->AddCircleFilled(ImVec2(a.x+7*u,iy+size*.65f),3.5f*u,C_YELLOW,12);
+        list->AddText(font,size,ImVec2(a.x+14*u,iy+3*u),m.read?C_WHITE:C_YELLOW,elide(font,size,m.title,lw-18*u).c_str());
+        char d[16];ma2_msg_short_date(m.date.c_str(),d,sizeof d);
+        std::string sub=std::string(m.kind=="update"?msg_text_kind_update:m.kind=="whatsnew"?msg_text_kind_whatsnew:msg_text_kind_reply)+"  "+d;
+        list->AddText(font,size*.85f,ImVec2(a.x+14*u,iy+4*u+size*1.25f),C_MUTED,sub.c_str());
+        float *hb=inbox_item_hit[inbox_items_shown++];hb[0]=a.x/sx;hb[1]=a.y/sy;hb[2]=b.x/sx;hb[3]=b.y/sy;
+    }
+    list->AddLine(ImVec2(x0+pad*.5f+lw+8*u,top),ImVec2(x0+pad*.5f+lw+8*u,bottom),C_LINE,t);
+    // the reader
+    InboxMsg *m=inbox_cur_locked();
+    if(m){
+        const float rx=x0+pad*.5f+lw+18*u,rw=x1-pad-rx;float ry=top;
+        ImVec2 ts=font->CalcTextSizeA(size*1.15f,FLT_MAX,rw,m->title.c_str());
+        list->AddText(font,size*1.15f,ImVec2(rx,ry),C_YELLOW,m->title.c_str(),nullptr,rw);ry+=ts.y+4*u;
+        char d[16];ma2_msg_short_date(m->date.c_str(),d,sizeof d);list->AddText(font,size*.85f,ImVec2(rx,ry),C_MUTED,d);ry+=size+6*u;
+        // the controls under the text first: their height decides the text area
+        const bool answering=m->kind=="reply"&&reply_answering_locked();
+        const int act=m->kind=="update"?update_action_locked(*m):-1;
+        char status[400]="";ImU32 sc=C_WHITE;
+        if(m->kind=="reply"){
+            if(busy)snprintf(status,sizeof status,"%s",reply_text_sending);
+            else if(reply_outcome==REPLY_SENT){snprintf(status,sizeof status,"%s",reply_text_sent);sc=C_GREEN;}
+            else if(reply_outcome==REPLY_SENT_LOGS){snprintf(status,sizeof status,"%s",reply_text_sent_logs);sc=C_GREEN;}
+            else if(reply_outcome==REPLY_EMPTY){snprintf(status,sizeof status,"%s",reply_text_empty);sc=C_RED;}
+            else if(reply_outcome==REPLY_CLOSED){snprintf(status,sizeof status,"%s",reply_text_closed);sc=C_RED;}
+            else if(reply_outcome==REPLY_FAILED){snprintf(status,sizeof status,reply_text_failed,reply_reason.c_str());sc=C_RED;}
+            else if(m->answered)snprintf(status,sizeof status,"%s",msg_text_answered);
+            else if(!m->can_answer)snprintf(status,sizeof status,"%s",msg_text_older);
+        }else if(m->kind=="update"){
+            sc=C_MUTED;
+            snprintf(status,sizeof status,"%s",!update_note.empty()?update_note.c_str():act==MA2_UPDATE_RUN_INSTALLER?msg_text_update_now_note:
+                act==MA2_UPDATE_IN_LAUNCHER?msg_text_update_launcher:act==MA2_UPDATE_RELEASES_PAGE?msg_text_update_page_note:msg_text_update_have);
+            if(!update_note.empty())sc=C_RED;
+        }
+        const float box_h=size*3.4f+8*u,btn_h=size*1.7f,status_h=status[0]?font->CalcTextSizeA(size,FLT_MAX,rw,status).y+6*u:0.f;
+        float ctl=status_h;
+        const float priv_h=font->CalcTextSizeA(size*.9f,FLT_MAX,rw,reply_text_private).y+2*u;   // wraps on a narrow panel
+        if(answering)ctl+=size+4*u+box_h+6*u+size*1.3f+6*u+btn_h+6*u+priv_h;
+        if(act==MA2_UPDATE_RUN_INSTALLER||act==MA2_UPDATE_RELEASES_PAGE||act==MA2_UPDATE_IN_LAUNCHER)ctl+=btn_h+6*u;
+        float body_bottom=bottom-ctl-6*u;if(body_bottom<ry+size*3)body_bottom=ry+size*3;
+        // the text, scrolled inside its area
+        // the text by lines; in update notes and What's new each "- " item starts a little lower (a gap between the items)
+        const bool items=m->kind=="update"||m->kind=="whatsnew";const float gap=items?size*.45f:0.f;
+        std::vector<std::pair<std::string,float>> paras;float body_h=0;
+        for(size_t p0=0;p0<=m->body.size();){size_t e=m->body.find('\n',p0);if(e==std::string::npos)e=m->body.size();
+            std::string line=m->body.substr(p0,e-p0);float lh=line.empty()?size:font->CalcTextSizeA(size,FLT_MAX,rw-8*u,line.c_str()).y;
+            float before=(!paras.empty()&&line.size()>1&&line[0]=='-'&&line[1]==' ')?gap:0.f;
+            paras.push_back({line,before});body_h+=before+lh;p0=e+1;if(e==m->body.size())break;}
+        ImVec2 bs(rw,body_h);
+        inbox_scroll_max=std::max(0.f,bs.y-(body_bottom-ry));inbox_scroll=std::clamp(inbox_scroll,0.f,inbox_scroll_max);inbox_scroll_step=size*1.2f;
+        if(inbox_focus==F_BODY)list->AddRect(ImVec2(rx-4*u,ry-3*u),ImVec2(x1-pad+2*u,body_bottom+3*u),C_GLOW,3*u,0,t);
+        list->PushClipRect(ImVec2(rx-2*u,ry-2*u),ImVec2(x1-pad,body_bottom+2*u),true);
+        {float ly=ry-inbox_scroll;for(auto &pr:paras){ly+=pr.second;
+            if(!pr.first.empty())list->AddText(font,size,ImVec2(rx,ly),C_WHITE,pr.first.c_str(),nullptr,rw-8*u);
+            ly+=pr.first.empty()?size:font->CalcTextSizeA(size,FLT_MAX,rw-8*u,pr.first.c_str()).y;}}
+        list->PopClipRect();
+        if(inbox_scroll_max>0){float frac=(body_bottom-ry)/(bs.y),pos=inbox_scroll/inbox_scroll_max,bh=std::max(12*u,(body_bottom-ry)*frac);
+            float by=ry+(body_bottom-ry-bh)*pos;list->AddRectFilled(ImVec2(x1-pad-2*u,by),ImVec2(x1-pad+1*u,by+bh),C_MUTED,2*u);}
+        px(F_BODY,rx-4*u,ry-3*u,x1-pad,body_bottom+3*u);
+        float cy=body_bottom+8*u;
+        auto button=[&](int id,float bx,const char *label){
+            ImVec2 ls=font->CalcTextSizeA(size,FLT_MAX,0,label);float bw=std::max(ls.x+28*u,90*u);
+            ImVec2 a(bx,cy),b(bx+bw,cy+btn_h);bool f=inbox_focus==id&&!busy;
+            if(f)draw_focus_ring(list,a,b,u);
+            list->AddRectFilled(a,b,f?IM_COL32(50,99,120,230):IM_COL32(26,44,62,230),3*u);
+            if(!busy)hover_light.item(list,id,a,b,a,b);
+            list->AddRect(a,b,f?C_GLOW:C_LINE,3*u,0,t);
+            list->AddText(font,size,ImVec2(a.x+(bw-ls.x)*.5f,a.y+(btn_h-ls.y)*.5f),busy?C_DIM:f?C_YELLOW:C_WHITE,label);
+            px(id,a.x,a.y,b.x,b.y);return bw;};
+        if(answering){
+            list->AddText(font,size,ImVec2(rx,cy),C_MUTED,reply_text_answer);cy+=size+4*u;
+            ImVec2 a(rx,cy),b(rx+rw,cy+box_h);bool f=inbox_focus==F_BOX&&!busy;
+            if(f)draw_focus_ring(list,a,b,u);
+            list->AddRectFilled(a,b,IM_COL32(8,18,30,200),2*u);
+            if(!busy)hover_light.item(list,F_BOX,a,b,a,b);
+            list->AddRect(a,b,f?C_GLOW:C_LINE,2*u,0,t);
+            std::string txt=report_to_utf8(reply_answer);const bool empty=txt.empty();
+            const bool hint=empty&&(!f||gamepad);if(hint)txt=gamepad?reply_text_pad:reply_text_type;else if(f&&report_cursor_on())txt+="_";
+            float tw=rw-8*u;ImVec2 tsz=font->CalcTextSizeA(size,FLT_MAX,tw,txt.c_str());float ty=std::min(a.y+4*u,b.y-4*u-tsz.y);
+            list->PushClipRect(ImVec2(a.x+2,a.y+2),ImVec2(b.x-2,b.y-2),true);
+            list->AddText(font,size,ImVec2(a.x+4*u,ty),hint?C_DIM:C_WHITE,txt.c_str(),nullptr,tw);
+            list->PopClipRect();px(F_BOX,a.x,a.y,b.x,b.y);cy+=box_h+6*u;
+            float bsz=size*.95f;ImVec2 ta(rx,cy),tb(rx+bsz,cy+bsz);bool tf=inbox_focus==F_TICK&&!busy;
+            if(tf)draw_focus_ring(list,ta,tb,u);
+            {ImVec2 ls=font->CalcTextSizeA(size,FLT_MAX,0,reply_text_attach);
+             if(!busy)hover_light.item(list,F_TICK,ImVec2(ta.x-4*u,ta.y-4*u),ImVec2(tb.x+12*u+ls.x,tb.y+4*u),ta,ImVec2(tb.x+8*u+ls.x,tb.y));}
+            list->AddRect(ta,tb,tf?C_GLOW:C_MUTED,2*u,0,t);
+            if(reply_attach)list->AddRectFilled(ImVec2(ta.x+3*u,ta.y+3*u),ImVec2(tb.x-3*u,tb.y-3*u),tf?C_GLOW:C_YELLOW,1*u);
+            list->AddText(font,size,ImVec2(tb.x+8*u,cy-1*u),tf?C_YELLOW:C_WHITE,reply_text_attach);
+            ImVec2 ls=font->CalcTextSizeA(size,FLT_MAX,0,reply_text_attach);px(F_TICK,ta.x-4*u,ta.y-4*u,tb.x+8*u+ls.x+4*u,tb.y+4*u);
+            cy+=size*1.3f+6*u;
+            button(F_SEND,rx,reply_text_send);cy+=btn_h+6*u;
+            list->AddText(font,size*.9f,ImVec2(rx,cy),C_DIM,reply_text_private,nullptr,rw);cy+=priv_h;
+        }
+        if(act==MA2_UPDATE_RUN_INSTALLER||act==MA2_UPDATE_RELEASES_PAGE||act==MA2_UPDATE_IN_LAUNCHER){button(F_BUTTON,rx,act==MA2_UPDATE_RELEASES_PAGE?msg_text_update_page:msg_text_update_now);cy+=btn_h+6*u;}
+        if(status[0])list->AddText(font,size,ImVec2(rx,cy),sc,status,nullptr,rw);
+    }
+    inbox_hit_valid=true;
+}
+
 // The box text, word-wrapped (about the width of the box in the row font), the last four lines.
 static std::vector<std::wstring> report_lines(const std::wstring &t,size_t width){
     std::vector<std::wstring> out;std::wstring line;size_t i=0;
@@ -862,6 +1526,7 @@ extern "C" void ma2_pc_menu_pulse(uint32_t object,uint32_t vtable)
     // Unavailable features (Xbox Live, System Link, guests) are shown disabled (ma2_bots_ui.c menu policy).
     if(object>=0x10000&&object<0x03FFF000)ma2_menu_policy_pulse(object,vtable);
     if(vtable==0x4827B0&&!opened)report_pause_item(object);
+    reply_pulse(vtable);                     // 1.2.0: a reply waiting shows on the main menu; the pad while its box is open
     ma2_pc_input_context_update();
     sync_text_dialog();
     {   // Name keyboard footer: on keyboard/mouse the confirm prompt reads "Done" (Enter = Done there);
@@ -1248,6 +1913,13 @@ static int window_message(void *window,unsigned message,uintptr_t wparam,intptr_
     if(message==WM_SIZE&&opened&&wparam!=SIZE_MINIMIZED)queue({WM_SIZE,0,0,0});
     // Window shortcuts remain available while a settings page owns input.
     if((message==WM_KEYDOWN||message==WM_KEYUP)&&(wparam==VK_F11||wparam==VK_F8))return 0;
+    // 1.2.0: Messages owns the keyboard and the mouse while it is open; M or a click on the envelope opens it on the main menu.
+    if(reply_state.load()&&reply_input((HWND)window,message,wparam,lparam))return 1;
+    if(!reply_state.load()&&envelope_visible()&&!pc_input_text_captured()&&!pc_input_camera_captured()){
+        if(message==WM_KEYDOWN&&wparam=='M'&&!(lparam&(1LL<<30))){ReplyLock l;inbox_open_locked("M");return 1;}
+        if(message==WM_LBUTTONDOWN&&envelope_shown){float x=(float)GET_X_LPARAM(lparam),y=(float)GET_Y_LPARAM(lparam);
+            if(x>=envelope_hit[0]&&x<envelope_hit[2]&&y>=envelope_hit[1]&&y<envelope_hit[3]){ReplyLock l;inbox_open_locked("click");return 1;}}
+    }
     if(text_message((HWND)window,message,wparam,lparam))return 1;
     if(message==WM_LBUTTONDOWN&&getenv("RECOMP_MENU_TRACE")){
         RECT r={};GetClientRect((HWND)window,&r);
@@ -1320,8 +1992,9 @@ static void render(void *device_ptr,void *context_ptr,void *window_ptr,unsigned 
     bool show_fps=pc_setting_get(PC_SHOW_FPS,0)!=0;
     bool editor_button=editor_button_shown();const wchar_t *editor_note=ma2_scn_editor_note();
     const bool report_box=opened&&page==5&&page_form&&report_state!=2&&!pc_display_movie_active();
-    const char *update_line=update_line_shown();
-    if(show_fps||glow>0.f||editor_button||editor_note||report_box||update_line){
+    const bool reply_box=reply_state.load()!=0&&!pc_display_movie_active();
+    const bool envelope=envelope_visible();     // 1.2.0: Messages on the main menu
+    if(show_fps||glow>0.f||editor_button||editor_note||report_box||envelope||reply_box){
         if(!fps_context_initialized){ImGui::CreateContext();ImGui::GetIO().IniFilename=nullptr;ImGui::GetIO().LogFilename=nullptr;
             // The overlay never owns the cursor: menus and mouse aim set it.
             ImGui::GetIO().ConfigFlags|=ImGuiConfigFlags_NoMouseCursorChange;fps_context_initialized=true;}
@@ -1354,14 +2027,29 @@ static void render(void *device_ptr,void *context_ptr,void *window_ptr,unsigned 
                     draw_editor_hint(ImGui::GetBackgroundDrawList(),hint,pc_input_device()==PC_INPUT_GAMEPAD);
                 }
             }
-            if(update_line&&client.right>0&&client.bottom>0){
-                float box[4];menu_box((HWND)window_ptr,UPDATE_X0,UPDATE_Y0,UPDATE_X1,UPDATE_Y1,box);
-                float sx=(float)width/client.right,sy=(float)height/client.bottom;
-                box[0]*=sx;box[2]*=sx;box[1]*=sy;box[3]*=sy;
-                static bool logged;if(!logged){logged=true;fprintf(stderr,"[UPDATE] line shown on the main menu\n");}
-                draw_update_line(ImGui::GetBackgroundDrawList(),box,update_line);
-            }
             if(editor_note)draw_editor_note(ImGui::GetForegroundDrawList(),(float)width,(float)height,editor_note);
+            if(client.right>0&&client.bottom>0){
+                const float sx=(float)width/client.right,sy=(float)height/client.bottom;
+                {   // the mouse-over light: the pointer in back-buffer pixels, none on a controller
+                    POINT p={};static const bool scripted=getenv("RECOMP_UI_LIVE")!=nullptr;bool pointer;
+                    if(scripted){uint32_t m=mouse_position.load();p.x=GET_X_LPARAM(m);p.y=GET_Y_LPARAM(m);pointer=m!=0xFFFFFFFFu;}
+                    else pointer=GetForegroundWindow()==(HWND)window_ptr&&GetCursorPos(&p)&&ScreenToClient((HWND)window_ptr,&p);
+                    const bool pad=reply_box?inbox_pad==1||(inbox_pad<0&&pc_input_device()==PC_INPUT_GAMEPAD):pc_input_device()==PC_INPUT_GAMEPAD;
+                    if(!pointer||pad)hover_light.begin(-1,-1);else hover_light.begin(p.x*sx,p.y*sy);
+                }
+                if(envelope&&!reply_box){   // 1.2.0: Messages (it replaces the 1.1.7 update line)
+                    POINT p={};static const bool scripted=getenv("RECOMP_UI_LIVE")!=nullptr;bool pointer;
+                    if(scripted){uint32_t m=mouse_position.load();p.x=GET_X_LPARAM(m);p.y=GET_Y_LPARAM(m);pointer=m!=0xFFFFFFFFu;}
+                    else pointer=GetForegroundWindow()==(HWND)window_ptr&&GetCursorPos(&p)&&ScreenToClient((HWND)window_ptr,&p);
+                    // a controller in use: no mouse-over light (as the footer glow)
+                    bool hover=pointer&&pc_input_device()!=PC_INPUT_GAMEPAD&&envelope_shown&&p.x>=envelope_hit[0]&&p.x<envelope_hit[2]&&p.y>=envelope_hit[1]&&p.y<envelope_hit[3];
+                    draw_envelope(ImGui::GetForegroundDrawList(),(float)width,(float)height,sx,sy,hover);
+                }else envelope_shown=false;
+                if(reply_box){
+                    static bool logged;if(!logged){logged=true;fprintf(stderr,"[MSG] inbox drawn\n");}
+                    draw_inbox(ImGui::GetForegroundDrawList(),(float)width,(float)height,sx,sy);
+                }
+            }
             if(show_fps){
                 ImGui::SetNextWindowPos(ImVec2(16,16));ImGui::SetNextWindowBgAlpha(.55f);
                 ImGui::Begin("Frame rate",nullptr,ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoInputs|ImGuiWindowFlags_NoSavedSettings);
@@ -1389,4 +2077,6 @@ extern "C" void ma2_pc_settings_initialize(const char *ini)
     pc_frontend_register(render,window_message);
     pc_frontend_register_device_lost(device_lost);
     ma2_update_check_start(MA2_PUBLIC_VERSION); // 1.1.7: background thread, off with [Update] CheckForUpdates=0
+    msg_initialize();                           // 1.2.0: Messages (stored messages, what's new in this version)
+    reply_check_start();                        // 1.2.0: only when a report was sent from this PC (MA2 Report.exe asks)
 }

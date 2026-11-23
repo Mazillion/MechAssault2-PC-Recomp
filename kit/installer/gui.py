@@ -121,6 +121,25 @@ SU_BODY = ('The new installer comes from the project\'s GitHub releases page and
            'install; your settings and saves stay as they are.')
 SU_SIZE = '%d of %d MB'
 SU_FAILED_KICKER = 'UPDATE NOT STARTED'
+# 1.2.0: a reply from the developer to a report sent from this PC (report.check_replies), shown first, once
+RP_TITLE = 'A REPLY TO YOUR REPORT'
+RP_HEAD = 'Reply to your report %s (%s)'
+RP_FROM = 'From the developer:'
+RP_ANSWER = 'Your answer'
+RP_PRIVATE = 'Please don\'t type personal details. You\'re anonymous if you don\'t.'
+RP_ATTACH = 'Attach my latest logs'
+RP_ATTACH_NOTE = 'Adds the game and installer logs, your settings and PC details, like a report.'
+RP_SEND = 'SEND ANSWER'
+RP_LATER = 'Close'
+RP_SENDING = 'Sending…'
+RP_SENT = 'Answer sent.'
+RP_SENT_LOGS = 'Answer sent with your latest logs.'
+RP_FAILED = 'Could not send your answer (%s).'
+RP_TRY = 'Try again'
+RP_EMPTY = 'Type an answer first.'
+RP_NOT_NOW = 'The developer can\'t take an answer to this message any more.'
+RP_DONE = 'DONE'
+RP_NEXT = 'NEXT REPLY'
 HELP_TEXT = [
     ('Windows warned me about the installer', 'Windows SmartScreen warns about programs it does not recognize, and this installer is not '
      'code-signed. If you downloaded it from where you expected, choose More info, then Run anyway. The installer never changes your '
@@ -234,6 +253,7 @@ class App:
         self.model = None; self.lines = []; self.step_title = ''; self.slow = ''; self.shown_frac = 0.0; self.shown_eta = None
         self.memwait = None; self.overrun = False; self.rep = None
         self.su = {'for': None, 'state': None, 'info': None}; self.handoff = False     # 1.1.7: self-update offer and download
+        self.replies = []; self.rp = None                                              # 1.2.0: the developer's replies waiting
         self.started = None; self.show_details = False; self.tools_busy = False; self.tools_cancel = False
         self.w = {}; self.primary = None; self.want_focus = None; self.prog = {}; self.scan_x = 0.0
         self.closing = False; self.fallbacks = ui_win.FALLBACKS
@@ -269,11 +289,18 @@ class App:
         if hd and install.is_install(precheck.clean_path(hd)):
             self.dest = hd; self.handoff = True
             print('ui: started by the self-update of %s' % hd, flush=True)
+        # 1.2.0: "Update now" in the game's Messages starts this installer copy with MA2_GAME_UPDATE=<its install folder>: open on
+        # that folder and start the self-update (download from GitHub, SHA-256 + size check, hand-over) as soon as it is offered.
+        self.su_auto = False
+        gu = os.environ.pop('MA2_GAME_UPDATE', '')
+        if gu and not self.handoff and install.is_install(precheck.clean_path(gu)):
+            self.dest = gu; self.su_auto = True
+            print('ui: started by Update now in the game for %s' % gu, flush=True)
         self.mode = self.mode_for(self.dest)
         self.load_installed_choices()
         self.check_dest()
         resume = self.read_resume_marker()
-        for fn in (self.detect_hardware, self.detect_compiler, self.detect_misc, self.find_disc):
+        for fn in (self.detect_hardware, self.detect_compiler, self.detect_misc, self.find_disc, self.find_replies):
             threading.Thread(target=self.guarded(fn), daemon=True).start()
         self.render()
         self._after = root.after(100, self.pump)
@@ -579,6 +606,7 @@ class App:
     def on_escape(self, e=None):
         if self.menu: self.menu = None; self.want_focus = 'help'; self.render(); return 'break'
         if self.confirm: self.confirm = None; self.render(); return 'break'
+        if self.screen == 'reply': self.reply_close(); return 'break'
         back = {'options': 'setup', 'trouble': 'options', 'page': self.page_back if self.screen == 'page' else None,
                 'diag': getattr(self, 'diag_back', 'setup'), 'report': getattr(self, 'report_back', 'setup'), 'uninstall': 'setup'}.get(self.screen)
         if back: self.go(back); return 'break'
@@ -951,6 +979,8 @@ class App:
                     self.su.update(state='offer' if ok else 'none', info=res if ok else None)
                     print('ui: self-update check: %s' % (res.get('cause') if isinstance(res, dict) else res), flush=True)
                     if ok and self.screen == 'setup' and self.mode in ('update', 'maintain'): self.render()
+                    if ok and self.su_auto:
+                        self.su_auto = False; print('ui: starting the update the game asked for', flush=True); self.self_update_start()
                 self.bg(lambda: selfupdate.check(install.PUBLIC_VERSION, log=lambda s: print('ui: ' + s, flush=True)), done)
             return self.su.get('info') if self.su.get('state') == 'offer' else None
         except Exception as e:
@@ -2102,6 +2132,128 @@ class App:
             if self.screen == 'report': self.want_focus = 'primary'; self.render()
         self.bg(work, done)
 
+    # -- 1.2.0: replies from the developer (report.py conversations). Checked once at start, only when this PC sent a report in
+    # the last 60 days; a reply waiting is shown before anything else (a player whose install failed never reaches the game).
+    def find_replies(self):
+        import report
+        got = report.check_replies(log=lambda s: print('ui: ' + s, flush=True))
+        if got: self.q.put(('call', lambda: self.got_replies(got)))
+
+    def got_replies(self, got):
+        self.replies.extend(got); self.maybe_show_reply()
+
+    def maybe_show_reply(self):
+        busy = (self.worker is not None and self.worker.is_alive()) or self.tools_busy or self.su.get('state') == 'downloading'
+        if self.replies and self.rp is None and not busy and not self.menu and \
+           self.screen not in ('progress', 'selfupdate', 'report', 'diag', 'uninstall', 'reply'):
+            self.reply_back = self.screen
+            self.open_reply()
+
+    def open_reply(self):
+        r = self.replies.pop(0)
+        self.rp = {'r': r, 'text': '', 'attach': True, 'busy': False, 'result': None}
+        print('ui: showing reply %d to %s' % (r['n'], r['id']), flush=True)
+        self.go('reply', focus='rp_text' if r['can_answer'] else 'primary')
+        self.attention()
+        def seen():
+            import report
+            report.mark_seen(r['id'], r['n'])
+        threading.Thread(target=self.guarded(seen), daemon=True).start()   # shown = read: it is not shown again
+
+    def reply_close(self):
+        if self.rp and self.rp['busy']: return
+        if self.replies: self.open_reply(); return
+        self.rp = None
+        self.go(getattr(self, 'reply_back', 'setup') if getattr(self, 'reply_back', 'setup') != 'reply' else 'setup')
+
+    def scr_reply(self):
+        import report
+        k, dp, cv = self.k, self.k.dp, self.cv
+        p = self.rp; r = p['r']; res = p['result']
+        cv.create_rectangle(0, 0, dp(self.W), dp(self.H), fill=P['panel'], outline='', tags='s')
+        self.T(40, 22, RP_TITLE, 'h1s')
+        self.T(40, 64, RP_HEAD % (r['id'], report.short_date(r['sent'])), 'row', anchor='w')
+        self.T(40, 88, RP_FROM, 'small', 'muted', anchor='w')
+        f = tk.Frame(cv, bg=P['panel2'])
+        msg = tk.Text(f, bg=P['panel2'], fg=P['text'], font=k.fonts['body'], bd=0, highlightthickness=0, wrap='word', padx=dp(8), pady=dp(6),
+                      cursor='arrow', takefocus=0, height=5)
+        sb = ttk.Scrollbar(f, orient='vertical', command=msg.yview, style='Dark.Vertical.TScrollbar'); msg['yscrollcommand'] = sb.set
+        msg.insert('1.0', r['text']); msg.configure(state='disabled')
+        if len(r['text']) > (300 if r['can_answer'] else 700) or r['text'].count('\n') > (4 if r['can_answer'] else 10):
+            sb.pack(side='right', fill='y')                         # only a long reply scrolls
+        msg.pack(side='left', fill='both', expand=True)
+        cv.create_window(dp(40), dp(102), window=f, anchor='nw', width=dp(800), height=dp(124 if r['can_answer'] else 250), tags='s')
+        y = 244 if r['can_answer'] else 370
+        if r['can_answer']:
+            self.T(40, y, RP_ANSWER, 'row', anchor='w')
+            self.T(840, y, RP_PRIVATE, 'small', 'muted', anchor='e')
+            box = tk.Frame(cv, bg=P['panel2'], highlightthickness=k.line(), highlightbackground=P['steel'], highlightcolor=P['amber'])
+            txt = tk.Text(box, bg=P['panel2'], fg=P['text'], font=k.fonts['small'], bd=0, wrap='word', padx=dp(6), pady=dp(4),
+                          insertbackground=P['text'], height=3, takefocus=1)
+            txt.pack(fill='both', expand=True)
+            txt.insert('1.0', p['text'])
+            if p['busy'] or (res and res.get('ok')): txt.configure(state='disabled')
+            def keep(e=None):
+                try:
+                    t = txt.get('1.0', 'end-1c')
+                    if len(t) > report.MAX_MESSAGE: txt.delete('1.0 + %d chars' % report.MAX_MESSAGE, 'end'); t = t[:report.MAX_MESSAGE]
+                    p['text'] = t
+                    if t.strip() and p['result'] and p['result'].get('cause') == 'empty':      # the "type an answer" note goes
+                        p['result'] = None; self.want_focus = 'rp_text'; self.root.after(1, self.render)
+                except tk.TclError:
+                    pass
+            txt.bind('<KeyRelease>', keep); txt.bind('<<Paste>>', lambda e: self.root.after(1, keep), add='+')
+            txt.bind('<Tab>', lambda e: (e.widget.tk_focusNext().focus_set(), 'break')[1])
+            txt.bind('<Shift-Tab>', lambda e: (e.widget.tk_focusPrev().focus_set(), 'break')[1])
+            cv.create_window(dp(40), dp(y + 16), window=box, anchor='nw', width=dp(800), height=dp(66), tags='s')
+            txt.key = 'rp_text'; txt.enabled = True; self.w['rp_text'] = txt
+            self.reply_text = keep
+            y += 98
+            if not (res and res.get('ok')):
+                self.T(40, y, RP_ATTACH, 'small', 'text', anchor='w')
+                self.T(40, y + 20, RP_ATTACH_NOTE, 'small', 'muted', anchor='w')
+                self.put(Toggle(cv, k, p['attach'], lambda v: p.__setitem__('attach', v), P['panel'], key='rp_attach'), 840, y + 8, anchor='e')
+            y += 44
+        if p['busy']:
+            self.T(40, y + 10, RP_SENDING, 'body', 'text', anchor='w')
+        elif res:
+            if res.get('ok'): self.strip(y, RP_SENT_LOGS if res.get('logs') else RP_SENT, width=800)
+            elif res.get('cause') == 'empty': self.strip(y, RP_EMPTY, bad=True, width=800)
+            elif res.get('cause') == 'closed': self.strip(y, RP_NOT_NOW, bad=True, width=800)
+            else:
+                why = res.get('message') or report.CAUSES.get(res.get('cause'), report.CAUSES['error'])
+                self.strip(y, RP_FAILED % why.rstrip('.'), bad=True, width=800)
+        left = [self.link('rp_close', RP_LATER, self.reply_close, quiet=True, bg='panel', enabled=not p['busy'])]
+        more = bool(self.replies)
+        if not r['can_answer'] or (res and (res.get('ok') or res.get('cause') == 'closed')):
+            prim = self.button('primary', RP_NEXT if more else RP_DONE, self.reply_close)
+        else:
+            prim = self.button('primary', RP_TRY.upper() if res and not res.get('ok') and res.get('cause') != 'empty' else RP_SEND,
+                               self.do_answer, enabled=not p['busy'])
+        self.footer(left, [prim])
+
+    def do_answer(self):
+        p = self.rp
+        if not p or p['busy']: return
+        if getattr(self, 'reply_text', None): self.reply_text()
+        r = p['r']; text = p['text']; attach = p['attach']
+        if not text.strip():
+            p['result'] = {'ok': False, 'cause': 'empty'}; self.want_focus = 'rp_text'; self.render(); return
+        p['busy'] = True; p['result'] = None; self.render()
+        dest = precheck.remembered_install() or precheck.clean_path(self.dest) or precheck.default_install_folder()
+        gpus = self.facts.get('gpus'); out = Path(precheck.diagnostics_dir())
+        def work():
+            import report
+            if attach: out.mkdir(parents=True, exist_ok=True)
+            return report.send_answer(r['id'], text, attach, dest, out, 'installer', install.PUBLIC_VERSION, install.BUILD, gpus,
+                                      log=lambda s: print('ui: ' + s, flush=True))
+        def done(res):
+            p['busy'] = False
+            p['result'] = res if isinstance(res, dict) else {'ok': False, 'cause': 'error'}
+            print('ui: answer to %s: %s' % (r['id'], p['result'].get('cause')), flush=True)
+            if self.screen == 'reply': self.want_focus = 'primary'; self.render()
+        self.bg(work, done)
+
     # -- Uninstall
     def scr_uninstall(self):
         k, dp, cv = self.k, self.k.dp, self.cv
@@ -2158,6 +2310,7 @@ class App:
             ui_win.degrade('drop', e)
         self._tick += 1
         if self.screen == 'progress' and self.model and self._tick % 5 == 0: self.update_progress()
+        if self.replies and self.rp is None and self._tick % 5 == 0: self.maybe_show_reply()
         if self._tick % 5 == 0 and not self.forced_scale: self.check_dpi()
         self._after = self.root.after(100, self.pump)
         if self.anim and self.screen == 'progress': self.animate()

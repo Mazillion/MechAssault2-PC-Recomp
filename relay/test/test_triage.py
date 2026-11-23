@@ -35,10 +35,10 @@ def make_zip():
     return b.getvalue()
 
 
-def post_report(text, kind="crash"):
+def post_report(text, kind="crash", extra=()):
     boundary = uuid.uuid4().hex
     parts = []
-    for name, value in (("text", text), ("summary", "Version: 1.1.6\nWindows build: 22631")):
+    for name, value in (("text", text), ("summary", "Version: 1.1.6\nWindows build: 22631")) + tuple(extra):
         parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
     parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="zip"; filename="report.zip"\r\n'
                  f"Content-Type: application/zip\r\n\r\n".encode() + make_zip() + b"\r\n")
@@ -340,6 +340,8 @@ def main():
         proc.kill()
         proc.wait()
 
+    checks_conversation()
+
     # /v1/latest with the vars set, as the game reads it.
     env = dict(os.environ, LATEST_VERSION="1.1.7", UPDATE_NOTICE="Please update to 1.1.7.")
     proc = subprocess.Popen(["node", os.path.join(HERE, "local-relay.mjs"), str(PORT)], cwd=ROOT, env=env,
@@ -354,6 +356,60 @@ def main():
         proc.kill()
         proc.wait()
     return 0
+
+
+def checks_conversation():
+    """1.2.0: triage.py conversations / reply / conversation / get-logs against a report sent with a reply key."""
+    secret = "c" * 64
+    proc = subprocess.Popen(["node", os.path.join(HERE, "local-relay.mjs"), str(PORT)], cwd=ROOT, env=dict(os.environ),
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=CREATE_NO_WINDOW)
+    checks = 0
+    try:
+        assert proc.stdout.readline().decode().startswith("LISTENING")
+        st, b = post_report("Crashed on mission 3.", extra=(("reply_secret", secret),))
+        assert st == 200, (st, b)
+        rid = b["id"]
+        st, old = post_report("A 1.1.x report.")
+        with tempfile.TemporaryDirectory() as out:
+            assert "No messages yet." in run_triage("conversation", rid, out=out); checks += 1
+            said = run_triage("reply", rid, "--text", "Thanks. Does it happen with HD textures off?", out=out)
+            assert "Sent." in said, said; checks += 1
+            try:
+                run_triage("reply", rid, "--text", "second while unseen", out=out)
+                raise AssertionError("a second reply while the first is unseen")
+            except SystemExit as e:
+                assert "not been seen yet" in str(e), e; checks += 1
+            assert "Edited." in run_triage("reply", rid, "--text", "Thanks! Does it happen with HD textures off?", "--edit", "1", out=out); checks += 1
+            assert "without replies" in run_triage("reply", old["id"], "--text", "x", out=out); checks += 1
+            body = json.dumps({"reports": [{"id": rid, "secret": secret}]}).encode()
+            req = urllib.request.Request(BASE + "/v1/replies", data=body, method="POST", headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=5) as r:
+                got = json.loads(r.read())
+            assert got["replies"][0]["text"] == "Thanks! Does it happen with HD textures off?", got; checks += 1
+            # the player's answer with logs (multipart, as the clients send it)
+            boundary = uuid.uuid4().hex
+            parts = [f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode()
+                     for k, v in (("id", rid), ("secret", secret), ("text", "No, it still crashes."), ("summary", "Version: 1.2.0"))]
+            parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="zip"; filename="report.zip"\r\n'
+                         f"Content-Type: application/zip\r\n\r\n".encode() + make_zip() + b"\r\n")
+            parts.append(f"--{boundary}--\r\n".encode())
+            req = urllib.request.Request(BASE + "/v1/answer", data=b"".join(parts), method="POST",
+                                         headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+            with urllib.request.urlopen(req, timeout=5) as r:
+                assert json.loads(r.read())["ok"]; checks += 1
+            time.sleep(0.3)
+            conv = run_triage("conversation", rid, out=out)
+            assert "No, it still crashes." in conv and "logs attached" in conv and "(seen " in conv, conv; checks += 1
+            assert rid in run_triage("conversations", out=out) and "waiting for you" in run_triage("conversations", out=out); checks += 1
+            said = run_triage("get-logs", rid, "2", out=out)
+            assert os.path.exists(os.path.join(out, f"{rid}-answer-2.zip")) and "[CRASH] c0000005" in said, said; checks += 1
+            with urllib.request.urlopen(BASE + "/__mock/comments", timeout=5) as r:
+                comments = json.loads(r.read())
+            assert len(comments) == 1 and "No, it still crashes." in comments[0]["body"], comments; checks += 1
+        print(f"test_triage: conversations {checks} checks passed")
+    finally:
+        proc.kill()
+        proc.wait()
 
 
 if __name__ == "__main__":

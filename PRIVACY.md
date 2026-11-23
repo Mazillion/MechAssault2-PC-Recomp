@@ -28,10 +28,20 @@ Before you send, **What's included?** lists the exact files. **Save a copy inste
 ## Where it goes and how long it is kept
 
 1. A small service on Cloudflare receives the report. Its code is in [`relay/`](relay/).
-2. The report file is stored in Cloudflare storage and **deleted automatically after 60 days**.
+2. The report file is stored in Cloudflare storage and **deleted automatically 60 days after the last message** (60 days after it arrived when nobody replied; see [Replies to your report](#replies-to-your-report)).
 3. A short entry is opened in a **private** GitHub repository that only the developer can see. It holds the report number, what you typed, and a short summary: version, Windows, CPU, memory, graphics card, and the error. This entry is kept until the developer deletes it.
 
 A copy of every report also stays on your PC, in `%LOCALAPPDATA%\MechAssault2\Diagnostics`. You can delete it there at any time.
+
+## Replies to your report
+
+The developer can reply to a report you sent, and you can answer. This works only for reports sent from version 1.2.0 or later.
+
+- **On your PC.** When a report is sent, your PC keeps its report number, the date, and a random key in `%LOCALAPPDATA%\MechAssault2\report-conversations.txt`. The key is what lets only your PC read a reply. The report service keeps only a scrambled form of it, which can't be turned back into the key. A line is removed 60 days after the last message. Deleting the file stops all of this.
+- **Looking for replies.** Only while that file has a report less than 60 days old, the game (when it starts) and the installer (when it opens) send the report numbers and keys to the report service, and nothing else. The update check never does this. Your IP address is treated the same way as for a report: only scrambled, to limit how often one connection can ask, and never stored.
+- **A reply** appears in the game's Messages (the envelope on the main menu) and first thing when the installer opens. Once you have read it in either place, it is marked as read in both.
+- **Your answer** goes only to the developer. It is cleaned like the report text (user and PC names, profile folders and e-mail addresses are replaced) and can be up to 1000 characters. With "Attach my latest logs" ticked (the default), a new report file goes with it, made and cleaned exactly like a report. Your answer appears on the report's entry in the developer's **private** GitHub repository, so the developer is notified.
+- **How long it is kept.** The report, the replies, your answers and the files you attached are deleted 60 days after the **last** message. Your answers on the private GitHub entry are deleted then as well.
 
 ## Deleting a report
 
@@ -41,7 +51,9 @@ Ask for a report to be deleted by giving its report number (shown after sending)
 
 Each time the game starts, it asks the report service once which version is the newest. The only thing it sends is the game's version number, for example 1.1.7. It sends nothing about you or your PC, and the service does not use or store your IP address for this.
 
-If a newer version is out, the main menu shows one line, for example "Version 1.1.8 is available. Run the installer to update." Nothing is downloaded or installed, and nothing changes in the game.
+If a newer version is out, the envelope on the main menu (Messages) gets a new message, for example "Version 1.2.1 is available", with that version's list of changes. Nothing is downloaded or installed unless you press Update now, which closes the game and opens the installer (or RecompLauncher, if it installed the game).
+
+The game keeps what Messages shows (update news, what's new after an update, replies to your reports) in `%LOCALAPPDATA%\MechAssault2\messages.txt`: updates for 6 months, replies for 60 days. Nothing in that file is ever sent.
 
 To turn the check off, close the game, open `%LOCALAPPDATA%\MechAssault2\pc_settings.ini` in Notepad and set `CheckForUpdates=0` under `[Update]`.
 

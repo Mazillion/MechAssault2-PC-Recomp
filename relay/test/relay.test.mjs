@@ -760,7 +760,7 @@ test("open: a wrong key sets no cookie and gives the generic error on the same p
   assert.ok(!html.includes("wrong\""), "the typed key is not echoed");
 });
 
-test("open: the right key sets an HttpOnly Secure Lax cookie for a year, then the zip downloads", async () => {
+test("open: the right key sets an HttpOnly Secure Lax cookie for a year, then the page links the zip, which downloads", async () => {
   const zip = tinyZip(321);
   const r = await send(await reportRequest({ zip }));
   const res = await worker.fetch(formReq(r.body.id, { key: env.OWNER_KEY, remember: "1" }), env, ctx);
@@ -771,7 +771,14 @@ test("open: the right key sets an HttpOnly Secure Lax cookie for a year, then th
   assert.ok(!sc.includes(env.OWNER_KEY), "the cookie is not the key");
   assert.ok(!res.headers.get("location").includes(env.OWNER_KEY));
   const cookie = sc.split(";")[0];
-  const dl = await worker.fetch(openReq(r.body.id, { headers: { cookie } }), env, ctx);
+  // 1.2.0: the page (conversation + download link); the zip is one click further.
+  const pg = await worker.fetch(openReq(r.body.id, { headers: { cookie } }), env, ctx);
+  assert.equal(pg.status, 200);
+  const html = await pg.text();
+  assert.ok(html.includes(`href="/v1/open/${r.body.id}/zip"`) && html.includes("Download the report (.zip,"));
+  assert.ok(html.includes(OPEN_TEXT.noreplies_note), "a 1.1.x report: no reply box");
+  assert.ok(!html.includes('action="/v1/open/' + r.body.id + '/reply"'));
+  const dl = await worker.fetch(new Request(`${BASE}/v1/open/${r.body.id}/zip`, { headers: { cookie } }), env, ctx);
   assert.equal(dl.status, 200);
   assert.equal(dl.headers.get("content-disposition"), `attachment; filename="${r.body.id}.zip"`);
   assert.equal(dl.headers.get("cache-control"), "no-store");
@@ -901,4 +908,337 @@ test("owner key: a trailing space or CRLF in the header, the form or the stored 
   assert.equal((await worker.fetch(owner(path, {}, "   "), env, ctx)).status, 401);
   const ws = makeEnv({ OWNER_KEY: "  \n" });
   assert.equal((await worker.fetch(owner(path, {}, "x"), ws, ctx)).status, 404, "a blank secret = owner routes off");
+});
+
+// ---------------------------------------------------------------- report conversations (1.2.0)
+
+import { postPendingComments } from "../src/worker.js";
+
+const SECRET = "a".repeat(32) + "0123456789abcdef0123456789abcdef";
+const OTHER = "b".repeat(64);
+
+async function sendWithSecret(secret = SECRET, extra = {}) {
+  return send(await reportRequest({ fields: { reply_secret: secret }, ...extra }));
+}
+function poll(reports, ip = "198.51.100.40") {
+  return new Request(`${BASE}/v1/replies`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "cf-connecting-ip": ip },
+    body: JSON.stringify({ reports }),
+  });
+}
+async function polled(reports, ip) {
+  const res = await worker.fetch(poll(reports, ip), env, ctx);
+  return { status: res.status, body: await res.json() };
+}
+async function answerReq({ id, secret = SECRET, text = "It still happens.", zip = null, ip = "198.51.100.41" }) {
+  const form = new FormData();
+  form.set("id", id);
+  if (secret !== null) form.set("secret", secret);
+  if (text !== null) form.set("text", text);
+  if (zip) {
+    form.set("summary", "Version: 1.2.0");
+    form.set("zip", new Blob([zip], { type: "application/zip" }), "report.zip");
+  }
+  const tmp = new Request(`${BASE}/v1/answer`, { method: "POST", body: form });
+  const body = new Uint8Array(await tmp.arrayBuffer());
+  return new Request(`${BASE}/v1/answer`, {
+    method: "POST",
+    headers: { "content-type": tmp.headers.get("content-type"), "content-length": String(body.length), "cf-connecting-ip": ip,
+               "x-ma2-client": "game", "x-ma2-version": "1.2.0", "x-ma2-build": "abc1234" },
+    body,
+  });
+}
+async function reply(id, text, edit) {
+  const res = await worker.fetch(owner(`/v1/report/${id}/reply`, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify(edit === undefined ? { text } : { text, edit }) }), env, ctx);
+  return { status: res.status, body: await res.json() };
+}
+function convOf(id) {
+  const r = env.REPORTS.map.get(`conv/${id}.json`);
+  return r ? JSON.parse(new TextDecoder().decode(r.bytes)) : null;
+}
+function ageConv(id, days) {
+  // The conversation's last message `days` ago (file and custom metadata).
+  const r = env.REPORTS.map.get(`conv/${id}.json`);
+  const j = JSON.parse(new TextDecoder().decode(r.bytes));
+  j.last = new Date(Date.now() - days * 86400e3).toISOString();
+  r.bytes = new TextEncoder().encode(JSON.stringify(j));
+  r.customMetadata = { ...r.customMetadata, last: j.last };
+}
+
+test("conversation: a secret is stored only as its SHA-256; the issue says replies are possible", async () => {
+  const r = await sendWithSecret();
+  assert.equal(r.status, 200);
+  const c = convOf(r.body.id);
+  assert.ok(c, "conversation stored");
+  assert.equal(c.secret_hash.length, 64);
+  assert.notEqual(c.secret_hash, SECRET);
+  assert.deepEqual(c.messages, []);
+  assert.ok(!env.REPORTS.allBytes().includes(SECRET), "the secret itself is stored nowhere");
+  assert.ok(!JSON.stringify(gh.issues).includes(SECRET), "nor in the issue");
+  assert.ok(gh.issues[0].body.includes("Replies: the player can read a reply"));
+});
+
+test("conversation: a 1.1.x client (no secret) or a malformed secret works as before, without a conversation", async () => {
+  const old = await send(await reportRequest());
+  assert.equal(old.status, 200);
+  assert.equal(convOf(old.body.id), null);
+  assert.ok(gh.issues[0].body.includes("Replies: not possible"));
+  for (const bad of ["xyz", "A".repeat(64) + "0", "g".repeat(64)]) {
+    const r = await sendWithSecret(bad, { ip: "192.0.2." + bad.length });
+    assert.equal(r.status, 200, bad);
+    assert.equal(convOf(r.body.id), null, bad);
+  }
+  assert.equal((await reply(old.body.id, "Hello")).body.error, "noreplies");
+  assert.equal((await worker.fetch(await answerReq({ id: old.body.id }), env, ctx)).status, 404);
+  assert.deepEqual((await polled([{ id: old.body.id, secret: SECRET }])).body, { ok: true, replies: [], state: [] });
+});
+
+test("conversation: only the secret holder reads a reply; a wrong secret or unknown id returns nothing", async () => {
+  const r = await sendWithSecret();
+  const id = r.body.id;
+  assert.equal((await reply(id, "Thanks! Does it still crash with the new driver?")).status, 200);
+  const good = await polled([{ id, secret: SECRET }]);
+  assert.equal(good.status, 200);
+  assert.equal(good.body.replies.length, 1);
+  assert.equal(good.body.replies[0].text, "Thanks! Does it still crash with the new driver?");
+  assert.equal(good.body.replies[0].n, 1);
+  assert.equal(good.body.replies[0].can_answer, true);
+  for (const e of [{ id, secret: OTHER }, { id, secret: SECRET.toUpperCase().slice(0, 63) }, { id: "MA2-ZZZZZZ", secret: SECRET }, { id, secret: null }, { id }]) {
+    const res = await polled([e]);
+    assert.deepEqual(res.body, { ok: true, replies: [], state: [] }, JSON.stringify(e));
+  }
+  // garbage requests
+  assert.equal((await worker.fetch(new Request(`${BASE}/v1/replies`, { method: "POST", body: "nope" }), env, ctx)).status, 400);
+  assert.equal((await worker.fetch(new Request(`${BASE}/v1/replies`), env, ctx)).status, 405);
+});
+
+test("conversation: seen marks the message read (shown once); the owner may edit only until then", async () => {
+  const { body: { id } } = await sendWithSecret();
+  await reply(id, "First version");
+  assert.equal((await reply(id, "A second one")).body.error, "wait", "no second reply while the first is unseen");
+  assert.equal((await reply(id, "Edited version", 1)).status, 200);
+  let p = await polled([{ id, secret: SECRET }]);
+  assert.equal(p.body.replies[0].text, "Edited version");
+  p = await polled([{ id, secret: SECRET, seen: 1 }]);
+  assert.equal(p.body.replies.length, 0, "seen: not returned again");
+  assert.ok(convOf(id).messages[0].seen);
+  assert.equal((await reply(id, "Too late", 1)).body.error, "seen_err");
+  assert.equal(convOf(id).messages[0].text, "Edited version");
+  assert.equal((await reply(id, "Follow-up after it was seen")).status, 200);
+  assert.equal((await polled([{ id, secret: SECRET }])).body.replies[0].n, 2);
+});
+
+test("conversation: strict alternation, answer limits, logs attached, comment on the issue", async () => {
+  const { body: { id } } = await sendWithSecret();
+  let res = await worker.fetch(await answerReq({ id }), env, ctx);
+  assert.equal(res.status, 409, "nothing to answer yet");
+  await reply(id, "Could you try again with the new version?");
+  assert.equal((await worker.fetch(await answerReq({ id, secret: OTHER }), env, ctx)).status, 404, "wrong secret");
+  assert.equal((await worker.fetch(await answerReq({ id, text: "  " }), env, ctx)).status, 400, "empty");
+  assert.equal((await worker.fetch(await answerReq({ id, text: "x".repeat(1001) }), env, ctx)).status, 400, "too long");
+  const zip = tinyZip(500);
+  res = await worker.fetch(await answerReq({ id, text: "Still crashes @Mazillion ```x```\nsecond line", zip }), env, ctx);
+  assert.equal(res.status, 200);
+  await ctx.drain();
+  const b = await res.json();
+  assert.deepEqual(b, { ok: true, id, n: 2, message: "" });
+  assert.equal((await worker.fetch(await answerReq({ id, text: "again", ip: "198.51.100.42" }), env, ctx)).status, 409, "one answer per message");
+  const c = convOf(id);
+  assert.equal(c.messages[1].from, "player");
+  assert.ok(c.messages[0].seen, "answering marks the message seen");
+  assert.equal(c.last, c.messages[1].at);
+  const stored = await env.REPORTS.get(`answers/${id}/2.zip`);
+  assert.deepEqual(new Uint8Array(await stored.arrayBuffer()), zip);
+  // the owner's notification: a comment on the report's issue, text neutralised, links to the page and the logs
+  assert.equal(gh.comments.length, 1);
+  const cm = gh.comments[0];
+  assert.equal(cm.issue, 1);
+  assert.ok(cm.body.includes("**Player's answer**") && cm.body.includes("second line"));
+  assert.ok(!cm.body.includes("@Mazillion") && (cm.body.match(/```/g) || []).length === 2);
+  assert.ok(cm.body.includes(`/v1/open/${id}/logs/2`) && cm.body.includes(`Reply: https://relay.example.test/v1/open/${id}`));
+  assert.equal(convOf(id).messages[1].comment, cm.id);
+  // the owner sees it through the API too
+  const view = await (await worker.fetch(owner(`/v1/report/${id}/conversation`), env, ctx)).json();
+  assert.equal(view.conversation.messages.length, 2);
+  assert.ok(!JSON.stringify(view).includes("secret_hash"));
+  const list = await (await worker.fetch(owner("/v1/admin/conversations"), env, ctx)).json();
+  assert.equal(list.conversations[0].waiting, "you");
+  const logs = await worker.fetch(owner(`/v1/report/${id}/logs/2`), env, ctx);
+  assert.equal(logs.status, 200);
+});
+
+test("conversation: an answer while the issue is still pending is commented by the next sweep", async () => {
+  gh.mode = "down";
+  const { body: { id } } = await sendWithSecret();
+  await reply(id, "Question");
+  const res = await worker.fetch(await answerReq({ id }), env, ctx);
+  assert.equal(res.status, 200);
+  await ctx.drain();
+  assert.equal(gh.comments.length, 0);
+  gh.mode = "up";
+  await worker.scheduled({}, env, ctx);
+  await ctx.drain();
+  await worker.scheduled({}, env, ctx);   // the first run opened the issue, the second comments
+  await ctx.drain();
+  assert.equal(gh.comments.length, 1);
+  assert.notEqual(convOf(id).messages[1].comment, "pending");
+});
+
+test("conversation: answers share the report limits (5 per connection per hour, daily cap)", async () => {
+  const { body: { id } } = await sendWithSecret(SECRET, { ip: "203.0.113.90" });
+  await reply(id, "Q");
+  for (let i = 0; i < 4; i++) await send(await reportRequest({ ip: "203.0.113.91" }));
+  // the same connection that sent 4 reports may answer once more, then 429
+  await send(await reportRequest({ ip: "203.0.113.91" }));
+  const res = await worker.fetch(await answerReq({ id, ip: "203.0.113.91" }), env, ctx);
+  assert.equal(res.status, 429);
+  assert.equal(convOf(id).messages.length, 1, "nothing stored");
+});
+
+test("conversation: reply checks are rate-limited per connection and never store the IP", async () => {
+  const ip = "198.51.100.77";
+  for (let i = 0; i < 30; i++) assert.equal((await polled([], ip)).status, 200);
+  assert.equal((await polled([], ip)).status, 429);
+  assert.equal((await polled([], "198.51.100.78")).status, 200, "another connection is not affected");
+  assert.ok(!env.GATE.storageOf().dump().includes(ip));
+  assert.ok(!env.REPORTS.allBytes().includes(ip));
+  // /v1/latest stays outside all of this: no limiter call, nothing stored
+  const before = env.GATE.storageOf().dump();
+  await worker.fetch(new Request(`${BASE}/v1/latest`), env, ctx);
+  assert.equal(env.GATE.storageOf().dump(), before);
+});
+
+test("conversation expiry: 60 days after the LAST message; live objects are refreshed for the lifecycle rule", async () => {
+  const live = await sendWithSecret(SECRET, { ip: "192.0.2.11" });
+  const plain = await send(await reportRequest({ ip: "192.0.2.12" }));
+  await reply(live.body.id, "Q");
+  await worker.fetch(await answerReq({ id: live.body.id }), env, ctx);
+  await ctx.drain();
+  age(env, live.body.id, 61);          // the report itself arrived 61 days ago ...
+  ageConv(live.body.id, 10);           // ... but the last message was 10 days ago
+  age(env, plain.body.id, 61);
+  const before = env.REPORTS.map.get(`answers/${live.body.id}/2.zip`) === undefined;
+  assert.equal(before, true, "no logs attached in this answer");
+  let res = await (await worker.fetch(owner("/v1/admin/expire", { method: "POST" }), env, ctx)).json();
+  const month = new Date().toISOString().slice(0, 7);
+  const zkey = `reports/${month}/${live.body.id}.zip`;
+  assert.ok(env.REPORTS.map.get(zkey), "an active conversation's report is kept");
+  assert.ok(Date.now() - env.REPORTS.map.get(zkey).uploaded.getTime() < 60e3, "and re-written (new upload time for the lifecycle rule)");
+  assert.ok(res.refreshed >= 2);
+  assert.equal(gh.issues.find((x) => x.number === 1).state, "open", "its issue stays");
+  assert.ok(![...env.REPORTS.map.keys()].some((k) => k.includes(plain.body.id) && k.startsWith("reports/")), "the plain old report went");
+  // now the conversation ends: 61 days after its last message everything goes, the answer comment too
+  ageConv(live.body.id, 61);
+  res = await (await worker.fetch(owner("/v1/admin/expire", { method: "POST" }), env, ctx)).json();
+  assert.equal(res.conversations, 1);
+  assert.ok(![...env.REPORTS.map.keys()].some((k) => k.includes(live.body.id)), [...env.REPORTS.map.keys()].join(","));
+  const is = gh.issues.find((x) => x.number === 1);
+  assert.equal(is.state, "closed");
+  assert.equal(gh.comments.filter((c) => c.issue === 1).length, 0, "the player's answer (a comment) was deleted");
+});
+
+test("conversation: owner delete removes the conversation and its answers", async () => {
+  const { body: { id } } = await sendWithSecret();
+  await reply(id, "Q");
+  await worker.fetch(await answerReq({ id, zip: tinyZip(10) }), env, ctx);
+  await ctx.drain();
+  const res = await (await worker.fetch(owner(`/v1/report/${id}`, { method: "DELETE" }), env, ctx)).json();
+  assert.equal(res.zip, true);
+  assert.ok(![...env.REPORTS.map.keys()].some((k) => k.includes(id)));
+  assert.equal(gh.comments.length, 0);
+  assert.deepEqual((await polled([{ id, secret: SECRET }])).body.replies, []);
+});
+
+test("conversation page: messages oldest first, HTML escaped, reply and edit by form, cross-site refused", async () => {
+  const { body: { id } } = await sendWithSecret();
+  const cookie = await cookieFor();
+  const form = (sub, fields, headers = {}) => new Request(`${BASE}/v1/open/${id}/${sub}`, {
+    method: "POST", redirect: "manual",
+    headers: { "content-type": "application/x-www-form-urlencoded", origin: BASE, cookie, ...headers },
+    body: new URLSearchParams(fields).toString(),
+  });
+  let html = await (await worker.fetch(openReq(id, { headers: { cookie } }), env, ctx)).text();
+  assert.ok(html.includes(OPEN_TEXT.none) && html.includes(`action="/v1/open/${id}/reply"`));
+  let res = await worker.fetch(form("reply", { text: "Please try <b>this</b>" }), env, ctx);
+  assert.equal(res.status, 303);
+  assert.equal(res.headers.get("location"), `/v1/open/${id}`);
+  html = await (await worker.fetch(openReq(id, { headers: { cookie } }), env, ctx)).text();
+  assert.ok(html.includes("Please try &lt;b&gt;this&lt;/b&gt;") && !html.includes("<b>this</b>"));
+  assert.ok(html.includes(OPEN_TEXT.unseen) && html.includes(`action="/v1/open/${id}/edit"`) && html.includes(OPEN_TEXT.wait));
+  assert.ok(!html.includes(`action="/v1/open/${id}/reply"`), "no new reply while the last one is unseen");
+  res = await worker.fetch(form("edit", { n: "1", text: "Please try this" }), env, ctx);
+  assert.equal(res.status, 303);
+  res = await worker.fetch(form("reply", { text: "x" }, { origin: "https://evil.example" }), env, ctx);
+  assert.equal(res.status, 403);
+  res = await worker.fetch(form("reply", { text: "x" }, { cookie: "" }), env, ctx);
+  assert.equal(res.status, 401);
+  res = await worker.fetch(form("reply", { text: "y".repeat(1001) }), env, ctx);
+  assert.equal(res.status, 400);
+  await polled([{ id, secret: SECRET, seen: 1 }]);
+  await worker.fetch(await answerReq({ id, text: "<script>alert(1)</script> tried it", zip: tinyZip(5) }), env, ctx);
+  await ctx.drain();
+  html = await (await worker.fetch(openReq(id, { headers: { cookie } }), env, ctx)).text();
+  assert.ok(html.indexOf("Please try this") < html.indexOf("tried it"), "oldest first");
+  assert.ok(!html.includes("<script>") && html.includes("&lt;script&gt;"));
+  assert.ok(html.includes(`href="/v1/open/${id}/logs/2"`) && html.includes("seen "));
+  const logs = await worker.fetch(new Request(`${BASE}/v1/open/${id}/logs/2`, { headers: { cookie } }), env, ctx);
+  assert.equal(logs.status, 200);
+  assert.equal(logs.headers.get("content-disposition"), `attachment; filename="${id}-answer-2.zip"`);
+  // the logs and the page need the cookie
+  assert.ok((await (await worker.fetch(new Request(`${BASE}/v1/open/${id}/logs/2`), env, ctx)).text()).includes('type="password"'));
+  assert.equal((await worker.fetch(new Request(`${BASE}/v1/open/${id}/reply`), env, ctx)).status, 405);
+});
+
+test("conversation: postPendingComments without a token or issue record posts nothing", async () => {
+  const conv = { id: "MA2-AAAAAA", received: new Date().toISOString(), messages: [{ n: 1, from: "player", text: "x", at: "", comment: "pending" }] };
+  assert.equal(await postPendingComments({ ...env, GITHUB_TOKEN: "" }, conv), 0);
+  assert.equal(await postPendingComments(env, conv), 0);
+});
+
+// ---------------------------------------------------------------- 1.2.0 Messages: reply state and release notes
+
+test("replies: state tells the other client what was read and answered (seen_upto, newest, newest_from)", async () => {
+  const { body: { id } } = await sendWithSecret();
+  await reply(id, "Q1");
+  let p = await polled([{ id, secret: SECRET }]);
+  assert.deepEqual(p.body.state, [{ id, seen_upto: 0, newest: 1, newest_from: "owner" }]);
+  await polled([{ id, secret: SECRET, seen: 1 }]);
+  await worker.fetch(await answerReq({ id }), env, ctx);
+  await ctx.drain();
+  p = await polled([{ id, secret: SECRET }]);
+  assert.deepEqual(p.body.state, [{ id, seen_upto: 1, newest: 2, newest_from: "player" }]);
+  assert.deepEqual((await polled([{ id, secret: OTHER }])).body.state, [], "a wrong key learns nothing");
+});
+
+const NOTES = "- Split screen is back.\n- Damage over time is the same at any frame rate.";
+function announceReq(body) {
+  return owner("/v1/admin/latest", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+}
+const GOOD = { version: "1.2.1", sha256: "a".repeat(64), size: 2 * 1024 * 1024 };
+
+test("latest notes: announce stores the Changelog section; /v1/latest returns it as notes; nothing about the caller is kept", async () => {
+  let res = await worker.fetch(announceReq({ ...GOOD, notes: NOTES + "\r\n" }), env, ctx);
+  assert.equal(res.status, 200);
+  const before = env.GATE.storageOf()?.dump() ?? "";
+  const keys = env.REPORTS.map.size;
+  res = await worker.fetch(new Request(`${BASE}/v1/latest`, { headers: { "cf-connecting-ip": "198.51.100.5" } }), env, ctx);
+  const b = await res.json();
+  assert.equal(b.latest, "1.2.1");
+  assert.equal(b.notes, NOTES);
+  assert.equal(res.headers.get("cache-control"), "public, max-age=3600");
+  assert.equal(env.REPORTS.map.size, keys, "nothing stored by the GET");
+  assert.equal(env.GATE.storageOf()?.dump() ?? "", before, "no limiter call");
+});
+
+test("latest notes: optional, capped and plain text only; an announce without notes gives no notes field", async () => {
+  for (const notes of ["x".repeat(6001), "bad\u0007bell", "dir\u202Eection", 42]) {
+    const res = await worker.fetch(announceReq({ ...GOOD, notes }), env, ctx);
+    assert.equal(res.status, 400, JSON.stringify(notes).slice(0, 40));
+  }
+  await worker.fetch(announceReq(GOOD), env, ctx);
+  const b = await (await worker.fetch(new Request(`${BASE}/v1/latest`), env, ctx)).json();
+  assert.equal(b.latest, "1.2.1");
+  assert.equal("notes" in b, false);
 });

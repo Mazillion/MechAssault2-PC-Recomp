@@ -21,7 +21,7 @@ if not defined V3 set V3=0
 > relay.h echo /* written by build_report.cmd */
 if defined MA2_RELAY_URL >> relay.h echo #define MA2_RELAY_URL "%MA2_RELAY_URL%"
 rc /nologo /fo report.res report.rc || exit /b 1
-cl /nologo /O2 /MT /W3 /Brepro /DUNICODE /D_UNICODE report.c report.res /Fe:"MA2 Report.exe" /link /SUBSYSTEM:WINDOWS /Brepro /PDBALTPATH:%%_PDB%% user32.lib gdi32.lib comctl32.lib shell32.lib winhttp.lib advapi32.lib || exit /b 1
+cl /nologo /O2 /MT /W3 /Brepro /DUNICODE /D_UNICODE report.c report.res /Fe:"MA2 Report.exe" /link /SUBSYSTEM:WINDOWS /Brepro /PDBALTPATH:%%_PDB%% user32.lib gdi32.lib comctl32.lib shell32.lib winhttp.lib advapi32.lib bcrypt.lib || exit /b 1
 del report.obj report.res
 echo REPORT OK (version %PUBVER%)
 exit /b 0
