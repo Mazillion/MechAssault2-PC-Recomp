@@ -676,7 +676,9 @@ static void msg_whats_new_locked(){
     char last[32]="";GetPrivateProfileStringA("Messages","LastVersion","",last,sizeof last,ini_path);
     if(msg_own_version.empty()||msg_own_version==last)return;
     std::string text=msg_read_text(msg_exe_dir()+L"\\Docs\\Changelog.txt",256*1024);
-    std::vector<char> sec(8192);ma2_changelog_section(text.c_str(),msg_own_version.c_str(),sec.data(),sec.size());
+    // a preview (X.Y.Z-preview.N) shows the X.Y.Z entry: the Changelog has no preview headings
+    std::string core=msg_own_version.substr(0,msg_own_version.find('-'));
+    std::vector<char> sec(8192);ma2_changelog_section(text.c_str(),core.c_str(),sec.data(),sec.size());
     if(!msg_find_locked("whatsnew",msg_own_version)){
         InboxMsg m;m.kind="whatsnew";m.key=msg_own_version;m.date=msg_today();
         char t[96];snprintf(t,sizeof t,last[0]?msg_text_updated:msg_text_whats_new,msg_own_version.c_str());m.title=t;
