@@ -26,6 +26,7 @@
 #include "../src/core/particles.h"
 #include "../src/core/pathfind.h"
 #include "../src/core/placement.h"
+#include "../src/core/reach.h"
 #include "../src/core/scenario.h"
 #include "../src/core/snap.h"
 #include "../src/core/templates.h"
@@ -1924,6 +1925,563 @@ static void test_help() {
     }
 }
 
+// ---- "Can it get here?" (reach.h / reach_rules.h): synthetic terrains only, no game files --------------------------------------------
+// A square terrain of n x n samples at `scale` m; heights are whole metres (min 0, max 255: one 8-bit step per metre).
+static Terrain reach_terrain(int n, float scale, const std::function<float(float, float)>& f) {
+    Terrain t;
+    t.resize_flat(n, n, 0.f);
+    t.scale = scale;
+    t.min_h = 0.f;
+    t.max_h = 255.f;
+    for (int gz = 0; gz < n; gz++)
+        for (int gx = 0; gx < n; gx++) t.ref(gx, gz) = f(float(gx) * scale, float(gz) * scale);
+    return t;
+}
+static ReachInput reach_input(const Terrain& t, std::vector<ReachSpawn> spawns, std::vector<ReachSpawn> flyers = {}) {
+    ReachInput in;
+    reach_input_from_terrain(in, t);
+    in.spawns = std::move(spawns);
+    in.flyers = std::move(flyers);
+    return in;
+}
+static ReachProfile reach_prof(const char* label, ReachDriver d = ReachDriver::Player) {
+    const int u = reach_find_unit(label);
+    CHECK(u >= 0, "reach unit '%s' exists", label);
+    return reach_profile(u < 0 ? 0 : u, d);
+}
+static int reach_cell(const ReachInput& in, float x, float z) { return int(std::floor(z / in.cell)) * in.w + int(std::floor(x / in.cell)); }
+static uint8_t reach_cls(const ReachInput& in, const ReachResult& r, float x, float z) { return r.cls[size_t(reach_cell(in, x, z))]; }
+static const ReachFace* reach_face(const ReachInput& in, const ReachResult& r, int dir, float x0, float x1, float z0, float z1) {
+    for (const ReachFace& f : r.faces) {
+        const float x = (float(f.top % in.w) + 0.5f) * in.cell, z = (float(f.top / in.w) + 0.5f) * in.cell;
+        if (f.dir == dir && x >= x0 && x <= x1 && z >= z0 && z <= z1) return &f;
+    }
+    return nullptr;
+}
+static ReachResult reach_run(const ReachInput& in, const char* unit, ReachDriver d, int team = 1) {
+    return reach_compute(in, reach_prof(unit, d), team);
+}
+
+static void test_reach() {
+    const ReachDriver P = ReachDriver::Player, B = ReachDriver::Bots;
+    // The planner's first pass: the body's own limits, without the PocketDrop restart (T-R12 covers the pocket).
+    auto first_pass = [&](const char* u) { ReachProfile p = reach_prof(u, B); p.drop_pocket = 0.f; return p; };
+    // T-R1: flat ground: every cell of every ground profile (and the VTOL) is plain R_WALK.
+    {
+        Terrain t = reach_terrain(65, 4.f, [](float, float) { return 20.f; });
+        ReachInput in = reach_input(t, {{128, 128, 1}});
+        const char* units[] = {"Atlas", "Stiletto", "Battle Armor", "Pilot", "Rommel Mk2 tank", "VTOL"};
+        for (const char* u : units)
+            for (ReachDriver d : {P, B}) {
+                ReachResult r = reach_run(in, u, d);
+                CHECK(r.counts[R_WALK] == in.w * in.h, "T-R1 flat ground: %s (%s) all walk (%d of %d)", u, d == P ? "player" : "bots", r.counts[R_WALK], in.w * in.h);
+                CHECK(r.spawn_ok == 1 && r.spawn_total == 1, "T-R1 the spawn snaps (%s: %d of %d)", u, r.spawn_ok, r.spawn_total);
+            }
+        ReachResult atlas = reach_run(in, "Atlas", P);
+        CHECK(atlas.faces.empty(), "T-R1 flat ground has no faces");
+        const std::string fl = reach_explain(in, atlas, reach_prof("Atlas"), 100, 100);
+        CHECK(fl == "Atlas here: yes, walks", "T-R1 readout on flat ground: '%s'", fl.c_str());
+    }
+    // T-R2: a cliff beyond the walkers' terrain cap. A 40 m wide ridge of 50 m; its west foot is 16 m (rise 34), its east foot 30 m (rise 20); a
+    // ramp at the south end joins the two lowlands, so a unit spawned on the west lowland can walk to the east foot. The terrain has 1 m samples
+    // so each face is a step inside one 2 m cell (1700% / 1000%, above the 825% terrain cap); on the game's 8 m lattice a 34 m face is 425%, which
+    // the player walks (T-R11).
+    {
+        auto g = [](float x, float z) {
+            if (z >= 40.f && x >= 100.f && x <= 140.f) return 50.f;
+            if (z < 40.f && x > 100.f && x < 140.f) return 16.f + (x - 100.f) * 0.35f;
+            return x <= 100.f ? 16.f : 30.f;
+        };
+        Terrain t = reach_terrain(257, 1.f, g);
+        auto ridge = [](ReachInput&) {};
+        ReachInput in = reach_input(t, {{50, 150, 1}});
+        ridge(in);
+        const float px = 120, pz = 150;  // the middle of the ridge top
+        ReachResult st = reach_run(in, "Stiletto", P);
+        CHECK(reach_cls(in, st, 50, 150) == R_WALK && reach_cls(in, st, 200, 150) == R_WALK, "T-R2 jet 'Mech: both lowlands are walkable");
+        CHECK(reach_cls(in, st, px, pz) == R_JET, "T-R2 jet 'Mech (climb 24.2): the ridge top is R_JET (%d)", reach_cls(in, st, px, pz));
+        const ReachFace* e = reach_face(in, st, 0, 100, 140, 100, 200);
+        const ReachFace* w = reach_face(in, st, 4, 100, 140, 100, 200);
+        CHECK(e && w, "T-R2 jet 'Mech: an east and a west face exist");
+        if (e && w) {
+            CHECK(std::fabs(e->rise - 20.f) < 0.5f && std::fabs(w->rise - 34.f) < 0.5f, "T-R2 face rises 20 / 34 m (%.1f / %.1f)", double(e->rise), double(w->rise));
+            CHECK(e->up == R_JET && e->down != R_NONE, "T-R2 jet 'Mech: east face is up and down (%d %d)", e->up, e->down);
+            CHECK(w->up == R_NONE && w->down != R_NONE, "T-R2 jet 'Mech: west face is down only (%d %d)", w->up, w->down);
+        }
+        CHECK(st.comp[reach_cell(in, 50, 150)] == st.comp[reach_cell(in, 200, 150)] && st.comp[reach_cell(in, 50, 150)] != st.comp[reach_cell(in, px, pz)], "T-R2 the lowlands are one walk component, the ridge top another");
+        const std::string line = reach_explain(in, st, reach_prof("Stiletto"), px, pz);
+        CHECK(line.find("Stiletto here: yes, jets only\n") == 0 && line.find("Cliff to the east, 20 m: up and down (jets lift about 24 m)") != std::string::npos &&
+                  line.find("Cliff to the west, 34 m: down only (jets lift about 24 m)") != std::string::npos,
+              "T-R2 readout: '%s'", line.c_str());
+        const ReachAnswer sta = reach_answer(in, st, reach_prof("Stiletto"), px, pz);
+        CHECK(sta.cls == R_JET && sta.here == "Yes" && sta.how == "jets only" && sta.cliffs.size() == 2, "T-R2 answer cells: %s / %s / %zu cliffs", sta.here.c_str(), sta.how.c_str(), sta.cliffs.size());
+        // Low ground beside the west (34 m) face and beside the east (20 m) face: the side says which way gets up.
+        const std::string low_w = reach_explain(in, st, reach_prof("Stiletto"), 90, 150), low_e = reach_explain(in, st, reach_prof("Stiletto"), 150, 150);
+        CHECK(low_w.find("Stiletto here: yes, walks\nCliff to the east, 34 m: down only") == 0, "T-R2 low ground west of the ridge: '%s'", low_w.c_str());
+        CHECK(low_e.find("Stiletto here: yes, walks\nCliff to the west, 20 m: up and down") == 0, "T-R2 low ground east of the ridge: '%s'", low_e.c_str());
+        // Bots: the same verdict (the planner's g_upx reaches 25.8 but the measured climb is 24.2).
+        ReachResult sb = reach_run(in, "Stiletto", B);
+        CHECK(reach_cls(in, sb, px, pz) == R_JET, "T-R2 bots Stiletto reach the ridge top the same way");
+        // Kit Fox (measured climb 26.3) takes the 20 m side; the bots' Kit Fox has the planner's g_upx 20: the 20 m face is still in reach.
+        CHECK(reach_cls(in, reach_run(in, "Kit Fox", P), px, pz) == R_JET, "T-R2 Kit Fox (climb 26.3): ridge top R_JET");
+        CHECK(reach_cls(in, reach_run(in, "Kit Fox", B), px, pz) == R_JET, "T-R2 bots Kit Fox (g_upx 20) takes the 20 m face");
+        // Atlas: no jets, so no way up the object faces; it steps off the 20 m east side (30 m limit) but not the 34 m west side.
+        ReachResult at = reach_run(in, "Atlas", P);
+        CHECK(reach_cls(in, at, 50, 150) == R_WALK && reach_cls(in, at, 200, 150) == R_WALK && reach_cls(in, at, px, pz) == R_NONE, "T-R2 Atlas: lowlands walk, ridge top R_NONE (%d)", reach_cls(in, at, px, pz));
+        const ReachFace* ae = reach_face(in, at, 0, 100, 140, 100, 200);
+        const ReachFace* aw = reach_face(in, at, 4, 100, 140, 100, 200);
+        CHECK(ae && aw && ae->up == R_NONE && ae->down != R_NONE && aw->up == R_NONE && aw->down == R_NONE, "T-R2 Atlas: east face down only (20 m), west face neither (34 m)");
+        const std::string al = reach_explain(in, at, reach_prof("Atlas"), px, pz);
+        CHECK(al.find("Atlas here: can stand here, can't get here - every way up is too steep to walk (lowest cliff 20 m) (est.)\n") == 0 &&
+                  al.find("Cliff to the east, 20 m: down only") != std::string::npos && al.find("Cliff to the west, 34 m: no way up or down") != std::string::npos,
+              "T-R2 Atlas readout (red cell says why): '%s'", al.c_str());
+        // A jet 'Mech on a ridge too tall to jet says "a wall above N m" (the Battle Armor, 18.7 m, against the 20 m side).
+        ReachResult ba = reach_run(in, "Battle Armor", P);
+        const ReachAnswer kfa = reach_answer(in, ba, reach_prof("Battle Armor"), px, pz);
+        CHECK(kfa.why.find("every way up is a wall above 19 m") == 0 || kfa.why.find("no way up has a clear place to land") == 0, "T-R2 BA red cell why: '%s'", kfa.why.c_str());
+        // Battle Armor (18.7 m): neither face goes up; both go down (60 m).
+        CHECK(reach_cls(in, ba, px, pz) == R_NONE, "T-R2 BA: ridge top R_NONE without a VTOL (%d)", reach_cls(in, ba, px, pz));
+        const ReachFace* be = reach_face(in, ba, 0, 100, 140, 100, 200);
+        const ReachFace* bw = reach_face(in, ba, 4, 100, 140, 100, 200);
+        CHECK(be && bw && be->up == R_NONE && bw->up == R_NONE && be->down != R_NONE && bw->down != R_NONE, "T-R2 BA: no way up either face, down both");
+        // Spawn on the ridge: the jet 'Mech drops (down) to both lowlands; the Atlas (30 m) steps off the 20 m east side only and walks round by the ramp.
+        ReachInput top = reach_input(t, {{px, pz, 1}});
+        ridge(top);
+        ReachResult sd = reach_run(top, "Stiletto", P);
+        CHECK(reach_cls(top, sd, 50, 150) == R_WALK && reach_cls(top, sd, 200, 150) == R_WALK, "T-R2 spawn on the ridge: a jet 'Mech steps off to both sides");
+        ReachResult ad = reach_run(top, "Atlas", P);
+        bool d20 = false, d34 = false;
+        for (const ReachLink& l : ad.links) { d20 |= l.kind == L_DROP && std::fabs(l.rise + 20.f) < 0.6f; d34 |= l.kind == L_DROP && l.rise < -30.f; }
+        CHECK(reach_cls(top, ad, 200, 150) == R_WALK && reach_cls(top, ad, px, pz) == R_WALK && d20 && !d34, "T-R2 spawn on the ridge: the Atlas steps off 20 m, not 34 m (%d %d)", int(d20), int(d34));
+    }
+    // T-R3: a one-way drop: 52 m ground, a 20 m terrain step (1 m samples: 2000%, beyond the walk cap), 32 m ground. A pilot goes down only (player
+    // drop 30, bots 10); the tank steps off 20 m too (player 30, bots 6: the planner's own); 40 m is more than any body is known to make.
+    {
+        auto step_t = [](float drop) { return reach_terrain(257, 1.f, [drop](float x, float) { return x < 99.f ? 12.f + drop : 12.f; }); };
+        Terrain t = step_t(20.f);
+        ReachInput hi = reach_input(t, {{50, 128, 1}}), lo = reach_input(t, {{200, 128, 1}});
+        ReachResult d = reach_run(hi, "Pilot", P), u = reach_run(lo, "Pilot", P);
+        CHECK(reach_cls(hi, d, 200, 128) == R_WALK, "T-R3 pilot from the top steps down 20 m");
+        CHECK(reach_cls(lo, u, 50, 128) == R_NONE, "T-R3 pilot from the bottom cannot climb 20 m");
+        bool drop_link = false;
+        for (const ReachLink& l : d.links) drop_link |= l.kind == L_DROP && std::fabs(l.rise + 20.f) < 0.6f;
+        CHECK(drop_link, "T-R3 the flood used a one-way drop link of about 20 m");
+        const ReachFace* f = reach_face(hi, d, 0, 80, 110, 60, 200);
+        CHECK(f && f->down == R_WALK && f->up == R_NONE, "T-R3 pilot face: down only");
+        CHECK(reach_cls(hi, reach_run(hi, "Rommel Mk2 tank", P), 200, 128) == R_WALK, "T-R3 a tank steps off 20 m (player limit 30 m)");
+        CHECK(reach_cls(hi, reach_compute(hi, first_pass("Rommel Mk2 tank"), 1), 200, 128) == R_NONE, "T-R3 bots' tank cannot (6 m, the planner's own, first pass)");
+        CHECK(reach_cls(hi, reach_run(hi, "Atlas", P), 200, 128) == R_WALK && reach_cls(hi, reach_run(hi, "Atlas", B), 200, 128) == R_WALK, "T-R3 a jetless 'Mech steps off 20 m (player and bots)");
+        CHECK(reach_cls(hi, reach_compute(hi, first_pass("Pilot"), 1), 200, 128) == R_NONE, "T-R3 bots' pilot cannot step off 20 m (10 m, the planner's own, first pass)");
+        Terrain t40 = step_t(40.f);
+        ReachInput tall = reach_input(t40, {{50, 128, 1}});
+        CHECK(reach_cls(tall, reach_run(tall, "Atlas", P), 200, 128) == R_NONE && reach_cls(tall, reach_run(tall, "Pilot", P), 200, 128) == R_NONE &&
+                  reach_cls(tall, reach_run(tall, "Rommel Mk2 tank", P), 200, 128) == R_NONE, "T-R3 nobody on foot steps off 40 m (limit 30)");
+        CHECK(reach_cls(tall, reach_run(tall, "Stiletto", P), 200, 128) == R_WALK, "T-R3 a jet 'Mech steps off 40 m (60)");
+        CHECK(reach_cls(hi, reach_run(hi, "Stiletto", P), 200, 128) == R_WALK, "T-R3 a jet 'Mech steps off 20 m");
+        CHECK(reach_cls(hi, reach_run(hi, "Battle Armor", B), 200, 128) == R_WALK, "T-R3 bots' Battle Armor steps off 20 m");
+    }
+    // T-R4: a 35 m column with a roof and wall faces: the BA claw (Player) reaches the roof; Bots do not plan it; jets (22.8) and a pilot cannot.
+    {
+        Terrain t = reach_terrain(129, 2.f, [](float, float) { return 10.f; });
+        ReachInput in = reach_input(t, {{50, 50, 1}});
+        for (int cz = 54; cz <= 73; cz++)
+            for (int cx = 54; cx <= 73; cx++) {
+                const size_t i = size_t(cz) * in.w + cx;
+                in.top[i] = 45.f;
+                if (cx == 54 || cx == 73 || cz == 54 || cz == 73) in.flags[i] |= F_LATCH;
+            }
+        const float rx = 128, rz = 128;
+        ReachResult bap = reach_run(in, "Battle Armor", P);
+        CHECK(reach_cls(in, bap, rx, rz) == R_LATCH, "T-R4 BA (player) claw-climbs onto the roof (%d)", reach_cls(in, bap, rx, rz));
+        CHECK(reach_cls(in, reach_run(in, "Battle Armor", B), rx, rz) == R_NONE, "T-R4 BA (bots) do not latch");
+        CHECK(reach_cls(in, reach_run(in, "Stiletto", P), rx, rz) == R_NONE, "T-R4 a jet 'Mech cannot reach a 35 m roof");
+        CHECK(reach_cls(in, reach_run(in, "Pilot", P), rx, rz) == R_NONE, "T-R4 a pilot cannot reach the roof");
+        const std::string l = reach_explain(in, bap, reach_prof("Battle Armor"), rx, rz);
+        CHECK(l.find("Battle Armor here: yes, only by claw-climbing a wall (est.)") == 0 && l.find("up by claws") != std::string::npos, "T-R4 readout: '%s'", l.c_str());
+        // Faces of the object wall are "up by claws" for the player's suit, not for the bots (which do not plan the claw) or a jet 'Mech.
+        int claw_faces = 0, bot_claw = 0, jet_claw = 0;
+        for (const ReachFace& f : bap.faces) claw_faces += f.up == R_LATCH;
+        for (const ReachFace& f : reach_run(in, "Battle Armor", B).faces) bot_claw += f.up == R_LATCH;
+        for (const ReachFace& f : reach_run(in, "Stiletto", P).faces) jet_claw += f.up == R_LATCH;
+        CHECK(claw_faces > 0 && bot_claw == 0 && jet_claw == 0, "T-R4 faces: %d up by claws (player BA), %d (bots), %d (jet 'Mech)", claw_faces, bot_claw, jet_claw);
+    }
+    // T-R5: water. A 5 m deep trench is passable (bed walk) for Player and Bots; a Bots drop may not land in water.
+    {
+        auto bed = [](float x, float) {
+            if (x < 90.f) return 10.f;
+            if (x < 102.f) return 10.f - (x - 90.f) * 0.4f;  // gentle bank down to the bed
+            if (x < 140.f) return 5.f;
+            if (x < 152.f) return 5.f + (x - 140.f) * 0.4f;
+            return 10.f;
+        };
+        Terrain t = reach_terrain(129, 2.f, bed);
+        ReachInput in = reach_input(t, {{50, 128, 1}});
+        for (size_t i = 0; i < in.count(); i++)
+            if (in.th[i] < 10.f - 0.01f) { in.flags[i] |= F_WATER; in.water_y[i] = 10.f; }
+        for (ReachDriver d : {P, B}) {
+            ReachResult r = reach_run(in, "Pilot", d);
+            CHECK(reach_cls(in, r, 120, 128) == R_WALK && reach_cls(in, r, 200, 128) == R_WALK, "T-R5 a pilot wades the 5 m trench (%s)", d == P ? "player" : "bots");
+        }
+        const std::string wl = reach_explain(in, reach_run(in, "Pilot", P), reach_prof("Pilot"), 120, 128);
+        CHECK(wl.find("Pilot here: yes, walks; water 5.0 m deep") == 0, "T-R5 readout shows the depth: '%s'", wl.c_str());
+        // A drop onto a flooded bed: Player lands in it, Bots refuse.
+        Terrain t2 = reach_terrain(129, 2.f, [](float x, float) { return x < 100.f ? 20.f : 12.f; });
+        ReachInput in2 = reach_input(t2, {{50, 128, 1}});
+        for (size_t i = 0; i < in2.count(); i++)
+            if (in2.th[i] < 17.f) { in2.flags[i] |= F_WATER; in2.water_y[i] = 17.f; }
+        CHECK(reach_cls(in2, reach_run(in2, "Pilot", P), 200, 128) == R_WALK, "T-R5 player pilot drops into the lake");
+        CHECK(reach_cls(in2, reach_run(in2, "Pilot", B), 200, 128) == R_NONE, "T-R5 bots refuse a drop landing in water");
+    }
+    // T-R6: a VTOL-only mesa (40 m, no ramp). The VTOL lands on it, jets cannot, a BA rides there (with a VTOL placed). A 60 m mesa is over the ceiling.
+    {
+        Terrain t = reach_terrain(129, 2.f, [](float, float) { return 10.f; });
+        ReachInput in = reach_input(t, {{50, 50, 1}});
+        for (int cz = 0; cz < in.h; cz++)  // the mesas are colliders (a terrain mesa is walkable up to the terrain slope cap, T-R11)
+            for (int cx = 0; cx < in.w; cx++) {
+                const float x = (float(cx) + 0.5f) * in.cell, z = (float(cz) + 0.5f) * in.cell;
+                if (z < 100.f || z > 140.f) continue;
+                if (x >= 100.f && x <= 140.f) in.top[size_t(cz) * in.w + cx] = 40.f;
+                if (x >= 160.f && x <= 200.f) in.top[size_t(cz) * in.w + cx] = 60.f;
+            }
+        ReachInput inv = in;
+        inv.flyers.push_back({60, 60, 1});
+        const float mx = 120, mz = 120, bx = 180, bz = 120;
+        ReachResult v = reach_run(in, "VTOL", P);
+        CHECK(reach_cls(in, v, mx, mz) == R_WALK, "T-R6 the VTOL can land on the 40 m mesa (%d)", reach_cls(in, v, mx, mz));
+        CHECK(reach_cls(in, v, 50, 50) == R_WALK, "T-R6 the VTOL lands on flat ground");
+        CHECK(v.spawn_total == 1 && v.spawn_ok == 1, "T-R6 a VTOL start in clear air is a usable start (%d of %d)", v.spawn_ok, v.spawn_total);
+        {  // a VTOL start inside out-of-bounds ground has no air to fly in; the clear start still counts
+            ReachInput oin = in;
+            for (int cz = 60; cz < 100; cz++)
+                for (int cx = 60; cx < 100; cx++) oin.flags[size_t(cz) * oin.w + cx] |= F_OOB;
+            oin.spawns.push_back({160, 160, 1});
+            ReachResult ov = reach_run(oin, "VTOL", P);
+            CHECK(ov.spawn_total == 2 && ov.spawn_ok == 1, "T-R6 a VTOL start inside out-of-bounds ground is not usable (%d of %d)", ov.spawn_ok, ov.spawn_total);
+        }
+        CHECK(reach_cls(in, v, bx, bz) == R_NONE, "T-R6 a 60 m mesa is over the ceiling of the ground beside it (%d)", reach_cls(in, v, bx, bz));
+        // Over the mesa's edge the craft is in the air and cannot land (slope).
+        bool amber = false;
+        for (float x = 96; x <= 144; x += 2) amber |= reach_cls(in, v, x, 120) == R_FLIGHT;
+        CHECK(amber, "T-R6 the VTOL can fly over the mesa edge but not land there (R_FLIGHT)");
+        CHECK(reach_cls(in, reach_run(in, "Stiletto", P), mx, mz) == R_NONE, "T-R6 a jet 'Mech (24.2) cannot get on the 40 m mesa");
+        CHECK(reach_cls(in, reach_run(in, "Battle Armor", P), mx, mz) == R_NONE, "T-R6 a BA without a VTOL cannot");
+        ReachResult bav = reach_run(inv, "Battle Armor", P);
+        CHECK(reach_cls(inv, bav, mx, mz) == R_FLIGHT, "T-R6 a BA with a VTOL placed rides onto the mesa (%d)", reach_cls(inv, bav, mx, mz));
+        CHECK(reach_cls(inv, bav, bx, bz) == R_NONE, "T-R6 the BA cannot ride onto the 60 m mesa");
+        CHECK(reach_cls(inv, reach_run(inv, "Atlas", P), mx, mz) == R_NONE, "T-R6 an Atlas cannot ride a VTOL");
+        // A tall tower (top 70 m on 10 m ground) is over the ceiling (58.4 m): not flyable at the tower, flyable beside it.
+        ReachInput tw = in;
+        for (int cz = 70; cz < 90; cz++)
+            for (int cx = 20; cx < 40; cx++) tw.top[size_t(cz) * tw.w + cx] = 70.f;
+        ReachResult vt = reach_run(tw, "VTOL", P);
+        CHECK(reach_cls(tw, vt, 60, 160) == R_NONE && reach_cls(tw, vt, 150, 30) == R_WALK, "T-R6 the VTOL cannot cross a 70 m tower (%d)", reach_cls(tw, vt, 60, 160));
+    }
+    // T-R7: step limits on OBJECT ramps (a collider-raised ramp over flat ground; terrain ramps are T-R11). A 60% ramp: the tank (55%) is
+    // stopped, the pilot (66%) walks it; the Atlas takes 130% but not 150%.
+    {
+        // The ramp heights of a 5 m terrain, moved from the terrain into `top` over flat 10 m ground.
+        auto objectify = [](ReachInput& r) { for (size_t i = 0; i < r.count(); i++) { r.top[i] = r.th[i]; r.th[i] = 10.f; } };
+        // 5 m samples: 3 m per sample = 60%, climbing 8 samples from x = 30 m.
+        Terrain t = reach_terrain(52, 5.f, [](float x, float) { return 10.f + 3.f * float(std::clamp(int(std::lround(x / 5.f)) - 6, 0, 8)); });
+        ReachInput in = reach_input(t, {{20, 128, 1}});
+        objectify(in);
+        const float topx = 200, topz = 128, rampx = 55;
+        CHECK(reach_cls(in, reach_run(in, "Pilot", P), topx, topz) == R_WALK, "T-R7 a pilot walks a 60%% ramp (limit 66%%)");
+        ReachResult tk = reach_run(in, "Rommel Mk2 tank", P);
+        CHECK(reach_cls(in, tk, topx, topz) == R_NONE, "T-R7 a tank is stopped by 60%% (limit 55%%)");
+        CHECK(reach_cls(in, tk, rampx, topz) == R_WALL, "T-R7 the 60%% ramp is a wall for the tank (%d)", reach_cls(in, tk, rampx, topz));
+        CHECK(reach_cls(in, reach_run(in, "Rommel Mk2 tank", B), topx, topz) == R_NONE, "T-R7 bots' tank too");
+        CHECK(reach_cls(in, reach_run(in, "Atlas", P), topx, topz) == R_WALK, "T-R7 the Atlas walks 60%%");
+        CHECK(reach_cls(in, reach_run(in, "Atlas", B), topx, topz) == R_NONE, "T-R7 bots' Atlas stops at 55%%");
+        CHECK(reach_cls(in, reach_run(in, "Battle Armor", P), topx, topz) == R_WALK, "T-R7 a BA walks 60%% (limit 80%%)");
+        // Steeper ramps on 10 m samples: 130% (13 m per sample) and 150% (15 m per sample).
+        for (int pct : {130, 150}) {
+            const float rise = float(pct) / 10.f;
+            Terrain s = reach_terrain(26, 10.f, [=](float x, float) { return 10.f + rise * float(std::clamp(int(std::lround(x / 10.f)) - 6, 0, 2)); });
+            ReachInput si = reach_input(s, {{20, 128, 1}});
+            objectify(si);
+            const uint8_t c = reach_cls(si, reach_run(si, "Atlas", P), 230, 128);
+            CHECK(c == (pct == 130 ? R_WALK : R_NONE), "T-R7 Atlas on a %d%% ramp: class %d", pct, c);
+        }
+    }
+    // T-R11: TERRAIN faces vs OBJECT faces (rules update 3, decision 1). The terrain lattice is 8 m: a face is one 8 m cell. A face where both
+    // cells are bare terrain uses the terrain slope cap (player: 8.25 'Mech / BA / pilot, 6.25 tank); the same rise built from a collider keeps the
+    // step rule; Bots (the planner) never split the two.
+    {
+        const int w66 = 66, w50 = 50;
+        auto lattice = [](int rise) {  // 8 m samples: 10 m ground west of x = 256, plateau east of it, the face spans x = 248 .. 256
+            return reach_terrain(129, 8.f, [rise](float x, float) { return x >= 256.f ? 10.f + float(rise) : 10.f; });
+        };
+        auto walls = [](ReachInput& r, float lift) {  // the same rise as a collider over flat ground
+            for (int cz = 0; cz < r.h; cz++)
+                for (int cx = 0; cx < r.w; cx++)
+                    if ((float(cx) + 0.5f) * r.cell >= 256.f) { r.top[size_t(cz) * r.w + cx] = r.th[size_t(cz) * r.w + cx]; r.th[size_t(cz) * r.w + cx] = 10.f; }
+            (void)lift;
+        };
+        Terrain t66 = lattice(w66), t50 = lattice(w50);
+        ReachInput lo = reach_input(t66, {{100, 500, 1}}), hi = reach_input(t66, {{600, 500, 1}});
+        const float topx = 600, lowx = 100, z = 500;
+        for (const char* u : {"Atlas", "Hackman", "Mad Dog", "Battle Armor", "Pilot", "Stiletto"}) {
+            CHECK(reach_cls(lo, reach_run(lo, u, P), topx, z) == R_WALK, "T-R11 %s walks UP a 66 m terrain face (825%%, the highest measured)", u);
+            CHECK(reach_cls(hi, reach_run(hi, u, P), lowx, z) == R_WALK, "T-R11 %s walks DOWN a 66 m terrain face", u);
+        }
+        const ReachResult atl = reach_run(lo, "Atlas", P);
+        CHECK(atl.faces.empty() && atl.counts[R_NONE] == 0, "T-R11 the Atlas sees no cliff at a 66 m terrain face (%zu faces, %d never reached)", atl.faces.size(), atl.counts[R_NONE]);
+        // The same rise as a collider: the step rule, nobody walks up it.
+        ReachInput olo = reach_input(t66, {{100, 500, 1}});
+        walls(olo, 66.f);
+        for (const char* u : {"Atlas", "Hackman", "Pilot"})
+            CHECK(reach_cls(olo, reach_run(olo, u, P), topx, z) == R_NONE, "T-R11 %s does NOT walk up the same 66 m rise built from a collider", u);
+        // Bots: the planner's step rule on both.
+        for (const char* u : {"Atlas", "Pilot", "Battle Armor", "Rommel Mk2 tank"}) {
+            CHECK(reach_cls(lo, reach_run(lo, u, B), topx, z) == R_NONE, "T-R11 bots' %s cannot plan a 66 m terrain face", u);
+            CHECK(reach_cls(olo, reach_run(olo, u, B), topx, z) == R_NONE, "T-R11 bots' %s cannot plan the collider face", u);
+        }
+        // The user's case: a 34 m terrain face over 8 m (425%) is walked by the Atlas and the tank; Bots plan neither.
+        Terrain t34 = lattice(34);
+        ReachInput c34 = reach_input(t34, {{100, 500, 1}});
+        CHECK(reach_cls(c34, reach_run(c34, "Atlas", P), topx, z) == R_WALK && reach_cls(c34, reach_run(c34, "Rommel Mk2 tank", P), topx, z) == R_WALK, "T-R11 a 34 m terrain face is walked by the Atlas and the tank");
+        CHECK(reach_cls(c34, reach_run(c34, "Atlas", B), topx, z) == R_NONE, "T-R11 bots' Atlas cannot plan the 34 m terrain face");
+        // The tank: +50 m in a cell (625%) climbs, +66 m (825%) stops above its cap.
+        ReachInput c50 = reach_input(t50, {{100, 500, 1}});
+        CHECK(reach_cls(c50, reach_run(c50, "Rommel Mk2 tank", P), topx, z) == R_WALK, "T-R11 the tank climbs a +50 m terrain cell (625%%)");
+        CHECK(reach_cls(lo, reach_run(lo, "Rommel Mk2 tank", P), topx, z) == R_NONE, "T-R11 the tank stops at a +66 m terrain cell (825%%, above its 6.25 cap)");
+        // Beyond the walkers' cap: a 40 m step inside one 2 m cell (2000%) is a cliff: down only for a jet 'Mech (drop 60), a wall for the Atlas (30).
+        Terrain tw = reach_terrain(257, 1.f, [](float x, float) { return x >= 99.f ? 50.f : 10.f; });
+        ReachInput wlo = reach_input(tw, {{50, 128, 1}}), whi = reach_input(tw, {{200, 128, 1}});
+        CHECK(reach_cls(wlo, reach_run(wlo, "Atlas", P), 200, 128) == R_NONE, "T-R11 a 2000%% terrain step is not climbed");
+        CHECK(reach_cls(whi, reach_run(whi, "Stiletto", P), 50, 128) == R_WALK && reach_cls(whi, reach_run(whi, "Atlas", P), 50, 128) == R_NONE, "T-R11 beyond the cap: a jet 'Mech steps down 40 m, the Atlas cannot");
+        const ReachFace* wf = reach_face(whi, reach_run(whi, "Stiletto", P), 4, 90, 110, 100, 160);
+        CHECK(wf && wf->up == R_NONE && wf->down != R_NONE, "T-R11 that face is down only for the jet 'Mech (%d %d %d)", wf ? 1 : 0, wf ? int(wf->up) : -1, wf ? int(wf->down) : -1);
+        // The table: two terrain rows, measured, nothing else holds the numbers.
+        CHECK(reach_profile(reach_find_unit("Atlas"), P).terrain_slope == 8.25f && reach_profile(reach_find_unit("Rommel Mk2 tank"), P).terrain_slope == 6.25f &&
+                  reach_profile(reach_find_unit("Atlas"), B).terrain_slope == 0.f && reach_profile(reach_find_unit("Pilot"), B).terrain_slope == 0.f, "T-R11 terrain slope caps come from the two table rows");
+    }
+    // T-R8: a bridge deck 10 m up across the whole map: ground units walk under it (an under-link); a plain wall of the same height is a wall.
+    {
+        Terrain t = reach_terrain(129, 2.f, [](float, float) { return 10.f; });
+        ReachInput in = reach_input(t, {{50, 128, 1}});
+        for (int cz = 0; cz < in.h; cz++)
+            for (int cx = 60; cx <= 65; cx++) {
+                in.top[size_t(cz) * in.w + cx] = 20.f;
+                in.flags[size_t(cz) * in.w + cx] |= F_DECK;
+            }
+        ReachInput wall = in;
+        for (auto& f : wall.flags) f &= uint8_t(~F_DECK);
+        for (const char* u : {"Atlas", "Pilot", "Rommel Mk2 tank"}) {
+            ReachResult r = reach_run(in, u, P), rw = reach_run(wall, u, P);
+            CHECK(reach_cls(in, r, 200, 128) == R_WALK, "T-R8 %s walks under the deck (%d)", u, reach_cls(in, r, 200, 128));
+            CHECK(reach_cls(wall, rw, 200, 128) == R_NONE, "T-R8 %s is stopped by the same height without a deck", u);
+        }
+        bool under = false;
+        for (const ReachLink& l : reach_run(in, "Atlas", P).links) under |= l.kind == L_UNDER;
+        CHECK(under, "T-R8 an under-link was used");
+    }
+    // T-R9: timing on a 1024 x 1024 grid of rolling hills with mesas, per profile (reported, not failed on slow machines).
+    {
+        ReachInput in;
+        in.init(1024, 1024, 2.f);
+        auto hills = [](float x, float z) { return 12.f * std::sin(x / 180.f) * std::cos(z / 210.f) + 4.f * std::sin((x + z) / 70.f); };
+        for (int cz = 0; cz < 1024; cz++)
+            for (int cx = 0; cx < 1024; cx++) in.th[size_t(cz) * 1024 + cx] = std::round(hills(float(cx) * 2.f, float(cz) * 2.f) + 40.f);
+        std::vector<char> in_mesa(size_t(1024) * 1024, 0);
+        uint32_t seed = 12345;
+        auto rnd = [&seed]() { seed = seed * 1664525u + 1013904223u; return (seed >> 8) & 0xFFFF; };
+        for (int m = 0; m < 60; m++) {  // mesas 18 / 30 m tall, 40-80 m wide: cliffs for the jets and the step-offs
+            const int w = 20 + int(rnd() % 20), cx0 = int(rnd() % (1024 - 60)), cz0 = int(rnd() % (1024 - 60));
+            for (int cz = cz0; cz < cz0 + w; cz++)
+                for (int cx = cx0; cx < cx0 + w; cx++) { in.th[size_t(cz) * 1024 + cx] += (m & 1) ? 18.f : 30.f; in_mesa[size_t(cz) * 1024 + cx] = 1; }
+        }
+        for (int d = 0; d < 500 && in.spawns.empty(); d++) {  // a spawn on open ground near the middle, not on a mesa
+            const size_t i = size_t(512 + d) * 1024 + 512 + d;
+            if (!in_mesa[i]) in.spawns.push_back({(512.f + float(d) + 0.5f) * 2.f, (512.f + float(d) + 0.5f) * 2.f, 1});
+        }
+        double worst = 0;
+        for (const char* u : {"Stiletto", "Atlas", "Battle Armor", "Pilot", "Rommel Mk2 tank", "VTOL"}) {
+            ReachResult r = reach_run(in, u, P);
+            printf("T-R9 %-16s 1024x1024: %7.1f ms  walk %d jet %d none %d wall %d faces %zu links %zu\n", u, r.ms, r.counts[R_WALK], r.counts[R_JET], r.counts[R_NONE], r.counts[R_WALL], r.faces.size(), r.links.size());
+            CHECK(r.counts[R_WALK] > 1000, "T-R9 %s: the flood ran", u);
+            worst = std::max(worst, r.ms);
+        }
+        printf("T-R9 slowest profile: %.1f ms (target 150 ms)\n", worst);
+    }
+    // T-R10: the rules table: every row cited, estimate flags agree with the text, the Bots column never wider than the Player column.
+    {
+        std::set<std::string> keys;
+        for (int i = 0; i < RL_COUNT; i++) {
+            const ReachRule& r = kReachRules[i];
+            CHECK(r.key && *r.key && keys.insert(r.key).second, "T-R10 rule %d has a unique key", i);
+            CHECK(r.player_src && *r.player_src && r.bot_src && *r.bot_src, "T-R10 rule '%s' has both sources", r.key);
+            CHECK(r.player_est == src_has_est(r.player_src), "T-R10 rule '%s': player est flag matches its source text", r.key);
+            switch (r.sense) {
+                case RuleSense::Limit: CHECK(r.bot <= r.player + 1e-6f, "T-R10 rule '%s': bots (%.2f) not wider than the player (%.2f)", r.key, double(r.bot), double(r.player)); break;
+                case RuleSense::Need: CHECK(r.bot >= r.player - 1e-6f, "T-R10 rule '%s': bots (%.2f) need at least the player's (%.2f)", r.key, double(r.bot), double(r.player)); break;
+                case RuleSense::Same: CHECK(r.bot == r.player, "T-R10 rule '%s': same for both drivers", r.key); break;
+                case RuleSense::Free: break;
+            }
+        }
+        int jets = 0, nojet = 0, ba = 0, foot = 0, tanks = 0, ai = 0, vtol = 0, turret = 0;
+        std::set<int> tpls;
+        for (int i = 0; i < kReachUnitCount; i++) {
+            const ReachUnit& u = kReachUnits[i];
+            CHECK(u.label && *u.label && u.cls && *u.cls && u.climb_src && *u.climb_src, "T-R10 unit %d has label, class and climb source", i);
+            CHECK(u.tpl == 0 || tpls.insert(u.tpl).second, "T-R10 unit '%s' has a unique template uid", u.label);
+            jets += u.group == ReachGroup::JetMech;
+            nojet += u.group == ReachGroup::Mech;
+            ba += u.group == ReachGroup::BattleArmor;
+            foot += u.group == ReachGroup::Foot;
+            tanks += u.group == ReachGroup::Tank;
+            ai += u.ai_only;
+            vtol += u.group == ReachGroup::Vtol;
+            turret += u.group == ReachGroup::Turret;
+            const bool is_jet = u.group == ReachGroup::JetMech;
+            CHECK((u.jet_duration > 0.f && (is_jet || u.group == ReachGroup::BattleArmor)) || u.jet_duration == 0.f, "T-R10 unit '%s' jet duration agrees with its group", u.label);
+            CHECK(is_jet ? (u.climb > 23.f && u.climb < 27.f && u.climb_est == (std::strcmp(u.label, "Uziel") == 0 || std::strcmp(u.label, "Summoner") == 0)) :
+                           (u.group == ReachGroup::BattleArmor ? u.climb == 18.7f : u.climb == 0.f), "T-R10 unit '%s' climb %.1f", u.label, double(u.climb));
+            const ReachProfile pp = reach_profile(i, P), pb = reach_profile(i, B);
+            CHECK(pb.step <= pp.step + 1e-6f && pb.drop <= pp.drop + 1e-6f && pb.climb <= pp.climb + 1e-6f && pb.radius >= pp.radius - 1e-6f && pb.hop_climb <= pp.hop_climb + 1e-6f,
+                  "T-R10 '%s': the bots profile is never wider than the player profile", u.label);
+            CHECK(!(pb.latch && !pp.latch) && pb.refuse_water >= pp.refuse_water, "T-R10 '%s': bots latch / water rules", u.label);
+        }
+        CHECK(jets == 14 && nojet == 16 && ba == 3 && foot == 6 && vtol == 1 && turret == 5, "T-R10 unit groups: %d jet, %d jetless, %d BA, %d pilots, %d VTOL, %d turrets", jets, nojet, ba, foot, vtol, turret);
+        CHECK(tanks >= 6 && ai >= 5, "T-R10 tanks: %d, AI only: %d", tanks, ai);
+        // The measured jet climb (apex gain - 1 m, MEASURED.md M1); the Bots column keeps the planner prior: min(g_upx, player climb).
+        const struct { const char* n; float c; } want[] = {{"Kit Fox", 26.3f}, {"Corvus", 26.3f}, {"Belial", 24.8f}, {"Stiletto", 24.2f}, {"Bowman", 25.8f}, {"Hellbringer", 23.7f}, {"Uziel", 24.8f}, {"Summoner", 23.7f}};
+        for (auto& w : want) CHECK(std::fabs(kReachUnits[reach_find_unit(w.n)].climb - w.c) < 0.06f, "T-R10 %s jet climb %.2f", w.n, double(kReachUnits[reach_find_unit(w.n)].climb));
+        CHECK(std::fabs(reach_profile(reach_find_unit("Stiletto"), B).climb - 24.2f) < 0.01f, "T-R10 bots Stiletto climb = min(g_upx 25.8, player 24.2)");
+        CHECK(std::fabs(reach_profile(reach_find_unit("Kit Fox"), B).climb - 20.f) < 0.01f && std::fabs(reach_profile(reach_find_unit("Corvus"), B).climb - 20.f) < 0.01f, "T-R10 bots Kit Fox / Corvus climb = g_upx floor 20");
+        CHECK(reach_profile(reach_find_unit("Battle Armor"), P).climb == 18.7f && reach_profile(reach_find_unit("Battle Armor"), B).climb == 18.7f && reach_profile(reach_find_unit("Battle Armor"), B).climb_terr == 20.f && reach_profile(reach_find_unit("Battle Armor"), P).climb_terr == 18.7f, "T-R10 BA climb 18.7 player; bots 18.7 over objects, planner g_upx 20 over terrain");
+        CHECK(!(reach_profile(reach_find_unit("Battle Armor"), P).est & E_CLIMB) && (reach_profile(reach_find_unit("Uziel"), P).est & E_CLIMB) && !(reach_profile(reach_find_unit("Belial"), P).est & E_CLIMB), "T-R10 the climb est. flag comes from the rule / unit row");
+        CHECK(reach_profile(reach_find_unit("Atlas"), P).step == 2.8f && reach_profile(reach_find_unit("Atlas"), B).step == 1.1f, "T-R10 Atlas 140%% for the player, 55%% for the bots");
+        CHECK(kReachUnits[reach_find_unit("Atlas")].start == 124022 && kReachUnits[reach_find_unit("VTOL")].start == 124051 && kReachUnits[reach_find_unit("Rommel Mk2 tank")].start == 124052, "T-R10 start container uids");
+    }
+    // The raster helper: an up-facing quad becomes `top`, a wall face becomes F_LATCH, and a deck over open air becomes F_DECK.
+    {
+        ReachInput in;
+        in.init(64, 64, 2.f);
+        const float floor_tris[] = {20, 5, 20, 40, 5, 20, 40, 5, 40, 20, 5, 20, 40, 5, 40, 20, 5, 40};
+        reach_raster_tris(in, floor_tris, 2, true);
+        CHECK(std::fabs(in.top[size_t(15) * 64 + 15] - 5.f) < 1e-4f && in.top[size_t(15) * 64 + 5] < -1e8f, "raster: an up-facing quad sets top inside and nothing outside");
+        const float wall[] = {80, 0, 20, 80, 12, 20, 80, 12, 40};
+        reach_raster_tris(in, wall, 1, true);
+        CHECK((in.flags[size_t(15) * 64 + 40] & F_LATCH) && std::fabs(in.top[size_t(15) * 64 + 40] - 12.f) < 1e-4f, "raster: a steep face marks F_LATCH with its highest vertex");
+        const float deck[] = {100, 12, 20, 112, 12, 20, 112, 12, 40, 100, 12, 20, 112, 12, 40, 100, 12, 40};
+        reach_raster_tris(in, deck, 2, false);
+        reach_raster_finish(in);
+        CHECK((in.flags[size_t(15) * 64 + 53] & F_DECK) && !(in.flags[size_t(15) * 64 + 15] & F_DECK), "raster: a horizontal sheet 12 m over the ground is a deck, a floor 5 m up is not");
+    }
+    // T-R12 .. T-R15: the user's cliff (user_cliff geometry on the 8 m lattice: low ground 10 m; a tier at 24 m, x 448..560, z 456..568; a top at 44 m,
+    // x 480..560, z 472..552; a west ramp; faces: tier -> top 20 m, tier -> low 14 m, top -> east low 34 m). Bots, rules update 3 follow-up.
+    {
+        auto cliff = [](float x, float z) {
+            if (x >= 480 && x <= 560 && z >= 472 && z <= 552) return 44.f;
+            if (x >= 448 && x <= 560 && z >= 456 && z <= 568) return 24.f;
+            if (x >= 384 && x < 448 && z >= 456 && z <= 568) return 10.f + 14.f * (x - 384.f) / 64.f;
+            return 10.f;
+        };
+        const Terrain t = reach_terrain(129, 8.f, cliff);
+        const ReachInput low_start = reach_input(t, {{150, 512, 1}}), top_start = reach_input(t, {{520, 512, 1}});
+        const float topx = 520, topz = 512;
+
+        // T-R12: a jet up-link over a TERRAIN face reaches the planner's g_upx (the physical cap there is the slope rule); over an OBJECT face it keeps
+        // min(planner, measured apex - 1). Battle Armor: planner g_up 16 -> g_upx 20 (PATH:266-273), measured 18.7.
+        CHECK(reach_cls(low_start, reach_run(low_start, "Battle Armor", B), topx, topz) == R_JET, "T-R12 bots' Battle Armor jets up the 20 m terrain face (g_upx 20), not 'VTOL ride only' (%d)",
+              reach_cls(low_start, reach_run(low_start, "Battle Armor", B), topx, topz));
+        CHECK(reach_cls(low_start, reach_run(low_start, "Kit Fox", B), topx, topz) == R_JET, "T-R12 bots' jet 'Mech jets up the 20 m terrain face");
+        CHECK(reach_cls(low_start, reach_run(low_start, "Atlas", B), topx, topz) == R_NONE, "T-R12 bots' Atlas cannot");
+        {
+            const ReachProfile bb = reach_prof("Battle Armor", B), bp = reach_prof("Battle Armor", P), st = reach_prof("Stiletto", B);
+            CHECK(bb.climb == 18.7f && bb.climb_terr == 20.f && bp.climb_terr == bp.climb && bp.climb == 18.7f, "T-R12 BA climb: bots 18.7 over objects / 20 over terrain, player 18.7 both (%.1f %.1f)", double(bb.climb), double(bb.climb_terr));
+            CHECK(std::fabs(st.climb - 24.2f) < 0.01f && std::fabs(st.climb_terr - 25.8f) < 0.05f, "T-R12 bots' Stiletto: apex - 1 (24.2) over objects, g_upx (25.8) over terrain (%.1f %.1f)", double(st.climb), double(st.climb_terr));
+        }
+        {  // the same rise with an object (a wall) in the band: the measured limit
+            const Terrain tp = reach_terrain(129, 8.f, [](float x, float) { return x >= 256.f ? 10.f + 20.f : 10.f; });  // a 20 m terrain face (x 248 .. 256)
+            ReachInput terr = reach_input(tp, {{100, 500, 1}}), obj = terr;
+            for (int cz = 0; cz < obj.h; cz++)  // a wall on the face's cells, as tall as the plateau: the band holds an object
+                for (int cx = 0; cx < obj.w; cx++) {
+                    const float x = (float(cx) + 0.5f) * obj.cell;
+                    if (x > 236.f && x < 256.f) obj.top[size_t(cz) * obj.w + cx] = 30.f;
+                }
+            CHECK(reach_cls(terr, reach_run(terr, "Battle Armor", B), 600, 500) == R_JET, "T-R12 20 m of bare terrain: bots' BA jets up (g_upx 20)");
+            CHECK(reach_cls(obj, reach_run(obj, "Battle Armor", B), 600, 500) == R_NONE, "T-R12 20 m with a wall in the band: bots' BA (measured 18.7) cannot (%d)", reach_cls(obj, reach_run(obj, "Battle Armor", B), 600, 500));
+            CHECK(reach_cls(obj, reach_run(obj, "Kit Fox", B), 600, 500) == R_JET, "T-R12 the same wall: the jet 'Mech (20) still can");
+        }
+
+        // T-R13: a 14 m tier face is "up and down" for jets and BA, not "down only", whichever ray or corner cell the nearest face came from.
+        for (const char* u : {"Kit Fox", "Battle Armor"}) {
+            const ReachResult r = reach_run(low_start, u, B);
+            const std::string e = reach_explain(low_start, r, reach_prof(u, B), 500.f, 566.f);
+            CHECK(e.find("14 m: up and down") != std::string::npos && e.find("14 m: down only") == std::string::npos, "T-R13 %s (bots) at the tier's north face: 14 m is up and down: %s", u, e.c_str());
+        }
+
+        // T-R14: the planner steps walkers down (drop 60 on a trip: Atlas; PocketDrop 40 for a body on a small raised region: tank, pilot). Bots' face text
+        // says "down only", not "no way up or down".
+        {
+            const ReachResult ra = reach_run(top_start, "Atlas", B);
+            const std::string w = reach_explain(top_start, ra, reach_prof("Atlas", B), 486.f, 512.f), e = reach_explain(top_start, ra, reach_prof("Atlas", B), 556.f, 512.f);
+            CHECK(w.find("west, 20 m: down only") != std::string::npos && w.find("no way up or down") == std::string::npos, "T-R14 bots' Atlas at the top's west face: %s", w.c_str());
+            CHECK(e.find("east, 34 m: down only") != std::string::npos && e.find("no way up or down") == std::string::npos, "T-R14 bots' Atlas at the top's east face: %s", e.c_str());
+            CHECK(reach_cls(top_start, ra, 620, 512) == R_WALK, "T-R14 bots' Atlas steps down the 34 m terrain face to the low ground");
+            const ReachProfile pa = reach_prof("Atlas", B);
+            CHECK(pa.drop_terr == 60.f && pa.drop == 30.f && reach_prof("Atlas", P).drop_terr == 30.f, "T-R14 Atlas drop: bots 60 over terrain (planner), 30 over objects; player 30");
+            for (const char* u : {"Rommel Mk2 tank", "Pilot"}) {
+                CHECK(reach_cls(top_start, reach_run(top_start, u, B), 620, 512) == R_WALK, "T-R14 bots' %s on the small top: PocketDrop (40) steps down 34 m", u);
+                ReachProfile fp = reach_prof(u, B);
+                fp.drop_pocket = 0.f;
+                CHECK(reach_cls(top_start, reach_compute(top_start, fp, 1), 620, 512) == R_NONE, "T-R14 bots' %s without the second pass: its own limit (6 / 10 m) cannot", u);
+                const ReachResult rp = reach_run(top_start, u, B);
+                const std::string x = reach_explain(top_start, rp, reach_prof(u, B), 556.f, 512.f);
+                CHECK(x.find("34 m: down only") != std::string::npos, "T-R14 bots' %s at the east face: %s", u, x.c_str());
+            }
+            // PocketDrop only for a small region: a plateau of more than 40000 cells keeps the body's own limit.
+            const Terrain big = reach_terrain(257, 8.f, [](float x, float) { return x >= 1024.f ? 40.f : 10.f; });  // 2048 m map: 40 m / 2 m... two huge halves
+            const ReachInput bin = reach_input(big, {{1500, 1000, 1}});
+            CHECK(reach_cls(bin, reach_run(bin, "Rommel Mk2 tank", B), 400, 1000) == R_NONE, "T-R14 a tank on a big plateau (> 40000 cells) does not get the pocket drop");
+        }
+
+        // T-R15: the same cliff reads the same north and south: cursors mirrored about z = 512 give the same lines (compass words swapped).
+        {
+            auto repl = [](std::string s, const std::string& from, const std::string& to) {
+                size_t p = 0;
+                while ((p = s.find(from, p)) != std::string::npos) { s.replace(p, from.size(), to); p += to.size(); }
+                return s;
+            };
+            auto mirror = [&](const std::string& s) { return repl(repl(repl(s, "north", "@@"), "south", "north"), "@@", "south"); };
+            auto lines = [](const std::string& s) {
+                std::vector<std::string> v;
+                size_t a = 0;
+                for (size_t b; (b = s.find('\n', a)) != std::string::npos; a = b + 1) v.push_back(s.substr(a, b - a));
+                v.push_back(s.substr(a));
+                std::sort(v.begin(), v.end());
+                return v;
+            };
+            struct Pair { float x, zn, zs; } pairs[] = {{520, 548, 476}, {456, 540, 484}, {500, 566, 458}, {540, 566, 458}};
+            for (const char* u : {"Kit Fox", "Battle Armor", "Atlas"}) {
+                const ReachResult r = reach_run(low_start, u, B);
+                const ReachProfile pr = reach_prof(u, B);
+                for (const Pair& p : pairs) {
+                    const std::string n = reach_explain(low_start, r, pr, p.x, p.zn), s = reach_explain(low_start, r, pr, p.x, p.zs);
+                    // the verdict line may differ (the point's own cell); the cliff lines must agree
+                    std::vector<std::string> ln = lines(n), ls = lines(s), cn, cs;
+                    for (auto& l : ln) if (l.rfind("Cliff", 0) == 0) cn.push_back(mirror(l));
+                    for (auto& l : ls) if (l.rfind("Cliff", 0) == 0) cs.push_back(l);
+                    std::sort(cn.begin(), cn.end());
+                    std::sort(cs.begin(), cs.end());
+                    CHECK(cn == cs, "T-R15 %s (bots) at (%g,%g) vs (%g,%g) reads the same cliffs: [%s] vs [%s]", u, double(p.x), double(p.zn), double(p.x), double(p.zs), n.c_str(), s.c_str());
+                }
+            }
+        }
+    }
+    // Cancel: a set flag returns a flagged partial result at once.
+    {
+        Terrain t = reach_terrain(129, 2.f, [](float, float) { return 10.f; });
+        ReachInput in = reach_input(t, {{50, 128, 1}});
+        std::atomic<bool> stop{true};
+        ReachResult r = reach_compute(in, reach_prof("Atlas"), 1, &stop);
+        CHECK(r.cancelled, "a cancelled compute says so");
+    }
+}
+
 int wmain(int argc, wchar_t** argv) {
     fs::path install, samples, bisect, mvariant, mtb_sweep;
     std::string dump_model;  // --dump-model <substring>: print the MGMODEL XML of the first model whose path contains it (developer)
@@ -1940,6 +2498,7 @@ int wmain(int argc, wchar_t** argv) {
     test_lossless();
     test_brush();
     test_slopes2();
+    test_reach();
     test_paint();
     test_scatter();
     test_undo_rules();

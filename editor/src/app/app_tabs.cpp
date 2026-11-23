@@ -639,6 +639,10 @@ void App::page_sculpt() {
         if (show_steep_) hint_wrapped("Yellow: bots' 'Mechs won't walk up it (jump-jet 'Mechs may jet up a short face). Orange: very steep, bots won't route here; some 'Mechs may still climb it.");
         // The hill only shows when the view is tilted.
         hint_wrapped(("To see the shape of the ground, tilt the view: middle-drag or " + std::string(mod_name(settings_.hold_orbit)) + "+drag. " + kt(A_TOP_DOWN) + " goes back to top-down.").c_str());
+        // "Can it get here?": which ground a unit gets to from the team's start points (app_reach.cpp); next to the steep switch when it fits.
+        if (ImGui::GetContentRegionAvail().x > ImGui::CalcTextSize("Can it get here?").x + 70.f * dpi_) ImGui::SameLine();
+        if (bool rc = settings_.reach_show; ImGui::Checkbox("Can it get here?##reachtab", &rc)) { settings_.reach_show = rc; settings_.save(); overlay_dirty_ = true; }
+        tip("Pick a unit and a team: the ground turns green where it gets to by walking or driving, amber where only jets, claws or a VTOL ride get it there, and red where it never gets. Arrows on cliffs show which way up or down works. Hover the ground for the details.");
     }
     if (cur == Tool::Ramp) {
         // Ramp: a strip from A to B; its heights come from the ground at both ends unless typed.

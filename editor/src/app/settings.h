@@ -58,6 +58,11 @@ struct Settings {
     // [Brush] Strength*: how much one stroke changes the ground, remembered per tool: Texture, Colour tint, Smooth, Flatten, Plants.
     float tool_strength[5] = {1.f, 0.5f, 0.5f, 0.5f, 0.5f};
     bool show_steep = false;       // [Brush] ShowSteep: steep ground tinted amber / red on the map
+    // [Reach] the "Can it get here?" overlay: on, the unit label, team (1 red, 2 blue), driver (0 player, 1 bots), compare all units.
+    bool reach_show = false;
+    std::string reach_unit = "Stiletto";
+    int reach_team = 1, reach_driver = 0;
+    bool reach_compare = true;
     // [Scatter] the scatter brush: objects per hectare, spacing as a multiple of the two footprint radii, random facing, the
     // most an object leans (degrees), tilt to the slope, keep off roads / bases / buildings, skip slopes over sc_slope percent.
     float sc_density = 40.f, sc_spacing = 1.f, sc_lean = 0.f, sc_slope = 60.f;

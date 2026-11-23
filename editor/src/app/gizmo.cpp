@@ -667,6 +667,7 @@ void App::gizmo_draw() {
     if (!doc_) return;
     if (ground_preview_frame_ >= ImGui::GetFrameCount() - 1) draw_ground_edit(ground_preview_);  // a ground tool's plan while its button is hovered
     draw_slope_ghost();  // a flat piece being placed on a slope in Float: stilt lines and the gap
+    draw_reach_arrows();  // "Can it get here?": face arrows and roof outlines (app_reach.cpp)
     if (r_.params.grid && vp_w > 300.f) {  // the display grid says how far apart its lines are; the snap grid has its own size on the snap bar
         const char* t = "Map grid: lines 64 m apart";
         const ImVec2 ts = ImGui::CalcTextSize(t);
