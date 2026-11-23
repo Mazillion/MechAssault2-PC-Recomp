@@ -36,6 +36,8 @@ run again with the same folders. Running it again on a finished install adds opt
   --update      update an existing install in place (no disc needed when its game_files are intact); keeps settings
   --upscaler    the Vulkan texture upscaler, if this PC has no internet: realesrgan-ncnn-vulkan-20220424-windows.zip,
                 a folder with it extracted, or a URL (MA2_TEXTURE_ENGINE=vulkan|pytorch picks the texture upscaler)
+  --recomplauncher  RecompLauncher's setup step (recomplauncher.json): installs, updates, or does nothing when this version is
+                already installed in --dest; prints "progress <0..1> <text>" lines; no shortcuts, installer copy or self-update
   Exit code 0: installed. 1: stopped (an update puts the previous version back). 2: the game is installed, but optional
   content (enhanced textures or videos) failed; running the installer again resumes only that.
   Paths may be relative to the folder you run it from, and may be quoted.
@@ -2017,7 +2019,10 @@ class Installer:
         try:
             d = precheck.local_dir(); d.mkdir(parents=True, exist_ok=True)
             j = precheck.read_json(d / 'installer.json'); j = j if isinstance(j, dict) else {}
-            j.update(dest=str(self.dest), kit_id=KIT_ID, version=VERSION, public_version=PUBLIC_VERSION, time=time.strftime('%Y-%m-%dT%H:%M:%S'), **extra)
+            if getattr(self, 'launcher', False):       # 1.1.8: RecompLauncher's folder is never offered to the standalone installer
+                j.update(**extra)
+            else:
+                j.update(dest=str(self.dest), kit_id=KIT_ID, version=VERSION, public_version=PUBLIC_VERSION, time=time.strftime('%Y-%m-%dT%H:%M:%S'), **extra)
             (d / 'installer.json').write_text(json.dumps(j, indent=1), encoding='utf-8')
         except OSError:
             pass
@@ -3220,6 +3225,117 @@ def run_self_update(dest, log=lambda line: print(line, flush=True), progress=Non
     log('The %s installer continues the update of %s.' % (info['latest'], d))
     return 0
 
+# ---------------------------------------------------------------------------- RecompLauncher (1.1.8)
+# --recomplauncher is the setup step RecompLauncher runs (recomplauncher.json "prepare"): no window, no questions, and
+# "progress <0..1> <text>" lines on stdout for its setup screen. The launcher runs it again after every release it installs,
+# so it decides by itself: build into an empty folder, update an older (or newer) install, finish an interrupted run, or
+# do nothing when this version is already installed. Without the flag nothing here runs.
+
+def launcher_plan(dest):
+    """'resume' (an unfinished run: its state decides), 'built' (this installer's version is installed), 'update', 'install'."""
+    dest = Path(precheck.clean_path(str(dest)))
+    if precheck.read_state(dest) is not None: return 'resume'
+    if is_install(dest): return 'built' if install_relation(dest) == 'same' else 'update'
+    return 'install'
+
+class LauncherProgress:
+    """Turns the engine's plan, step and log events into "progress <fraction> <text>" lines (the window's own progress model and
+    stage names). A line is printed when the rounded fraction or the text changes, and at least once a minute: the launcher
+    takes a step that prints nothing for an hour as stuck. The fraction never goes back."""
+    def __init__(self, write, clock=time.monotonic, every=60.0):
+        import progress as model_mod
+        self.mod, self.write, self.clock, self.every = model_mod, write, clock, every
+        self.model, self.quick, self.last, self.at, self.floor = None, False, None, None, 0.0
+        self.guard = threading.RLock()            # the engine's thread and the once-a-minute line
+
+    def plan(self, names):
+        with self.guard:
+            self.model = self.mod.ProgressModel(list(names), clock=self.clock)
+            if self.quick: self.model.set_quick(True)
+            self.emit()
+
+    def step(self, index, total, title, name, skipped):
+        with self.guard:
+            if not self.model: self.model = self.mod.ProgressModel([name], clock=self.clock)
+            self.model.step(name, skipped); self.emit()
+
+    def reuse(self, mode):
+        with self.guard:
+            self.quick = mode == 'fast'
+            if self.model: self.model.set_quick(self.quick)
+
+    def log(self, line):
+        with self.guard:
+            if self.model: self.model.feed(line); self.emit()
+
+    def text(self):
+        m = self.model
+        for sid, title, _ in m.stages:
+            if m.stage_status(sid) == 'active': return m.stage_detail(sid) or title
+        return m.stages[0][1] if m.stages else 'Starting'
+
+    def emit(self):
+        with self.guard:
+            if not self.model: return
+            try: f, text = self.model.fraction(), self.text()
+            except Exception: return               # a progress line is never worth a failed install
+            self.floor = max(self.floor, min(0.99, f))
+            cur = ('%.2f' % self.floor, text)
+            now = self.clock()
+            if cur != self.last or self.at is None or now - self.at >= self.every:
+                self.last, self.at = cur, now
+                self.write('progress %s %s' % cur)
+
+    def finish(self, text):
+        self.write('progress 1 %s' % text)
+
+def run_launcher(a, textures):
+    """--recomplauncher (see above). Exit codes as the command line: 0 installed or already built, 1 stopped, 2 optional content failed."""
+    selfupdate.switch_off()                       # the launcher brings every release: no installer copy, no Update shortcut, no check
+    try: sys.stdout.reconfigure(encoding='utf-8', errors='replace', line_buffering=True)
+    except Exception: pass
+    lock = threading.Lock()
+    def write(line):
+        with lock: print(line, flush=True)
+    dest = Path(precheck.clean_path(a.dest)).resolve()
+    plan = launcher_plan(dest)
+    write('RecompLauncher setup: %s in %s (%s)' % (plan, dest, build_label()))
+    report = LauncherProgress(write)
+    if plan == 'built':
+        report.finish('Already built'); return 0
+    if plan == 'install' and not a.xiso:
+        print('INSTALL STOPPED: no disc image was given and %s holds no MechAssault 2 Recomp install to update.' % dest, file=sys.stderr)
+        return 1
+    def log(line):
+        write(line); report.log(line)
+    inst = Installer(a.xiso, dest, textures, a.videos, a.jobs, a.keep_work, a.allow_cpu, log=log, step=report.step,
+                     install_build_tools=a.install_build_tools, vs=a.vs, update=(plan == 'update'), shortcuts=(),
+                     merge_settings=not a.no_merge_settings, switch_textures=a.switch_textures, low_priority=a.low_priority,
+                     keep_build=not a.no_keep_build, clean_build=a.clean_build)
+    inst.launcher = True
+    inst.on_plan, inst.on_reuse = report.plan, report.reuse
+    inst.until = a.until
+    stop = threading.Event()
+    def beat():                                   # moves the bar inside long steps and keeps a line coming at least once a minute
+        while not stop.wait(10):
+            report.emit()
+    threading.Thread(target=beat, daemon=True).start()
+    try:
+        inst.run()
+    except Stop as e:
+        stop.set()
+        if e.kind == 'extras':
+            print('\n%s' % e, file=sys.stderr); return 2
+        print('\nINSTALL STOPPED: %s' % e, file=sys.stderr); return 1
+    except Exception:
+        stop.set()
+        import traceback; traceback.print_exc()
+        print('\nINSTALL STOPPED: unexpected error (above). The log is %s' % inst.session_log, file=sys.stderr); return 1
+    stop.set()
+    for note in inst.notes: write('Note: %s' % note)
+    report.finish('Ready to play')
+    return 0
+
 def main():
     ap = argparse.ArgumentParser(prog='"MechAssault 2 Recomp Installer.exe"', description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -3254,6 +3370,8 @@ def main():
     ap.add_argument('--vs', help=argparse.SUPPRESS)      # build with this VS/Build Tools installation folder
     ap.add_argument('--self-update', action='store_true', help='with --dest: if a newer version is out, download its installer from '
                     'GitHub, check it, and let it update the install (keeps settings and saves)')
+    ap.add_argument('--recomplauncher', action='store_true', help='RecompLauncher setup step: install, update, or (when this version is '
+                    'already installed) do nothing in --dest; prints "progress <0..1> <text>" lines; no shortcuts, no installer copy, no self-update')
     ap.add_argument('--no-self-update', action='store_true', help='do not keep a copy of the installer in the install folder or make '
                     'the Update MechAssault 2 shortcut, and never look for a newer installer (also: set MA2_SELF_UPDATE=0)')
     a = ap.parse_args()
@@ -3289,6 +3407,8 @@ def main():
     if any(t not in ('2x', '4x') for t in textures): ap.error('--textures takes 2x, 4x or 2x,4x')
     shortcuts = [s.strip().lower() for s in a.shortcuts.split(',') if s.strip()]
     if any(s not in ('desktop', 'start', 'editor') for s in shortcuts): ap.error('--shortcuts takes desktop, start, editor')
+    if a.recomplauncher:
+        sys.exit(run_launcher(a, textures))
     inst = Installer(a.xiso, a.dest, textures, a.videos, a.jobs, a.keep_work, a.allow_cpu,
                      log=lambda line: print(line, flush=True), install_build_tools=a.install_build_tools, vs=a.vs,
                      update=a.update, shortcuts=shortcuts, merge_settings=not a.no_merge_settings,
