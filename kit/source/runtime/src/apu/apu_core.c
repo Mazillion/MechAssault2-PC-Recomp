@@ -25,6 +25,7 @@
 #include "fpconv.h"
 #include "../platform/pc_frontend.h"
 #include "../platform/pc_cpu_topo.h"   /* pc_thread_role_enter */
+#include "../platform/pc_power_state.h"   /* 1.1.8 power state on [HEALTH] */
 #include "../kernel/xbox_memory_layout.h"   /* XBOX_WORKER_STACK_TOP */
 #if defined(_WIN32)
 #include <avrt.h>
@@ -867,12 +868,14 @@ static void apu_health_tick(void)
     unsigned long long free_mb = GlobalMemoryStatusEx(&ms) ? ms.ullAvailPhys >> 20 : 0;
     char plan[160];
     apu_dsp_health(plan, sizeof plan);
+    pc_power_state pw; char power[160];    /* 1.1.8: power mode, plan, clocks now (a drop mid-match shows) */
+    pc_power_state_read(&pw); pc_power_state_text(&pw, power, sizeof power);
     char line[640];
     snprintf(line, sizeof line,
              "[HEALTH] t=%llu why=%s fps=%.1f p50=%.1f p99=%.1f underruns=%u resyncs=%ld bp=%u dropped=%u stalls=%u "
-             "reopens=%u %s free_mb=%llu nvs=%ld",
+             "reopens=%u %s free_mb=%llu nvs=%ld %s",
              (now - t0) / 1000, why, fps_s, p50_s, p99_s, under, resyncs, bp,
-             dropped, stalls, reopens, plan, free_mb, xbox_nvs_unhandled_repeats());
+             dropped, stalls, reopens, plan, free_mb, xbox_nvs_unhandled_repeats(), power);
     AcquireSRWLockExclusive(&s_health_lock);
     memcpy(s_health_last, line, sizeof line);
     ReleaseSRWLockExclusive(&s_health_lock);

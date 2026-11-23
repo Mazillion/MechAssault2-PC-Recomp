@@ -456,6 +456,51 @@ def power_status():
     return {'ac': {0: 'off', 1: 'on'}.get(p.ac, 'unknown'), 'battery': None if p.flag == 255 else p.flag != 128,
             'percent': None if p.pct == 255 else int(p.pct), 'saver': p.saver == 1}
 
+POWER_MODES = {'00000000-0000-0000-0000-000000000000': 'balanced', '961cc777-2547-4f9d-8174-7d86181b8a7a': 'best-efficiency',
+               '3af9b8d9-7c97-431d-ad78-34a8bfea439f': 'better-performance', 'ded574b5-45a0-4f42-8737-46345c09c238': 'best-performance'}
+POWER_PLANS = {'381b4222-f694-41f0-9685-ff5bb260df2e': 'balanced', '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c': 'high-performance',
+               'e9a42b02-d5df-448d-aa00-03f14749eb61': 'ultimate', 'a1841308-3541-4fab-bc81-f71556f20b4a': 'power-saver'}
+
+def power_scheme(_fail=False):
+    """1.1.8: {'mode', 'plan', 'mhz_avg', 'mhz_min', 'mhz_max'} as the game logs them on [POWER] (pc_power_state.h): the power mode
+    slider (PowerGetEffectiveOverlayScheme, undocumented), the active plan (a standard one by name, else 'custom-' + its GUID: the
+    plan's own name is never read) and the clocks (CallNtPowerInformation). Each part that fails is 'unknown' / None."""
+    out = {'mode': 'unknown', 'plan': 'unknown', 'mhz_avg': None, 'mhz_min': None, 'mhz_max': None}
+    if _fail:
+        return out
+    class G(ctypes.Structure):
+        _fields_ = [('d1', ctypes.c_ulong), ('d2', ctypes.c_ushort), ('d3', ctypes.c_ushort), ('d4', ctypes.c_ubyte * 8)]
+    def text(g):
+        b = bytes(g.d4)
+        return '%08x-%04x-%04x-%s-%s' % (g.d1, g.d2, g.d3, b[:2].hex(), b[2:].hex())
+    try:
+        pp = ctypes.WinDLL('powrprof.dll')
+    except OSError:
+        return out
+    try:
+        g = G()
+        if pp.PowerGetEffectiveOverlayScheme(ctypes.byref(g)) == 0:
+            out['mode'] = POWER_MODES.get(text(g), 'unknown')
+    except (AttributeError, OSError):
+        pass
+    try:
+        p = ctypes.POINTER(G)()
+        if pp.PowerGetActiveScheme(None, ctypes.byref(p)) == 0 and p:
+            t = text(p.contents)
+            out['plan'] = POWER_PLANS.get(t, 'custom-' + t.upper())
+            ctypes.windll.kernel32.LocalFree(p)
+    except (AttributeError, OSError):
+        pass
+    try:
+        n = min(os.cpu_count() or 0, 256)
+        buf = (ctypes.c_ulong * (6 * n))()
+        if n and pp.CallNtPowerInformation(11, None, 0, buf, ctypes.sizeof(buf)) == 0:
+            cur = [buf[i * 6 + 2] for i in range(n)]
+            out.update(mhz_avg=sum(cur) // n, mhz_min=min(cur), mhz_max=max(buf[i * 6 + 1] for i in range(n)))
+    except (AttributeError, OSError):
+        pass
+    return out
+
 def cpu_model():
     """The processor's name as Windows reports it (ProcessorNameString), else platform.processor(), else ''."""
     try:
@@ -971,7 +1016,7 @@ def _ini_values(path):
             k, v = line.split('=', 1); out[(sec, k.strip())] = v.strip()[:40]
     return out
 
-def _game_log_lines(log, patterns=('[HEALTH]', '[CRASH]', '[HANG]', '[LAUNCH]')):
+def _game_log_lines(log, patterns=('[HEALTH]', '[CRASH]', '[HANG]', '[LAUNCH]', '[POWER]')):
     """The newest line of each kind in a game log (read from the end, at most 4 MB)."""
     found = {}
     try:
@@ -982,7 +1027,7 @@ def _game_log_lines(log, patterns=('[HEALTH]', '[CRASH]', '[HANG]', '[LAUNCH]'))
         return found
     for line in reversed(text.splitlines()):
         for p in patterns:
-            if p not in found and p in line: found[p] = line.strip()[:240]
+            if p not in found and p in line: found[p] = line.strip()[:320]   # 1.1.8: [HEALTH] ends with pmode/pplan/mhz
         if len(found) == len(patterns): break
     return found
 
@@ -1009,6 +1054,9 @@ def report_summary(dest, state=None, version='', kit_id='', gpus=None, stage='',
         if m: out.append('Memory: %.1f GB, %.1f GB free; commit limit %.1f GB, %.1f GB free' % (m['total'] / GB, m['avail'] / GB, m['commit_limit'] / GB, m['commit_free'] / GB))
         p = power_status()
         if p: out.append('Power: mains %s, battery %s%s' % (p['ac'], {True: 'present', False: 'none', None: 'unknown'}[p['battery']], ', saver on' if p['saver'] else ''))
+        s = power_scheme()
+        out.append('Power mode %s, plan %s, CPU %s MHz' % (s['mode'], s['plan'], '%s average, %s lowest, %s max' % (s['mhz_avg'], s['mhz_min'], s['mhz_max'])
+                                                            if s['mhz_avg'] is not None else 'unknown'))
     def graphics():
         gs = gpus if gpus is not None else detect_gpus()
         out.append('GPU: %s' % ('; '.join('%s %.0f GB%s' % (g.get('name'), (g.get('vram') or 0) / GB, ', driver %s' % g['driver'] if g.get('driver') else '') for g in gs) or '-'))
@@ -1038,7 +1086,7 @@ def report_summary(dest, state=None, version='', kit_id='', gpus=None, stage='',
         if not cands: out.append('Game log: none'); return
         found = _game_log_lines(cands[0])
         out.append('Game log: %s' % cands[0].name)
-        for p in ('[HEALTH]', '[CRASH]', '[HANG]'):
+        for p in ('[POWER]', '[HEALTH]', '[CRASH]', '[HANG]'):
             if p in found: out.append(found[p])
     for fn in (ident, system, graphics, build, settings, failed, game): part(fn)
     return [redact(l) for l in out]
