@@ -2,7 +2,7 @@
 retries on file locks, location checks, pip isolation, the Play button, done markers, numeric error codes.
 Run with the kit's Python:  python -B test_reliability.py
 """
-import inspect, json, os, shutil, sys, tempfile, unittest, zipfile
+import inspect, json, os, shutil, sys, tempfile, time, unittest, zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -17,12 +17,15 @@ G = precheck.GB
 SHARING = OSError(None, 'The process cannot access the file because it is being used by another process', None, 32)
 
 
+REAL_SLEEP = time.sleep        # setUp replaces time.sleep itself (install.time is the time module): restore this one
+
+
 class Reliability(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix='ma2ux-rel-', dir=str(WORK / 'tmp')))
         install.time.sleep = lambda s: None if s < 1 else None                # retries without waiting
     def tearDown(self):
-        install.time.sleep = __import__('time').sleep
+        install.time.sleep = REAL_SLEEP
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def update_install(self):
