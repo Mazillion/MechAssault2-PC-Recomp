@@ -1,0 +1,131 @@
+{
+  "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
+  "format": 1,
+  "name": "MechAssault 2 PC Recomp",
+  "repo": "Mazillion/MechAssault2-PC-Recomp",
+  "inputs": [
+    {
+      "id": "game",
+      "label": "Your MechAssault 2 disc image (.iso or .xiso) from the US (NTSC) disc, or a folder copied from that disc.",
+      "formats": [{ "type": "file", "extensions": ["iso", "xiso"] }, { "type": "folder" }],
+      "check": { "xdvdfs": "ma2.xbe", "file": "ma2.xbe" }
+    }
+  ],
+  "prepare": {
+    "program": ["MechAssault 2 Recomp Installer.exe"],
+    "args": ["--recomplauncher", "--xiso={input:game}", "--dest", "{install}/MechAssault 2"],
+    "label": "Building the game from your disc (about 15 to 30 minutes)",
+    "done": ["{install}/MechAssault 2/MechAssault 2.exe", "{install}/MechAssault 2/recomp-install.json"],
+    "keeps_copy": true,
+    "options": [
+      {
+        "id": "vs_build_tools",
+        "label": "Microsoft C++ Build Tools",
+        "note": "Needed to build the game on your PC. Installed if this PC doesn't have them.",
+        "os": ["windows"],
+        "required": true,
+        "args": ["--install-build-tools"],
+        "license": { "name": "Microsoft Visual Studio license terms", "url": "https://visualstudio.microsoft.com/license-terms/" }
+      },
+      {
+        "id": "ffmpeg",
+        "label": "Download FFmpeg",
+        "note": "Plays the cutscenes. Downloaded from gyan.dev during the build and checked file by file.",
+        "os": ["windows"],
+        "required": true,
+        "default": false,
+        "args": []
+      }
+    ]
+  },
+  "start": {
+    "program": ["MechAssault 2/MechAssault 2.exe"],
+    "env": { "RECOMP_UPDATE_CHECK": "0" }
+  },
+  "folders": {
+    "game": [{ "path": "{install}/MechAssault 2" }],
+    "saves": [{ "path": "{local}/MechAssault2/Saved Games" }],
+    "logs": [{ "path": "{local}/MechAssault2/Logs" }]
+  },
+  "saves": [
+    "{local}/MechAssault2/Saved Games/UserData",
+    "{local}/MechAssault2/Saved Games/TitleData",
+    "{local}/MechAssault2/pc_settings.ini",
+    "{documents}/MechAssault 2/Scenarios"
+  ],
+  "config": [
+    {
+      "id": "main",
+      "format": "ini",
+      "file": [
+        { "path": "{local}/MechAssault2/pc_settings.ini", "if": "{local}/MechAssault2/pc_settings.ini" },
+        { "path": "{install}/MechAssault 2/pc_settings.ini" }
+      ]
+    }
+  ],
+  "settings": [
+    {
+      "id": "fullscreen", "label": "Window mode", "group": "Display",
+      "help": "Full screen fills your screen without a border. F11 also switches in the game.",
+      "choices": [
+        { "label": "Window", "set": { "Display/Fullscreen": "0" } },
+        { "label": "Full screen", "set": { "Display/Fullscreen": "1" } }
+      ],
+      "defaults": { "Display/Fullscreen": "0" }
+    },
+    {
+      "id": "aspect", "label": "Picture shape", "group": "Display",
+      "help": "Widescreen shows more to the sides on wide screens. Original keeps the Xbox's 4:3 picture with side bars.",
+      "choices": [
+        { "label": "Widescreen", "set": { "Display/PreserveAspect": "1" } },
+        { "label": "Original 4:3", "set": { "Display/PreserveAspect": "0" } }
+      ],
+      "defaults": { "Display/PreserveAspect": "1" }
+    },
+    {
+      "id": "framelimit", "label": "Frame rate limit", "group": "Display",
+      "help": "The most frames per second the game draws. Cutscenes keep their own limit.",
+      "choices": [
+        { "label": "60", "set": { "Display/FrameLimit": "60" } },
+        { "label": "120", "set": { "Display/FrameLimit": "120" } },
+        { "label": "144", "set": { "Display/FrameLimit": "144" } },
+        { "label": "165", "set": { "Display/FrameLimit": "165" } },
+        { "label": "240", "set": { "Display/FrameLimit": "240" } }
+      ],
+      "defaults": { "Display/FrameLimit": "144" }
+    },
+    {
+      "id": "vsync", "label": "V-Sync", "group": "Display",
+      "help": "Matches frames to your screen to stop tearing. Adds a little input delay.",
+      "choices": [
+        { "label": "Off", "set": { "Display/VSync": "0" } },
+        { "label": "On", "set": { "Display/VSync": "1" } }
+      ],
+      "defaults": { "Display/VSync": "0" }
+    },
+    {
+      "id": "drawdistance", "label": "Draw distance", "group": "Display",
+      "help": "How far you can see. Original is the Xbox's distance; Far shows twice as far.",
+      "choices": [
+        { "label": "Original", "set": { "Display/DrawDistance": "50" } },
+        { "label": "Further", "set": { "Display/DrawDistance": "75" } },
+        { "label": "Far", "set": { "Display/DrawDistance": "100" } }
+      ],
+      "defaults": { "Display/DrawDistance": "50" }
+    },
+    {
+      "id": "showfps", "label": "Show frame rate", "group": "Display",
+      "help": "Shows the frames per second in a corner of the screen.",
+      "choices": [
+        { "label": "Off", "set": { "Display/ShowFPS": "0" } },
+        { "label": "On", "set": { "Display/ShowFPS": "1" } }
+      ],
+      "defaults": { "Display/ShowFPS": "0" }
+    }
+  ],
+  "exit_codes": {
+    "3": "MechAssault 2 stopped after a crash or a hang. A report was saved in its Logs folder."
+  },
+  "looks": { "graphics": "d3d11" },
+  "system": { "windows": { "version": "10", "graphics": { "d3d11": "11_0" } } }
+}

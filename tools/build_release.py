@@ -1,4 +1,4 @@
-"""Build the release: dist/MechAssault 2 Recomp Installer.exe (+ SHA256SUMS.txt) from this repository.
+"""Build the release: dist/MechAssault 2 Recomp Installer.exe and its RecompLauncher zip (+ SHA256SUMS.txt) from this repository.
 
     py -3.13 tools/build_release.py [--build-dir D:\\ma2-build] [--skip-editor]
 
@@ -13,20 +13,77 @@ Steps (each stops the build on failure):
                 (its relay address comes from kit/installer/data/report.json, the one place it is set)
   5. pack       refuse any kit file git does not track (ignored, untracked or modified; the fetched deps and the
                 built editor excepted), then installer-exe/pack_installer.py with the running Python 3.13 -> dist/
-  6. check      tools/privacy_scan.py over the built binaries, then SHA-256 + size into dist/SHA256SUMS.txt
+  6. zip        dist/MechAssault2-PC-Recomp-v<version>-Windows-x64.zip for RecompLauncher: recomplauncher.json (from the
+                repository top) and the installer exe byte for byte, nothing else (never a pc_settings.ini: the launcher
+                unpacks every update over the install). The installer exe itself stays the release's main download.
+  7. check      tools/privacy_scan.py over the built binaries and the zip, then SHA-256 + size of both into dist/SHA256SUMS.txt
 
 The compile steps run in a copy of the sources under --build-dir (default %SystemDrive%\\MA2PubBuild) so
 no compiler ever sees your user-profile path: MSVC can embed the source folder in a binary.
 Requirements: Windows 10/11 x64, Visual Studio 2019+ or Build Tools with the C++ x64 workload, Git
 (optional, for the editor's version id), and a python.org Python 3.13 with Tcl/Tk (it is bundled).
 """
-import argparse, hashlib, json, os, re, shutil, subprocess, sys
+import argparse, hashlib, json, os, re, shutil, subprocess, sys, zipfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 DIST = REPO / 'dist'
 EDITOR_EXE = 'MA2 Scenario Editor.exe'
 REPORT_EXE = 'MA2 Report.exe'
+INSTALLER_EXE = 'MechAssault 2 Recomp Installer.exe'
+LAUNCHER_JSON = 'recomplauncher.json'            # RecompLauncher's profile: how it installs, updates and starts the game
+
+
+def launcher_zip_name(version):
+    """The release zip RecompLauncher picks for Windows (it reads "Windows" and "x64" in the name). The .exe stays as it is."""
+    return 'MechAssault2-PC-Recomp-v%s-Windows-x64.zip' % version
+
+
+def check_launcher_zip(path, exe):
+    """Problems with a RecompLauncher zip (empty list: fine): exactly recomplauncher.json and the installer at the top, the
+    installer byte for byte `exe`, and a profile that parses and runs that installer as its setup step."""
+    probs = []
+    try:
+        with zipfile.ZipFile(path) as z:
+            names = z.namelist()
+            if sorted(names) != sorted([LAUNCHER_JSON, INSTALLER_EXE]):
+                probs.append('members %r, expected exactly %r' % (names, [LAUNCHER_JSON, INSTALLER_EXE]))
+            if any(Path(n).name.lower() == 'pc_settings.ini' for n in names):
+                probs.append("a pc_settings.ini is in the zip: every update would replace the player's settings")
+            if INSTALLER_EXE in names and hashlib.sha256(z.read(INSTALLER_EXE)).hexdigest() != sha(exe):
+                probs.append('the installer in the zip differs from %s' % Path(exe).name)
+            if LAUNCHER_JSON in names:
+                prof = json.loads(z.read(LAUNCHER_JSON).decode('utf-8'))
+                if prof.get('format') != 1:
+                    probs.append('recomplauncher.json: format must be 1')
+                if (prof.get('prepare') or {}).get('program') != [INSTALLER_EXE]:
+                    probs.append('recomplauncher.json: prepare.program must be [%r]' % INSTALLER_EXE)
+            bad = z.testzip()
+            if bad:
+                probs.append('damaged member %s' % bad)
+    except (OSError, ValueError, zipfile.BadZipFile) as e:
+        probs.append('cannot read %s: %s' % (Path(path).name, e))
+    return probs
+
+
+def make_launcher_zip(exe, profile, out, date):
+    """`out`: the profile and the installer, every member dated the release date (the same inputs give the same zip).
+    `date` is VERSION line 2 (YYYY.MM.DD). Stops the build when the result fails check_launcher_zip."""
+    json.loads(Path(profile).read_text(encoding='utf-8'))          # a broken profile stops the build here, not on a player's PC
+    when = tuple(int(x) for x in date.split('.')[:3]) + (0, 0, 0)
+    tmp = Path(str(out) + '.tmp')
+    with zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+        for src, name in ((profile, LAUNCHER_JSON), (exe, INSTALLER_EXE)):
+            info = zipfile.ZipInfo(name, when)
+            info.compress_type, info.external_attr = zipfile.ZIP_DEFLATED, 0o644 << 16
+            with open(src, 'rb') as f, z.open(info, 'w') as dst:
+                shutil.copyfileobj(f, dst, 1 << 20)
+    probs = check_launcher_zip(tmp, exe)
+    if probs:
+        tmp.unlink()
+        raise SystemExit('the RecompLauncher zip is wrong: %s' % '; '.join(probs))
+    os.replace(tmp, out)
+    return out
 
 
 def step(msg):
@@ -175,16 +232,25 @@ def main():
     step('5 pack')
     kit_is_git(a.allow_dirty)
     DIST.mkdir(exist_ok=True)
-    out = DIST / 'MechAssault 2 Recomp Installer.exe'
+    out = DIST / INSTALLER_EXE
     env = dict(os.environ, MA2_PACK_OUT=str(out), MA2_PYTHON_HOME=sys.base_prefix)
     run([sys.executable, '-I', str(REPO / 'installer-exe' / 'pack_installer.py')], REPO, env)
 
-    step('6 check')
-    run([sys.executable, str(REPO / 'tools' / 'privacy_scan.py'), '--binaries', str(out),
+    step('6 zip')
+    date = [l.strip() for l in (REPO / 'VERSION').read_text(encoding='utf-8').splitlines() if l.strip()][1]
+    for old in DIST.glob(launcher_zip_name('*')):
+        old.unlink()                              # (an earlier version's zip is not this release's)
+    zpath = make_launcher_zip(out, REPO / LAUNCHER_JSON, DIST / launcher_zip_name(version), date)
+    print('%s: %s and %s' % (zpath.name, LAUNCHER_JSON, out.name))
+
+    step('7 check')
+    run([sys.executable, str(REPO / 'tools' / 'privacy_scan.py'), '--binaries', str(out), str(zpath),
          str(REPO / 'kit' / 'editor' / EDITOR_EXE), str(REPO / 'installer-exe' / 'stub.exe'), str(REPO / 'kit' / 'report' / REPORT_EXE)], REPO)
-    lines = ['%s *%s' % (sha(out), out.name)]
+    lines = ['%s *%s' % (sha(p), p.name) for p in (out, zpath)]
     (DIST / 'SHA256SUMS.txt').write_text('\n'.join(lines) + '\n', encoding='ascii')
-    print('\n%s  %d bytes\nsha256 %s\nversion %s' % (out, out.stat().st_size, sha(out), version))
+    for p in (out, zpath):
+        print('\n%s  %d bytes\nsha256 %s' % (p, p.stat().st_size, sha(p)))
+    print('version %s' % version)
 
 
 if __name__ == '__main__':
