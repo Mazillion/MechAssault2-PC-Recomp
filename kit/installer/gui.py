@@ -235,8 +235,11 @@ def fmt_left(sec):
 class App:
     W, H = 880, 520                                 # logical client size
 
-    def __init__(self, root, scale=None, plain=None):
+    def __init__(self, root, scale=None, plain=None, launcher=None):
         self.root = root
+        # 1.2.0 RecompLauncher --window: {'dest', 'xiso', 'textures', 'videos', 'report', 'waiting'}; the window is locked to dest
+        # (no folder choice, no shortcuts, no uninstall, no self-update), and its runs feed the launcher's progress lines.
+        self.launcher = launcher; self.lw = {'last': None, 'ran': False, 'extras': None}
         self.q = queue.Queue(); self.worker = None; self.inst = None
         self.launches_hook = None
         self.facts = {'gpus': None, 'reco': None, 'compiler': None, 'minutes': None, 'sac': None, 'vs_list': None}
@@ -283,9 +286,14 @@ class App:
         root.bind('<Return>', self.on_return); root.bind('<KP_Enter>', self.on_return)
         root.bind('<Escape>', self.on_escape)
         # what is in the remembered folder decides the first screen (as 1.1.3's Welcome banner did)
-        self.dest = precheck.remembered_install() or precheck.default_install_folder()
-        try: hd = selfupdate.handoff_dest()                # 1.1.7: an older installer downloaded this one to update that folder
-        except Exception: hd = ''
+        if launcher:
+            self.dest = precheck.clean_path(str(launcher['dest'])); self.dest_chosen = True       # never moved to another drive
+            self.sc = {'desktop': False, 'start': False, 'editor': False}
+            hd = ''
+        else:
+            self.dest = precheck.remembered_install() or precheck.default_install_folder()
+            try: hd = selfupdate.handoff_dest()            # 1.1.7: an older installer downloaded this one to update that folder
+            except Exception: hd = ''
         if hd and install.is_install(precheck.clean_path(hd)):
             self.dest = hd; self.handoff = True
             print('ui: started by the self-update of %s' % hd, flush=True)
@@ -298,8 +306,9 @@ class App:
             print('ui: started by Update now in the game for %s' % gu, flush=True)
         self.mode = self.mode_for(self.dest)
         self.load_installed_choices()
+        if launcher: self.launcher_ticks()
         self.check_dest()
-        resume = self.read_resume_marker()
+        resume = None if launcher else self.read_resume_marker()     # the standalone installer's restart note is not for this folder
         for fn in (self.detect_hardware, self.detect_compiler, self.detect_misc, self.find_disc, self.find_replies):
             threading.Thread(target=self.guarded(fn), daemon=True).start()
         self.render()
@@ -368,7 +377,21 @@ class App:
             rel = install.install_relation(d)
         except Exception:
             return 'install'
+        if self.launcher and rel == 'newer': return 'update'        # as --recomplauncher: the launcher's release is the one to install
         return 'update' if rel == 'older' else 'maintain' if rel in ('same', 'newer') else 'install'
+
+    def launcher_ticks(self):
+        """--window: the launcher's ticks (--textures, --videos) pre-tick the window's own choices; the window decides from here.
+        One texture choice in the window: both ticked = Ultra HD (4x). A pack already installed is not asked for again."""
+        L, h = self.launcher, self.have()
+        tex = set(L.get('textures') or [])
+        for t in ('4x', '2x'):
+            if t in tex and not h.get(t): self.texture = t; break
+        if L.get('videos') and not h.get('videos'): self.videos = True
+        x = precheck.clean_path(L.get('xiso') or '')
+        if x and precheck.is_absolute(x):
+            self.disc = x; self.disc_checking = True; self.disc_token += 1; token = self.disc_token
+            self.bg(lambda: precheck.validate_image(x, install.RELEASE), lambda r: self.disc_checked(token, r))
 
     def state(self):
         return precheck.read_state(precheck.clean_path(self.dest)) or {}
@@ -534,6 +557,7 @@ class App:
         self.render()
 
     def browse_dest(self):
+        if self.launcher: return                     # locked to the launcher's folder
         p = self.pick_folder()
         if p: self.set_dest(p)
 
@@ -677,11 +701,7 @@ class App:
         W, H = dp(self.W), dp(self.H); top = H - dp(64); cy = top + dp(32)
         cv.create_rectangle(0, top, W, H, fill=P['panel'], outline='', tags='s')
         cv.create_line(0, top, W, top, fill=P['line'], width=k.line(), tags='s')
-        def width(it):
-            if isinstance(it, tuple):
-                if it[0] == 'text': return k.fonts[it[2]].measure(it[1])
-                return sum(k.fonts[it[2]].measure(s) for s, _ in it[1])
-            return it.winfo_reqwidth()
+        width = self.footer_width
         def draw(it, x):
             if isinstance(it, tuple):
                 if it[0] == 'text': cv.create_text(x, cy, text=it[1], font=k.fonts[it[2]], fill=P.get(it[3], it[3]), anchor='w', tags='s')
@@ -774,7 +794,7 @@ class App:
         zb = top + zh + 18
         dim = not ready
         dim = False                                   # the rows work before the disc is chosen
-        ch1 = self.link('dest', 'Change', self.browse_dest)
+        ch1 = None if self.launcher else self.link('dest', 'Change', self.browse_dest)
         dl, dc = self.drive_line()
         self.row(zb, 'Install to', short_path(self.dest, 34), dl, dc, ch1, dim, first=True)
         tl, ts = self.tex_line()
@@ -793,6 +813,8 @@ class App:
         if r is None:
             return ('text', 'Checking the install folder\u2026', 'small', 'muted'), self.button('primary', label, self.begin, enabled=False)
         err = r.first_error()
+        if err and self.launcher:                     # the launcher's folder: the strip says what to do (free up space)
+            return self.seg_total(), self.button('primary', label, self.begin, enabled=False)
         if err and err.code == 'space':
             return self.seg_total(), self.button('primary', 'CHOOSE DRIVE', self.browse_dest)
         if err:
@@ -807,7 +829,23 @@ class App:
             left.append(self.link('f_diag', 'Collect diagnostics', self.open_diag, quiet=True, bg='panel'))
         if legal:
             left += [('text', 'Unofficial fan project', 'small', 'muted'), self.link('legal', 'Legal', lambda: self.show_page('legal'), quiet=True, bg='panel')]
+        if diag and self.footer_crowded(left, [total, prim]):         # 1.2.0: a long total (Ultra HD + movies) ran into Legal:
+            d = self.w.pop('f_diag'); left.remove(d); d.destroy()     # Collect diagnostics stays in Help
         self.footer(left, [total, prim])
+
+    def footer_width(self, it):
+        k = self.k
+        if isinstance(it, tuple):
+            if it[0] == 'text': return k.fonts[it[2]].measure(it[1])
+            return sum(k.fonts[it[2]].measure(s) for s, _ in it[1])
+        return it.winfo_reqwidth()
+
+    def footer_crowded(self, left, right):
+        """The footer's left items would reach its right items (as footer() places them, with a gap to spare)."""
+        dp = self.k.dp
+        lend = dp(40) - dp(4) + sum(self.footer_width(it) + dp(14) for it in left)
+        rstart = dp(self.W) - dp(24) + dp(5) - sum(self.footer_width(it) + dp(14) for it in right) + dp(14)
+        return lend > rstart - dp(10)
 
     def setup_strip(self, y, ready):
         """At most one notice under the rows: a folder problem, then the space stop, then a note, then Smart App Control."""
@@ -823,7 +861,7 @@ class App:
             self.strip(y, '%s needs %.1f GB free and has %.1f GB. Choose another drive or free up some space.'
                        % (drive, self.need_bytes() * 1.1 / precheck.GB, (r.free or 0) / precheck.GB), bad=True)
         elif err:
-            links = [self.link('fix', 'Use %s' % precheck.short(err.fix, 30), lambda f=err.fix: self.set_dest(f), bg='panel2')] if err.fix else []
+            links = [self.link('fix', 'Use %s' % precheck.short(err.fix, 30), lambda f=err.fix: self.set_dest(f), bg='panel2')] if err.fix and not self.launcher else []
             self.strip(y, err.text, bad=True, links=links)
         elif self.notice:
             self.strip(y, self.notice[1], self.notice[0] == 'bad')
@@ -913,7 +951,7 @@ class App:
         y = 150
         dl, dc = self.drive_line()
         self.row(y, 'Installed in' if m != 'resume' else 'Install to', short_path(self.dest, 34), dl, dc,
-                 self.link('dest', 'Change', self.install_elsewhere), first=True); y += 50     # another folder = a fresh install there
+                 None if self.launcher else self.link('dest', 'Change', self.install_elsewhere), first=True); y += 50     # another folder = a fresh install there
         if self.needs_disc():
             img = self.image
             if self.disc_checking: self.row(y, 'Disc', 'Checking\u2026', Path(self.disc).name, 'muted', None)
@@ -936,7 +974,7 @@ class App:
         if m == 'resume':
             items.append(self.link('startover', 'Discard the HD content' if core_done else 'Start over',
                                    lambda: self.ask('startover'), quiet=True))
-        if m in ('update', 'maintain'):
+        if m in ('update', 'maintain') and not self.launcher:      # the launcher removes its own games
             items.append(self.link('uninstall', 'Uninstall', lambda: self.go('uninstall'), quiet=True))
         items.append(self.link('report', 'Report a problem', self.open_report, quiet=True))      # 1.1.6
         for it in items: self.put(it, x, y); x += it.winfo_reqwidth() / k.scale + 18
@@ -955,12 +993,14 @@ class App:
             tp = self.install_primary(bool(ok), label)
         exe = Path(precheck.clean_path(self.dest)) / 'MechAssault 2.exe'
         if m in ('update', 'maintain') or (m == 'resume' and core_done):
-            if m in ('update', 'maintain') and tp[0][0] == 'segs': tp = (('segs', [('Rebuilds the game \u00b7 ', 'text')] + tp[0][1][1:], 'mono'), tp[1])
+            if m in ('update', 'maintain') and tp[0][0] == 'segs' and self.action() != 'addons': tp = (('segs', [('Rebuilds the game \u00b7 ', 'text')] + tp[0][1][1:], 'mono'), tp[1])
             if exe.is_file():
-                play = self.button('play', 'PLAY', self.play, primary=False)
-                play.ghost = True; play.draw()
                 total, prim = tp
                 hl = self.link('help', 'Help', self.open_menu, quiet=True, bg='panel')
+                if self.launcher:                               # the launcher plays the game itself: no PLAY
+                    self.footer([hl], [total, prim]); return
+                play = self.button('play', 'PLAY', self.play, primary=False)
+                play.ghost = True; play.draw()
                 self.footer([hl], [total, play, prim]); return
         self.std_footer(tp)
 
@@ -1073,6 +1113,7 @@ class App:
     def install_elsewhere(self):
         """Change on an installed / interrupted install: pick another folder for a fresh install there (the existing install is left
         exactly as it is; picking it again keeps Update / Repair / Continue)."""
+        if self.launcher: return
         p = self.pick_folder()
         if not p or os.path.normcase(os.path.abspath(p)) == os.path.normcase(os.path.abspath(precheck.clean_path(self.dest) or '.')): return
         self.notice = None; self.confirm = None
@@ -1123,7 +1164,7 @@ class App:
         need = self.need_bytes() * 1.1 / precheck.GB
         loc = '%s \u00b7 %s \u00b7 needs %.1f GB' % (short_path(self.dest, 40), dl, need)
         sec('Install location', [(loc, 'danger' if self.folder and 'space' in self.folder.codes() else 'muted')],
-            self.link('o_dest', 'Change', self.browse_dest if self.mode == 'install' else self.install_elsewhere, bg='panel'))
+            None if self.launcher else self.link('o_dest', 'Change', self.browse_dest if self.mode == 'install' else self.install_elsewhere, bg='panel'))
         reco = self.facts.get('reco'); h = self.have()
         if reco is None:
             seg = Segment(cv, k, [('original', 'Original', True), ('2x', 'HD', False), ('4x', 'Ultra HD', False)], self.texture, self.set_texture, P['panel'], key='o_tex')
@@ -1148,7 +1189,7 @@ class App:
             tg = Toggle(cv, k, self.videos, self.set_videos, P['panel'], enabled=not h['videos'], key='o_vid')
             subs = [('Already installed.', 'text')] if h['videos'] else [('Sharpens the game\'s pre-rendered movies. In-game cutscenes are unaffected.', 'text'), ('+3.5 GB \u00b7 needs 25 GB free while it runs \u00b7 many hours \u00b7 uses your graphics card', 'muted')]
             sec('Upscaled movies', subs, tg)
-        if self.action() in ('install', 'update', 'repair'):
+        if self.action() in ('install', 'update', 'repair') and not self.launcher:     # the launcher makes its own shortcuts
             f = tk.Frame(cv, bg=P['panel'])
             for key, label in (('desktop', 'Desktop'), ('start', 'Start menu'), ('editor', 'Scenario Editor')):
                 tk.Label(f, text=label, font=k.fonts['small'], fg=P['muted'], bg=P['panel']).pack(side='left', padx=(dp(14), dp(4)))
@@ -1361,6 +1402,10 @@ class App:
             self.inst.on_status = lambda text: q.put(('status', text))
             self.inst.on_reuse = lambda mode: q.put(('reuse', mode))      # 1.1.7: the quick rebuild's shorter estimates
             self.inst.until = os.environ.get('MA2_INSTALLER_UNTIL')
+        if self.launcher:
+            self.inst.launcher = True                 # the launcher's folder is never remembered for the standalone installer
+            self.lw['ran'] = True; self.lw['last'] = None
+            if self.launcher.get('report'): self.launcher['report'].wait(None)
         self.inst.on_plan = lambda names: q.put(('plan', names))
         self.inst.on_wait = lambda info: q.put(('wait', info))      # 1.1.5: the build waits for free memory (a calm state, not a stop)
         self.last_params = p
@@ -1380,6 +1425,19 @@ class App:
             q.put(('log', traceback.format_exc())); q.put(('stopped', ('unexpected', 'Unexpected error (details in the log).', None)))
 
     def event(self, kind, value):
+        rep = self.launcher and self.launcher.get('report')
+        if kind in ('done', 'stopped') and self.launcher:
+            self.lw['last'] = 'done' if kind == 'done' else ('extras' if value[0] == 'extras' else 'stopped')
+            if kind == 'stopped' and value[0] == 'extras': self.lw['extras'] = value[1]
+        if rep:                                      # --window: the same progress lines as the hidden step
+            try:
+                if kind == 'plan': rep.plan(value)
+                elif kind == 'log': rep.log(value)
+                elif kind == 'step': rep.step(*value)
+                elif kind == 'reuse': rep.reuse(value)
+                elif kind in ('done', 'stopped'): rep.wait(self.launcher.get('waiting') or 'Waiting')
+            except Exception:
+                traceback.print_exc()
         if kind == 'plan':
             self.model = progress.ProgressModel(list(value))
             if self.quick == 'fast': self.model.set_quick(True)
@@ -1762,6 +1820,8 @@ class App:
                        links=[self.link('notes', 'Details', lambda: self.show_page('notes'), bg='panel2')], width=800)
         of = self.link('open_folder', 'Open install folder', lambda: self.launch('open', precheck.clean_path(self.dest)), quiet=True, bg='panel')
         rp = self.link('report', 'Report a problem', self.open_report, quiet=True, bg='panel')        # 1.1.6
+        if self.launcher:                              # the launcher plays the game: closing the window ends its setup step
+            self.footer([rp], [of, self.button('primary', 'DONE', self.close, big=True)]); return
         self.footer([rp], [of, self.button('primary', 'LAUNCH', self.play, big=True)])
 
     def play(self):
@@ -2395,11 +2455,116 @@ def start_legacy():
     gui_legacy.message_box = lambda text: message_box(text)
     gui_legacy.main()
 
+def launcher_window(dest, xiso, textures, videos, report=None, waiting=None, make_root=None):
+    """1.2.0 RecompLauncher --window (install.py --recomplauncher --window): the window, locked to dest, pre-ticked from the
+    launcher's ticks. Runs until the player closes it and returns {'last': None|'done'|'extras'|'stopped', 'ran', 'extras'}, or
+    None when it could not start. The window's "ui:" lines go to its log; stdout stays the launcher's (progress lines only).
+    MA2_LAUNCHER_UI_TEST (tests only): steps the window takes by itself, see launcher_test_steps."""
+    saved = sys.stdout, sys.stderr
+    log_path, log = open_ui_log()
+    if log: sys.stdout = sys.stderr = log
+    try:
+        try:
+            print('ui: installer window %s for RecompLauncher, session %s' % (install.build_label(), precheck.session_id()), flush=True)
+            if IMPORT_ERROR: raise RuntimeError('a part of the new window failed to load:\n' + IMPORT_ERROR)
+            if os.environ.get('MA2_UI_CRASH_TEST'): raise RuntimeError('MA2_UI_CRASH_TEST: simulated start-up failure')
+            ui_win.set_dpi_awareness(); ui_win.set_app_id(APP_ID); ui_theme.load_fonts()
+            root = make_root() if make_root else tk.Tk()
+            _KEEP.append(root)
+            root.withdraw()
+            test = os.environ.get('MA2_LAUNCHER_UI_TEST')
+            hidden = bool(test or os.environ.get('MA2_UI_OFFSCREEN'))      # tests: never visible, never activated (as tests/installer/rig.py)
+            if hidden: root.attributes('-alpha', 0.0); root.attributes('-toolwindow', True)
+            app = App(root, launcher=dict(dest=str(dest), xiso=xiso, textures=list(textures or []), videos=bool(videos),
+                                          report=report, waiting=waiting))
+            if hidden:
+                try: ctypes.windll.user32.SetWindowLongW(app.hwnd, -20, ctypes.windll.user32.GetWindowLongW(app.hwnd, -20) | 0x08000000)
+                except Exception: pass
+            root.deiconify()
+            if hidden: root.attributes('-alpha', 0.0)
+            else:
+                try: root.lift(); root.focus_force()
+                except tk.TclError: pass
+            if test: launcher_test_steps(root, app, test)
+        except Exception:
+            traceback.print_exc(); return None
+        try:
+            root.mainloop()
+        except Exception:
+            traceback.print_exc()
+        print('ui: the window closed (%s)' % (app.lw['last'] or 'no run'), flush=True)
+        return dict(app.lw)
+    finally:
+        sys.stdout, sys.stderr = saved
+        if log:
+            try: log.close()
+            except Exception: pass
+        if log_path and log_path.is_file() and log_path.stat().st_size == 0:
+            try: log_path.unlink()
+            except OSError: pass
+
+def launcher_test_steps(root, app, spec):
+    """MA2_LAUNCHER_UI_TEST="until:setup;primary;until:done;shot:<file.bmp>;close": the launcher simulator's hook (never a mouse
+    or keyboard on the desktop). until:<screen> waits for it (10 min at most), wait:<s>, primary presses the primary button,
+    cancel stops a run, shot:<file.bmp> saves the window (PrintWindow, off screen), close closes it (as the title bar's X)."""
+    steps = [x for x in spec.split(';') if x]
+    t0 = [time.monotonic()]
+    def tick():
+        if app.closing or not steps: return
+        cmd, _, arg = steps[0].partition(':')
+        if cmd == 'until':
+            ok = app.screen == arg and (arg not in ('setup', 'options') or (not app.disc_checking and app.folder is not None))
+            if not ok and time.monotonic() - t0[0] < 600: return root.after(200, tick)
+        elif cmd == 'wait':
+            if time.monotonic() - t0[0] < float(arg or 1): return root.after(200, tick)
+        elif cmd == 'primary':
+            if app.primary is not None and app.primary.enabled: app.primary.invoke()
+        elif cmd == 'cancel':
+            app.cancel_install()
+        elif cmd == 'shot':
+            try: window_bmp(root, arg)
+            except Exception: traceback.print_exc()
+        elif cmd == 'close':
+            steps.pop(0); print('ui: test step close', flush=True); app.close(); return
+        print('ui: test step %s done' % cmd, flush=True)
+        steps.pop(0); t0[0] = time.monotonic()
+        root.after(200, tick)
+    root.after(500, tick)
+
+def window_bmp(root, path):
+    """The window (title bar included) as a 24-bit .bmp, with PrintWindow: works off screen. Tests only (the kit has no PIL)."""
+    import struct
+    from ctypes import wintypes
+    u, g = ctypes.windll.user32, ctypes.windll.gdi32
+    root.update_idletasks(); root.update()
+    hwnd = u.GetParent(root.winfo_id()) or root.winfo_id()
+    r = wintypes.RECT(); u.GetWindowRect(hwnd, ctypes.byref(r)); w, h = r.right - r.left, r.bottom - r.top
+    dc = u.GetDC(0); mem = g.CreateCompatibleDC(dc); bmp = g.CreateCompatibleBitmap(dc, w, h); g.SelectObject(mem, bmp)
+    u.PrintWindow(hwnd, mem, 2)
+    class BIH(ctypes.Structure):
+        _fields_ = [('size', ctypes.c_uint), ('w', ctypes.c_int), ('h', ctypes.c_int), ('planes', ctypes.c_ushort), ('bits', ctypes.c_ushort),
+                    ('comp', ctypes.c_uint), ('img', ctypes.c_uint), ('x', ctypes.c_int), ('y', ctypes.c_int), ('u', ctypes.c_uint), ('i', ctypes.c_uint)]
+    bi = BIH(); bi.size = ctypes.sizeof(BIH); bi.w = w; bi.h = h; bi.planes = 1; bi.bits = 24
+    data = ctypes.create_string_buffer(((w * 3 + 3) & ~3) * h)
+    g.GetDIBits(mem, bmp, 0, h, data, ctypes.byref(bi), 0)
+    g.DeleteObject(bmp); g.DeleteDC(mem); u.ReleaseDC(0, dc)
+    with open(path, 'wb') as f:
+        f.write(b'BM' + struct.pack('<IHHI', 54 + len(data.raw), 0, 0, 54))
+        f.write(struct.pack('<IiiHHIIiiII', 40, w, h, 1, 24, 0, len(data.raw), 2835, 2835, 0, 0))
+        f.write(data.raw)
+
 def main():
     log_path, log = STARTUP_LOG if STARTUP_LOG[1] else open_ui_log()     # opened at the top of this file when run as the window
     if log: sys.stdout = sys.stderr = log
     try: print('ui: installer window %s, session %s' % (install.build_label(), precheck.session_id()), flush=True)
     except Exception: pass
+    ldest = os.environ.get('MA2_RECOMPLAUNCHER_DEST', '').strip()
+    if ldest and IMPORT_ERROR is None:
+        # 1.2.0: started by RecompLauncher's Play (recomplauncher.json start.program's second entry) because the built game is not
+        # in its folder: the window locked to that folder, as the --window setup step (Repair, Continue or Install there).
+        print('ui: started by RecompLauncher for its own folder', flush=True)
+        selfupdate.switch_off()
+        if launcher_window(ldest, None, [], False) is not None: return
     try:
         root, app = start_new()
     except Exception:

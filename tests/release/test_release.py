@@ -180,6 +180,15 @@ class LauncherZip(unittest.TestCase):
         self.assertIn('members', probs); self.assertIn('pc_settings.ini', probs); self.assertIn('differs', probs)
         self.assertTrue(self.br.check_launcher_zip(self.tmp / 'missing.zip', self.exe))
 
+    def test_check_wants_a_start_program_the_zip_has(self):
+        import json, zipfile
+        prof = json.loads(self.prof.read_text(encoding='utf-8'))
+        prof['start']['program'] = ['MechAssault 2/MechAssault 2.exe']             # preview 1: red in the Developer tab
+        bad = self.tmp / 'nostart.zip'
+        with zipfile.ZipFile(bad, 'w') as zf:
+            zf.writestr('recomplauncher.json', json.dumps(prof)); zf.write(self.exe, self.br.INSTALLER_EXE)
+        self.assertIn('start.program must also list', ' | '.join(self.br.check_launcher_zip(bad, self.exe)))
+
     def test_broken_profile_stops_the_build(self):
         p = self.tmp / 'recomplauncher.json'; p.write_text('{"format": 1,', encoding='utf-8')
         with self.assertRaises(ValueError):

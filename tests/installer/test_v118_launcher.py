@@ -96,8 +96,8 @@ class Progress(Base):
         nums = [float(l.split()[1]) for l in out]
         self.assertEqual(nums, sorted(nums))
         self.assertEqual(out[-1], 'progress 1 Ready to play')
-        self.assertTrue(any('Compiling 10 of 10 files' in l for l in out), out)
-        self.assertTrue(any(l.endswith('Reading your disc') for l in out), out)
+        self.assertTrue(any(l.endswith(' Building the game: compiling 10 of 10 files') for l in out), out)     # 1.2.0 approved form
+        self.assertTrue(any(l.endswith(' Building the game: reading your disc') for l in out), out)
         self.assertLess(max(nums[:-1]), 1.0)
 
     def test_an_update_with_the_kept_build_never_goes_back_a_stage(self):
@@ -113,9 +113,10 @@ class Progress(Base):
                 if n == 'build':
                     for k in (1, 2, 3): p.log('[%d/3] Building C object a%d.obj' % (k, k))
         p.finish('Ready to play')
-        titles = [t for _, t, _ in p.model.stages]
+        titles = [install.launcher_text(i, t, '') for i, t, _ in p.model.stages]
         seen = [l.split(' ', 2)[2] for l in out]
         order = [titles.index(t) for t in seen if t in titles]
+        self.assertGreater(len(order), 2, seen)
         self.assertEqual(order, sorted(order), seen)
 
     def test_a_line_at_least_once_a_minute_even_without_change(self):
@@ -131,7 +132,7 @@ class Progress(Base):
         p.plan(['check'])
         with mock.patch.object(p.model, 'fraction', side_effect=RuntimeError('boom')):
             p.emit(); p.log('anything')
-        self.assertEqual(out, ['progress 0.00 Reading your disc'])
+        self.assertEqual(out, ['progress 0.00 Building the game: reading your disc'])
 
 
 class Run(Base):
@@ -270,7 +271,7 @@ class Manifest(unittest.TestCase):
     def test_programs_and_paths_match_the_installer(self):
         p, s = self.m['prepare'], self.m['start']
         self.assertEqual(p['program'], ['MechAssault 2 Recomp Installer.exe'])
-        self.assertEqual(s['program'], ['MechAssault 2/MechAssault 2.exe'])
+        self.assertEqual(s['program'], ['MechAssault 2/MechAssault 2.exe', 'MechAssault 2 Recomp Installer.exe'])   # 1.2.0: the second is in the zip
         self.assertIn('--recomplauncher', p['args'])
         self.assertIn('--xiso={input:game}', p['args'])                       # one argument: keeps_copy leaves it out
         self.assertTrue(p['keeps_copy'])

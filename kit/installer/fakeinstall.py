@@ -5,7 +5,7 @@
 
 gui.py then uses FakeInstaller in place of install.Installer: same callbacks (log lines, step events), same exceptions.
 """
-import re, threading, time
+import os, re, threading, time
 from pathlib import Path
 import install
 
@@ -72,3 +72,13 @@ class FakeInstaller:
                     raise install.Stop('%s failed (exit code 1). The last lines are above; the full log is %s.' % (title, self.session_log), self.fail[1])
                 self.log(line); time.sleep(min(pause, 0.25))
             self.log('    done in %ds' % secs)
+        if os.environ.get('MA2_FAKE_STAMP') and self.dest != Path('.'):
+            self.write_stamp()
+
+    def write_stamp(self):
+        """MA2_FAKE_STAMP=1 (RecompLauncher --window tests): leave what a finished install of this version leaves (the files
+        is_install looks for, empty, and the stamp), so the folder counts as built."""
+        import json, precheck
+        for rel in ('MechAssault 2.exe', 'game_files/ma2.xbe', 'pc_assets/common.mgf'):
+            (self.dest / rel).parent.mkdir(parents=True, exist_ok=True); (self.dest / rel).write_bytes(b'')
+        (self.dest / precheck.STAMP).write_text(json.dumps({'kit_id': install.KIT_ID, 'version': install.VERSION, 'fake': True}), encoding='utf-8')

@@ -106,6 +106,11 @@ RecompLauncher unpacks each new release over the player's install folder, then r
 So the zip must never carry a `pc_settings.ini` or anything else a player changes; `build_release.py` and the gate's
 `launcher_zip` step refuse any other member. Keep `recomplauncher.json` in step with the game: a renamed settings key,
 exe or install file is renamed there too (`tests/installer/test_v118_launcher.py` checks the names it uses).
+`start.program` lists the built `MechAssault 2/MechAssault 2.exe` first and the installer second: RecompLauncher plays the
+first one that exists, and its Developer tab marks a profile red when none of them is in the release folder (the game exists
+only after setup). Started that way, the installer opens its window locked to the launcher's folder
+(`MA2_RECOMPLAUNCHER_DEST` in `start.env`). The setup option `installer_window` adds `--window`: the setup step shows the
+installer's own window instead of running hidden (`tests/installer/test_v120_launcher_window.py`).
 Upload both files (and `SHA256SUMS.txt`) to the GitHub release; the commands `preview` and `rc` write out do.
 
 ## The gate
