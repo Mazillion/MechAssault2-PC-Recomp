@@ -59,6 +59,20 @@ void xbox_log_redact(char *text, size_t size);
  * topology / thread-role API. pc_cpu_topo.c has no build edge of its own: it compiles here. */
 #include "platform/pc_switch.h"
 #include "platform/pc_cpu_topo.c"
+/* 1.1.8: the EcoQoS opt-out with its Windows 10 fallback (see the call in main). */
+#include "pc_power_throttle.h"
+static int pc_power_set_throttling(unsigned long mask,void *ctx,unsigned long *err)
+{
+    PROCESS_POWER_THROTTLING_STATE throttling;
+    (void)ctx;
+    memset(&throttling,0,sizeof(throttling));
+    throttling.Version=PROCESS_POWER_THROTTLING_CURRENT_VERSION;
+    throttling.ControlMask=mask;
+    throttling.StateMask=0;
+    if(SetProcessInformation(GetCurrentProcess(),ProcessPowerThrottling,&throttling,sizeof(throttling))) return 1;
+    *err=GetLastError();
+    return 0;
+}
 /* T1-2 FastCode switch (declared in recomp_types.h; set once at boot). */
 int g_recomp_fastcode = 0;
 int recomp_dispatch_fast_init(void);
@@ -967,18 +981,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     /* Laptops (2026-10-15): Windows 11 may run a process under EcoQoS -- efficiency cores at low
      * clocks -- and ignore its timer resolution while its window is in the background, and an
      * i7-1260P run did not recover its frame rate after an alt-tab. Opt the whole process out:
-     * it is a game, and its audio and GPU threads keep real-time deadlines either way. */
+     * it is a game, and its audio and GPU threads keep real-time deadlines either way.
+     * Windows 10 knows only the speed control and refuses the pair (87): then speed only (1.1.8,
+     * pc_power_throttle.h; up to 1.1.7 a Windows 10 PC got no opt-out at all). */
     {
-#ifndef PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION
-#define PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION 0x4
-#endif
-        PROCESS_POWER_THROTTLING_STATE throttling;
-        memset(&throttling,0,sizeof(throttling));
-        throttling.Version=PROCESS_POWER_THROTTLING_CURRENT_VERSION;
-        throttling.ControlMask=PROCESS_POWER_THROTTLING_EXECUTION_SPEED|PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
-        throttling.StateMask=0;
-        if(!SetProcessInformation(GetCurrentProcess(),ProcessPowerThrottling,&throttling,sizeof(throttling)))
-            fprintf(stderr,"[LAUNCH] power throttling opt-out failed (%lu)\n",GetLastError());
+        unsigned long first_err,last_err;
+        int r=pc_power_optout(pc_power_set_throttling,NULL,&first_err,&last_err);
+        if(r==2) fprintf(stderr,"[LAUNCH] power throttling opt-out: %s\n",pc_power_optout_text(r));
+        else if(r==1) fprintf(stderr,"[LAUNCH] power throttling opt-out: %s (both: %lu)\n",pc_power_optout_text(r),first_err);
+        else fprintf(stderr,"[LAUNCH] power throttling opt-out failed (%lu, speed only: %lu)\n",first_err,last_err);
     }
 
     /* Windows timer resolution (easy-wins B1.3): Sleep() and waits otherwise round to ~15.6 ms and the
