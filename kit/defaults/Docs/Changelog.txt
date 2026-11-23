@@ -6,13 +6,9 @@ You have version {{VERSION}} (build {{BUILD}}).
 
 1.2.0
 -----
-- Split screen is back. A second player joins with a controller in the
-  Multiplayer menus: choose Add Guest, or just press START on a controller
-  nobody is using yet. While a guest is in, player 1 plays on one device:
-  keyboard and mouse, or the controller they were using when the guest
-  joined. If the match is already full of bots, one bot makes room (from
-  the guest's team in team games) and comes back when the guest leaves.
-  Guests join in the menus, not in the middle of a match.
+- Split screen is back. In the Multiplayer menus, choose Add Guest or
+  press START on a second controller. If the match is full, a bot steps
+  out to make room and comes back when the guest leaves.
 - Damage that keeps hitting while you stand in it (collapsing buildings,
   wreckage, beam weapons) now does the same damage at any frame rate as it
   did at 30 fps. At 60 fps and above some of it did nothing before,
@@ -26,6 +22,8 @@ You have version {{VERSION}} (build {{BUILD}}).
   Recomp)"). The standalone installer works as before.
 - Scenario editor: "Can it get here?" shows where each unit can and
   cannot reach on the map.
+- Installer: fixed a build failure on PCs where Visual Studio was
+  missing a part the build needs. The installer now adds it.
 
 
 1.1.7

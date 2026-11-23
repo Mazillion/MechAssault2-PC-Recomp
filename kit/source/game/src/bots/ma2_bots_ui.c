@@ -1191,7 +1191,7 @@ static void split_frame(uint32_t object, uint32_t vtable) {
 }
 
 /* ============================ per-frame hook ============================ */
-/* F5 (split screen): the free-for-all row's help says how many bots fit ("Bot opponents, up to 11.").
+/* F5 (split screen): the free-for-all row's help says how many bots fit ("How many bots you fight (up to 11)...").
  * With a guest in the room is 10: the same sentence with the number the room allows, in every
  * language (the first "11" in the text is the count). */
 static const wchar_t *ffa_row_text(const wchar_t *w, int room) {

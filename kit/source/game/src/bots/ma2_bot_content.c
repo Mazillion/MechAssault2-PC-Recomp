@@ -19,7 +19,7 @@ static const wchar_t *const ma2_bot_text_table[MA2_LANG_COUNT][MA2_TEXT_COUNT] =
         L"Fresh from the academy. Slow on the trigger and easily rattled.", L"Line pilots who know their machines but rarely surprise you.", L"Hardened pilots. They flank, take cover and punish mistakes.", L"The deadliest aces in the Inner Sphere. Expect no mercy.", L"A real lobby: green rookies, hardened aces and the odd Dragoon legend side by side.",
         L"Dragoon", L"Legendary mercenary MechWarriors. They read your every move, strike as one and never let up.",
         L"Bots on this team. A team holds 6 players, you included; you join the side the counts leave short.",
-        L"Bot opponents, up to 11. Off plays the map alone.",
+        L"How many bots you fight (up to 11). Choose Off to explore the map on your own.",
         L"Grinder is two-player co-op: one bot partner at most."
     },
     /* French */
