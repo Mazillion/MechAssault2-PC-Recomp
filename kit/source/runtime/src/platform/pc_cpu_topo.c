@@ -10,6 +10,7 @@
  * is an empty hook for T1-5 ([Cpu] ThreadPlacement). Every API is optional: a missing or failing call
  * falls back to the next source and is reported in the log line (source=...). */
 #include "pc_cpu_topo.h"
+#include "pc_power_state.h"   /* 1.1.8 [POWER] */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -673,6 +674,12 @@ static void pc_cpu_topo_init(void)
             pc_cpu_tier_name(t->tier),
             t->power == PC_POWER_AC ? "ac" : t->power == PC_POWER_BATTERY ? "battery" : "unknown",
             t->has_battery == 1 ? "yes" : t->has_battery == 0 ? "no" : "unknown", t->saver);
+    {   /* 1.1.8: the power mode, plan and clocks (pc_power_state.h; "unknown" when Windows does not say) */
+        pc_power_state ps2; char txt[160];
+        pc_power_state_read(&ps2); pc_power_state_text(&ps2, txt, sizeof txt);
+        fprintf(stderr, "[POWER] %s cpus=%u
+", txt, ps2.ncpu);
+    }
     if (t->tier == PC_CPU_TIER_FLOOR)
         fprintf(stderr, "[CPU-TOPO] below 4-thread floor (logical=%u): thread placement stays off\n", t->logical);
 }
