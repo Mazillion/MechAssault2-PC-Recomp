@@ -150,6 +150,9 @@ extern "C" uint32_t ma2_pc_prompt_text(uint32_t original)
     auto previous=cache.results.find(text);
     if(previous!=cache.results.end())return previous->second?previous->second:original;
     bool pad=pc_input_device()==PC_INPUT_GAMEPAD;
+    /* Add Guest (split screen): the new player joins on a controller, never on the keyboard, so
+     * "Press START on the new player's controller" keeps the pad's name for the button (Menu). */
+    if(text.find(L"new player's controller")!=std::wstring::npos)pad=true;
     if(!pad) {
         replace_bare_buttons(text);
         /* Pull describes a trigger action, not arbitrary lore prose. */

@@ -84,14 +84,67 @@ DWORD xbox_InputActiveSlot(void)
     return (DWORD)InterlockedCompareExchange(&xi_active_slot, 0, 0);
 }
 
+/* ---- split screen (RECOMP_SPLITSCREEN, 1.1.8 prototype) -------------------
+ *
+ * One player has one virtual pad on one guest port; the guest (Add Guest) is the
+ * next guest port. Outside split screen guest port 0 follows whichever host pad
+ * pressed a button last (xi_poll_active), so a second player's pad would take over
+ * player 1 the moment it pressed A to join. In split screen every guest port has
+ * its own host pad instead, assigned in host slot order among the CONNECTED pads
+ * (a pad in slot 2 with slot 1 empty is still player 2):
+ *   - default: player 1 = the first pad (keyboard and mouse merged on top, as
+ *     always), player 2 = the second pad;
+ *   - RECOMP_SPLITSCREEN_KBM=1 ([Debug] SplitScreenKeyboard=1): player 1 = the
+ *     keyboard and mouse only, player 2 = the first pad, player 3 = the second.
+ * Mouse aim already follows guest port 0 (recomp_manual.c ma2_primary_input_slot). */
+static int xi_split_mode(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *v = getenv("RECOMP_SPLITSCREEN");
+        on = (v && *v && *v != '0') ? 1 : 0;
+    }
+    return on;
+}
+static int xi_split_kbm(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *v = getenv("RECOMP_SPLITSCREEN_KBM");
+        on = (v && *v && *v != '0') ? 1 : 0;
+    }
+    return on;
+}
+#define XI_NO_SLOT 0xFFFFFFFFu
+/* The host slot that drives guest port `port` in split screen, or XI_NO_SLOT. */
+static DWORD xi_split_slot(DWORD port)
+{
+    DWORD want = port, slot = XI_NO_SLOT;
+    int i;
+    if (xi_split_kbm()) {
+        if (port == 0) return XI_NO_SLOT;
+        want = port - 1;
+    }
+    AcquireSRWLockShared(&xi_lock);
+    for (i = 0; i < 4; i++) {
+        if (!xi_slot[i].connected) continue;
+        if (want == 0) { slot = (DWORD)i; break; }
+        want--;
+    }
+    ReleaseSRWLockShared(&xi_lock);
+    return slot;
+}
+
 /* Guest port 0 is the active host slot; ports 1-3 keep their own host slots. */
 static DWORD xi_host_slot(DWORD guest_port)
 {
+    if (xi_split_mode()) return xi_split_slot(guest_port);
     return guest_port == 0 ? xbox_InputActiveSlot() : guest_port;
 }
 static DWORD WINAPI xi_send_mapped(DWORD guest_port, XINPUT_VIBRATION *vibration)
 {
-    return xi_set(xi_host_slot(guest_port), vibration);
+    DWORD slot = xi_host_slot(guest_port);
+    return slot == XI_NO_SLOT ? ERROR_DEVICE_NOT_CONNECTED : xi_set(slot, vibration);
 }
 
 /* Returns ERROR_SUCCESS and the active slot's state, or ERROR_DEVICE_NOT_CONNECTED
@@ -132,7 +185,7 @@ static DWORD xi_poll_active(XINPUT_STATE *out, BOOL *lost)
     }
     if (!xi_slot[active].connected) {
         for (i = 0; i < 4; i++) if (xi_slot[i].connected) { active = (DWORD)i; break; }
-    } else {
+    } else if (!xi_split_mode()) {   /* split screen: a guest's press must not take player 1's port */
         for (i = 0; i < 4; i++) {
             const XINPUT_GAMEPAD *g;
             if ((DWORD)i == active || !xi_slot[i].connected || !fresh[i]) continue;
@@ -702,9 +755,17 @@ static DWORD xi_get_state_core(DWORD dwPort, XBOX_INPUT_STATE *pState)
 
     if (dwPort == 0) {
         BOOL lost = FALSE;
-        result = xi_poll_active(&xi_state, &lost);
+        result = xi_poll_active(&xi_state, &lost);   /* also refreshes every slot's connected state */
+        if (xi_split_mode()) {
+            /* Split screen: port 0 keeps its own pad (or none, keyboard and mouse only). */
+            DWORD slot = xi_split_slot(0);
+            result = slot == XI_NO_SLOT ? ERROR_DEVICE_NOT_CONNECTED : xi_get(slot, &xi_state);
+        }
         if (lost && pc_input_device() == PC_INPUT_GAMEPAD && pc_input_context() == PC_INPUT_GAMEPLAY)
             xi_arm_pause_tap();
+    } else if (xi_split_mode()) {
+        DWORD slot = xi_split_slot(dwPort);
+        result = slot == XI_NO_SLOT ? ERROR_DEVICE_NOT_CONNECTED : xi_get(slot, &xi_state);
     } else result = xi_get(dwPort, &xi_state);
     if (result != ERROR_SUCCESS) {
         g_controller_connected[dwPort] = FALSE;
@@ -834,7 +895,10 @@ DWORD xbox_InputGetCapabilities(DWORD dwPort, DWORD dwFlags, XBOX_INPUT_CAPABILI
     if (dwPort >= XBOX_MAX_CONTROLLERS || !pCaps)
         return ERROR_DEVICE_NOT_CONNECTED;
 
-    result = xi_caps(xi_host_slot(dwPort), dwFlags, &caps_data);
+    {
+        DWORD slot = xi_host_slot(dwPort);
+        result = slot == XI_NO_SLOT ? ERROR_DEVICE_NOT_CONNECTED : xi_caps(slot, dwFlags, &caps_data);
+    }
     if (result != ERROR_SUCCESS) {
         if (dwPort != 0 || !keyboard_enabled()) return result;
         memset(pCaps, 0, sizeof(*pCaps));
