@@ -24,6 +24,10 @@ You have version {{VERSION}} (build {{BUILD}}).
   cannot reach on the map.
 - Installer: fixed a build failure on PCs where Visual Studio was
   missing a part the build needs. The installer now adds it.
+- Messages: an envelope on the main menu (M, or View on a controller)
+  collects update news with the list of changes and an Update now
+  button, what's new after an update, and the developer's replies to
+  your problem reports, which you can answer there.
 
 
 1.1.7

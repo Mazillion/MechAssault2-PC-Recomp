@@ -596,7 +596,7 @@ static const wchar_t *const reply_presets[]={L"Thanks, that fixed it.",L"It stil
     L"I'll try that and tell you how it went."};
 static const char *const reply_text_attach="Attach my latest logs";
 static const char *const reply_text_send="Send";
-static const char *const reply_text_private="Please don't type personal details.";
+static const char *const reply_text_private="Please don't type personal details. You're anonymous if you don't.";
 static const char *const reply_text_sending="Sending...";
 static const char *const reply_text_sent="Answer sent.";
 static const char *const reply_text_sent_logs="Answer sent with your latest logs.";
@@ -1091,7 +1091,8 @@ static void draw_envelope(ImDrawList *list,float width,float height,float sx,flo
 static void draw_inbox(ImDrawList *list,float width,float height,float sx,float sy){
     ReplyLock l;
     if(!reply_state)return;
-    const float u=std::min(width/640.f,height/480.f),size=std::max(13.f,10.5f*u),pad=12*u;ImFont *font=ImGui::GetFont();
+    // The text grows a little more than the panel on tall screens (a 1440-1600 line screen shows it about a third larger).
+    const float u=std::min(width/640.f,height/480.f),big=std::clamp(height/1200.f,1.f,1.35f),size=std::max(13.f,10.5f*u*big),pad=12*u;ImFont *font=ImGui::GetFont();
     const float w=std::min(width-24*u,620*u),h=std::min(height-24*u,440*u),x0=(width-w)*.5f,y0=(height-h)*.5f,x1=x0+w,y1=y0+h,t=std::max(1.f,1.25f*u);
     const bool gamepad=inbox_pad>=0?inbox_pad==1:pc_input_device()==PC_INPUT_GAMEPAD,busy=reply_state==2;
     auto px=[&](int f,float a,float b,float c,float d){inbox_hit[f][0]=a/sx;inbox_hit[f][1]=b/sy;inbox_hit[f][2]=c/sx;inbox_hit[f][3]=d/sy;};
@@ -1106,7 +1107,7 @@ static void draw_inbox(ImDrawList *list,float width,float height,float sx,float 
     hover_light.item(list,F_CLOSE,ca,cb,ca,cb);
     list->AddRect(ca,cb,inbox_focus==F_CLOSE?C_GLOW:C_LINE,3*u,0,t);
     list->AddText(font,size,ImVec2(ca.x+8*u,(ca.y+cb.y-cs.y)*.5f),inbox_focus==F_CLOSE?C_YELLOW:C_WHITE,msg_text_close);px(F_CLOSE,ca.x,ca.y,cb.x,cb.y);
-    const float top=y0+pad*.8f+size*1.25f+10*u,bottom=y1-pad-size*1.2f,lw=std::min(200*u,w*.34f);
+    const float top=y0+pad*.8f+size*1.25f+10*u,bottom=y1-pad-size*1.2f,lw=std::min(200*u*big,w*.36f);
     list->AddLine(ImVec2(x0+pad,top-4*u),ImVec2(x1-pad,top-4*u),C_LINE,t);
     list->AddText(font,size*.9f,ImVec2(x0+pad,bottom+4*u),C_MUTED,gamepad?msg_text_hint_pad:msg_text_hint_keys);
     // the list
@@ -1158,15 +1159,25 @@ static void draw_inbox(ImDrawList *list,float width,float height,float sx,float 
         }
         const float box_h=size*3.4f+8*u,btn_h=size*1.7f,status_h=status[0]?font->CalcTextSizeA(size,FLT_MAX,rw,status).y+6*u:0.f;
         float ctl=status_h;
-        if(answering)ctl+=size+4*u+box_h+6*u+size*1.3f+6*u+btn_h+6*u+size*1.1f;
+        const float priv_h=font->CalcTextSizeA(size*.9f,FLT_MAX,rw,reply_text_private).y+2*u;   // wraps on a narrow panel
+        if(answering)ctl+=size+4*u+box_h+6*u+size*1.3f+6*u+btn_h+6*u+priv_h;
         if(act==MA2_UPDATE_RUN_INSTALLER||act==MA2_UPDATE_RELEASES_PAGE||act==MA2_UPDATE_IN_LAUNCHER)ctl+=btn_h+6*u;
         float body_bottom=bottom-ctl-6*u;if(body_bottom<ry+size*3)body_bottom=ry+size*3;
         // the text, scrolled inside its area
-        ImVec2 bs=font->CalcTextSizeA(size,FLT_MAX,rw-8*u,m->body.c_str());
+        // the text by lines; in update notes and What's new each "- " item starts a little lower (a gap between the items)
+        const bool items=m->kind=="update"||m->kind=="whatsnew";const float gap=items?size*.45f:0.f;
+        std::vector<std::pair<std::string,float>> paras;float body_h=0;
+        for(size_t p0=0;p0<=m->body.size();){size_t e=m->body.find('\n',p0);if(e==std::string::npos)e=m->body.size();
+            std::string line=m->body.substr(p0,e-p0);float lh=line.empty()?size:font->CalcTextSizeA(size,FLT_MAX,rw-8*u,line.c_str()).y;
+            float before=(!paras.empty()&&line.size()>1&&line[0]=='-'&&line[1]==' ')?gap:0.f;
+            paras.push_back({line,before});body_h+=before+lh;p0=e+1;if(e==m->body.size())break;}
+        ImVec2 bs(rw,body_h);
         inbox_scroll_max=std::max(0.f,bs.y-(body_bottom-ry));inbox_scroll=std::clamp(inbox_scroll,0.f,inbox_scroll_max);inbox_scroll_step=size*1.2f;
         if(inbox_focus==F_BODY)list->AddRect(ImVec2(rx-4*u,ry-3*u),ImVec2(x1-pad+2*u,body_bottom+3*u),C_GLOW,3*u,0,t);
         list->PushClipRect(ImVec2(rx-2*u,ry-2*u),ImVec2(x1-pad,body_bottom+2*u),true);
-        list->AddText(font,size,ImVec2(rx,ry-inbox_scroll),C_WHITE,m->body.c_str(),nullptr,rw-8*u);
+        {float ly=ry-inbox_scroll;for(auto &pr:paras){ly+=pr.second;
+            if(!pr.first.empty())list->AddText(font,size,ImVec2(rx,ly),C_WHITE,pr.first.c_str(),nullptr,rw-8*u);
+            ly+=pr.first.empty()?size:font->CalcTextSizeA(size,FLT_MAX,rw-8*u,pr.first.c_str()).y;}}
         list->PopClipRect();
         if(inbox_scroll_max>0){float frac=(body_bottom-ry)/(bs.y),pos=inbox_scroll/inbox_scroll_max,bh=std::max(12*u,(body_bottom-ry)*frac);
             float by=ry+(body_bottom-ry-bh)*pos;list->AddRectFilled(ImVec2(x1-pad-2*u,by),ImVec2(x1-pad+1*u,by+bh),C_MUTED,2*u);}
@@ -1204,7 +1215,7 @@ static void draw_inbox(ImDrawList *list,float width,float height,float sx,float 
             ImVec2 ls=font->CalcTextSizeA(size,FLT_MAX,0,reply_text_attach);px(F_TICK,ta.x-4*u,ta.y-4*u,tb.x+8*u+ls.x+4*u,tb.y+4*u);
             cy+=size*1.3f+6*u;
             button(F_SEND,rx,reply_text_send);cy+=btn_h+6*u;
-            list->AddText(font,size*.9f,ImVec2(rx,cy),C_DIM,reply_text_private);cy+=size*1.1f;
+            list->AddText(font,size*.9f,ImVec2(rx,cy),C_DIM,reply_text_private,nullptr,rw);cy+=priv_h;
         }
         if(act==MA2_UPDATE_RUN_INSTALLER||act==MA2_UPDATE_RELEASES_PAGE||act==MA2_UPDATE_IN_LAUNCHER){button(F_BUTTON,rx,act==MA2_UPDATE_RELEASES_PAGE?msg_text_update_page:msg_text_update_now);cy+=btn_h+6*u;}
         if(status[0])list->AddText(font,size,ImVec2(rx,cy),sc,status,nullptr,rw);
