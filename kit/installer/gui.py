@@ -1809,6 +1809,13 @@ class App:
     def shortcut_line(self):
         st = getattr(self.inst, 'state', None) or {}
         if 'shortcuts' not in st: return ''
+        # 1.2.1: under Wine/Proton the shortcuts live inside the prefix, not on the Linux desktop or menu: say nothing about them
+        # rather than point the player at a desktop where they are not. (On Windows, unchanged.)
+        try:
+            import wine_host
+            if wine_host.is_wine(): return ''
+        except Exception:
+            pass
         made = [Path(p) for p in st.get('shortcuts') or [] if 'Editor' not in Path(p).name and not Path(p).name.startswith('Report a problem')]
         asked = any(self.sc.get(x) for x in ('desktop', 'start')) and self.action() in ('install', 'update', 'repair', 'resume')
         try: desk = install.known_folder('desktop')
