@@ -443,7 +443,7 @@ def find_visual_studio(choose=None):
 
 D3DCOMPILER_MISSING = ("This Wine (%(wine)s) can't compile the game's graphics by itself. Use Proton 10 or newer, or put "
                        "Microsoft's d3dcompiler_47.dll (64-bit) in %(folder)s, then start the game.")
-# ^ NEEDS OWNER APPROVAL (LINUX-STRINGS.md G1). Shown only under Wine older than wine_host.WINE_BUILTIN_D3DCOMPILER_MIN.
+# ^ NEEDS OWNER APPROVAL (LINUX-STRINGS.md G1). Shown only under Wine/Proton whose own d3dcompiler fails the probe.
 
 NO_CLANG = ('Under Linux (Wine or Proton) the game is compiled with LLVM (clang) and the Microsoft C++ runtime and Windows SDK, '
             "because Microsoft's C++ Build Tools"
@@ -2957,18 +2957,21 @@ class Installer:
         self.make_shortcuts()
 
     def wine_d3dcompiler(self):
-        """Under Wine/Proton older than wine_host.WINE_BUILTIN_D3DCOMPILER_MIN the game needs Microsoft's d3dcompiler_47.dll in its
-        folder (that Wine's own HLSL compiler rejects the game's shaders). It is never shipped (owner decision): say how to supply it,
-        and check whether it is there. Newer Wine/Proton: nothing to do. Windows: never anything. Never raises."""
+        """Under Wine/Proton the game compiles its shaders with d3dcompiler_47. Probe the prefix's own (wine_host.probe_d3dcompiler): when
+        it compiles the game's base shaders nothing is needed (GE-Proton 11); when not (Wine 9.0), the player is asked to put
+        Microsoft's d3dcompiler_47.dll in the game folder (never shipped, owner decision 11-24), and it is checked for. Windows: never
+        anything. Never raises."""
         try:
             if not wine_host.is_wine(): return
-            if not wine_host.needs_own_d3dcompiler():
-                self.log("  shaders: Wine %s's own d3dcompiler is used" % wine_host.wine_version())
+            need, res = wine_host.needs_own_d3dcompiler(KIT / 'source' / 'runtime' / 'src' / 'kernel' / 'nv2a_gpu.hlsl')
+            self.log('  shader compiler probe (Wine %s): %s' % (wine_host.wine_version(), 'the prefix\'s own d3dcompiler compiles the '
+                     'game\'s shaders' if not need else 'the prefix\'s own d3dcompiler fails (%s)' % res['detail']))
+            if not need:
                 self.state['d3dcompiler'] = 'wine'; self.save()
                 return
             state = wine_host.d3dcompiler_state(self.dest)
             if state['found']:
-                self.log('  %s: %s in the game folder (Wine %s)' % (state['name'], state['version'] or 'present', wine_host.wine_version()))
+                self.log('  %s: %s in the game folder' % (state['name'], state['version'] or 'present'))
             else:
                 msg = D3DCOMPILER_MISSING % {'wine': wine_host.wine_version(), 'folder': self.dest}
                 self.log('  NOTE: %s' % msg)

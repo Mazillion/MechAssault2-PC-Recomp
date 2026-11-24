@@ -13,6 +13,7 @@ REPO = HERE.parents[1]
 KIT = REPO / 'kit'
 sys.path.insert(0, str(KIT / 'installer'))
 import wine_host, precheck, toolchain_fetch, install                       # noqa: E402
+HLSL = KIT / 'source' / 'runtime' / 'src' / 'kernel' / 'nv2a_gpu.hlsl'
 
 
 class Wine(object):
@@ -32,7 +33,7 @@ class OnWindows(unittest.TestCase):
     def test_not_wine(self):
         self.assertIsNone(wine_host.wine_version()); self.assertFalse(wine_host.is_wine()); self.assertFalse(wine_host.use_clang())
         self.assertEqual(wine_host.describe(), ''); self.assertEqual(precheck.wine_line(), '')
-        self.assertFalse(wine_host.needs_own_d3dcompiler())
+        self.assertEqual(wine_host.needs_own_d3dcompiler(HLSL), (False, None))       # nothing is probed on Windows
         self.assertEqual(wine_host.register_launcher_link(), '')
 
     def test_paths_unchanged(self):
@@ -86,11 +87,22 @@ class UnderWine(unittest.TestCase):
             self.assertEqual(precheck.clean_path(r'Z:\srv\deck\x.iso'), r'Z:\srv\deck\x.iso')     # RecompLauncher's {input:...}
             self.assertEqual(precheck.clean_path(r'C:\Games\MechAssault 2 Expanded'), r'C:\Games\MechAssault 2 Expanded')
 
-    def test_d3dcompiler_by_wine_version(self):
-        self.assertEqual(wine_host.WINE_BUILTIN_D3DCOMPILER_MIN, (10, 0))
-        for v, need in (('9.0', True), ('9.22', True), ('10.0', False), ('10.0-rc3', False), ('11.14', False)):
-            with Wine(v):
-                self.assertEqual(wine_host.needs_own_d3dcompiler(), need, v)
+    def test_d3dcompiler_probe(self):
+        """The probe compiles the game's three base shaders with this process's d3dcompiler_47 in a child Python. On Windows (the
+        real Microsoft compiler) they compile; a damaged source, a crash or a missing file count as a failure."""
+        res = wine_host.probe_d3dcompiler(HLSL)
+        self.assertTrue(res['ok'], res); self.assertEqual(len(res['results']), 3)
+        d = Path(tempfile.mkdtemp())
+        try:
+            bad = d / 'bad.hlsl'; bad.write_text(HLSL.read_text(encoding='utf-8').replace('ByteAddressBuffer', 'NoSuchType'), encoding='utf-8')
+            r = wine_host.probe_d3dcompiler(bad); self.assertFalse(r['ok']); self.assertIn('hr=0x8', r['detail'])
+            r = wine_host.probe_d3dcompiler(d / 'missing.hlsl'); self.assertFalse(r['ok'])
+            r = wine_host.probe_d3dcompiler(HLSL, python=str(d / 'no-python.exe')); self.assertFalse(r['ok'])
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+        with Wine('11.0'):
+            self.assertEqual(wine_host.needs_own_d3dcompiler(HLSL)[0], False)
+        self.assertEqual(wine_host.wine_version_tuple('10.0-rc3'), (10, 0)); self.assertEqual(wine_host.wine_version_tuple('9.0'), (9, 0))
 
     def test_d3dcompiler_check(self):
         d = Path(tempfile.mkdtemp())
@@ -107,18 +119,20 @@ class UnderWine(unittest.TestCase):
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
-    def test_d3dcompiler_message_only_on_old_wine(self):
+    def test_d3dcompiler_message_only_when_the_probe_fails(self):
         d = Path(tempfile.mkdtemp())
         try:
             inst = install.Installer(None, d / 'G', log=lambda s: None)
             inst.save = lambda: None
-            with Wine('10.0'):
+            good = {'ok': True, 'results': [], 'detail': 'ok'}; bad = {'ok': False, 'results': [], 'detail': 'hr=0x80004005'}
+            with Wine('11.0'), mock.patch.object(wine_host, 'probe_d3dcompiler', lambda h, python=None: good):
                 inst.notes = []; inst.wine_d3dcompiler(); self.assertEqual(inst.notes, []); self.assertEqual(inst.state['d3dcompiler'], 'wine')
-            with Wine('9.0'):
+            with Wine('9.0'), mock.patch.object(wine_host, 'probe_d3dcompiler', lambda h, python=None: bad):
                 inst.notes = []; inst.wine_d3dcompiler()
                 self.assertEqual(len(inst.notes), 1); self.assertIn('d3dcompiler_47.dll', inst.notes[0]); self.assertIn('9.0', inst.notes[0])
                 self.assertEqual(inst.state['d3dcompiler'], 'missing')
-            inst.notes = []; inst.wine_d3dcompiler(); self.assertEqual(inst.notes, [])          # Windows: never
+            with mock.patch.object(wine_host, 'probe_d3dcompiler', lambda h, python=None: bad):
+                inst.notes = []; inst.wine_d3dcompiler(); self.assertEqual(inst.notes, [])          # Windows: never
         finally:
             shutil.rmtree(d, ignore_errors=True)
 

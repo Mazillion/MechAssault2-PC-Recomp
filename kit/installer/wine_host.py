@@ -257,22 +257,65 @@ def d3dcompiler_state(game_dir):
     return {'found': False, 'source': None, 'name': name, 'version': ''}
 
 
-# THE SWITCH for d3dcompiler_47.dll (owner decision 11-24): from this Wine version on (Proton 10/11 and newer, GE-Proton11 tested by
-# the runtime agent) Wine's own d3dcompiler compiles the game's shaders, so nothing extra is needed. On older Wine (Ubuntu 24.04's
-# Wine 9.0) the installer tells the player how to supply Microsoft's d3dcompiler_47.dll themselves; no Microsoft DLL ships, ever.
-WINE_BUILTIN_D3DCOMPILER_MIN = (10, 0)       # PENDING: the runtime agent confirms the exact minimum
+# d3dcompiler_47.dll (owner decision 11-24: the builtin where it works, the player's own DLL only where needed; no Microsoft DLL
+# ships, ever). Decided by a PROBE, not by a version number (Wine 10 is untested): this prefix's own D3DCompile compiles the
+# game's three base shaders (kit/source/runtime/src/kernel/nv2a_gpu.hlsl). All three compile: nothing extra is needed
+# (GE-Proton 11). Any one fails (Wine 9.0: ByteAddressBuffer is a syntax error, and the pixel shader crashes its compiler): the
+# player is asked to put d3dcompiler_47.dll in the game folder. The probe runs in a child Python, so a compiler crash cannot take
+# the installer down; a probe that cannot run counts as a failure (the message only asks for a file that always works).
+PROBE_SHADERS = (('vertex_main', 'vs_5_0'), ('pixel_main', 'ps_5_0'), ('pixel_clamped', 'ps_5_0'))
+PROBE_TIMEOUT = 180
 
 
 def wine_version_tuple(v=None):
-    """(9, 0) from '9.0', (10, 0) from '10.0-rc2' or 'GE-Proton...' style strings that start with numbers; (0, 0) when unknown."""
+    """(9, 0) from '9.0', (10, 0) from '10.0-rc2'; (0, 0) when unknown. For the logs."""
     m = re.match(r'\s*(\d+)(?:\.(\d+))?', v if v is not None else (wine_version() or ''))
     return (int(m.group(1)), int(m.group(2) or 0)) if m else (0, 0)
 
 
-def needs_own_d3dcompiler():
-    """True under Wine/Proton older than WINE_BUILTIN_D3DCOMPILER_MIN: the player must put d3dcompiler_47.dll in the game folder.
-    False on Windows and on newer Wine/Proton."""
-    return is_wine() and wine_version_tuple() < WINE_BUILTIN_D3DCOMPILER_MIN
+def _compile_here(hlsl, entry, profile):
+    """D3DCompile `entry` of the file `hlsl` with this process's d3dcompiler_47 (the prefix's own under Wine). (hr, first error line)."""
+    from ctypes import c_void_p, c_char_p, c_size_t, c_uint, POINTER, byref
+    d = ctypes.WinDLL('d3dcompiler_47', winmode=0)        # winmode=0: the normal search (Proton's needs it)
+    src = Path(hlsl).read_bytes()
+    f = d.D3DCompile
+    f.argtypes = [c_char_p, c_size_t, c_char_p, c_void_p, c_void_p, c_char_p, c_char_p, c_uint, c_uint, POINTER(c_void_p), POINTER(c_void_p)]
+    f.restype = ctypes.c_long
+    code, err = c_void_p(), c_void_p()
+    hr = f(src, len(src), b'nv2a_gpu.hlsl', None, None, entry.encode(), profile.encode(), 1 << 15, 0, byref(code), byref(err)) & 0xFFFFFFFF
+    text = ''
+    if err.value:
+        vt = ctypes.cast(err, POINTER(POINTER(c_void_p))).contents
+        ptr = ctypes.WINFUNCTYPE(c_void_p, c_void_p)(vt[3])(err); size = ctypes.WINFUNCTYPE(c_size_t, c_void_p)(vt[4])(err)
+        text = ctypes.string_at(ptr, size).decode('utf-8', 'replace')
+    return hr, (text.strip().splitlines() or [''])[0][:200]
+
+
+def probe_d3dcompiler(hlsl, python=None):
+    """{'ok': True when this prefix's own d3dcompiler_47 compiles all PROBE_SHADERS of `hlsl`, 'results': [...], 'detail': '...'}.
+    Runs `python` (default: this one) on this file in a child process. Never raises."""
+    import subprocess, sys
+    if not python:                                       # the window runs pythonw.exe: the probe prints, so python.exe
+        con = Path(sys.executable).with_name('python.exe')
+        python = str(con) if con.is_file() else sys.executable
+    try:
+        r = subprocess.run([python, '-B', '-s', str(Path(__file__).resolve()), '--probe', str(hlsl)],
+                           capture_output=True, text=True, timeout=PROBE_TIMEOUT, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        lines = [l for l in (r.stdout or '').splitlines() if l.startswith('probe ')]
+        ok = r.returncode == 0 and len(lines) == len(PROBE_SHADERS) and all(' hr=0x00000000 ' in l + ' ' for l in lines)
+        detail = '; '.join(l[6:] for l in lines) or ('exit %s: %s' % (r.returncode, ((r.stderr or '').strip().splitlines() or [''])[-1][:200]))
+        if r.returncode and lines and len(lines) < len(PROBE_SHADERS): detail += '; then the compiler stopped (exit %s)' % r.returncode
+        return {'ok': ok, 'results': lines, 'detail': detail}
+    except Exception as e:
+        return {'ok': False, 'results': [], 'detail': 'the probe could not run (%s)' % e}
+
+
+def needs_own_d3dcompiler(hlsl, python=None):
+    """(needed, probe result): True under Wine/Proton when the prefix's own d3dcompiler cannot compile the game's base shaders (the
+    player must put Microsoft's d3dcompiler_47.dll in the game folder). (False, None) on Windows: nothing is probed there."""
+    if not is_wine(): return False, None
+    res = probe_d3dcompiler(hlsl, python)
+    return not res['ok'], res
 
 
 # ---------------------------------------------------------------------------- recomplauncher:// inside the prefix
@@ -300,3 +343,14 @@ def register_launcher_link():
     with winreg.CreateKey(winreg.HKEY_CURRENT_USER, root + r'\shell\open\command') as k:
         winreg.SetValueEx(k, '', 0, winreg.REG_SZ, '"%s" "%%1"' % os.path.join(sysdir, 'winebrowser.exe'))
     return '%s:// links open through winebrowser (Wine/Proton: Messages "Update now" reaches RecompLauncher)' % LAUNCHER_SCHEME
+
+
+if __name__ == '__main__':          # python wine_host.py --probe <nv2a_gpu.hlsl>: one line per shader, for probe_d3dcompiler()
+    import sys
+    if len(sys.argv) == 3 and sys.argv[1] == '--probe':
+        for entry, profile in PROBE_SHADERS:
+            try:
+                hr, first = _compile_here(sys.argv[2], entry, profile)
+            except Exception as e:
+                hr, first = 0xFFFFFFFF, repr(e)[:200]
+            print('probe %s %s hr=0x%08X %s' % (entry, profile, hr, first), flush=True)
