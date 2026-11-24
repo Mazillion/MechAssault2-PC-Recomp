@@ -1,6 +1,6 @@
-<p align="center"><img src="docs/img/banner.jpg" alt="MechAssault 2 PC Recomp" width="100%"></p>
+<p align="center"><img src="docs/img/banner.jpg" alt="MechAssault 2: Lone Wolf Expanded" width="100%"></p>
 
-# MechAssault 2: Lone Wolf Expanded (PC Recomp)
+# MechAssault 2: Lone Wolf Expanded
 
 An unofficial PC port of MechAssault 2: Lone Wolf (Xbox, 2004). You need your own copy of the game to use it. There are no game files in this repo or in the releases.
 

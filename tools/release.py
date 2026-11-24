@@ -1868,7 +1868,7 @@ def cmd_preview(a):
         sheet, fh, sh = write_sheet(base, head, a.notes or cfg.get('notes'), out / ('sheet-%s.md' % safe_ref(base)))
     notes = out / 'prerelease-notes-draft.md'
     notes.write_text('\n'.join([
-        '# MechAssault 2 PC Recomp %s (preview)' % ver, '',
+        '# MechAssault 2: Lone Wolf Expanded %s (preview)' % ver, '',
         'This is a preview of %s for testing. It may change before the release. Install it into a new folder, not over '
         'your normal install.' % ver0, '',
         '- `%s`: %d bytes' % (INSTALLER_NAME, size),
@@ -1876,7 +1876,7 @@ def cmd_preview(a):
     gh = out / 'gh-release-command.txt'
     gh.write_text('\n'.join([
         'NOT RUN BY THE TOOL. Only after the owner says yes, and after the branch with commit %s is on GitHub:' % head, '',
-        'gh release create "v%s" %s --prerelease --target %s --title "MechAssault 2 PC Recomp %s (preview)" --notes-file "%s"'
+        'gh release create "v%s" %s --prerelease --target %s --title "MechAssault 2: Lone Wolf Expanded %s (preview)" --notes-file "%s"'
         % (ver, assets, head, ver, notes), '']), encoding='utf-8')
     say('preview installer %s\n  %d bytes sha256 %s\nnotes draft %s\ncommand file %s%s'
         % (final, size, h, notes, gh, '\nsheet %s (signed part %s)' % (sheet, sh) if sheet else ''))

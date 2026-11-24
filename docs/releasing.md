@@ -62,6 +62,9 @@ strings; everything else is the same code. The tool also writes a pre-release no
 `gh release create ... --prerelease` command into a text file. It never runs that command: publishing a preview, like
 any release, needs the maintainer's yes.
 
+Release titles on GitHub use the project's one name: `MechAssault 2: Lone Wolf Expanded X.Y.Z` (a preview adds
+` (preview)`).
+
 The maintainer tries the preview, reads the sheet and changes what they like. When they are happy:
 
 ```bat
