@@ -553,7 +553,7 @@ class InstallFolder(Base):
         with mock.patch.object(selfupdate, 'enabled', boom):
             i.make_shortcuts()
         names = [Path(s).name for s in i.state['shortcuts']]
-        self.assertIn('MechAssault 2 (Recomp).lnk', names); self.assertNotIn(install.UPDATE_LNK, names)
+        self.assertIn(install.GAME_LNK, names); self.assertNotIn(install.UPDATE_LNK, names)
 
     def test_manifest_leaves_the_copy_out(self):
         i = self.inst(); self.runner(); i.copy_installer()
