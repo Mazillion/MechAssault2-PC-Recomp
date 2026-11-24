@@ -605,7 +605,14 @@ NTSTATUS __stdcall xbox_NtSetInformationFile(
                 /* Retain the compatibility fallback for filesystems without
                  * allocation support. Permission/handle/disk failures must
                  * reach the caller rather than becoming false save success. */
-                if (error!=ERROR_NOT_SUPPORTED && error!=ERROR_INVALID_FUNCTION)
+                /* Wine/Proton (9.0 at least): kernelbase does not implement
+                 * FileAllocationInfo and fails it with ERROR_CALL_NOT_IMPLEMENTED.
+                 * MechAssault 2 preallocates its hard-disk cache copy
+                 * (Partition5\filecopy.tmp) this way, and the failure became the
+                 * Xbox "problem with the disc" screen. Windows never returns 120
+                 * here, so this changes nothing there. */
+                if (error!=ERROR_NOT_SUPPORTED && error!=ERROR_INVALID_FUNCTION &&
+                    error!=ERROR_CALL_NOT_IMPLEMENTED)
                     return file_error(IoStatusBlock,error);
                 FILE_END_OF_FILE_INFO native;
                 native.EndOfFile=info->EndOfFile;
