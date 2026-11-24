@@ -4,7 +4,7 @@
 // the Enhancer scripts and the installer itself) is appended to this exe by pack_installer.py:
 //
 //   [stub exe][payload: "MA2KIT01", u32 count, count x {u16 len, path utf-8, u64 size, u64 packed,
-//    u8 method (0 stored, 1 LZMS)}, data...][trailer: u64 offset, u64 size, char id[16], "MA2KEND1"]
+//    u8 method (0 stored, 1 LZMS, 2 LZMA)}, data...][trailer: u64 offset, u64 size, char id[16], "MA2KEND1"]
 //
 // Run without arguments it unpacks the kit to %TEMP%\MA2RecompInstaller-<id> (a small themed splash with
 // progress; a stock TaskDialog if the splash can't be created),
@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <share.h>
 #include <cmath>
+#include "lzma_dec.h"        // method 2 (LZMA): unpacks without the Compression API (Wine/Proton have none)
 
 #pragma comment(lib, "cabinet.lib")
 #pragma comment(lib, "comctl32.lib")
@@ -259,6 +260,12 @@ static bool read_trailer(const std::wstring &exe, Trailer &t) {
     return ok;
 }
 
+// Wine and Proton export wine_get_version from ntdll; Windows does not.
+static bool running_under_wine() {
+    HMODULE nt = GetModuleHandleW(L"ntdll.dll");
+    return nt && GetProcAddress(nt, "wine_get_version") != nullptr;
+}
+
 static void unpack(Unpack *u, Trailer t) {
     HANDLE f = CreateFileW(u->exe.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
     DECOMPRESSOR_HANDLE dec = nullptr;
@@ -269,7 +276,6 @@ static void unpack(Unpack *u, Trailer t) {
         u->finished = true;
     };
     if (f == INVALID_HANDLE_VALUE) return finish(L"Cannot read the installer file.");
-    if (!CreateDecompressor(COMPRESS_ALGORITHM_LZMS, nullptr, &dec)) return finish(L"Windows decompression is unavailable.");
     std::vector<uint8_t> payload_head(12);
     if (!read_at(f, t.offset, payload_head.data(), 12) || memcmp(payload_head.data(), "MA2KIT01", 8))
         return finish(L"The installer file is damaged (no kit). Download it again.");
@@ -287,6 +293,14 @@ static void unpack(Unpack *u, Trailer t) {
         pos += 19 + len; total += e.size; entries.push_back(std::move(e));
     }
     u->total = total ? total : 1;
+    // The Windows Compression API (LZMS, method 1) is opened only when the kit has an LZMS file. Wine and Proton do not
+    // implement it: calling it there aborts the process with no message, so under Wine an LZMS kit stops here, with a message.
+    if (std::any_of(entries.begin(), entries.end(), [](const Entry &e) { return e.method == 1; })) {
+        if (running_under_wine())
+            return finish(L"This installer can't unpack itself under Wine or Proton (it needs a Windows feature Wine does not have). "
+                          L"To play on Linux or Steam Deck, add MechAssault 2 in RecompLauncher, or see the Linux section of the README.");
+        if (!CreateDecompressor(COMPRESS_ALGORITHM_LZMS, nullptr, &dec)) return finish(L"Windows decompression is unavailable.");
+    }
     std::vector<uint8_t> packed, data;
     for (auto &e : entries) {
         if (u->cancel) return finish(L"Cancelled.");
@@ -300,6 +314,13 @@ static void unpack(Unpack *u, Trailer t) {
             if (!Decompress(dec, packed.data(), (SIZE_T)e.packed, data.data(), (SIZE_T)e.size, &out) || out != e.size)
                 return finish(L"The installer file is damaged (a file did not unpack).");
             bytes = data.data();
+        } else if (e.method == 2) {                // LZMA (lzma_dec.h): the same result on Windows, Wine and Proton
+            data.resize((size_t)e.size);
+            if (!lzma_dec::lzma_decode(packed.data(), (size_t)e.packed, data.data(), (size_t)e.size))
+                return finish(L"The installer file is damaged (a file did not unpack).");
+            bytes = data.data();
+        } else if (e.method != 0) {
+            return finish(L"The installer file is damaged (unknown packing).");
         }
         fs::path target = fs::path(u->dest) / fs::path(widen(e.path));
         std::error_code ec; fs::create_directories(target.parent_path(), ec);
@@ -582,6 +603,18 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
         Trailer t;
         if (!read_trailer(self_path(), t)) { fwprintf(stderr, L"payload: not found\n"); return 1; }
         fwprintf(stderr, L"payload: ok, %llu bytes at %llu, id %.16hs\n", (unsigned long long)t.size, (unsigned long long)t.offset, t.id);
+        return 0;
+    }
+    if (argc == 3 && !wcscmp(argv[1], L"--unpack-to")) {     // tests: unpack the kit into an empty folder with no window, run nothing
+        Trailer t; Unpack u; u.exe = self_path(); u.dest = argv[2];
+        if (!read_trailer(u.exe, t)) { fwprintf(stderr, L"payload: not found\n"); return 1; }
+        std::error_code ec; fs::create_directories(u.dest, ec);
+        if (!fs::is_empty(u.dest, ec) || ec) { fwprintf(stderr, L"unpack: %s is not an empty folder\n", u.dest.c_str()); return 1; }
+        ULONGLONG t0 = GetTickCount64();
+        unpack(&u, t);
+        if (!u.error.empty()) { fwprintf(stderr, L"unpack: failed: %s (Win32 error %lu)\n", u.error.c_str(), u.code); return 1; }
+        fwprintf(stderr, L"unpack: ok, %llu bytes in %llu ms%s\n", (unsigned long long)u.done, (unsigned long long)(GetTickCount64() - t0),
+                 running_under_wine() ? L" (Wine)" : L"");
         return 0;
     }
     INITCOMMONCONTROLSEX icc = {sizeof icc, ICC_PROGRESS_CLASS}; InitCommonControlsEx(&icc);

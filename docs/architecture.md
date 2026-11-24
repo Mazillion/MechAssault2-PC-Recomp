@@ -157,7 +157,8 @@ that call native `ma2_` functions are denied a fast copy.
 
 ## 8. How the installer builds it on the user's PC (t06)
 
-One installer exe holds the whole kit. A native stub unpacks an LZMS-compressed kit to
+One installer exe holds the whole kit. A native stub unpacks an LZMA-compressed kit (its own decoder, so it also runs under
+Wine and Proton; LZMS through the Windows Compression API up to 1.2.0) to
 `%TEMP%\MA2RecompInstaller-<id>`, runs the bundled Python on `installer\gui.py` (or `install.py` with arguments) and
 deletes the unpacked copy on exit (`t06.installer-single-file`). The install has 11 required steps (check, disc, extract,
 analyze, recompile, generate, patch, build, assets, install, finish) plus optional texture and video steps: it unpacks the

@@ -5,12 +5,15 @@
 The payload is the kit (../kit: installer, toolkit, source, patches, assets, defaults, enhancer, editor, report;
 never FFmpeg, which the installer downloads on the player's PC)
 and a Python 3.13 runtime (a python.org Windows install with Tcl/Tk, without site-packages, tests or
-tools) under python/. Files are compressed with LZMS, the Windows Compression API's strongest codec, so
-the stub can unpack them with Windows alone. Format: see stub.cpp. Normally run by tools/build_release.py.
+tools) under python/. Files are compressed with LZMA (method 2), which the stub decodes with its own decoder
+(lzma_dec.h), so the same exe unpacks on Windows, Wine and Proton (Linux, Steam Deck). Up to 1.2.0 the kit was packed with
+LZMS (method 1, the Windows Compression API), which Wine does not implement: the installer then stopped at once under
+Wine. MA2_PACK_CODEC=lzms still packs that way (the stub reads both). Format: see stub.cpp. Normally run by
+tools/build_release.py.
 
   py -3.13 installer-exe/pack_installer.py     (or set MA2_PYTHON_HOME to the Python 3.13 folder to bundle)
 """
-import concurrent.futures, ctypes, hashlib, os, struct, sys, time
+import concurrent.futures, ctypes, hashlib, lzma, os, struct, sys, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -69,6 +72,14 @@ def lzms(data):
         cabinet.CloseCompressor(handle)
     return (1, packed) if len(packed) < len(data) else (0, data)
 
+CODEC = os.environ.get('MA2_PACK_CODEC', 'lzma').strip().lower()    # lzma (1.2.1: Windows, Wine and Proton) or lzms (1.2.0 and earlier)
+
+def lzma_pack(data):
+    """Method 2: an "LZMA alone" stream (header + data); the stub decodes it into a buffer of the recorded size."""
+    if len(data) < 64: return 0, data
+    packed = lzma.compress(data, format=lzma.FORMAT_ALONE, preset=9 | lzma.PRESET_EXTREME)
+    return (2, packed) if len(packed) < len(data) else (0, data)
+
 def main():
     if not (PYTHON / 'python313.dll').is_file() or not (PYTHON / 'tcl').is_dir():
         raise SystemExit('%s is not a python.org Python 3.13 Windows install with Tcl/Tk: run with py -3.13 or '
@@ -77,7 +88,9 @@ def main():
     entries = files()
     t0 = time.time()
     with concurrent.futures.ThreadPoolExecutor(os.cpu_count()) as pool:
-        packed = list(pool.map(lambda e: lzms(e[1].read_bytes()), entries))
+        if CODEC not in ('lzms', 'lzma'): raise SystemExit('MA2_PACK_CODEC must be lzms or lzma')
+        pack = lzma_pack if CODEC == 'lzma' else lzms
+        packed = list(pool.map(lambda e: pack(e[1].read_bytes()), entries))
     index = bytearray(b'MA2KIT01' + struct.pack('<I', len(entries)))
     total = 0
     for (rel, path), (method, blob) in zip(entries, packed):
@@ -96,8 +109,8 @@ def main():
         size = f.tell() - offset
         f.write(struct.pack('<QQ', offset, size) + ident + b'MA2KEND1')
     tmp.replace(OUT)
-    print('%s: %d files, %.1f MB unpacked -> %.1f MB (%.0fs), kit id %s' % (
-        OUT.name, len(entries), total / 2**20, OUT.stat().st_size / 2**20, time.time() - t0, ident.decode()))
+    print('%s: %d files, %.1f MB unpacked -> %.1f MB (%s, %.0fs), kit id %s' % (
+        OUT.name, len(entries), total / 2**20, OUT.stat().st_size / 2**20, CODEC.upper(), time.time() - t0, ident.decode()))
 
 if __name__ == '__main__':
     main()

@@ -5,10 +5,10 @@
                                                      compare: same / differ / only-in-A / only-in-B; for differing
                                                      files the number of differing bytes (same size) or the sizes
 
-Files are decompressed with the Windows Compression API (LZMS), the same codec the packer uses.
+Files are decompressed with the Windows Compression API (LZMS, up to 1.2.0) or Python's lzma (LZMA, 1.2.1 on), as packed.
 Exit code 0 when the payloads are identical file for file, 1 otherwise.
 """
-import ctypes, hashlib, json, struct, sys
+import ctypes, hashlib, json, lzma, struct, sys
 from pathlib import Path
 
 _cab = ctypes.WinDLL('cabinet')
@@ -49,7 +49,8 @@ def read_kit(path):
     files = {}
     for name, usize, csize, method in entries:
         blob = data[p:p + csize]; p += csize
-        files[name] = _decompress(blob, usize) if method == 1 else blob
+        files[name] = (_decompress(blob, usize) if method == 1 else
+                       lzma.LZMADecompressor(lzma.FORMAT_ALONE).decompress(blob, usize) if method == 2 else blob)
         if len(files[name]) != usize:
             raise SystemExit('%s: %s size mismatch' % (path, name))
     return files, ident

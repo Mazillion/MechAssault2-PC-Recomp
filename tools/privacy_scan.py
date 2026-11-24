@@ -162,6 +162,10 @@ def payload_members(path):
                 if not cab.Decompress(handle, blob, len(blob), buf, size, ctypes.byref(got)) or got.value != size:
                     raise OSError('cannot decompress %s in %s' % (name, path))
                 blob = buf.raw[:size]
+            elif method == 2:                                       # 1.2.1: LZMA ("alone" stream), the stub's own decoder
+                import lzma
+                blob = lzma.LZMADecompressor(lzma.FORMAT_ALONE).decompress(blob, size)
+                if len(blob) != size: raise OSError('cannot decompress %s in %s' % (name, path))
             out.append((name, blob))
     finally:
         cab.CloseDecompressor(handle)
