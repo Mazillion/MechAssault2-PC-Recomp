@@ -232,6 +232,19 @@ def fmt_left(sec):
 
 # ---------------------------------------------------------------------------- the window
 
+
+def _arrows():
+    """The small disclosure arrows. Under Wine/Proton the window's fonts have no \u25b8/\u25be (they drew as empty boxes): plain
+    '+' / '-' there. Windows unchanged."""
+    try:
+        import wine_host
+        if wine_host.is_wine(): return '+', '-'
+    except Exception:
+        pass
+    return '\u25b8', '\u25be'
+
+ARROW_CLOSED, ARROW_OPEN = _arrows()
+
 class App:
     W, H = 880, 520                                 # logical client size
 
@@ -1569,7 +1582,7 @@ class App:
         self.prog['note'] = self.T(40, 170, '', 'body', 'muted', anchor='w', width=560)
         self.prog['eta'] = self.T(840, 170, '', 'mono', 'text', anchor='e')
         if not tools:
-            dl = self.link('details', ('\u25be Hide details' if self.show_details else '\u25b8 Show details'), self.toggle_details, quiet=True)
+            dl = self.link('details', ('%s Hide details' % ARROW_OPEN if self.show_details else '%s Show details' % ARROW_CLOSED), self.toggle_details, quiet=True)
             self.put(dl, 36, 196)
             if self.show_details:
                 ph = self.phases()
@@ -1620,7 +1633,7 @@ class App:
                          ('Working out the time left\u2026' if m and not self.memwait else ''))
         if self.prog.get('steps'):
             for it, (t, st) in zip(self.prog['steps'], self.phases()):
-                cv.itemconfigure(it, text={'done': '\u2713 ', 'active': '\u25b8 ', 'failed': '\u2715 '}.get(st, '\u25cb ') + t,
+                cv.itemconfigure(it, text={'done': '\u2713 ', 'active': ARROW_CLOSED + ' ', 'failed': '\u2715 '}.get(st, '\u25cb ') + t,
                                  fill=P['ok'] if st == 'done' else P['amber'] if st == 'active' else P['danger'] if st == 'failed' else P['muted'])
         if full or self._tick % 10 == 0: self.update_title(frac)
         if frac is not None: self.taskbar.set('paused' if self.memwait else 'normal', frac)
@@ -2009,7 +2022,7 @@ class App:
         if extras.get('botrec'):
             self.T(40, y + 14, 'Include the newest bot match recording', 'small', 'text', anchor='w')
             self.put(Toggle(cv, k, d['rec'], lambda v: d.__setitem__('rec', v), P['panel'], key='d_rec'), 840, y + 14, anchor='e'); y += 36
-        self.put(self.link('d_preview', ('\u25be ' if d['preview'] else '\u25b8 ') + 'What goes in the zip', self.toggle_preview, quiet=True, bg='panel'), 36, y + 4)
+        self.put(self.link('d_preview', ((ARROW_OPEN if d['preview'] else ARROW_CLOSED) + ' ') + 'What goes in the zip', self.toggle_preview, quiet=True, bg='panel'), 36, y + 4)
         y += 36
         if d['preview']:
             self.T(52, y, 'recomp-install.json (what is installed where)\npc_settings.ini (your settings)\nthe newest three game logs and the newest installer logs\n'

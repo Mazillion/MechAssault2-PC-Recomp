@@ -85,6 +85,6 @@
   "_splat_about": "splat_bytes: the CRT and Windows SDK that xwin lays out (x86_64, SDK 10.0.26100, manifest 17, release libraries, --disable-symlinks), measured 2026-11-24: 5,614 files, 649,077,952 bytes. toolchain_fetch.download_bytes() adds it to the four pinned archives' bytes for the size the player is told."
  },
  "d3dcompiler": {
-  "_about": "Owner decision 11-24: NO Microsoft DLL in the kit, ever. Under Wine/Proton from wine_host.WINE_BUILTIN_D3DCOMPILER_MIN on, Wine's own d3dcompiler is used. On older Wine the installer tells the player to put d3dcompiler_47.dll in the game folder themselves and checks for it afterwards (install.py wine_d3dcompiler). Never anything on Windows."
+  "_about": "Owner decision 11-24: NO Microsoft DLL in the kit, ever. Under Wine/Proton the installer probes the prefix's own d3dcompiler on the game's base shaders (wine_host.probe_d3dcompiler; no version threshold, only GE-Proton 11 is confirmed). It compiles them: nothing is needed. It does not: the player is asked to put d3dcompiler_47.dll in the game folder, which is checked afterwards (install.py wine_d3dcompiler). Never anything on Windows."
  }
 }

@@ -234,6 +234,49 @@ class Sizes(unittest.TestCase):
         self.assertIn('Use Proton 11 (tested with GE-Proton 11)', install.D3DCOMPILER_MISSING)
 
 
+class LauncherSettingsFile(unittest.TestCase):
+    """Runtime 9ac6c54: under Wine a RecompLauncher install's pc_settings.ini (install folder) is the launcher's Settings tab; the
+    game copies changes from it. No installer run may put the defaults back over it there. Windows and standalone: unchanged."""
+    def run_ini(self, wine, launcher, update=False):
+        d = Path(tempfile.mkdtemp())
+        try:
+            dest = d / 'G'; dest.mkdir()
+            (dest / 'pc_settings.ini').write_text('[Display]\nFullscreen=1\n', encoding='utf-8')
+            inst = install.Installer(None, dest, log=lambda s: None)
+            inst.launcher = launcher; inst.state['update'] = update
+            ctx = Wine('9.0') if wine else mock.patch.dict(os.environ, {})
+            with ctx:
+                inst.install_defaults_ini()
+            return ((dest / 'pc_settings.ini').read_text(encoding='utf-8'), (dest / 'pc_settings.default.ini').is_file(),
+                    getattr(inst, 'ini_ours', None))
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_launcher_under_wine_keeps_it(self):
+        for update in (False, True):
+            text, beside, ours = self.run_ini(True, True, update)
+            self.assertEqual(text, '[Display]\nFullscreen=1\n', update); self.assertTrue(beside); self.assertIs(ours, False)
+
+    def test_windows_and_standalone_unchanged(self):
+        defaults = (KIT / 'defaults' / 'pc_settings.ini').read_text(encoding='utf-8')
+        for wine, launcher in ((False, True), (True, False), (False, False)):
+            text, beside, ours = self.run_ini(wine, launcher)
+            self.assertEqual(text, defaults, (wine, launcher)); self.assertFalse(beside)
+
+    def test_manifest_never_checks_the_settings(self):
+        src = (KIT / 'installer' / 'install.py').read_text(encoding='utf-8')
+        self.assertIn("if rel in ('pc_settings.ini', 'pc_settings.default.ini'): continue", src)
+
+
+class Arrows(unittest.TestCase):
+    def test_plain_arrows_under_wine_only(self):
+        import importlib, gui
+        self.assertEqual((gui.ARROW_CLOSED, gui.ARROW_OPEN), ('\u25b8', '\u25be'))
+        with Wine('9.0'):
+            self.assertEqual(gui._arrows(), ('+', '-'))
+        self.assertNotIn("'\\u25b8 Show details'", (KIT / 'installer' / 'gui.py').read_text(encoding='utf-8'))
+
+
 class LauncherProfile(unittest.TestCase):
     def test_linux_tick(self):
         m = json.loads((REPO / 'recomplauncher.json').read_text(encoding='utf-8'))

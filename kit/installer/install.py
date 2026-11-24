@@ -3050,6 +3050,15 @@ class Installer:
         On an update, an ini the user changed is kept and the new defaults go beside it as pc_settings.default.ini."""
         src, dst = KIT / 'defaults' / 'pc_settings.ini', self.dest / 'pc_settings.ini'
         self.ini_ours = True
+        # 1.2.1: a RecompLauncher install under Wine/Proton: the launcher's Settings tab writes this file and the game copies the
+        # launcher's changes from it into the player's own settings (runtime 9ac6c54). No run (install, update, repair) puts the
+        # defaults back over it; the new defaults go beside it. Windows, and standalone installs, unchanged.
+        launcher = getattr(self, 'launcher', False) or (self.old_stamp or precheck.read_stamp(self.dest) or {}).get('managed_by') == 'recomplauncher'
+        if dst.is_file() and launcher and wine_host.is_wine():
+            if sha256(dst) != sha256(src):
+                shutil.copy2(src, self.dest / 'pc_settings.default.ini'); self.ini_ours = False
+                self.log('  pc_settings.ini is the launcher\'s (Wine/Proton): kept; the defaults are in pc_settings.default.ini')
+            return
         if self.state.get('update') and dst.is_file():
             stamp = self.old_stamp or {}
             if stamp.get('defaults_sha256') != sha256(dst):
