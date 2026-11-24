@@ -4,8 +4,13 @@ Nothing here runs without the player's click (the window's "Update to X", or the
 background, and never on a fresh install. The flow:
 
   1. check()     GET <relay>/v1/latest (the same anonymous request the game makes; only the version in the User-Agent). The relay
-                 answers {"ok": true, "latest": "1.1.8", "sha256": "<64 hex>", "size": <bytes>, "asset": "<ASSET>"}.
-  2. download()  GET https://github.com/<REPO>/releases/download/v<latest>/<ASSET as GitHub names it: spaces -> '.'> into a NEW folder in %TEMP% (MA2Update-*):
+                 answers {"ok": true, "latest": "1.1.8", "sha256": "<64 hex>", "size": <bytes>, "asset": "<label>"}. The "asset"
+                 field is a LABEL, not the file name: the live relay accepts and returns only "MechAssault 2 Recomp Installer.exe"
+                 (OLD_ASSETS[0]), which 1.1.7 clients require exactly, so the relay and triage keep sending that label and this
+                 client accepts ASSET or any OLD_ASSETS name (ASSET_LABELS).
+  2. download()  GET https://github.com/<REPO>/releases/download/v<latest>/<name> into a NEW folder in %TEMP% (MA2Update-*), trying
+                 the names of download_urls() in order (GitHub's published form of ASSET, ASSET, then each OLD_ASSETS name published
+                 and raw) and moving on ONLY on a 404; the file is saved as ASSET. Each attempt:
                  HTTPS only, redirects followed only to GitHub's own hosts (DOWNLOAD_HOSTS), at most `size` bytes (and never more
                  than MAX_BYTES), Cancel between blocks. The file must have exactly the relay's size and SHA-256: the GitHub release
                  and the relay are two channels, and both must agree, or the file is deleted and nothing runs.
@@ -27,6 +32,10 @@ from pathlib import Path
 REPO = 'Mazillion/MechAssault2-PC-Recomp'
 ASSET = 'MechAssault 2 Expanded Installer.exe'                    # 1.2.0 (replaced in place): the installer's file and release asset name
 OLD_ASSETS = ('MechAssault 2 Recomp Installer.exe',)              # earlier names: a release or a kept copy may still use them
+# The relay's "asset" field is a label. The live relay (relay/src/worker.js) validates and returns OLD_ASSETS[0], and 1.1.7 clients
+# require exactly that string, so the relay stays unchanged (a change would need a production deploy) and triage keeps posting it.
+# A client accepts any of these labels; the label never chooses the file that is downloaded (download_urls() does).
+ASSET_LABELS = (ASSET,) + OLD_ASSETS
 GITHUB = 'https://github.com'
 RELEASES_PAGE = 'https://github.com/%s/releases' % REPO
 # Where a release download may go (GitHub docs, "Communication requirements for GitHub-hosted / self-hosted runners": release
@@ -201,7 +210,7 @@ def check(own, timeout=CHECK_TIMEOUT, log=lambda s: None):
             res['cause'] = 'current'; return res
         sha, size, asset = j.get('sha256'), j.get('size'), j.get('asset')
         if not (isinstance(sha, str) and SHA_RE.match(sha) and isinstance(size, int) and not isinstance(size, bool)
-                and MIN_BYTES <= size <= MAX_BYTES and asset == ASSET):
+                and MIN_BYTES <= size <= MAX_BYTES and asset in ASSET_LABELS):
             res['cause'] = 'nodata'; return res
         res.update(ok=True, cause='newer', sha256=sha, size=size)
         return res
@@ -217,10 +226,19 @@ def github_asset_name(name):
     return re.sub(r'[^A-Za-z0-9._+-]', '.', name)
 
 
+def asset_names():
+    """The release asset names to try, in order: the current name as GitHub publishes it and as uploaded, then each earlier name
+    (a release published before the rename) the same way. Duplicates removed."""
+    out = []
+    for n in (ASSET,) + tuple(OLD_ASSETS):
+        for c in (github_asset_name(n), n):
+            if c not in out: out.append(c)
+    return out
+
+
 def download_urls(version):
-    """Where the release installer is, in the order tried: GitHub's published name first, then the name as uploaded (a 404 on the
-    first moves on to the second; nothing else does)."""
-    names = [github_asset_name(ASSET)] + ([ASSET] if github_asset_name(ASSET) != ASSET else [])
+    """Where the release installer is, in the order tried (asset_names()): a 404 moves on to the next address; nothing else does."""
+    names = asset_names()
     return ['%s/%s/releases/download/v%s/%s' % (github_base(), REPO, urllib.parse.quote(version), urllib.parse.quote(n)) for n in names]
 
 
@@ -289,7 +307,7 @@ def download(info, own, progress=lambda done, total: None, cancelled=lambda: Fal
                 break
             except UpdateError as e:
                 if e.detail == 'HTTP 404' and len(urls) > 1:
-                    log('self-update: not found under its published name; trying the name as uploaded')
+                    log('self-update: not found under that name; trying the next one')
                     urls = urls[1:]; continue
                 if e.cause == 'tls' and not tried_windows:
                     tried_windows = True       # a fresh Windows fetches missing root certificates only for its own connections

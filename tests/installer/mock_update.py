@@ -8,12 +8,39 @@ Stand-alone:  python mock_update.py --installer <exe> --latest 1.1.7-preview.2 [
 Modes (srv.mode): ok, mismatch (other bytes), evil (redirect to a host outside GitHub), plainhttp (redirect to http GitHub host),
 loop (endless redirects), long (more bytes than announced, no Content-Length), short (fewer bytes, no Content-Length), lenbad
 (a Content-Length other than the size), slow (one block per 0.2 s), 404, 500, nodirect (the file at once, no redirect).
-srv.relay: ok, down (500), garbage, nohash, older, bigsize, wrongasset."""
+srv.relay: ok (the live relay's label, OLD_ASSET), newlabel (ASSET as the label), nolabel (no "asset" field), down (500), garbage,
+nohash, older, bigsize, wrongasset.
+srv.published (under which name the release asset is served; every other name answers 404, like GitHub):
+  github (default)  the NEW name as GitHub publishes it ("MechAssault.2.Expanded.Installer.exe")
+  raw               the new name as uploaded, with spaces (alias: spaced)
+  old               the OLD name as GitHub publishes it ("MechAssault.2.Recomp.Installer.exe": a release published before the rename)
+  oldraw            the old name with spaces
+The names come from kit/installer/selfupdate.py (ASSET, OLD_ASSETS), never from literals here."""
 import hashlib, json, re, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
-ASSET = 'MechAssault 2 Recomp Installer.exe'
+try:
+    import selfupdate as _su
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'kit' / 'installer'))
+    import selfupdate as _su
+
+ASSET = _su.ASSET                       # the installer's name now ("MechAssault 2 Expanded Installer.exe")
+OLD_ASSET = _su.OLD_ASSETS[0]           # its name up to 1.2.0 as first published ("MechAssault 2 Recomp Installer.exe")
+RELAY_LABEL = OLD_ASSET                 # the live relay validates and returns this label (1.1.7 clients require it exactly)
 REPO = 'Mazillion/MechAssault2-PC-Recomp'
+
+
+def published_name(name):
+    """GitHub's stored name for an uploaded asset (independent of selfupdate.github_asset_name, so the two check each other)."""
+    return re.sub(r'[^A-Za-z0-9._+-]', '.', name)
+
+
+def served_name(published):
+    """The URL path segment the mock serves the asset under for a srv.published mode."""
+    return {'github': published_name(ASSET), 'raw': ASSET.replace(' ', '%20'), 'spaced': ASSET.replace(' ', '%20'),
+            'old': published_name(OLD_ASSET), 'oldraw': OLD_ASSET.replace(' ', '%20')}[published]
 
 
 class MockUpdate:
@@ -33,7 +60,8 @@ class MockUpdate:
         if r == 'down': return 500, b'{}'
         body = {'ok': True, 'latest': '0.0.1' if r == 'older' else self.latest}
         if r != 'nohash':
-            body.update(sha256=self.sha, size=len(self.payload), asset=ASSET)
+            body.update(sha256=self.sha, size=len(self.payload), asset=ASSET if r == 'newlabel' else RELAY_LABEL)
+            if r == 'nolabel': del body['asset']
         if r == 'bigsize': body['size'] = 500 * 1024 * 1024
         if r == 'wrongasset': body['asset'] = 'other.exe'
         return 200, json.dumps(body).encode()
@@ -60,10 +88,9 @@ class MockUpdate:
                 if self.path == '/v1/latest':
                     code, body = outer.latest_answer()
                     return self.send(code, body, [('Content-Type', 'application/json')])
-                # Like GitHub: the asset lives under its PUBLISHED name (spaces -> '.'); the name with spaces answers 404.
-                # srv.published = 'spaced' serves it under the uploaded name instead (the fallback path).
-                name = ASSET.replace(' ', '%20') if outer.published == 'spaced' else re.sub(r'[^A-Za-z0-9._+-]', '.', ASSET)
-                want = '/%s/releases/download/v%s/%s' % (REPO, outer.latest, name)
+                # Like GitHub: the asset lives under ONE name (by default the new name as GitHub publishes it, spaces -> '.');
+                # every other name answers 404. srv.published picks another name (the fallback paths).
+                want = '/%s/releases/download/v%s/%s' % (REPO, outer.latest, served_name(outer.published))
                 m = outer.mode
                 if self.path == want:
                     if m == '404': return self.send(404, b'Not Found')

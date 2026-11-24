@@ -4,7 +4,7 @@ caps, antivirus quarantine, cancel, start failure), the happy path against the l
 sent (the version only), the off switches, and each new method failing safe. No real relay and no real GitHub are ever contacted.
 Run with the kit's Python:  python -B test_v117_selfupdate.py
 """
-import io, json, os, shutil, subprocess, sys, tempfile, unittest
+import io, json, os, re, shutil, subprocess, sys, tempfile, unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
@@ -19,7 +19,7 @@ for v in ('MA2_SELF_UPDATE', 'MA2_SELF_UPDATE_TEST', 'MA2_UPDATE_RELAY', 'MA2_RE
           'MA2_INSTALLER_EXE', 'MA2_SELF_UPDATE_DEST', 'MA2_HANDOFF_WAIT'):
     os.environ.pop(v, None)
 import selfupdate, install, precheck                         # noqa: E402
-from mock_update import MockUpdate, ASSET                    # noqa: E402
+from mock_update import MockUpdate, ASSET, OLD_ASSET, RELAY_LABEL   # noqa: E402
 
 CLOSED = 'http://127.0.0.1:9'           # nothing listens there (connection refused)
 boom = lambda *a, **k: (_ for _ in ()).throw(RuntimeError('injected fault'))
@@ -99,10 +99,25 @@ class Check(Base):
             self.assertEqual(selfupdate.check('1.1.7')['cause'], 'current')
 
     def test_relay_failures_never_offer(self):
-        for relay, cause in (('down', 'check'), ('garbage', 'check'), ('nohash', 'nodata'), ('bigsize', 'nodata'), ('wrongasset', 'nodata')):
+        # nolabel: an answer without "asset" offers nothing, as before 1.2.0 (the relay always sends the label)
+        for relay, cause in (('down', 'check'), ('garbage', 'check'), ('nohash', 'nodata'), ('bigsize', 'nodata'), ('wrongasset', 'nodata'),
+                             ('nolabel', 'nodata')):
             self.srv.relay = relay
             r = selfupdate.check('1.1.7')
             self.assertFalse(r['ok'], relay); self.assertEqual(r['cause'], cause, relay)
+
+    def test_relay_label_old_or_new_name(self):
+        # The live relay validates and returns the OLD name as its "asset" label (1.1.7 clients require exactly that string), and it
+        # stays unchanged: a client accepts the old label, the new one, and nothing else. The label never picks the file.
+        self.assertEqual(RELAY_LABEL, 'MechAssault 2 Recomp Installer.exe')
+        self.assertEqual(selfupdate.ASSET_LABELS, (ASSET, OLD_ASSET))
+        for relay in ('ok', 'newlabel'):
+            self.srv.relay = relay
+            r = selfupdate.check('1.1.7')
+            self.assertTrue(r['ok'], relay); self.assertEqual(r['asset'], ASSET, relay)
+        self.srv.relay = 'ok'
+        exe = selfupdate.download(self.info(), '1.1.7')
+        self.assertEqual(exe.name, ASSET, 'saved under the new name whatever the label says')
 
     def test_relay_offline(self):
         os.environ['MA2_UPDATE_RELAY'] = CLOSED
@@ -151,9 +166,10 @@ class Check(Base):
 class Hosts(Base):
     def test_production_address_and_hosts(self):
         os.environ['MA2_SELF_UPDATE_TEST'] = ''
+        rel = 'https://github.com/Mazillion/MechAssault2-PC-Recomp/releases/download/v1.1.8/'
         self.assertEqual(selfupdate.download_urls('1.1.8'),
-                         ['https://github.com/Mazillion/MechAssault2-PC-Recomp/releases/download/v1.1.8/MechAssault.2.Recomp.Installer.exe',
-                          'https://github.com/Mazillion/MechAssault2-PC-Recomp/releases/download/v1.1.8/MechAssault%202%20Recomp%20Installer.exe'])
+                         [rel + 'MechAssault.2.Expanded.Installer.exe', rel + 'MechAssault%202%20Expanded%20Installer.exe',
+                          rel + 'MechAssault.2.Recomp.Installer.exe', rel + 'MechAssault%202%20Recomp%20Installer.exe'])
         self.assertEqual(selfupdate.download_url('1.1.8'), selfupdate.download_urls('1.1.8')[0])
         ok = selfupdate._url_ok
         H = selfupdate.DOWNLOAD_HOSTS
@@ -174,27 +190,76 @@ class Hosts(Base):
 # ---------------------------------------------------------------------------- GitHub's asset naming (1.2.1)
 
 class AssetName(Base):
+    def downloads(self):
+        return [r['path'].rsplit('/', 1)[1] for r in self.srv.requests if '/releases/download/' in r['path']]
+
+    def test_names(self):
+        self.assertEqual(ASSET, 'MechAssault 2 Expanded Installer.exe')
+        self.assertEqual(selfupdate.OLD_ASSETS, ('MechAssault 2 Recomp Installer.exe',))
+        self.assertEqual(selfupdate.INSTALLER_COPY, ASSET)
+        self.assertEqual(selfupdate.OLD_INSTALLER_COPIES, selfupdate.OLD_ASSETS)
+
     def test_github_naming_rule(self):
         # The real releases (v1.1.7, v1.2.0): uploaded "MechAssault 2 Recomp Installer.exe", published "MechAssault.2.Recomp.Installer.exe".
         self.assertEqual(selfupdate.github_asset_name('MechAssault 2 Recomp Installer.exe'), 'MechAssault.2.Recomp.Installer.exe')
+        self.assertEqual(selfupdate.github_asset_name('MechAssault 2 Expanded Installer.exe'), 'MechAssault.2.Expanded.Installer.exe')
         self.assertEqual(selfupdate.github_asset_name('MechAssault2-PC-Recomp-v1.2.0-Windows-x64.zip'),
                          'MechAssault2-PC-Recomp-v1.2.0-Windows-x64.zip')       # published unchanged
         self.assertEqual(selfupdate.github_asset_name('SHA256SUMS.txt'), 'SHA256SUMS.txt')
+        self.assertEqual(selfupdate.github_asset_name('a b(c)+d_e-f.exe'), 'a.b.c.+d_e-f.exe')
+
+    def test_order_of_attempts(self):
+        self.assertEqual(selfupdate.asset_names(), ['MechAssault.2.Expanded.Installer.exe', 'MechAssault 2 Expanded Installer.exe',
+                                                    'MechAssault.2.Recomp.Installer.exe', 'MechAssault 2 Recomp Installer.exe'])
+        with mock.patch.object(selfupdate, 'OLD_ASSETS', ('Same.exe', 'MechAssault 2 Expanded Installer.exe', 'Same.exe')), \
+             mock.patch.object(selfupdate, 'ASSET', 'Same.exe'):
+            self.assertEqual(selfupdate.asset_names(), ['Same.exe', 'MechAssault.2.Expanded.Installer.exe',
+                                                        'MechAssault 2 Expanded Installer.exe'], 'deduplicated')
+
+    def test_published_new_name_is_the_only_request(self):
+        exe = selfupdate.download(self.info(), '1.1.7', log=self.lines.append)
+        self.assertEqual((exe.name, exe.read_bytes()), (ASSET, self.srv.payload))
+        self.assertEqual(self.downloads(), ['MechAssault.2.Expanded.Installer.exe'])
 
     def test_fallback_to_uploaded_name_on_404(self):
-        self.srv.published = 'spaced'
+        self.srv.published = 'raw'
         exe = selfupdate.download(self.info(), '1.1.7', log=self.lines.append)
-        self.assertEqual(exe.read_bytes(), self.srv.payload)
-        paths = [r['path'] for r in self.srv.requests if '/releases/download/' in r['path']]
-        self.assertEqual([p.rsplit('/', 1)[1] for p in paths], ['MechAssault.2.Recomp.Installer.exe', 'MechAssault%202%20Recomp%20Installer.exe'])
-        self.assertTrue(any('trying the name as uploaded' in l for l in self.lines))
+        self.assertEqual((exe.name, exe.read_bytes()), (ASSET, self.srv.payload))
+        self.assertEqual(self.downloads(), ['MechAssault.2.Expanded.Installer.exe', 'MechAssault%202%20Expanded%20Installer.exe'])
+        self.assertTrue(any('trying the next one' in l for l in self.lines))
 
-    def test_404_on_both_names_is_a_server_error(self):
+    def test_fallback_to_the_old_name(self):
+        # a release published before the rename (the asset is "MechAssault.2.Recomp.Installer.exe"): found, saved under the new name
+        for pub, tried in (('old', ['MechAssault.2.Expanded.Installer.exe', 'MechAssault%202%20Expanded%20Installer.exe',
+                                    'MechAssault.2.Recomp.Installer.exe']),
+                           ('oldraw', ['MechAssault.2.Expanded.Installer.exe', 'MechAssault%202%20Expanded%20Installer.exe',
+                                       'MechAssault.2.Recomp.Installer.exe', 'MechAssault%202%20Recomp%20Installer.exe'])):
+            self.srv.published = pub; self.srv.requests.clear()
+            exe = selfupdate.download(self.info(), '1.1.7', log=self.lines.append)
+            self.assertEqual((exe.name, exe.read_bytes()), (ASSET, self.srv.payload), pub)
+            self.assertEqual(self.downloads(), tried, pub)
+            shutil.rmtree(exe.parent, ignore_errors=True)
+
+    def test_404_on_all_names_is_a_server_error(self):
         self.srv.mode = '404'
-        with self.assertRaises(selfupdate.UpdateError) as c:
-            selfupdate.download(self.info(), '1.1.7', log=self.lines.append)
-        self.assertEqual(c.exception.cause, 'server')
-        self.assertEqual(len([r for r in self.srv.requests if '/releases/download/' in r['path']]), 2)
+        paths = self.fail_download('server')
+        self.assertEqual(len([r for r in paths if '/releases/download/' in r['path']]), 4)
+
+    def test_only_a_404_moves_on(self):
+        for mode, cause in (('500', 'server'), ('evil', 'host')):
+            self.srv.mode = mode; self.srv.requests.clear()
+            self.fail_download(cause)
+            self.assertEqual(self.downloads(), ['MechAssault.2.Expanded.Installer.exe'], mode)
+
+    def test_the_mock_is_like_github(self):
+        # The gate's suites rely on this: the mock serves the release asset ONLY under the published (dotted) name by default,
+        # so every self-update suite goes through the dotted path, and a client asking for the name with spaces gets a 404.
+        import mock_update, urllib.request, urllib.error
+        self.assertEqual(mock_update.served_name('github'), 'MechAssault.2.Expanded.Installer.exe')
+        self.assertEqual(self.srv.published, 'github')
+        with self.assertRaises(urllib.error.HTTPError) as c:
+            urllib.request.urlopen(self.srv.base + '/Mazillion/MechAssault2-PC-Recomp/releases/download/v1.1.8/MechAssault%202%20Expanded%20Installer.exe')
+        self.assertEqual(c.exception.code, 404)
 
 
 # ---------------------------------------------------------------------------- the download
@@ -210,9 +275,9 @@ class Download(Base):
         self.assertEqual(exe.read_bytes(), self.srv.payload)
         self.assertEqual(seen[-1], (len(self.srv.payload), len(self.srv.payload)))
         paths = [r['path'] for r in self.srv.requests]
-        self.assertEqual([p for p in paths if '/releases/download/' in p][0], '/Mazillion/MechAssault2-PC-Recomp/releases/download/v1.1.8/MechAssault.2.Recomp.Installer.exe',
+        self.assertEqual([p for p in paths if '/releases/download/' in p][0], '/Mazillion/MechAssault2-PC-Recomp/releases/download/v1.1.8/MechAssault.2.Expanded.Installer.exe',
                          'the published (dotted) name first, as GitHub stores it')
-        self.assertNotIn('/Mazillion/MechAssault2-PC-Recomp/releases/download/v1.1.8/MechAssault%202%20Recomp%20Installer.exe', paths)
+        self.assertEqual(len([p for p in paths if '/releases/download/' in p]), 1, 'found at the first name, nothing else asked')
         self.assertTrue(any(p.startswith('/assets/1') for p in paths), 'the GitHub-style redirect was followed')
         for r in self.srv.requests:
             self.assertNotIn('Cookie', r['headers']); self.assertNotIn('Authorization', r['headers'])
@@ -545,7 +610,7 @@ class Stub(unittest.TestCase):
         self.assertIn('MA2_HANDOFF_WAIT', src)
         self.assertIn('WaitForSingleObject(single, 120000)', src)
         self.assertIn('SetEnvironmentVariableW(L"MA2_HANDOFF_WAIT", nullptr);', src)
-        self.assertIn('fail(L"The MechAssault 2 Recomp Installer is already running.", console); return 1; }', src)
+        self.assertRegex(src, re.escape('fail(L"The MechAssault 2 ') + r'[A-Za-z ]+' + re.escape(' Installer is already running.", console); return 1; }'))
 
 
 class Faults(unittest.TestCase):
