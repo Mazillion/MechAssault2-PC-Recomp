@@ -25,7 +25,8 @@ import hashlib, json, os, re, shutil, socket, ssl, subprocess, tempfile, time, u
 from pathlib import Path
 
 REPO = 'Mazillion/MechAssault2-PC-Recomp'
-ASSET = 'MechAssault 2 Recomp Installer.exe'
+ASSET = 'MechAssault 2 Expanded Installer.exe'                    # 1.2.0 (replaced in place): the installer's file and release asset name
+OLD_ASSETS = ('MechAssault 2 Recomp Installer.exe',)              # earlier names: a release or a kept copy may still use them
 GITHUB = 'https://github.com'
 RELEASES_PAGE = 'https://github.com/%s/releases' % REPO
 # Where a release download may go (GitHub docs, "Communication requirements for GitHub-hosted / self-hosted runners": release
@@ -42,6 +43,7 @@ DOWNLOAD_TIMEOUT = 60
 BLOCK = 256 * 1024
 TEMP_PREFIX = 'MA2Update-'
 INSTALLER_COPY = ASSET                 # the copy kept in the install folder (install.py)
+OLD_INSTALLER_COPIES = OLD_ASSETS      # replaced by INSTALLER_COPY when an install is updated
 SHA_RE = re.compile(r'^[0-9a-f]{64}$')
 RELEASE_RE = re.compile(r'^\d{1,4}(\.\d{1,4}){1,3}$')
 TEST_RE = re.compile(r'^\d{1,4}(\.\d{1,4}){1,3}(-preview\.\d{1,4})?$')
