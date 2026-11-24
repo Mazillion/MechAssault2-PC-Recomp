@@ -27,6 +27,19 @@ MAX_BYTES = 2 << 30
 MAGIC = {'.zip': b'PK\x03\x04', '.xz': b'\xfd7zXZ\x00', '.gz': b'\x1f\x8b'}
 
 
+def download_bytes(spec=None):
+    """What the player gets for the Linux toolchain, in bytes, from data/toolchain.json: the four pinned archives' recorded sizes
+    (llvm, cmake, ninja, xwin) plus the measured size of the CRT/SDK that xwin lays out (xwin.splat_bytes). 1,680,568,089 for
+    the 11-24 pins."""
+    spec = spec or SPEC
+    return sum(int(spec[n]['bytes']) for n in PARTS + ('xwin',)) + int(spec['xwin']['splat_bytes'])
+
+
+def size_text(spec=None):
+    """'1.7 GB' (decimal GB, one decimal): the size every player-facing text names, so it cannot drift from the pins."""
+    return '%.1f GB' % (download_bytes(spec) / 1e9)
+
+
 class FetchError(Exception):
     """The toolchain could not be had; the message says what to do."""
 

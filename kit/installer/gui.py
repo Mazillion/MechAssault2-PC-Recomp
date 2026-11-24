@@ -1304,12 +1304,13 @@ class App:
     # Texts: LINUX-STRINGS.md B1-B5 (PROPOSED, owner to approve).
     LINUX_TOOLS_HEAD = 'Download the build tools for Linux'
     LINUX_TOOLS_BODY = ('On Linux the game is built with LLVM (clang) and Microsoft\'s C++ runtime and Windows SDK. The installer downloads '
-                        'them once (about 1.5 GB) and checks every file. By continuing you accept Microsoft\'s license terms for the C++ '
-                        'runtime and Windows SDK.')
+                        'them once (about %s) and checks every file. By continuing you accept Microsoft\'s license terms for the C++ '
+                        'runtime and Windows SDK.')        # the size: toolchain_fetch.size_text(), from data/toolchain.json
 
     def linux_tools_stop(self):
         import toolchain_fetch
-        self.show_stop(style='needs', icon='needs', kicker='ACTION NEEDED', head=self.LINUX_TOOLS_HEAD, body=self.LINUX_TOOLS_BODY,
+        self.show_stop(style='needs', icon='needs', kicker='ACTION NEEDED', head=self.LINUX_TOOLS_HEAD,
+                       body=self.LINUX_TOOLS_BODY % toolchain_fetch.size_text(),
                        primary=('DOWNLOAD TOOLS', self.install_tools), back=True, help=True,
                        links=[('License terms', lambda: self.web(toolchain_fetch.SPEC['xwin']['licence_url'])),
                               ('LLVM license', lambda: self.web('https://llvm.org/LICENSE.txt'))],
@@ -1344,7 +1345,8 @@ class App:
         linux = bool((self.facts.get('compiler') or {}).get('clang'))
         if linux:
             self.waiting('Downloading the build tools for Linux\u2026')
-            self.slow = 'About 1.5 GB, once; every file is checked'
+            import toolchain_fetch
+            self.slow = 'About %s, once; every file is checked' % toolchain_fetch.size_text()
         else:
             self.waiting('Installing Microsoft\'s C++ tools\u2026')
             self.slow = 'Windows will ask for permission; Microsoft\'s own window shows its progress (10-30 minutes)'

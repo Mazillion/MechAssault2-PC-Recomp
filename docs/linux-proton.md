@@ -28,7 +28,7 @@ toolchain folder that is already laid out; `MA2_TOOLCHAIN_SOURCE=<folder>` takes
 ## A Linux player without RecompLauncher (UNTESTED on real hardware)
 
 The simplest route is Steam: *Games > Add a Non-Steam Game to My Library*, choose `MechAssault 2 Expanded Installer.exe`,
-then *Properties > Compatibility > Force the use of a specific Steam Play compatibility tool* (Proton 10 or newer) and
+then *Properties > Compatibility > Force the use of a specific Steam Play compatibility tool* (Proton 11; tested with GE-Proton 11) and
 *Play*. The installer window opens inside that Proton prefix; the default install folder is `C:\Games\MechAssault 2 Expanded`
 inside the prefix. When it says Ready to play, add `MechAssault 2.exe` from that folder as a second non-Steam game with the
 same Proton. (umu-run or plain Wine 10+ work the same way: `umu-run "MechAssault 2 Expanded Installer.exe"`.)

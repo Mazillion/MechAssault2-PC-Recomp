@@ -212,6 +212,28 @@ class ToolchainFetch(unittest.TestCase):
             self.assertIn('licence', str(c.exception))
 
 
+class Sizes(unittest.TestCase):
+    """Owner 11-24: the toolchain size in every text comes from the pinned data (archives' bytes + the measured xwin splat)."""
+    def test_size_from_the_pins(self):
+        spec = toolchain_fetch.SPEC
+        total = sum(spec[n]['bytes'] for n in ('llvm', 'cmake', 'ninja', 'xwin')) + spec['xwin']['splat_bytes']
+        self.assertEqual(toolchain_fetch.download_bytes(), total)
+        self.assertEqual(toolchain_fetch.size_text(), '%.1f GB' % (total / 1e9))
+        size = toolchain_fetch.size_text()
+        self.assertIn('about %s, once' % size, install.NO_CLANG)
+        import gui
+        self.assertIn('%s', gui.App.LINUX_TOOLS_BODY)
+        m = json.loads((REPO / 'recomplauncher.json').read_text(encoding='utf-8'))
+        note = [o for o in m['prepare']['options'] if o['id'] == 'linux_build_tools'][0]['note']
+        self.assertIn('(about %s)' % size, note)               # the profile is static JSON: kept equal to the computed size here
+
+    def test_no_untested_proton_claims(self):
+        for f in (KIT / 'installer' / 'install.py', KIT / 'installer' / 'gui.py', REPO / 'recomplauncher.json', REPO / 'docs' / 'linux-proton.md'):
+            t = f.read_text(encoding='utf-8')
+            self.assertNotRegex(t, r'Proton 10|Proton \d+ or newer', f.name)
+        self.assertIn('Use Proton 11 (tested with GE-Proton 11)', install.D3DCOMPILER_MISSING)
+
+
 class LauncherProfile(unittest.TestCase):
     def test_linux_tick(self):
         m = json.loads((REPO / 'recomplauncher.json').read_text(encoding='utf-8'))

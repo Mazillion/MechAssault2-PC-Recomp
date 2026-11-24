@@ -441,14 +441,19 @@ def find_visual_studio(choose=None):
     e.vs, e.missing = vs, missing
     raise e
 
-D3DCOMPILER_MISSING = ("This Wine (%(wine)s) can't compile the game's graphics by itself. Use Proton 10 or newer, or put "
+D3DCOMPILER_MISSING = ("This Wine (%(wine)s) can't compile the game's graphics by itself. Use Proton 11 (tested with GE-Proton 11), or put "
                        "Microsoft's d3dcompiler_47.dll (64-bit) in %(folder)s, then start the game.")
 # ^ NEEDS OWNER APPROVAL (LINUX-STRINGS.md G1). Shown only under Wine/Proton whose own d3dcompiler fails the probe.
+
+def _toolchain_size():
+    """The toolchain size from data/toolchain.json (toolchain_fetch.size_text), for the texts that name it."""
+    import toolchain_fetch
+    return toolchain_fetch.size_text()
 
 NO_CLANG = ('Under Linux (Wine or Proton) the game is compiled with LLVM (clang) and the Microsoft C++ runtime and Windows SDK, '
             "because Microsoft's C++ Build Tools"
             ' do not install there. They are not on this PC yet. Let the installer download them '
-            '(about 1.5 GB, once; on the Systems page, or pass --install-build-tools).')
+            '(about %s, once; on the Systems page, or pass --install-build-tools).' % _toolchain_size())
 
 def find_clang():
     """find_visual_studio() under Wine/Proton: (env script, cmake.exe, ninja.exe, toolchain folder). Raises Stop naming what is missing."""

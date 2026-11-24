@@ -30,7 +30,7 @@
       {
         "id": "linux_build_tools",
         "label": "Build tools for Linux (LLVM clang, Microsoft C++ runtime and Windows SDK)",
-        "note": "Needed to build the game through Proton. Downloaded once (about 1.5 GB) and checked file by file.",
+        "note": "Needed to build the game through Proton. Downloaded once (about 1.7 GB) and checked file by file.",
         "os": ["linux"],
         "required": true,
         "args": ["--install-build-tools"],
