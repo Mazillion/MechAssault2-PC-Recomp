@@ -320,7 +320,15 @@ class Launcher(unittest.TestCase):
         self.assertEqual(m['start']['program'], ['MechAssault 2 Expanded/MechAssault 2.exe', 'MechAssault 2/MechAssault 2.exe', NEW])
         self.assertEqual(m['start']['env']['MA2_RECOMPLAUNCHER_DEST'], '{install}/MechAssault 2 Expanded')
         self.assertEqual(m['folders']['game'], [{'path': '{install}/MechAssault 2 Expanded'}])
-        self.assertNotIn('{install}/MechAssault 2/', json.dumps(m))
+        # 1.2.1 (owner: "the small fix is fine"): an install made before the rename keeps its Settings tab; the old folder is
+        # read only when its pc_settings.ini exists, after the player's own file and before the new default
+        old = '{install}/MechAssault 2/pc_settings.ini'
+        self.assertEqual(m['config'][0]['file'], [
+            {'path': '{local}/MechAssault2/pc_settings.ini', 'if': '{local}/MechAssault2/pc_settings.ini'},
+            {'path': old, 'if': old},
+            {'path': '{install}/MechAssault 2 Expanded/pc_settings.ini'}])
+        rest = dict(m, config=None)
+        self.assertNotIn('{install}/MechAssault 2/', json.dumps(rest))
 
     def test_check_launcher_zip(self):
         import zipfile

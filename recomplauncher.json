@@ -96,6 +96,7 @@
       "format": "ini",
       "file": [
         { "path": "{local}/MechAssault2/pc_settings.ini", "if": "{local}/MechAssault2/pc_settings.ini" },
+        { "path": "{install}/MechAssault 2/pc_settings.ini", "if": "{install}/MechAssault 2/pc_settings.ini" },
         { "path": "{install}/MechAssault 2 Expanded/pc_settings.ini" }
       ]
     }
