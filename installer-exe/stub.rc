@@ -14,7 +14,7 @@ BEGIN
     BLOCK "040904b0"
     BEGIN
       VALUE "FileDescription", "MechAssault 2 Expanded Installer"
-      VALUE "ProductName", "MechAssault 2 PC Recomp (unofficial)"
+      VALUE "ProductName", "MechAssault 2 Expanded (unofficial)"
       VALUE "FileVersion", MA2_VER_FILE
       VALUE "ProductVersion", MA2_VER_STR
       VALUE "ReleaseDate", MA2_VER_DATE

@@ -1263,7 +1263,7 @@ class App:
             w = {'ok': True}
         if not w.get('ok', True):
             return self.show_stop(style='failed', icon='blocked', kicker='CAN\'T INSTALL', head='This PC needs a newer Windows',
-                                  body='MechAssault 2 PC Recomp needs 64-bit Windows 10 (version 1903 or later) or Windows 11.', primary=None)
+                                  body='MechAssault 2 Expanded needs 64-bit Windows 10 (version 1903 or later) or Windows 11.', primary=None)
         comp = self.facts.get('compiler')
         if comp is None:
             self.waiting('Getting ready\u2026')
@@ -1342,7 +1342,7 @@ class App:
             if 'downloading' in line.lower(): self.q.put(('call', lambda: self.set_slow('Downloading Microsoft\'s installer')))
         def go():
             try:
-                note('MechAssault 2 Recomp installer, Build Tools one-click install, %s' % time.strftime('%Y-%m-%d %H:%M'))
+                note('MechAssault 2 Expanded Installer, Build Tools one-click install, %s' % time.strftime('%Y-%m-%d %H:%M'))
                 install.install_build_tools(work, note, lambda: self.tools_cancel)
                 res = install.compiler_state()
                 note('compiler check afterwards: %s' % res.get('state'))

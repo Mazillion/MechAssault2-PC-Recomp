@@ -1,7 +1,7 @@
 /* MA2 Report.exe: sends a problem report for MechAssault 2 (1.1.6).
 
    The game's crash and freeze boxes, the in-game "Report a problem" page and the Start menu entry
-   "Report a problem (MechAssault 2)" all use this one small program. It runs when the game cannot:
+   "Report a problem (MechAssault 2 Expanded)" all use this one small program. It runs when the game cannot:
    after a crash, while the game is frozen, or when it does not start at all.
 
    What it does: collects the same files as the installer's report (kit/installer/precheck.py

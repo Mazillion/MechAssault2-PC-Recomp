@@ -15,7 +15,7 @@ BEGIN
   BEGIN
    VALUE "FileDescription", "MechAssault 2 PC Recomp\0"
    VALUE "FileVersion", MA2_PUBLIC_VERSION "\0"
-   VALUE "ProductName", "MechAssault 2 PC Recomp (unofficial)\0"
+   VALUE "ProductName", "MechAssault 2 Expanded (unofficial)\0"
    VALUE "ProductVersion", MA2_PUBLIC_VERSION "\0"
    VALUE "OriginalFilename", "MechAssault 2.exe\0"
   END

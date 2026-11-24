@@ -99,12 +99,12 @@ then deletes them. Until then, --rollback (see COMMAND LINE) goes back to the
 earlier version.
 
 The installer keeps a copy of itself in the install folder (MechAssault 2
-Expanded Installer.exe), and the Start menu gets "Update MechAssault 2" when
-you chose Start menu shortcuts. Run either one: when a newer version is out, it
-offers "Update to" that version. Only when you press it does it download the
-new installer from the project's GitHub releases page, check it against the
-published one and let it update your install. If anything goes wrong, nothing
-is changed and the releases page is one click away.
+Expanded Installer.exe), and the Start menu gets "Update MechAssault 2
+Expanded" when you chose Start menu shortcuts. Run either one: when a newer
+version is out, it offers "Update to" that version. Only when you press it
+does it download the new installer from the project's GitHub releases page,
+check it against the published one and let it update your install. If anything
+goes wrong, nothing is changed and the releases page is one click away.
 
 
 ENHANCED CONTENT (OPTIONAL)

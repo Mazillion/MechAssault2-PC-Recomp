@@ -194,14 +194,15 @@ class OldCopy(Base):
         self.assertIn((install.UPDATE_LNK, i.dest / NEW), made)
 
     def test_update_shortcut_follows_even_without_the_start_tick(self):
-        lnk = self.tmp / 'lnk' / 'start' / install.UPDATE_LNK; lnk.parent.mkdir(parents=True); lnk.write_bytes(b'old lnk')
+        old = self.tmp / 'lnk' / 'start' / 'Update MechAssault 2.lnk'; old.parent.mkdir(parents=True); old.write_bytes(b'old lnk')
         made = []
-        i = self.inst(shortcuts=(), stamp_shortcuts=[str(lnk)]); (i.dest / OLD).write_bytes(b'MZ old'); self.runner()
+        i = self.inst(shortcuts=(), stamp_shortcuts=[str(old)]); (i.dest / OLD).write_bytes(b'MZ old'); self.runner()
         i.copy_installer(); i.retire_old_copies()
         with mock.patch.object(install, 'create_shortcut', lambda l, target, *a, **k: made.append((Path(l), Path(target)))):
             i.make_shortcuts()
-        self.assertEqual(made, [(lnk, i.dest / NEW)])
-        self.assertIn(str(lnk), i.state['shortcuts'])
+        new = old.parent / install.UPDATE_LNK
+        self.assertEqual(made, [(new, i.dest / NEW)])
+        self.assertIn(str(new), i.state['shortcuts']); self.assertFalse(old.exists())
 
     def test_manifest_and_repair_leave_both_copies_out(self):
         i = self.inst(); (i.dest / OLD).write_bytes(b'MZ old'); (i.dest / NEW).write_bytes(b'MZ new')
@@ -212,6 +213,104 @@ class OldCopy(Base):
         i = self.inst(); (i.dest / OLD).write_bytes(b'MZ')
         os.environ['MA2_INSTALLER_EXE'] = str(i.dest / OLD)
         self.assertEqual(install.running_copy(i.dest), (i.dest / OLD).resolve())
+
+
+OLD_GAME, OLD_UPDATE, OLD_REPORT = 'MechAssault 2 (Recomp).lnk', 'Update MechAssault 2.lnk', 'Report a problem (MechAssault 2).lnk'
+
+
+class Shortcuts(Base):
+    """1.2.0: the shortcuts are renamed; install, update and repair (all through make_shortcuts) replace the old-named ones;
+    Uninstall removes both sets. Real .lnk files, in the MA2_SHORTCUT_DIR redirect only."""
+    def setUp(self):
+        super().setUp()
+        self.desk, self.start = self.tmp / 'lnk' / 'desktop', self.tmp / 'lnk' / 'start'
+        self.desk.mkdir(parents=True); self.start.mkdir(parents=True)
+
+    def inst(self, shortcuts, stamp_shortcuts=(), copy=True):
+        dest = self.drive / 'Games' / 'MechAssault 2'; fake_install(dest, [str(p) for p in stamp_shortcuts])
+        (dest / install.REPORT_EXE).write_bytes(b'MZ report'); (dest / 'MA2 Scenario Editor.exe').write_bytes(b'MZ editor')
+        if copy: (dest / NEW).write_bytes(b'MZ installer')
+        i = install.Installer(None, dest, shortcuts=list(shortcuts), log=self.lines.append)
+        i.state = {'done': []}
+        return i
+
+    def old_set(self):
+        made = [self.desk / OLD_GAME, self.start / OLD_GAME, self.start / OLD_UPDATE, self.start / OLD_REPORT]
+        for p in made: p.write_bytes(b'old lnk')
+        return made
+
+    def names(self, folder):
+        return sorted(p.name for p in folder.glob('*.lnk'))
+
+    def test_the_names(self):
+        self.assertEqual(install.GAME_LNK, 'MechAssault 2 Expanded.lnk')
+        self.assertEqual(install.UPDATE_LNK, 'Update MechAssault 2 Expanded.lnk')
+        self.assertEqual(install.REPORT_LNK, 'Report a problem (MechAssault 2 Expanded).lnk')
+        self.assertEqual(install.EDITOR_LNK, 'MA2 Scenario Editor.lnk')
+        self.assertEqual(install.OLD_LNKS, {OLD_GAME: install.GAME_LNK, OLD_UPDATE: install.UPDATE_LNK, OLD_REPORT: install.REPORT_LNK})
+
+    def test_fresh_install_makes_the_new_names(self):
+        i = self.inst(('desktop', 'start', 'editor')); i.make_shortcuts()
+        self.assertEqual(self.names(self.desk), ['MA2 Scenario Editor.lnk', 'MechAssault 2 Expanded.lnk'])
+        self.assertEqual(self.names(self.start), ['MA2 Scenario Editor.lnk', 'MechAssault 2 Expanded.lnk',
+                                                  'Report a problem (MechAssault 2 Expanded).lnk', 'Update MechAssault 2 Expanded.lnk'])
+
+    def test_update_with_the_ticks_replaces_the_old_names(self):
+        old = self.old_set()
+        i = self.inst(('desktop', 'start'), stamp_shortcuts=old); i.make_shortcuts()
+        self.assertEqual(self.names(self.desk), ['MechAssault 2 Expanded.lnk'])
+        self.assertEqual(self.names(self.start), ['MechAssault 2 Expanded.lnk', 'Report a problem (MechAssault 2 Expanded).lnk',
+                                                  'Update MechAssault 2 Expanded.lnk'])
+        self.assertEqual(sorted(Path(s).name for s in i.state['shortcuts']).count('MechAssault 2 Expanded.lnk'), 2)
+
+    def test_update_or_repair_without_ticks_keeps_each_shortcut_under_its_new_name(self):
+        old = self.old_set()
+        i = self.inst((), stamp_shortcuts=old); i.make_shortcuts()
+        self.assertEqual(self.names(self.desk), ['MechAssault 2 Expanded.lnk'])
+        self.assertEqual(self.names(self.start), ['MechAssault 2 Expanded.lnk', 'Report a problem (MechAssault 2 Expanded).lnk',
+                                                  'Update MechAssault 2 Expanded.lnk'])
+        self.assertEqual(sorted(Path(s).name for s in i.state['shortcuts']),
+                         sorted(['MechAssault 2 Expanded.lnk', 'MechAssault 2 Expanded.lnk', 'Report a problem (MechAssault 2 Expanded).lnk',
+                                 'Update MechAssault 2 Expanded.lnk']))
+
+    def test_old_name_not_ours_is_removed_only_where_the_new_one_was_made(self):
+        (self.desk / OLD_GAME).write_bytes(b'x'); (self.start / OLD_GAME).write_bytes(b'x')     # not in this install's stamp
+        i = self.inst(('start',)); i.make_shortcuts()
+        self.assertNotIn(OLD_GAME, self.names(self.start), 'the Start menu now has the new one: the old name goes')
+        self.assertIn(OLD_GAME, self.names(self.desk), 'a desktop shortcut this install never made, in a folder this run left alone, stays')
+
+    def test_old_update_shortcut_stays_when_there_is_no_new_copy(self):
+        (self.start / OLD_UPDATE).write_bytes(b'x')
+        i = self.inst((), stamp_shortcuts=[self.start / OLD_UPDATE], copy=False); i.make_shortcuts()
+        self.assertEqual(self.names(self.start), [OLD_UPDATE], 'nothing to point the new one at: the old one keeps working')
+
+    def test_a_fault_in_the_rename_keeps_the_new_shortcuts(self):
+        old = self.old_set()
+        i = self.inst(('desktop', 'start'), stamp_shortcuts=old)
+        with mock.patch.object(install.Installer, 'replace_old_shortcuts', lambda *a: (_ for _ in ()).throw(RuntimeError('fault'))):
+            i.make_shortcuts()
+        self.assertIn('MechAssault 2 Expanded.lnk', self.names(self.start))
+        self.assertTrue(any('older shortcuts were not renamed' in l for l in self.lines))
+
+    def test_uninstall_removes_both_sets(self):
+        old = [self.desk / OLD_GAME, self.start / OLD_UPDATE]
+        new = [self.desk / install.GAME_LNK, self.start / install.REPORT_LNK, self.start / install.EDITOR_LNK]
+        for p in old + new: p.write_bytes(b'lnk')
+        i = self.inst((), stamp_shortcuts=old + new, copy=False)
+        self.assertEqual(sorted(install.uninstall_plan(i.dest)['shortcuts']), sorted(old + new))
+        res = install.uninstall(i.dest, log=self.lines.append)
+        self.assertEqual(res['failed'], [])
+        for p in old + new: self.assertFalse(p.exists(), p)
+
+    def test_texts(self):
+        import gui, gui_legacy
+        self.assertIn("'MechAssault 2 Expanded needs 64-bit Windows 10", (REPO / 'kit' / 'installer' / 'gui.py').read_text(encoding='utf-8'))
+        src = (REPO / 'kit' / 'installer' / 'gui_legacy.py').read_text(encoding='utf-8')
+        self.assertIn('Start menu entry "MechAssault 2 Expanded"', src)
+        self.assertNotIn('MechAssault 2 Recomp is', src)
+        self.assertTrue(install.build_label().startswith('MechAssault 2 Expanded '))
+        for rc in ('installer-exe/stub.rc', 'report-helper/report.rc', 'editor/res/editor.rc', 'kit/source/game/src/app.rc'):
+            self.assertIn('"ProductName", "MechAssault 2 Expanded (unofficial)', (REPO / rc).read_text(encoding='utf-8'), rc)
 
 
 class Launcher(unittest.TestCase):

@@ -1,6 +1,6 @@
 @echo off
 rem Builds "MA2 Report.exe", the problem-report helper the game, its crash and freeze boxes and the
-rem Start menu entry "Report a problem (MechAssault 2)" start (see report.c).
+rem Start menu entry "Report a problem (MechAssault 2 Expanded)" start (see report.c).
 rem The version comes from ..\VERSION; the relay address from the MA2_RELAY_URL variable
 rem (tools\build_release.py sets it from kit\installer\data\report.json; unset or empty = Save only).
 rem Needs the MSVC x64 tools (a "x64 Native Tools" prompt, or Visual Studio found with vswhere).

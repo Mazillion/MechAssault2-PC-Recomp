@@ -336,7 +336,7 @@ class Engine(unittest.TestCase):
         ver = [l.strip() for l in (WORK.parent / 'VERSION').read_text(encoding='utf-8').splitlines() if l.strip()]
         self.assertEqual(len(ver), 2); self.assertRegex(ver[0], r'^\d+\.\d+\.\d+$'); self.assertRegex(ver[1], r'^\d{4}\.\d{2}\.\d{2}$')
         self.assertEqual((install.PUBLIC_VERSION, install.VERSION), (ver[0], ver[1]))
-        self.assertEqual(install.build_label(), 'MechAssault 2 Recomp %s (build %s)' % (ver[0], install.KIT_ID[:8]))
+        self.assertEqual(install.build_label(), 'MechAssault 2 Expanded %s (build %s)' % (ver[0], install.KIT_ID[:8]))
         rc = (WORK.parent / 'installer-exe' / 'stub.rc').read_text(encoding='utf-8')
         self.assertIn('MA2_VER_STR', rc); self.assertNotIn('2026,10,30', rc)
 
@@ -624,7 +624,7 @@ class Engine(unittest.TestCase):
         self.assertIn(b'gyan.dev', (d / 'Licenses' / 'FFmpeg-README.txt').read_bytes())                  # W-54: the FFmpeg build's own README beside the GPL text
         self.assertEqual((d / 'pc_settings.ini').read_text(), '[Display]\nTextureQuality=0\nMine=1\n')      # user-edited ini kept
         self.assertTrue((d / 'pc_settings.default.ini').is_file()); self.assertTrue(any('pc_settings.default.ini' in n for n in inst.notes))
-        lnks = sorted(p.name for p in Path(os.environ['MA2_SHORTCUT_DIR']).rglob('*.lnk')); self.assertIn('MechAssault 2 (Recomp).lnk', lnks); self.assertIn('MA2 Scenario Editor.lnk', lnks)
+        lnks = sorted(p.name for p in Path(os.environ['MA2_SHORTCUT_DIR']).rglob('*.lnk')); self.assertIn(install.GAME_LNK, lnks); self.assertNotIn('MechAssault 2 (Recomp).lnk', lnks); self.assertIn('MA2 Scenario Editor.lnk', lnks)
         # a texture pack was added by the (skipped) textures step: pretend, then finish
         (d / 'game_files' / 'texture_packs' / '2x').mkdir(parents=True); (d / 'game_files' / 'texture_packs' / '2x' / 'index.json').write_text('{}')
         inst.state['done'].append('textures-2x'); inst.keep_work = True
@@ -1095,7 +1095,7 @@ class Uninstall(unittest.TestCase):
     def test_refuses_what_is_not_ours(self):
         stranger = self.base / 'Other'; (stranger / 'photos').mkdir(parents=True); (stranger / 'photos' / 'a.jpg').write_text('x')
         with self.assertRaises(install.Stop) as e: install.uninstall(stranger, True, log=lambda s: None)
-        self.assertIn('not a MechAssault 2 Recomp install', str(e.exception)); self.assertTrue((stranger / 'photos' / 'a.jpg').is_file())
+        self.assertIn('not a MechAssault 2 Expanded install', str(e.exception)); self.assertTrue((stranger / 'photos' / 'a.jpg').is_file())
         # an install folder that holds the scenarios, the settings or Documents: nothing is deleted
         for name in ('Documents', 'LocalAppData', ''):
             d, _ = self.make_install('Games/MA2')

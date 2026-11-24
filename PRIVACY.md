@@ -6,7 +6,7 @@ Nothing is ever sent unless you press **Send report**. There are no accounts and
 
 - In the game: the pause menu, Audio settings, and the window that opens if the game crashes or stops responding.
 - In the installer: the failure screen and Help, then Report a problem.
-- In the Start menu: Report a problem (MechAssault 2).
+- In the Start menu: Report a problem (MechAssault 2 Expanded).
 
 Before you send, **What's included?** lists the exact files. **Save a copy instead** keeps the report on your PC without sending anything.
 

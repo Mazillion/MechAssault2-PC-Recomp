@@ -548,7 +548,7 @@ class Welcome(Page):
         text = None; buttons = []; one_row = False
         if state is not None and state.get('core_done') and install.is_install(d):
             # The game was installed; only its enhanced content (textures, videos) did not finish.
-            text = ('MechAssault 2 Recomp is installed in %s and ready to play. Its enhanced content was not finished: Resume makes only that.'
+            text = ('MechAssault 2 Expanded is installed in %s and ready to play. Its enhanced content was not finished: Resume makes only that.'
                     % precheck.short(d, 60))
             buttons = [('Resume', lambda: self.choose(d, 'resume'), 'Primary.TButton'), ('Discard', lambda: self.start_over(d), 'TButton'),
                        ('Collect diagnostics', lambda: self.diagnostics(d), 'Link.TButton')]
@@ -564,18 +564,18 @@ class Welcome(Page):
             s = stamp or {}
             have = ('%s (build %s)' % (s['public_version'], str(s.get('kit_id', ''))[:8]) if s.get('public_version') else
                     'from %s' % s['version'] if s.get('version') else 'an earlier version')
-            text = 'MechAssault 2 Recomp %s is installed in %s. This installer is %s (build %s).' % (have, precheck.short(d, 60), install.PUBLIC_VERSION, install.BUILD)
+            text = 'MechAssault 2 Expanded %s is installed in %s. This installer is %s (build %s).' % (have, precheck.short(d, 60), install.PUBLIC_VERSION, install.BUILD)
             buttons = [('Update it', lambda: self.choose(d, 'update'), 'Primary.TButton'), ('Add enhanced content', lambda: self.choose(d, 'addons'), 'TButton'),
                        ('Install somewhere else', lambda: self.choose(precheck.default_install_folder(keep_old=False), 'install'), 'TButton'),
                        ('Uninstall', lambda: self.uninstall(d), 'Link.TButton'),
                        ('Collect diagnostics', lambda: self.diagnostics(d), 'Link.TButton')]
         elif rel == 'same':
-            text = 'MechAssault 2 Recomp is already installed in %s and up to date.' % precheck.short(d, 60)
+            text = 'MechAssault 2 Expanded is already installed in %s and up to date.' % precheck.short(d, 60)
             buttons = [('Add enhanced content', lambda: self.choose(d, 'addons'), 'Primary.TButton'), ('Repair', lambda: self.choose(d, 'repair'), 'TButton'),
                        ('Uninstall', lambda: self.uninstall(d), 'Link.TButton'),
                        ('Collect diagnostics', lambda: self.diagnostics(d), 'Link.TButton')]
         elif rel == 'newer':
-            text = 'MechAssault 2 Recomp is installed in %s. It was made by a newer installer than this one.' % precheck.short(d, 60)
+            text = 'MechAssault 2 Expanded is installed in %s. It was made by a newer installer than this one.' % precheck.short(d, 60)
             buttons = [('Add enhanced content', lambda: self.choose(d, 'addons'), 'Primary.TButton'), ('Uninstall', lambda: self.uninstall(d), 'Link.TButton'),
                        ('Collect diagnostics', lambda: self.diagnostics(d), 'Link.TButton')]
         if not text: return
@@ -795,7 +795,7 @@ class Systems(Page):
             elif 'installing microsoft' in low: self.post('compiler', 'wait', 'Waiting for Microsoft\'s installer (approve the administrator prompt; their own window shows progress, 10-30 minutes)...')
         def go():
             try:
-                note('MechAssault 2 Recomp installer, Build Tools one-click install, %s' % time.strftime('%Y-%m-%d %H:%M'))
+                note('MechAssault 2 Expanded Installer, Build Tools one-click install, %s' % time.strftime('%Y-%m-%d %H:%M'))
                 install.install_build_tools(work, note, lambda: False)
                 res = install.compiler_state()
                 note('compiler check afterwards: %s' % res.get('state'))
@@ -1011,7 +1011,7 @@ class Loadout(Page):
         right = tk.Frame(cols, bg=C['bg']); right.pack(side='left', anchor='n', fill='x', expand=True)
         t.label(left, 'SHORTCUTS', 'kicker', 'amber').pack(anchor='w')
         self.sc_boxes = []
-        for k, label in (('desktop', 'Desktop shortcut'), ('start', 'Start menu entry "MechAssault 2 (Recomp)"'), ('editor', 'Scenario Editor shortcut')):
+        for k, label in (('desktop', 'Desktop shortcut'), ('start', 'Start menu entry "MechAssault 2 Expanded"'), ('editor', 'Scenario Editor shortcut')):
             b = ttk.Checkbutton(left, text=label, variable=app.sc[k]); b.pack(anchor='w'); self.sc_boxes.append(b)
         t.label(right, 'WHILE INSTALLING', 'kicker', 'amber').pack(anchor='w')
         ttk.Checkbutton(right, text='Keep this PC awake while installing', variable=app.awake).pack(anchor='w')

@@ -1,4 +1,4 @@
-"""MechAssault 2 Recomp installer: from your own MechAssault 2 disc image to the PC release.
+"""MechAssault 2 Expanded Installer: from your own MechAssault 2 disc image to the PC release.
 
 This runs inside "MechAssault 2 Expanded Installer.exe", the single-file installer, which carries this
 kit (a Python runtime, toolkit/, source/, patches/, assets/, defaults/, enhancer/) and unpacks it
@@ -64,8 +64,8 @@ KIT_ID = KIT.name.split('MA2RecompInstaller-', 1)[1] if KIT.name.startswith('MA2
 BUILD = KIT_ID[:8]
 
 def build_label():
-    """'MechAssault 2 Recomp 1.0.2 (build 1a2b3c4d)': the one name the windows, logs and documents use for this release."""
-    return 'MechAssault 2 Recomp %s (build %s)' % (PUBLIC_VERSION, BUILD)
+    """'MechAssault 2 Expanded 1.0.2 (build 1a2b3c4d)': the one name the windows, logs and documents use for this release."""
+    return 'MechAssault 2 Expanded %s (build %s)' % (PUBLIC_VERSION, BUILD)
 BELOW_NORMAL = 0x00004000
 PROJECT = 'MechAssault2'                          # project folder inside the toolkit copy
 FFMPEG = 'ffmpeg-9.0.2-full_build-shared'
@@ -731,10 +731,19 @@ def _vcall(obj, index, argtypes, *args):
     return ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, *argtypes)(vtbl[index])(obj, *args)
 
 REPORT_EXE = 'MA2 Report.exe'                       # 1.1.6: the report helper (report-helper/ in the repo), beside the game
-REPORT_LNK = 'Report a problem (MechAssault 2).lnk'   # its Start menu entry (no arguments: the stub needs none either)
+REPORT_LNK = 'Report a problem (MechAssault 2 Expanded).lnk'   # its Start menu entry (no arguments: the stub needs none either)
+UPDATE_TIP = 'Check for a newer version of MechAssault 2 and update it'
+REPORT_TIP = 'Send a problem report for MechAssault 2 to the developer'
 INSTALLER_COPY = selfupdate.INSTALLER_COPY            # 1.1.7: a copy of the installer in the install folder ("Run the installer to update")
 OLD_INSTALLER_COPIES = selfupdate.OLD_INSTALLER_COPIES  # 1.2.0: its earlier names; replaced by INSTALLER_COPY on install, update and repair
-UPDATE_LNK = 'Update MechAssault 2.lnk'               # 1.1.7: its Start menu entry (with the game's Start menu entry)
+UPDATE_LNK = 'Update MechAssault 2 Expanded.lnk'      # 1.1.7: its Start menu entry (with the game's Start menu entry)
+GAME_TITLE = 'MechAssault 2 Expanded'                 # the game's shortcut (desktop and Start menu) and its tooltip
+GAME_LNK = GAME_TITLE + '.lnk'
+EDITOR_LNK = 'MA2 Scenario Editor.lnk'
+# 1.2.0: the shortcut names before the rename -> the new name. make_shortcuts replaces them (install, update, repair); Uninstall
+# removes both sets.
+OLD_LNKS = {'MechAssault 2 (Recomp).lnk': GAME_LNK, 'Update MechAssault 2.lnk': UPDATE_LNK,
+            'Report a problem (MechAssault 2).lnk': REPORT_LNK}
 
 def create_shortcut(lnk, target, workdir, description='', icon=None):
     """Write a .lnk with IShellLinkW (no script host). Raises OSError on failure."""
@@ -841,7 +850,7 @@ def uninstall_plan(dest, delete_user_data=False):
     `dest` is not an install of ours or deleting it could take something that is not ours with it."""
     dest = Path(precheck.clean_path(str(dest))).resolve()
     if not is_install(dest):
-        raise Stop('%s is not a MechAssault 2 Recomp install, so nothing was deleted.' % dest)
+        raise Stop('%s is not a MechAssault 2 Expanded install, so nothing was deleted.' % dest)
     local = precheck.local_dir()
     for keep, what in ((scenarios_dir(), 'your scenarios folder (Documents\\MechAssault 2\\Scenarios)'), (local, 'your settings and saves folder'),
                        (documents_dir(), 'your Documents folder'), (Path.home(), 'your user folder')):
@@ -852,7 +861,7 @@ def uninstall_plan(dest, delete_user_data=False):
     if dest.parent == dest:
         raise Stop('%s is a drive, not an install folder; nothing was deleted.' % dest)
     stamp = precheck.read_stamp(dest) or {}
-    ours = ('MechAssault 2 (Recomp).lnk', 'MA2 Scenario Editor.lnk', REPORT_LNK, UPDATE_LNK)
+    ours = (GAME_LNK, EDITOR_LNK, REPORT_LNK, UPDATE_LNK) + tuple(OLD_LNKS)      # 1.2.0: and the names before the rename
     shortcuts = [Path(s) for s in stamp.get('shortcuts', []) if isinstance(s, str) and Path(s).name in ours and Path(s).is_file()]
     caches = [p for p in (local / 'ShaderCache', local / 'NavCache', local / 'Cache', Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local') / 'xboxrecomp' / 'shader-cache')
               if p.exists()]
@@ -1423,7 +1432,7 @@ def rollback(dest, log=print):
     """Put the version an update replaced back (_previous): its files, its install stamp and manifest. All or nothing: if any file
     cannot be moved, everything moved so far is moved back. Returns the version now installed; raises Stop."""
     dest = Path(precheck.clean_path(str(dest))).resolve()
-    if not is_install(dest): raise Stop('%s is not a MechAssault 2 Recomp install.' % dest)
+    if not is_install(dest): raise Stop('%s is not a MechAssault 2 Expanded install.' % dest)
     if precheck.read_state(dest) is not None:
         raise Stop('An install or update in %s is not finished. Run the installer to finish it first.' % dest)
     info = read_previous(dest)
@@ -2001,10 +2010,10 @@ class Installer:
         else:
             if not created and any(p.name != '_work' for p in self.dest.iterdir()) and not is_install(self.dest):
                 raise Stop('The install folder %s is not empty. Choose an empty folder (or an existing '
-                           'MechAssault 2 Recomp install to add optional content).' % self.dest)
+                           'MechAssault 2 Expanded install to add optional content).' % self.dest)
             existing = is_install(self.dest)
             if self.update and not existing:
-                raise Stop('There is no MechAssault 2 Recomp install in %s to update.' % self.dest)
+                raise Stop('There is no MechAssault 2 Expanded install in %s to update.' % self.dest)
             relation = install_relation(self.dest)
             if existing and not self.update and relation in ('older', 'same'):
                 self.log('  An existing install was found (%s). Adding optional content only; run with --update to update the game.'
@@ -2951,7 +2960,7 @@ class Installer:
 
     def make_shortcuts(self):
         made = []
-        names = {'game': ('MechAssault 2 (Recomp).lnk', self.dest / 'MechAssault 2.exe', 'MechAssault 2 (Recomp)')}
+        names = {'game': (GAME_LNK, self.dest / 'MechAssault 2.exe', GAME_TITLE)}
         editor = next(iter(sorted(self.dest.glob('MA2 Scenario Editor*.exe'))), None)
         want = set(self.shortcuts)
         places = [w for w in ('desktop', 'start') if w in want]
@@ -2972,26 +2981,60 @@ class Installer:
                 made.append(str(base / 'MA2 Scenario Editor.lnk'))
             except OSError as e:
                 self.log('  (editor shortcut not created: %s)' % e)
-        upd = self.dest / INSTALLER_COPY               # 1.1.7: Update MechAssault 2 in the Start menu (with the game's Start menu entry)
+        upd = self.dest / INSTALLER_COPY               # 1.1.7: Update MechAssault 2 Expanded in the Start menu (with the game's Start menu entry)
         try:
-            had = [s for s in (precheck.read_stamp(self.dest) or {}).get('shortcuts') or []     # 1.2.0: an Update shortcut this install
-                   if isinstance(s, str) and Path(s).name == UPDATE_LNK and Path(s).is_file()]   # already has follows the renamed copy
-            if upd.is_file() and selfupdate.enabled() and ('start' in want or had):
-                base = known_folder('start') if 'start' in want else Path(had[0]).parent
-                create_shortcut(base / UPDATE_LNK, upd, self.dest, 'Check for a newer version of MechAssault 2 and update it')
+            if 'start' in want and upd.is_file() and selfupdate.enabled():
+                base = known_folder('start')
+                create_shortcut(base / UPDATE_LNK, upd, self.dest, UPDATE_TIP)
                 made.append(str(base / UPDATE_LNK))
         except Exception as e:
-            self.log('  (Update MechAssault 2 shortcut not created: %s)' % e)
+            self.log('  (Update MechAssault 2 Expanded shortcut not created: %s)' % e)
         report = self.dest / REPORT_EXE                # 1.1.6: Report a problem in the Start menu (with the game's Start menu entry)
         if 'start' in want and report.is_file():
             try:
                 base = known_folder('start')
-                create_shortcut(base / REPORT_LNK, report, self.dest, 'Send a problem report for MechAssault 2 to the developer')
+                create_shortcut(base / REPORT_LNK, report, self.dest, REPORT_TIP)
                 made.append(str(base / REPORT_LNK))
             except OSError as e:
                 self.log('  (Report a problem shortcut not created: %s)' % e)
+        try: made += self.replace_old_shortcuts(made)  # 1.2.0: the shortcuts under their names before the rename
+        except Exception as e: self.log('  (older shortcuts were not renamed: %s)' % e)
         for m in made: self.log('  shortcut: %s' % m)
         self.state['shortcuts'] = made; self.save()
+
+    def replace_old_shortcuts(self, made):
+        """1.2.0: remove the shortcuts named before the rename (OLD_LNKS) from the desktop and the Start menu. An old one this install
+        made (its stamp lists it) that this run did not make again under the new name is re-made under the new name in the same
+        folder first, so no shortcut the player had is lost; an old-named one in a folder where this run made the new one is simply
+        removed. Old-named shortcuts this install did not make, in a folder this run did not touch, are left alone. Returns the new
+        shortcuts made here (for the stamp)."""
+        listed = [Path(s) for s in (precheck.read_stamp(self.dest) or {}).get('shortcuts') or [] if isinstance(s, str)]
+        key = lambda p: os.path.normcase(str(p))
+        mine = {key(p) for p in listed}
+        folders = {}
+        for where in ('desktop', 'start'):
+            try: folders.setdefault(key(known_folder(where)), known_folder(where))
+            except Exception: pass
+        for p in listed:
+            if p.name in OLD_LNKS: folders.setdefault(key(p.parent), p.parent)
+        roles = {GAME_LNK: (self.dest / 'MechAssault 2.exe', GAME_TITLE), REPORT_LNK: (self.dest / REPORT_EXE, REPORT_TIP),
+                 UPDATE_LNK: (self.dest / INSTALLER_COPY, UPDATE_TIP)}
+        have = {key(m) for m in made}
+        added = []
+        for folder in folders.values():
+            for old_name, new_name in OLD_LNKS.items():
+                old, new = folder / old_name, folder / new_name
+                if not old.is_file(): continue
+                if key(new) not in have:
+                    if key(old) not in mine: continue                      # another install's shortcut, in a folder this run left alone
+                    target, tip = roles[new_name]
+                    if not target.is_file() or (new_name == UPDATE_LNK and not selfupdate.enabled()):
+                        continue                                           # nothing to point the new one at: the old one stays
+                    create_shortcut(new, target, self.dest, tip)
+                    added.append(str(new)); have.add(key(new))
+                old.unlink()
+                self.log('  shortcut %s replaced by %s' % (old, new_name))
+        return added
 
     # -- optional content (the Enhancer)
     def enhancer(self, engine='pytorch'):
@@ -3285,7 +3328,7 @@ def run_uninstall(a):
         plan = uninstall_plan(a.dest, a.delete_user_data)
     except Stop as e:
         print('UNINSTALL STOPPED: %s' % e, file=sys.stderr); return 1
-    print('Uninstall MechAssault 2 Recomp from %s:' % plan['dest'])
+    print('Uninstall MechAssault 2 Expanded from %s:' % plan['dest'])
     for s in plan['shortcuts']: print('  shortcut  %s' % s)
     print('  the install folder  %s' % plan['dest'])
     if plan.get('build'): print('  the kept build folder  %s' % plan['build'])
@@ -3307,7 +3350,7 @@ def run_self_update(dest, log=lambda line: print(line, flush=True), progress=Non
         return 1
     d = Path(precheck.clean_path(dest)).resolve()
     if not is_install(d):
-        print('SELF-UPDATE STOPPED: %s is not a MechAssault 2 Recomp install.' % d, file=sys.stderr); return 1
+        print('SELF-UPDATE STOPPED: %s is not a MechAssault 2 Expanded install.' % d, file=sys.stderr); return 1
     if precheck.read_state(d) is not None:
         print('SELF-UPDATE STOPPED: An install or update in %s is not finished. Run the installer to finish it first.' % d, file=sys.stderr)
         return 1
@@ -3511,7 +3554,7 @@ def run_launcher(a, textures):
         print(LAUNCHER_STOPPED, file=sys.stderr)
         return 1
     if plan == 'install' and not a.xiso:
-        print('INSTALL STOPPED: no disc image was given and %s holds no MechAssault 2 Recomp install to update.' % dest, file=sys.stderr)
+        print('INSTALL STOPPED: no disc image was given and %s holds no MechAssault 2 Expanded install to update.' % dest, file=sys.stderr)
         return stopped()
     def log(line):
         write(line); report.log(line)
