@@ -1859,6 +1859,11 @@ def keep_install(cfg, exe, dest, label):
     return code
 
 
+def github_name(name):
+    """The name GitHub gives an uploaded asset: characters outside [A-Za-z0-9._+-] become '.'."""
+    return re.sub(r'[^A-Za-z0-9._+-]', '.', name)
+
+
 def cmd_preview(a):
     cfg = load_config(a.config)
     head = git('rev-parse', 'HEAD').strip()
@@ -1898,7 +1903,8 @@ def cmd_preview(a):
     zfinal = out / zips[-1].name if zips else None
     if zfinal:
         shutil.copy2(zips[-1], zfinal)
-    (out / 'SHA256SUMS.txt').write_text(''.join('%s *%s\n' % (sha_file(f), f.name) for f in (final, zfinal) if f), encoding='ascii')
+    (out / 'SHA256SUMS.txt').write_text(''.join('%s *%s\n' % (sha_file(f), github_name(f.name)) for f in (final, zfinal) if f),
+                                        encoding='ascii', newline='\n')
     assets = '"%s" %s"%s"' % (final, '"%s" ' % zfinal if zfinal else '', out / 'SHA256SUMS.txt')
     base = a.base or cfg.get('base')
     sheet = None
@@ -1945,7 +1951,8 @@ def cmd_rc(a):
         files = [out / INSTALLER_NAME]
         if need_zip(g):                           # the RecompLauncher zip goes up next to the exe
             shutil.copy2(need_zip(g), out / need_zip(g).name); files.append(out / need_zip(g).name)
-        (out / 'SHA256SUMS.txt').write_text(''.join('%s *%s\n' % (sha_file(f), f.name) for f in files), encoding='ascii')
+        (out / 'SHA256SUMS.txt').write_text(''.join('%s *%s\n' % (sha_file(f), github_name(f.name)) for f in files),
+                                            encoding='ascii', newline='\n')
         shutil.copy2(g.dir / 'result.md', out / 'gate-result.md'); shutil.copy2(g.dir / 'result.json', out / 'gate-result.json')
         say('release candidate %s (gate %s)' % (out / INSTALLER_NAME, g.overall()))
         if code == 0 and a.keep_install:
