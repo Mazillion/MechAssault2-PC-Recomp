@@ -231,12 +231,58 @@ static HRESULT cached_shader(const char *source,size_t length,const char *entry,
     if(seed_blob(source,length,entry,profile,path,code) || read_blob(path,profile,code))return S_OK;
     return S_FALSE;
 }
+/* Wine/Proton only: HLSL the builtin compiler (vkd3d-shader) cannot take yet, rewritten to the same meaning before
+ * D3DCompile. Proton 11's vkd3d stops on isinf() ("not yet implemented feature: SM4 isinf expression"); the generated
+ * vertex programs use it once, on the fog distance. The cache key stays the original source. On Windows this returns
+ * NULL and nothing changes. */
+static int shader_under_wine(void)
+{
+    static int wine=-1;
+    if(wine<0) {
+        HMODULE nt=GetModuleHandleW(L"ntdll.dll");
+        wine=nt && GetProcAddress(nt,"wine_get_version")?1:0;
+    }
+    return wine;
+}
+static char *wine_hlsl_fixup(const char *source,size_t length,size_t *out_length)
+{
+    static const char from[]="isinf(distance)",to[]="((asuint(distance)&0x7FFFFFFFu)==0x7F800000u)";
+    if(!shader_under_wine() || length<sizeof(from))return NULL;
+    size_t hits=0;
+    for(size_t i=0;i+sizeof(from)-1<=length;i++)if(!memcmp(source+i,from,sizeof(from)-1)){hits++;i+=sizeof(from)-2;}
+    if(!hits)return NULL;
+    char *out=malloc(length+hits*(sizeof(to)-sizeof(from))+1);
+    if(!out)return NULL;
+    size_t o=0;
+    for(size_t i=0;i<length;) {
+        if(i+sizeof(from)-1<=length && !memcmp(source+i,from,sizeof(from)-1)){memcpy(out+o,to,sizeof(to)-1);o+=sizeof(to)-1;i+=sizeof(from)-1;}
+        else out[o++]=source[i++];
+    }
+    out[o]=0;*out_length=o;
+    return out;
+}
 HRESULT nv2a_shader_compile_blocking(const char *source,size_t length,const char *entry,
                                      const char *profile,ID3DBlob **code,ID3DBlob **errors)
 {
     if(cached_shader(source,length,entry,profile,code)==S_OK)return S_OK;
-    HRESULT hr=D3DCompile(source,length,"nv2a_guest.hlsl",NULL,NULL,entry,profile,
+    size_t wine_length=0;
+    char *wine_source=wine_hlsl_fixup(source,length,&wine_length);     /* NULL on Windows: the source as it is */
+    const char *compiled=wine_source?wine_source:source;               /* the cache key stays the original source */
+    size_t compiled_length=wine_source?wine_length:length;
+    HRESULT hr=D3DCompile(compiled,compiled_length,"nv2a_guest.hlsl",NULL,NULL,entry,profile,
                          D3DCOMPILE_OPTIMIZATION_LEVEL3,0,code,errors);
+    if(FAILED(hr)) {
+        /* RECOMP_SHADER_FAIL_DUMP=<folder>: the source of a shader that did not compile, for trying it against another
+         * compiler (Wine/Proton's vkd3d-shader). Off unless set; the first 64 failures of a run only. */
+        static LONG dumped;
+        const char *dir=getenv("RECOMP_SHADER_FAIL_DUMP");
+        if(dir && *dir && InterlockedIncrement(&dumped)<=64) {
+            char name[MAX_PATH];FILE *f;
+            _snprintf_s(name,sizeof name,_TRUNCATE,"%s\\fail-%ld-%s-%s.hlsl",dir,dumped,profile,entry);
+            if(!fopen_s(&f,name,"wb") && f){fwrite(compiled,1,compiled_length,f);fclose(f);}
+            fprintf(stderr,"[GPU-SHADER] compile failed (%08lX), source written to %s\n",(unsigned long)hr,name);
+        }
+    }
     WCHAR path[MAX_PATH];
     if(SUCCEEDED(hr) && shader_path(source,length,entry,profile,path)) {
         WCHAR temporary[MAX_PATH];
@@ -247,6 +293,7 @@ HRESULT nv2a_shader_compile_blocking(const char *source,size_t length,const char
         if(FAILED(w) || !MoveFileExW(temporary,path,MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH))
             DeleteFileW(temporary);
     }
+    free(wine_source);
     return hr;
 }
 static DWORD WINAPI shader_worker(LPVOID parameter)
