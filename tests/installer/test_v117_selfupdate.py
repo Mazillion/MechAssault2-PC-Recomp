@@ -151,8 +151,10 @@ class Check(Base):
 class Hosts(Base):
     def test_production_address_and_hosts(self):
         os.environ['MA2_SELF_UPDATE_TEST'] = ''
-        self.assertEqual(selfupdate.download_url('1.1.8'),
-                         'https://github.com/Mazillion/MechAssault2-PC-Recomp/releases/download/v1.1.8/MechAssault%202%20Recomp%20Installer.exe')
+        self.assertEqual(selfupdate.download_urls('1.1.8'),
+                         ['https://github.com/Mazillion/MechAssault2-PC-Recomp/releases/download/v1.1.8/MechAssault.2.Recomp.Installer.exe',
+                          'https://github.com/Mazillion/MechAssault2-PC-Recomp/releases/download/v1.1.8/MechAssault%202%20Recomp%20Installer.exe'])
+        self.assertEqual(selfupdate.download_url('1.1.8'), selfupdate.download_urls('1.1.8')[0])
         ok = selfupdate._url_ok
         H = selfupdate.DOWNLOAD_HOSTS
         for u in ('https://github.com/x', 'https://release-assets.githubusercontent.com/a?sig=1', 'https://objects.githubusercontent.com/a'):
@@ -169,6 +171,32 @@ class Hosts(Base):
         self.assertEqual(selfupdate.github_base(), 'https://github.com')
 
 
+# ---------------------------------------------------------------------------- GitHub's asset naming (1.2.1)
+
+class AssetName(Base):
+    def test_github_naming_rule(self):
+        # The real releases (v1.1.7, v1.2.0): uploaded "MechAssault 2 Recomp Installer.exe", published "MechAssault.2.Recomp.Installer.exe".
+        self.assertEqual(selfupdate.github_asset_name('MechAssault 2 Recomp Installer.exe'), 'MechAssault.2.Recomp.Installer.exe')
+        self.assertEqual(selfupdate.github_asset_name('MechAssault2-PC-Recomp-v1.2.0-Windows-x64.zip'),
+                         'MechAssault2-PC-Recomp-v1.2.0-Windows-x64.zip')       # published unchanged
+        self.assertEqual(selfupdate.github_asset_name('SHA256SUMS.txt'), 'SHA256SUMS.txt')
+
+    def test_fallback_to_uploaded_name_on_404(self):
+        self.srv.published = 'spaced'
+        exe = selfupdate.download(self.info(), '1.1.7', log=self.lines.append)
+        self.assertEqual(exe.read_bytes(), self.srv.payload)
+        paths = [r['path'] for r in self.srv.requests if '/releases/download/' in r['path']]
+        self.assertEqual([p.rsplit('/', 1)[1] for p in paths], ['MechAssault.2.Recomp.Installer.exe', 'MechAssault%202%20Recomp%20Installer.exe'])
+        self.assertTrue(any('trying the name as uploaded' in l for l in self.lines))
+
+    def test_404_on_both_names_is_a_server_error(self):
+        self.srv.mode = '404'
+        with self.assertRaises(selfupdate.UpdateError) as c:
+            selfupdate.download(self.info(), '1.1.7', log=self.lines.append)
+        self.assertEqual(c.exception.cause, 'server')
+        self.assertEqual(len([r for r in self.srv.requests if '/releases/download/' in r['path']]), 2)
+
+
 # ---------------------------------------------------------------------------- the download
 
 class Download(Base):
@@ -182,7 +210,9 @@ class Download(Base):
         self.assertEqual(exe.read_bytes(), self.srv.payload)
         self.assertEqual(seen[-1], (len(self.srv.payload), len(self.srv.payload)))
         paths = [r['path'] for r in self.srv.requests]
-        self.assertIn('/Mazillion/MechAssault2-PC-Recomp/releases/download/v1.1.8/MechAssault%202%20Recomp%20Installer.exe', paths)
+        self.assertEqual([p for p in paths if '/releases/download/' in p][0], '/Mazillion/MechAssault2-PC-Recomp/releases/download/v1.1.8/MechAssault.2.Recomp.Installer.exe',
+                         'the published (dotted) name first, as GitHub stores it')
+        self.assertNotIn('/Mazillion/MechAssault2-PC-Recomp/releases/download/v1.1.8/MechAssault%202%20Recomp%20Installer.exe', paths)
         self.assertTrue(any(p.startswith('/assets/1') for p in paths), 'the GitHub-style redirect was followed')
         for r in self.srv.requests:
             self.assertNotIn('Cookie', r['headers']); self.assertNotIn('Authorization', r['headers'])

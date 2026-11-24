@@ -26,6 +26,7 @@ BASE = f"http://127.0.0.1:{PORT}"
 KEY = "local-owner-key"
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 ASSET = "MechAssault 2 Recomp Installer.exe"
+PUBLISHED = "MechAssault.2.Recomp.Installer.exe"   # how GitHub names the uploaded ASSET (v1.1.7, v1.2.0)
 
 
 class FakeGitHub:
@@ -54,7 +55,7 @@ class FakeGitHub:
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.url = "http://127.0.0.1:%d" % self.server.server_address[1]
 
-    def release(self, version, size, draft=False, pre=False, asset=ASSET, digest=None, state="uploaded"):
+    def release(self, version, size, draft=False, pre=False, asset=PUBLISHED, digest=None, state="uploaded"):
         a = {"name": asset, "size": size, "state": state}
         if digest:
             a["digest"] = digest
@@ -126,6 +127,13 @@ def main():
                             (["announce", "1.1.8", "--installer", os.path.join(tmp, "nope.exe")], "--installer")):
             res, out, asked = run(argv)
             assert words in str(res), res; checks += 1
+
+        # GitHub's naming rule, and the name as uploaded is accepted too.
+        assert triage.published_asset_name(ASSET) == PUBLISHED; checks += 1
+        gh.releases.clear()
+        gh.release("1.1.8", size, asset=ASSET, digest="sha256:" + sha)
+        res, out, asked = run(["announce", "1.1.8", "--installer", exe], ["n"])
+        assert res == "Not announced." and asked == [triage.ANNOUNCE_QUESTION], (res, out); checks += 1
 
         # A good release: the summary, the question; "n" changes nothing.
         gh.releases.clear()

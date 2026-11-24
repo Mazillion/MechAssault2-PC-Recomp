@@ -587,6 +587,11 @@ def github_release(version, timeout=30):
         raise SystemExit(f"cannot reach GitHub: {getattr(e, 'reason', e)} (check the release page yourself and use --force)")
 
 
+def published_asset_name(name):
+    """The name GitHub gives an uploaded release asset (seen on v1.1.7 and v1.2.0)."""
+    return re.sub(r"[^A-Za-z0-9._+-]", ".", name)
+
+
 def release_problems(rel, version, sha, size):
     """Why this release must not be announced yet (empty = fine)."""
     if not rel:
@@ -596,9 +601,12 @@ def release_problems(rel, version, sha, size):
         out.append("the release is still a draft")
     if rel.get("prerelease"):
         out.append("the release is marked as a pre-release")
-    assets = [a for a in rel.get("assets") or [] if a.get("name") == INSTALLER_ASSET]
+    # GitHub stores an uploaded asset under its own name: every character other than letters, digits, ".", "-", "_" and "+" becomes
+    # "." ("MechAssault 2 Recomp Installer.exe" -> "MechAssault.2.Recomp.Installer.exe"). The relay's "asset" stays the label above.
+    names = (INSTALLER_ASSET, published_asset_name(INSTALLER_ASSET))
+    assets = [a for a in rel.get("assets") or [] if a.get("name") in names]
     if not assets:
-        out.append(f'the release has no asset named "{INSTALLER_ASSET}"')
+        out.append(f'the release has no asset named "{published_asset_name(INSTALLER_ASSET)}" (uploaded as "{INSTALLER_ASSET}")')
     else:
         a = assets[0]
         if a.get("state", "uploaded") != "uploaded":

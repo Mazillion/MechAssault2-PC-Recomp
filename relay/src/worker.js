@@ -1232,6 +1232,8 @@ export async function handleOpen(request, env, url) {
 // UPDATE_NOTICE are used (the 1.1.7 first-deploy behaviour). sha256 + size describe the release's installer asset
 // (INSTALLER_ASSET on the GitHub release v<latest>): the installer downloads that file from GitHub only and runs it only
 // when its SHA-256 and size equal these values, so GitHub and this relay (two channels) must agree.
+// INSTALLER_ASSET is the label the clients expect in "asset"; GitHub publishes the file as "MechAssault.2.Recomp.Installer.exe"
+// (spaces become dots), which 1.2.1+ installers download first. 1.1.7 / 1.2.0 installers ask for the name with spaces (404).
 export const INSTALLER_ASSET = "MechAssault 2 Recomp Installer.exe";
 export const INSTALLER_MIN_BYTES = 1024 * 1024;
 export const INSTALLER_MAX_BYTES = 200 * 1024 * 1024;

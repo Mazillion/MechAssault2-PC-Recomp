@@ -5,7 +5,7 @@ background, and never on a fresh install. The flow:
 
   1. check()     GET <relay>/v1/latest (the same anonymous request the game makes; only the version in the User-Agent). The relay
                  answers {"ok": true, "latest": "1.1.8", "sha256": "<64 hex>", "size": <bytes>, "asset": "<ASSET>"}.
-  2. download()  GET https://github.com/<REPO>/releases/download/v<latest>/<ASSET> into a NEW folder in %TEMP% (MA2Update-*):
+  2. download()  GET https://github.com/<REPO>/releases/download/v<latest>/<ASSET as GitHub names it: spaces -> '.'> into a NEW folder in %TEMP% (MA2Update-*):
                  HTTPS only, redirects followed only to GitHub's own hosts (DOWNLOAD_HOSTS), at most `size` bytes (and never more
                  than MAX_BYTES), Cancel between blocks. The file must have exactly the relay's size and SHA-256: the GitHub release
                  and the relay are two channels, and both must agree, or the file is deleted and nothing runs.
@@ -208,8 +208,22 @@ def check(own, timeout=CHECK_TIMEOUT, log=lambda s: None):
         return res
 
 
+def github_asset_name(name):
+    """The name GitHub gives an uploaded release asset: every character other than letters, digits, '.', '-', '_' and '+' becomes
+    '.'. Seen on the real releases: "MechAssault 2 Recomp Installer.exe" is published as "MechAssault.2.Recomp.Installer.exe" (v1.1.7,
+    v1.2.0), so a download URL built from the name with spaces answers 404."""
+    return re.sub(r'[^A-Za-z0-9._+-]', '.', name)
+
+
+def download_urls(version):
+    """Where the release installer is, in the order tried: GitHub's published name first, then the name as uploaded (a 404 on the
+    first moves on to the second; nothing else does)."""
+    names = [github_asset_name(ASSET)] + ([ASSET] if github_asset_name(ASSET) != ASSET else [])
+    return ['%s/%s/releases/download/v%s/%s' % (github_base(), REPO, urllib.parse.quote(version), urllib.parse.quote(n)) for n in names]
+
+
 def download_url(version):
-    return '%s/%s/releases/download/v%s/%s' % (github_base(), REPO, urllib.parse.quote(version), urllib.parse.quote(ASSET))
+    return download_urls(version)[0]
 
 
 def _hosts():
@@ -264,14 +278,17 @@ def download(info, own, progress=lambda done, total: None, cancelled=lambda: Fal
     final = folder / ASSET
     ok = False
     try:
-        url = download_url(info['latest'])
+        urls = download_urls(info['latest'])
         log('self-update: downloading %s from GitHub (%d bytes expected)' % (info['latest'], size))
         tried_windows = False
         while True:
             try:
-                r = _open_following(url, own, timeout, log)
+                r = _open_following(urls[0], own, timeout, log)
                 break
             except UpdateError as e:
+                if e.detail == 'HTTP 404' and len(urls) > 1:
+                    log('self-update: not found under its published name; trying the name as uploaded')
+                    urls = urls[1:]; continue
                 if e.cause == 'tls' and not tried_windows:
                     tried_windows = True       # a fresh Windows fetches missing root certificates only for its own connections
                     try:

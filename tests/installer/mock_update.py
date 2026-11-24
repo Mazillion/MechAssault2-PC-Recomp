@@ -9,7 +9,7 @@ Modes (srv.mode): ok, mismatch (other bytes), evil (redirect to a host outside G
 loop (endless redirects), long (more bytes than announced, no Content-Length), short (fewer bytes, no Content-Length), lenbad
 (a Content-Length other than the size), slow (one block per 0.2 s), 404, 500, nodirect (the file at once, no redirect).
 srv.relay: ok, down (500), garbage, nohash, older, bigsize, wrongasset."""
-import hashlib, json, sys, threading, time
+import hashlib, json, re, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ASSET = 'MechAssault 2 Recomp Installer.exe'
@@ -19,7 +19,7 @@ REPO = 'Mazillion/MechAssault2-PC-Recomp'
 class MockUpdate:
     def __init__(self, payload=b'x' * (2 * 1024 * 1024), latest='1.1.8', port=0):
         self.payload = payload; self.latest = latest; self.port = port
-        self.mode = 'ok'; self.relay = 'ok'; self.requests = []; self.server = None
+        self.mode = 'ok'; self.relay = 'ok'; self.requests = []; self.server = None; self.published = 'github'
 
     @property
     def sha(self): return hashlib.sha256(self.payload).hexdigest()
@@ -60,7 +60,10 @@ class MockUpdate:
                 if self.path == '/v1/latest':
                     code, body = outer.latest_answer()
                     return self.send(code, body, [('Content-Type', 'application/json')])
-                want = '/%s/releases/download/v%s/%s' % (REPO, outer.latest, ASSET.replace(' ', '%20'))
+                # Like GitHub: the asset lives under its PUBLISHED name (spaces -> '.'); the name with spaces answers 404.
+                # srv.published = 'spaced' serves it under the uploaded name instead (the fallback path).
+                name = ASSET.replace(' ', '%20') if outer.published == 'spaced' else re.sub(r'[^A-Za-z0-9._+-]', '.', ASSET)
+                want = '/%s/releases/download/v%s/%s' % (REPO, outer.latest, name)
                 m = outer.mode
                 if self.path == want:
                     if m == '404': return self.send(404, b'Not Found')
