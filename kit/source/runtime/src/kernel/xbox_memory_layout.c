@@ -15,6 +15,7 @@
 #include "xbox_memory_layout.h"
 #include "kernel.h"
 #include "guest_vmem.h"
+#include "xbox_layout_pick.h"   /* Wine/Proton: a free base when the fixed ones fail */
 #include "nv2a_gpu_memory.h"
 #include "../platform/pc_cpu_topo.h"
 #include "../platform/pc_switch.h"   /* T2-2: [Render] ExecWake */
@@ -72,6 +73,11 @@ static HANDLE g_mapping_handle = NULL;
 
 /* Mirror view pointers for cleanup */
 static void *g_mirror_views[XBOX_NUM_MIRRORS] = {0};
+#ifdef _WIN32
+/* Wine/Proton only: the mirror slots, reserved as soon as a scanned base is mapped, so nothing Wine allocates while the
+ * rest of the layout is set up can land in them (seen under Proton 11: mirror 1 lost to a later allocation). */
+static void *g_wine_mirror_hold[XBOX_NUM_MIRRORS] = {0};
+#endif
 
 /* The base view and its 28 mirrors occupy one contiguous span. Reserving that
  * span up front is what makes the mirrors placeable at all: each one sits at
@@ -2035,6 +2041,27 @@ BOOL xbox_MemoryLayoutInit(const void *xbe_data, size_t xbe_size)
 
         const size_t n_bases = sizeof(try_bases) / sizeof(try_bases[0]);
         for (size_t i = 0; !g_memory_base && i < n_bases; i++) {
+#ifdef _WIN32
+            /* Wine/Proton only (never on Windows): before the 256 MB base, whose mirrors and tiled aperture collide
+             * with Wine 11's own reservations, a base chosen from the real free address space (xbox_layout_pick.h). */
+            if (try_bases[i] == 0x10000000 && xbox_layout_under_wine()) {
+                uintptr_t pick = xbox_layout_scan_base(g_memory_size, XBOX_NUM_MIRRORS);
+                if (pick) {
+                    g_memory_base = MapViewOfFileEx(g_mapping_handle, FILE_MAP_ALL_ACCESS, 0, 0, g_memory_size, (LPVOID)pick);
+                    if (g_memory_base && (uintptr_t)g_memory_base != pick) { UnmapViewOfFile(g_memory_base); g_memory_base = NULL; }
+                }
+                fprintf(stderr, "xbox_MemoryLayoutInit: Wine: fixed low bases taken; free base %p %s\n",
+                        (void *)pick, g_memory_base ? "used" : "not usable, trying the next fixed base");
+                if (g_memory_base) {
+                    for (int m = 0; m < XBOX_NUM_MIRRORS; m++) {
+                        uintptr_t slot = (uintptr_t)g_memory_base + (uintptr_t)(m + 1) * g_memory_size;
+                        if (slot - (uintptr_t)g_memory_base >= 0x80000000u) break;     /* mirrors past the contiguous window are skipped */
+                        g_wine_mirror_hold[m] = VirtualAlloc((LPVOID)slot, g_memory_size, MEM_RESERVE, PAGE_NOACCESS);
+                    }
+                    break;
+                }
+            }
+#endif
             LPVOID hint = try_bases[i] ? (LPVOID)try_bases[i] : NULL;
             g_memory_base = MapViewOfFileEx(
                 g_mapping_handle,
@@ -2801,6 +2828,12 @@ BOOL xbox_MemoryLayoutInit(const void *xbe_data, size_t xbe_size)
              * address we never held. */
             if (g_span_base)
                 VirtualFree((LPVOID)mirror_base, g_memory_size, MEM_RELEASE);
+#ifdef _WIN32
+            if (g_wine_mirror_hold[m]) {                /* Wine only: our own hold on this slot, released just before the view */
+                VirtualFree(g_wine_mirror_hold[m], 0, MEM_RELEASE);
+                g_wine_mirror_hold[m] = NULL;
+            }
+#endif
             g_mirror_views[m] = MapViewOfFileEx(
                 g_mapping_handle,
                 FILE_MAP_ALL_ACCESS,
