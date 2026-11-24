@@ -21,6 +21,13 @@ set_target_properties(mechassault2_launcher PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/launcher")
 
 set(CMAKE_C_STANDARD 11)
+# clang-cl (the build under Wine/Proton, linux-proton-121): the MSVC STL from xwin wants a newer clang than LLVM 18
+# (STL1000), and clang 16+ makes MSVC's implicit function declarations (warning C4013) errors. Both stay as MSVC treats
+# them. Never applies to an MSVC build.
+if(CMAKE_C_COMPILER_ID STREQUAL "Clang")
+    add_compile_definitions(_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH)
+    add_compile_options("$<$<COMPILE_LANGUAGE:C>:/clang:-Wno-error=implicit-function-declaration>")
+endif()
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
 # Common definitions
@@ -222,3 +229,7 @@ endif()
 #     ENABLE_ICALL_TRACE=1
 #     VERBOSE_KERNEL_LOG=1
 # )
+# linux-spike-fcommon: MSVC merges C tentative definitions (g_ma2_trace_launcher in two chunks); clang needs -fcommon
+if(CMAKE_C_COMPILER_ID STREQUAL "Clang")
+    set_property(SOURCE src/recomp/gen/recomp_0021.c src/recomp/gen/recomp_fast_0021.c APPEND PROPERTY COMPILE_OPTIONS /clang:-fcommon)
+endif()

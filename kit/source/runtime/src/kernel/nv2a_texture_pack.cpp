@@ -344,12 +344,12 @@ static int scheduled_quality(int selected) {
             long q=strtol(end+1,&end,10);at[count]=(int)sec;to[count]=(int)std::clamp(q,0L,2L);count++;
             v=*end==','?end+1:end;
         }
-        if(count)fprintf(stderr,"[TEXTURE-PACK] TQ schedule: %d steps\n",count);
+        if(count)fprintf(stderr,"[TEXTURE-PACK] TQ schedule: %d steps\n",count);
     }
     if(!count)return selected;
     ULONGLONG now=GetTickCount64();if(!start)start=now;
     while(step<count && now-start>=(ULONGLONG)at[step]*1000ull){forced=to[step];
-        fprintf(stderr,"[TEXTURE-PACK] TQ schedule step %d: quality %d at %d s\n",step,forced,at[step]);step++;}
+        fprintf(stderr,"[TEXTURE-PACK] TQ schedule step %d: quality %d at %d s\n",step,forced,at[step]);step++;}
     return forced>=0?forced:selected;
 }
 extern "C" void nv2a_texture_pack_frame(void) {

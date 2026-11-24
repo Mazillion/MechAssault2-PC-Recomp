@@ -1474,7 +1474,7 @@ static int tex_row_decode(void)
     if(mode<0) {
         int v=pc_switch("RECOMP_TEX_ROW_DECODE","Render","TexRowDecode",1);
         mode=v<0?0:v>2?2:v;
-        fprintf(stderr,"[TEX-ROW] mode=%d (0 per-texel, 1 row, 2 row+verify)\n",mode);
+        fprintf(stderr,"[TEX-ROW] mode=%d (0 per-texel, 1 row, 2 row+verify)\n",mode);
     }
     return mode;
 }
@@ -1487,7 +1487,7 @@ static void tex_row_verify(Nv2aGpuTexel decode,const Nv2aGpuTexture *level,uint3
         uint32_t color=0xFFFFFFFF;
         decode(level,0,x,y,slice,&color);
         if(color!=row[x]) {
-            if(!bad && tex_row_mismatch<16)fprintf(stderr,"[TEX-ROW] MISMATCH fmt=%02X %ux%u y=%u x=%u row=%08X texel=%08X\n",
+            if(!bad && tex_row_mismatch<16)fprintf(stderr,"[TEX-ROW] MISMATCH fmt=%02X %ux%u y=%u x=%u row=%08X texel=%08X\n",
                 level->color,level->width,level->height,y,x,row[x],color);
             bad++;
         }
@@ -1495,7 +1495,7 @@ static void tex_row_verify(Nv2aGpuTexel decode,const Nv2aGpuTexture *level,uint3
     InterlockedExchangeAdd(&tex_row_checked,(LONG)w);
     if(bad)InterlockedExchangeAdd(&tex_row_mismatch,(LONG)bad);
     DWORD now=GetTickCount();
-    if(now-last>=30000){last=now;fprintf(stderr,"[TEX-ROW] verified=%ld mismatches=%ld\n",tex_row_checked,tex_row_mismatch);}
+    if(now-last>=30000){last=now;fprintf(stderr,"[TEX-ROW] verified=%ld mismatches=%ld\n",tex_row_checked,tex_row_mismatch);}
 }
 /* T2-4 E3: [Render] DrawFast / RECOMP_DRAW_FAST, a bit mask of exact per-draw shortcuts (bit 0 =
  * vertex constants compared in place). 0 = today's path. RECOMP_DRAW_FAST_VERIFY=N recomputes

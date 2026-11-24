@@ -35,6 +35,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ma2_bot_env.h"   /* getenv, cached (the bot code asks every tick) */
+static int kind_ok(int k);   /* linux-spike: forward declarations (clang rejects implicit declarations) */
+static int vtol_carrying(const Ma2World *w, const Ma2PlayerView *me, const Ma2Senses *sn);
+static int cargo_mate(const Ma2World *w, const Ma2PlayerView *me);
 
 #define MA2B_PI                   3.14159265358979f
 #define MA2B_DEG                  (MA2B_PI / 180.0f)

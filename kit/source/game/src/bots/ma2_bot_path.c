@@ -13,6 +13,7 @@
  * always gives the same path.
  */
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "ma2_bot_api.h"

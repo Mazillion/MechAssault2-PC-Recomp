@@ -51,6 +51,7 @@ void xbox_log_redact(char *text, size_t size);
 #include "ma2_split_slots.h"   /* split screen: room for bots next to the humans */
 #include "platform/pc_frontend.h"   /* pc_binding_get: RECOMP_TEST_HIJACK answers the minigame with the bound keys */
 #include "ma2_bot_env.h"   /* getenv, cached (the bot code asks every tick) */
+static int trav_fine_props_run(int begin, double budget_ms);   /* linux-spike: forward declaration */
 int ma2_scn_level_custom(void);   /* scenario/ma2_scenario.c: the level being played is a scenario (F21) */
 /* NavCache (ma2_bot_nav.c): the static obstacle grid on disk */
 const char *ma2_trav_cache_params(void);
@@ -5735,9 +5736,9 @@ void ma2_bot_player_tick(uint32_t player)
                 }
                 if (p->kind != MA2_KIND_VTOL && !getenv("RECOMP_TEST_HCLIMB_FOOT")) break;
                 if (t_in <= 0.0) { t_in = w->time; test_steer_off(); fprintf(stderr, "[TEST-HCLIMB] t=%.1f in the VTOL at y=%.1f\n", w->time, p->pos.y); }
-                static const struct { double at; int w, s, shift, ctrl; const char *n; } sc_brake[] = {   /* RECOMP_TEST_HCLIMB_SCRIPT=brake: full speed, then hold reverse (11-04 VTOL stick) */
+                static const struct hclimb_step { double at; int w, s, shift, ctrl; const char *n; } sc_brake[] = {   /* RECOMP_TEST_HCLIMB_SCRIPT=brake: full speed, then hold reverse (11-04 VTOL stick) */
                     { 0, 0, 0, 0, 0, "idle" }, { 3, 1, 0, 0, 0, "W" }, { 9, 0, 1, 0, 0, "S" }, { 17, 0, 0, 0, 0, "idle" }, { 19, 1, 0, 0, 0, "W" }, { 22, 0, 1, 0, 0, "S" }, { 30, 0, 0, 0, 0, "idle" }, { 1e9, 0, 0, 0, 0, "end" } };
-                static const struct { double at; int w, s, shift, ctrl; const char *n; } sc_climb[] = {
+                static const struct hclimb_step sc_climb[] = {
                     { 0, 0, 0, 0, 0, "idle" }, { 3, 1, 0, 0, 0, "W" }, { 7, 1, 0, 1, 0, "W+Shift" }, { 11, 0, 0, 0, 0, "idle" },
                     { 14, 0, 0, 1, 0, "Shift" }, { 18, 0, 0, 0, 0, "idle" }, { 21, 1, 0, 0, 1, "W+Ctrl" }, { 25, 0, 0, 0, 0, "idle" },
                     { 28, 0, 1, 1, 0, "S+Shift" }, { 32, 1, 0, 1, 0, "W+Shift" }, { 38, 0, 0, 0, 0, "idle" }, { 1e9, 0, 0, 0, 0, "end" } };
