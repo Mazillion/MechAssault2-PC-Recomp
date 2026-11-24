@@ -242,7 +242,71 @@ static void apply_first_run_defaults(const char *ini, const char *defaults)
             choice.fullscreen, choice.window_w, choice.window_h);
 }
 
+/* RecompLauncher on Linux (Wine/Proton only; never on Windows).
+ *
+ * recomplauncher.json's config lists {local}/MechAssault2/pc_settings.ini first ("if" it exists), then the install folder's
+ * pc_settings.ini. On Windows {local} is %LOCALAPPDATA%, so the launcher's Settings tab edits the file this game reads. On
+ * Linux the launcher fills {local} with ~/.local/share, outside the Proton prefix, so it edits the install folder's copy,
+ * which the game stops reading once %LOCALAPPDATA%\MechAssault2\pc_settings.ini (inside the prefix) exists.
+ *
+ * So under Wine, when RecompLauncher starts the game, the keys the launcher's Settings tab manages are taken from the
+ * install folder's copy WHEN THE LAUNCHER CHANGED THEM: each start compares them with what this function saw last time
+ * (recomplauncher-seen.ini next to the per-user file) and writes only the changed ones into the per-user file. Changes the
+ * player made in the game stay, and new installer defaults for other keys never override the player's file. The list must
+ * match recomplauncher.json "settings" (tests/installer/test_layout_pick.py checks it). */
+static int ma2_pc_settings_path_resolve(const char *defaults, char *path, size_t capacity);
+static const char *const launcher_keys[][2] = {
+    {"Display", "Fullscreen"}, {"Display", "PreserveAspect"}, {"Display", "FrameLimit"},
+    {"Display", "VSync"}, {"Display", "DrawDistance"}, {"Display", "ShowFPS"},
+};
+
+static int running_under_wine(void)
+{
+    HMODULE nt = GetModuleHandleA("ntdll.dll");
+    return nt && GetProcAddress(nt, "wine_get_version") != NULL;
+}
+
+static void wine_launcher_settings(const char *install_ini, const char *user_ini, const char *directory)
+{
+    char seen[MAX_PATH], value[64], last[64];
+    const char *launcher = getenv("RECOMPLAUNCHER");
+    int first, changed = 0;
+    size_t i;
+    if (!launcher || !*launcher || !running_under_wine()) return;
+    if (GetFileAttributesA(install_ini) == INVALID_FILE_ATTRIBUTES) return;
+    if (snprintf(seen, sizeof(seen), "%s\\recomplauncher-seen.ini", directory) >= (int)sizeof(seen)) return;
+    first = GetFileAttributesA(seen) == INVALID_FILE_ATTRIBUTES;
+    for (i = 0; i < sizeof(launcher_keys) / sizeof(launcher_keys[0]); i++) {
+        const char *section = launcher_keys[i][0], *key = launcher_keys[i][1];
+        GetPrivateProfileStringA(section, key, "\x01", value, sizeof(value), install_ini);
+        if (value[0] == '\x01') continue;                    /* the launcher has not written this key */
+        GetPrivateProfileStringA(section, key, "\x01", last, sizeof(last), seen);
+        if (!first && strcmp(value, last) != 0) {
+            WritePrivateProfileStringA(section, key, value, user_ini);
+            fprintf(stderr, "[SETTINGS] RecompLauncher set %s/%s=%s (Wine: copied from the install folder's settings)\n",
+                    section, key, value);
+            changed++;
+        }
+        WritePrivateProfileStringA(section, key, value, seen);
+    }
+    if (first) fprintf(stderr, "[SETTINGS] RecompLauncher under Wine: launcher settings are followed from now on\n");
+    else if (!changed) fprintf(stderr, "[SETTINGS] RecompLauncher under Wine: no launcher setting changed\n");
+}
+
 int ma2_pc_settings_path(const char *defaults, char *path, size_t capacity)
+{
+    int ok = ma2_pc_settings_path_resolve(defaults, path, capacity);
+    if (ok && strcmp(path, defaults) != 0 && !getenv("RECOMP_PC_SETTINGS_INI")) {
+        char directory[MAX_PATH];
+        const char *slash;
+        snprintf(directory, sizeof(directory), "%s", path);
+        slash = strrchr(directory, '\\');
+        if (slash) { directory[slash - directory] = 0; wine_launcher_settings(defaults, path, directory); }
+    }
+    return ok;
+}
+
+static int ma2_pc_settings_path_resolve(const char *defaults, char *path, size_t capacity)
 {
     const char *override = getenv("RECOMP_PC_SETTINGS_INI");
     if (override && *override) {

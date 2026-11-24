@@ -43,6 +43,18 @@ class LayoutPick(unittest.TestCase):
         self.assertIn('[LAUNCH] host=wine-%s on %s %s%s', main)
         self.assertIn('if (wv) {', main)
 
+    def test_wine_launcher_settings_keys_match_the_profile(self):
+        """Wine only: the keys taken from the install folder's pc_settings.ini (RecompLauncher's Settings tab on Linux) are exactly
+        the keys recomplauncher.json's settings set; the merge is gated on RECOMPLAUNCHER and wine_get_version."""
+        import json
+        src = (REPO / 'kit' / 'source' / 'game' / 'src' / 'pc_storage.c').read_text(encoding='utf-8')
+        block = src[src.index('launcher_keys[][2] = {'):src.index('};', src.index('launcher_keys[][2] = {'))]
+        keys = set(re.findall(r'\{"(\w+)", "(\w+)"\}', block))
+        prof = json.loads((REPO / 'recomplauncher.json').read_text(encoding='utf-8'))
+        want = {tuple(k.split('/')) for st in prof['settings'] for ch in st['choices'] for k in ch['set']}
+        self.assertEqual(keys, want)
+        self.assertIn('if (!launcher || !*launcher || !running_under_wine()) return;', src)
+
     def test_c_unit_test(self):
         PowerThrottle.c_test(self, 'layout_pick_test')
 
