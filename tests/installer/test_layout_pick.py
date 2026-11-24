@@ -35,6 +35,14 @@ class LayoutPick(unittest.TestCase):
         self.assertEqual(vsh.count('isinf('), 1, 'a new isinf() use needs the Wine rewrite too')
         self.assertIn('isinf(distance)', vsh)
 
+    def test_hang_question_and_launch_line_wine_only(self):
+        """Under Wine the freeze question waits 300 s (a slow first load on a software GPU is not a hang); Windows keeps 90 s.
+        The [LAUNCH] host line is printed only when ntdll has wine_get_version."""
+        main = (REPO / 'kit' / 'source' / 'game' / 'src' / 'main.c').read_text(encoding='utf-8')
+        self.assertIn('host_wine_version() ? 300000u : 90000u', main)
+        self.assertIn('[LAUNCH] host=wine-%s on %s %s%s', main)
+        self.assertIn('if (wv) {', main)
+
     def test_c_unit_test(self):
         PowerThrottle.c_test(self, 'layout_pick_test')
 

@@ -746,6 +746,20 @@ static void log_build_identity(void)
         memset(&os, 0, sizeof(os)); os.dwOSVersionInfoSize = sizeof(os);
         if (get && get(&os) == 0)
             fprintf(stderr, "[LAUNCH] windows=%lu.%lu.%lu\n", os.dwMajorVersion, os.dwMinorVersion, os.dwBuildNumber);
+        {   /* linux-proton-121: under Wine/Proton the Windows version above is Wine's pretend one; say what really runs.
+             * Only the versions (no paths or names). Never printed on Windows. */
+            typedef const char *(__cdecl *WineVersionFn)(void);
+            typedef void (__cdecl *WineHostFn)(const char **, const char **);
+            HMODULE nt = GetModuleHandleA("ntdll.dll");
+            WineVersionFn wv = (WineVersionFn)(void *)GetProcAddress(nt, "wine_get_version");
+            WineHostFn wh = (WineHostFn)(void *)GetProcAddress(nt, "wine_get_host_version");
+            if (wv) {
+                const char *sys = "", *rel = "";
+                if (wh) wh(&sys, &rel);
+                fprintf(stderr, "[LAUNCH] host=wine-%s on %s %s%s\n", wv(), sys ? sys : "", rel ? rel : "",
+                        getenv("STEAM_COMPAT_DATA_PATH") || getenv("PROTONPATH") ? " (Proton)" : "");
+            }
+        }
     }
     /* 1.1.6: CPU model and memory (no names or IDs; thread counts and power are in [CPU-TOPO]). */
     {
@@ -856,7 +870,17 @@ int xbox_cs_waiters_dump(char *out, int cap);
 static uint32_t *g_hang_regs[7];   /* eax ecx edx ebx esi edi esp of the game thread (thread-local) */
 static char g_hang_dump[MAX_PATH + 40];   /* the newest hang-<pid>.dmp, for the report helper */
 /* The freeze question comes 90 s after the [HANG] report; RECOMP_TEST_HANG_ASK_S shortens it (tests only). */
-static DWORD hang_ask_ms(void) { const char *s = getenv("RECOMP_TEST_HANG_ASK_S"); return s && atoi(s) > 0 ? (DWORD)atoi(s) * 1000u : 90000u; }
+/* Wine/Proton: wine_get_version in ntdll ("9.0", "11.0"...), NULL on Windows. */
+static const char *host_wine_version(void)
+{
+    typedef const char *(__cdecl *WineVersionFn)(void);
+    WineVersionFn f = (WineVersionFn)(void *)GetProcAddress(GetModuleHandleA("ntdll.dll"), "wine_get_version");
+    return f ? f() : NULL;
+}
+/* Under Wine/Proton the question comes after 300 s instead of 90: a first level load there can wait that long on a
+ * slow or software GPU (seen with llvmpipe: about 100 s in the guest's GPU fence wait 0x40F510, then normal play), and
+ * "stopped responding" would be wrong. The [HANG] report itself still comes at 30 s. Windows keeps 90 s. */
+static DWORD hang_ask_ms(void) { const char *s = getenv("RECOMP_TEST_HANG_ASK_S"); return s && atoi(s) > 0 ? (DWORD)atoi(s) * 1000u : host_wine_version() ? 300000u : 90000u; }
 static void hang_say(const char *fmt, ...)
 {
     char line[1024];
