@@ -51,6 +51,8 @@ def files():
             if not p.is_file() or '__pycache__' in rel or p.suffix == '.pyc': continue
             if any(rel[:len(skip)] == skip for skip in PY_SKIP): continue
             out.append(('python/' + '/'.join(rel), p))
+    # 1.2.1: run by every Python the kit starts; under Wine/Proton it keeps shutil off CopyFile2 (not in Wine 9). Nothing on Windows.
+    out.append(('python/Lib/sitecustomize.py', KIT / 'installer' / 'data' / 'sitecustomize.py'))
     return out
 
 cabinet = ctypes.WinDLL('cabinet')

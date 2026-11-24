@@ -96,9 +96,17 @@ def remembered_install():
 # ---------------------------------------------------------------------------- what the user typed
 
 def clean_path(text):
-    """Strip whitespace and the quotes Explorer's "Copy as path" adds; expand %VARS%."""
+    """Strip whitespace and the quotes Explorer's "Copy as path" adds; expand %VARS%. Under Wine/Proton a Linux path
+    (/srv/games/..., what RecompLauncher passes as {install}) becomes the Windows path Wine maps it to (Z:\\srv\\games\\...)."""
     s = (text or '').strip().strip('"\u201c\u201d').strip()
-    return os.path.expandvars(s) if '%' in s else s
+    s = os.path.expandvars(s) if '%' in s else s
+    if s.startswith('/') and not s.startswith('//'):     # never on Windows: dos_path() changes nothing there
+        try:
+            import wine_host
+            s = wine_host.dos_path(s)
+        except Exception:
+            pass
+    return s
 
 def is_absolute(text):
     return bool(re.match(r'^[A-Za-z]:[\\/]', text or '') or (text or '').startswith('\\\\'))
@@ -424,6 +432,16 @@ def insider_build():
             return bool(str(winreg.QueryValueEx(k, 'BranchName')[0]).strip())
     except Exception:
         return False
+
+def wine_line():
+    """1.2.1: 'Running under: Proton (Wine 10.0) on Linux 6.x, Steam Deck' when the installer runs under Wine/Proton, else ''
+    (Windows reports show nothing new). Never raises."""
+    try:
+        import wine_host
+        d = wine_host.describe()
+        return 'Running under: %s' % d if d else ''
+    except Exception:
+        return ''
 
 def platform_note():
     """One plain line when this Windows is one the release was not verified on (Windows on ARM, an Insider build), else ''.
@@ -897,6 +915,7 @@ def support_bundle(lines, stage='', hide_user=True, version='', kit_id='', gpus=
     w = windows_info(); total, avail = memory_info()
     head = ['Report problems at: %s' % support_where(), 'MechAssault 2 Recomp %s (build %s)' % (version, kit_id), 'Failed stage: %s' % (stage or '-'),
             'Windows build %s, %d CPU threads, %.0f GB RAM' % (w['build'], os.cpu_count() or 0, total / GB),
+            ] + ([wine_line()] if wine_line() else []) + [
             'GPU: %s' % ('; '.join('%s %.0f GB' % (g['name'], g['vram'] / GB) for g in gpus) if gpus else '-'),
             'C++ tools: %s' % (vs or '-'), '', 'Last log lines:'] + list(lines)[-80:]
     text = '\n'.join(head)
@@ -966,6 +985,7 @@ def diagnostics_facts(dest, state=None, gpus=None):
         except Exception as e: lines.append('(%s: %s)' % (getattr(fn, '__name__', 'part'), type(e).__name__))
     def basics():
         lines.append('Session: %s' % session_id())
+        if wine_line(): lines.append(wine_line())          # 1.2.1: Wine/Proton (Linux)
         lines.append('Processor: %s' % (native_arch() or 'unknown'))
         note = platform_note()
         if note: lines.append('Platform: %s' % note)
@@ -1069,6 +1089,7 @@ def report_summary(dest, state=None, version='', kit_id='', gpus=None, stage='',
     def system():
         w = windows_info()
         out.append('Windows build %s (%s)%s' % (w.get('build'), native_arch() or '?', '' if w.get('ok', True) else ', not supported'))
+        if wine_line(): out.append(wine_line())           # 1.2.1: Wine/Proton (Linux)
         out.append('CPU: %s, %d threads' % (cpu_model() or 'unknown', os.cpu_count() or 0))
         m = memory_status() or {}
         if m: out.append('Memory: %.1f GB, %.1f GB free; commit limit %.1f GB, %.1f GB free' % (m['total'] / GB, m['avail'] / GB, m['commit_limit'] / GB, m['commit_free'] / GB))

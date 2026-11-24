@@ -286,7 +286,17 @@ class Manifest(unittest.TestCase):
         for a in self.m['prepare']['args'] + [x for o in self.m['prepare']['options'] for x in o['args']]:
             if a.startswith('--'): self.assertIn(a.split('=')[0], known)
         req = {o['id'] for o in self.m['prepare']['options'] if o.get('required')}
-        self.assertEqual(req, {'vs_build_tools', 'ffmpeg'})
+        self.assertEqual(req, {'vs_build_tools', 'linux_build_tools', 'ffmpeg'})
+
+    def test_linux_build_tools_tick(self):
+        """1.2.1: on Linux (Proton) the Windows-only Build Tools tick is hidden; its Linux twin passes the same flag, which under Wine
+        downloads the LLVM toolchain instead (install.install_build_tools). The FFmpeg notice shows on both."""
+        opts = {o['id']: o for o in self.m['prepare']['options']}
+        lin, win = opts['linux_build_tools'], opts['vs_build_tools']
+        self.assertEqual((lin['os'], lin['args'], lin['required']), (['linux'], ['--install-build-tools'], True))
+        self.assertEqual(win['os'], ['windows']); self.assertEqual(win['args'], lin['args'])
+        self.assertIn('url', lin['license'])
+        self.assertEqual(opts['ffmpeg']['os'], ['windows', 'linux'])
 
     def test_settings_keys_are_game_ini_keys(self):
         ini = (REAL_KIT / 'defaults' / 'pc_settings.ini').read_text(encoding='utf-8')

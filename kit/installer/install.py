@@ -56,6 +56,7 @@ import ffmpeg_fetch                               # noqa: E402  (FFmpeg: downloa
 import upscaler_fetch                             # noqa: E402  (the Vulkan texture upscaler: downloaded, every file checked)
 import download as dl                             # noqa: E402  (every download: resume, retries, causes named, per-user cache)
 import selfupdate                                 # noqa: E402  (1.1.7: Update to the newest version without visiting GitHub)
+import wine_host                                  # noqa: E402  (1.2.1: Linux through Wine/Proton: the LLVM toolchain, host facts)
 os.environ.setdefault('MA2_INSTALLER_DIR', str(HERE))       # the Enhancer's setup scripts use the same download helper
 RELEASE = json.loads((HERE / 'data' / 'release.json').read_text(encoding='utf-8'))
 VERSION = RELEASE.get('date', 'dev')              # the release date string (KITSRC/VERSION line 2); install_relation compares it
@@ -413,7 +414,9 @@ def vs_instances():
 
 def find_visual_studio(choose=None):
     """(vcvars64.bat, cmake.exe, ninja.exe, VS folder) of the newest COMPLETE VS/Build Tools instance with vcvars64.bat, cl.exe, CMake,
-    Ninja and a Windows SDK (stable releases before previews), or of the installation folder `choose`. Raises Stop naming what is missing."""
+    Ninja and a Windows SDK (stable releases before previews), or of the installation folder `choose`. Raises Stop naming what is missing.
+    Under Wine/Proton (wine_host.use_clang): the LLVM toolchain instead, in the same shape (its env script stands in for vcvars64.bat)."""
+    if wine_host.use_clang(): return find_clang()
     cands = [{'installationPath': str(choose)}] if choose else vs_instances()
     if not cands: raise Stop(NO_COMPILER, 'compiler', 'missing')
     cands.sort(key=lambda i: (i.get('isComplete', True) is not False, not i.get('isPrerelease'), _ver(i.get('installationVersion', '0'))), reverse=True)
@@ -438,6 +441,24 @@ def find_visual_studio(choose=None):
     e.vs, e.missing = vs, missing
     raise e
 
+D3DCOMPILER_MISSING = ("This Wine (%(wine)s) can't compile the game's graphics by itself. Use Proton 10 or newer, or put "
+                       "Microsoft's d3dcompiler_47.dll (64-bit) in %(folder)s, then start the game.")
+# ^ NEEDS OWNER APPROVAL (LINUX-STRINGS.md G1). Shown only under Wine older than wine_host.WINE_BUILTIN_D3DCOMPILER_MIN.
+
+NO_CLANG = ('Under Linux (Wine or Proton) the game is compiled with LLVM (clang) and the Microsoft C++ runtime and Windows SDK, '
+            "because Microsoft's C++ Build Tools"
+            ' do not install there. They are not on this PC yet. Let the installer download them '
+            '(about 1.5 GB, once; on the Systems page, or pass --install-build-tools).')
+
+def find_clang():
+    """find_visual_studio() under Wine/Proton: (env script, cmake.exe, ninja.exe, toolchain folder). Raises Stop naming what is missing."""
+    found = wine_host.find_toolchain()
+    if found: return found
+    miss = wine_host.toolchain_missing()
+    e = Stop('%s (missing: %s)' % (NO_CLANG, ', '.join(miss)), 'compiler', 'missing')
+    e.vs, e.missing = None, []
+    raise e
+
 def tool_version(exe):
     """'version X' of cmake.exe / ninja.exe for the log (the first line it prints with --version), or '?'. Never raises."""
     try:
@@ -450,6 +471,13 @@ def tool_version(exe):
 
 def compiler_state(choose=None):
     """{'state': ready|incomplete|missing, 'vs', 'name', 'detail', 'code', 'missing' (codes), 'add' (VS components)} for the Systems page."""
+    if wine_host.use_clang():
+        try:
+            _, _, _, root = find_clang()
+        except Stop as e:
+            return {'state': 'missing', 'detail': str(e), 'code': 'missing', 'name': '', 'vs': None, 'missing': [], 'add': [], 'clang': True}
+        return {'state': 'ready', 'vs': str(root), 'name': 'LLVM clang %s' % (wine_host.clang_version(root) or ''), 'detail': '',
+                'code': None, 'clang': True}
     try:
         _, _, _, vs = find_visual_studio(choose)
     except Stop as e:
@@ -573,7 +601,8 @@ def space_plan(dest, opts, done=(), engine='pytorch', video_engine=None, build_t
         if opts.get('textures') or opts.get('videos'):
             add(temp or os.environ.get('TEMP') or dest, 0, 2 * GB, 'temp')
         if build_tools:
-            add((os.environ.get('SystemDrive', 'C:') + '\\'), 8 * GB, 0, 'buildtools')
+            # Build Tools about 8 GB on the system drive; the LLVM toolchain under Wine/Proton about 3 GB (1 GB archive + 2 GB laid out)
+            add((os.environ.get('SystemDrive', 'C:') + '\\'), (3 if wine_host.use_clang() else 8) * GB, 0, 'buildtools')
         for e in drives.values():
             try: e['free'] = shutil.disk_usage(str(precheck._nearest_existing(e['path']))).free
             except OSError: e['free'] = None
@@ -588,7 +617,16 @@ def space_plan(dest, opts, done=(), engine='pytorch', video_engine=None, build_t
 
 def install_build_tools(work, log, cancelled=lambda: False):
     """Download Microsoft's Build Tools bootstrapper, check its Microsoft signature, and run it
-    (it asks for administrator approval and shows its own progress)."""
+    (it asks for administrator approval and shows its own progress). Under Wine/Proton: the LLVM toolchain instead (toolchain_fetch)."""
+    if wine_host.use_clang():
+        import toolchain_fetch
+        try:
+            toolchain_fetch.ensure(wine_host.toolchain_dir(), log, cancelled)
+        except toolchain_fetch.Cancelled:
+            raise Stop('Cancelled.', 'cancelled')
+        except toolchain_fetch.FetchError as e:
+            raise Stop(str(e), 'network')
+        return
     work = Path(work); work.mkdir(parents=True, exist_ok=True)
     try: log('  session %s' % precheck.session_id())                  # the Build Tools log matches the other logs of this run
     except Exception: pass
@@ -1234,7 +1272,12 @@ def _file_id(path):
 
 def compiler_identity(vcvars, cmake, ninja, vs):
     """The compiler the game is built with: the Visual Studio folder, its default MSVC version (what vcvars64.bat picks) and the
-    identity of cl.exe, its code generator and the linker, the Windows SDK, CMake and Ninja."""
+    identity of cl.exe, its code generator and the linker, the Windows SDK, CMake and Ninja. (Wine/Proton: the LLVM tools and the SDK.)"""
+    if wine_host.use_clang():
+        b = Path(vs) / 'llvm' / 'bin'; x = Path(vs) / 'xwin'
+        return {'vs': str(vs), 'toolchain': 'clang', 'clang': _file_id(b / 'clang-cl.exe'), 'link': _file_id(b / 'lld-link.exe'),
+                'rc': _file_id(b / 'llvm-rc.exe'), 'crt': _file_id(x / 'crt' / 'include' / 'vcruntime.h'),
+                'sdk': _file_id(x / 'sdk' / 'include' / 'um' / 'winbase.h'), 'cmake': _file_id(cmake), 'ninja': _file_id(ninja)}
     vs = Path(vs)
     ver = ''
     try: ver = (vs / 'VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt').read_text(encoding='utf-8').strip()
@@ -2178,6 +2221,7 @@ class Installer:
                     self.get_build_tools()
                     self.vcvars, self.cmake, self.ninja, self.vs = find_visual_studio()
             self.log('  C++ compiler: %s' % self.vs)
+            if wine_host.is_wine(): self.log('  running under %s; building with LLVM clang %s' % (wine_host.describe(), wine_host.clang_version(self.vs)))
             self.state['toolchain'] = str(self.vs); self.save()                 # named in Collect diagnostics
             self.remember_install(toolchain=str(self.vs))
             try: self.plan_reuse()                  # 1.1.7: can the kept build of the last install be used?
@@ -2222,6 +2266,7 @@ class Installer:
         try:                                      # B5: architecture and preview builds, for the log and diagnostics only
             w = precheck.windows_info()
             self.log('  Windows build %s, %s processor' % (w['build'], precheck.native_arch() or 'unknown'))
+            if precheck.wine_line(): self.log('  ' + precheck.wine_line())       # 1.2.1: Wine/Proton (Linux)
             note = precheck.platform_note()
             if note: self.log('  NOTE: ' + note)
         except Exception:
@@ -2547,6 +2592,7 @@ class Installer:
     def preseed_kind(self, total):
         """'none' (24 GB or more installed), 'heavy' (the PRESEED_FILES) or 'all' (usable RAM below PRESEED_ALL): which files start with
         one code-generation thread. `total`: the usable RAM (memory_info); the installed RAM decides first."""
+        if wine_host.use_clang(): return 'none'       # /cgthreads1 is MSVC's; clang-cl compiles each file on one thread anyway
         installed = precheck.installed_memory()
         if (installed or total) >= (self.PRESEED_RAM if installed else self.PRESEED_RAM - 1.5 * GB): return 'none'
         return 'all' if total < self.PRESEED_ALL else 'heavy'
@@ -2755,6 +2801,8 @@ class Installer:
             script = root / 'build.cmd'
             try: lowmem = self.lowmem_include(root)    # '' unless the low-memory retry is active
             except Exception: lowmem = ''
+            if wine_host.use_clang():                  # 1.2.1 Wine/Proton: the LLVM toolchain file (never on Windows)
+                lowmem = ' "-DCMAKE_TOOLCHAIN_FILE=%s"' % wine_host.toolchain_file().as_posix() + lowmem
             script.write_text('\r\n'.join([
                 '@echo off',
                 'chcp 65001 >nul',                 # the script is UTF-8: paths under an accented user name
@@ -2851,8 +2899,11 @@ class Installer:
         ff = self.ffmpeg_dir() / 'bin'
         for n in FFMPEG_DLLS:
             self.place(ff / n, self.dest / n)
-        crt = sorted((self.vs / 'VC' / 'Redist' / 'MSVC').glob('*/x64/Microsoft.VC*.CRT'))
-        if crt:
+        crt = [] if wine_host.use_clang() else sorted((self.vs / 'VC' / 'Redist' / 'MSVC').glob('*/x64/Microsoft.VC*.CRT'))
+        if wine_host.use_clang():
+            self.log('  C runtime: linked into the game (LLVM build)')
+            self.wine_d3dcompiler()
+        elif crt:
             for dll in crt[-1].glob('*.dll'):
                 self.place(dll, self.dest / dll.name)
             self.log('  MSVC runtime from %s' % crt[-1])
@@ -2882,6 +2933,27 @@ class Installer:
         try: self.retire_old_copies()                  # 1.2.0: the copy under its earlier name goes once the new one is there
         except Exception as e: self.log('  (an older installer copy was not removed: %s)' % e)
         self.make_shortcuts()
+
+    def wine_d3dcompiler(self):
+        """Under Wine/Proton older than wine_host.WINE_BUILTIN_D3DCOMPILER_MIN the game needs Microsoft's d3dcompiler_47.dll in its
+        folder (that Wine's own HLSL compiler rejects the game's shaders). It is never shipped (owner decision): say how to supply it,
+        and check whether it is there. Newer Wine/Proton: nothing to do. Windows: never anything. Never raises."""
+        try:
+            if not wine_host.is_wine(): return
+            if not wine_host.needs_own_d3dcompiler():
+                self.log("  shaders: Wine %s's own d3dcompiler is used" % wine_host.wine_version())
+                self.state['d3dcompiler'] = 'wine'; self.save()
+                return
+            state = wine_host.d3dcompiler_state(self.dest)
+            if state['found']:
+                self.log('  %s: %s in the game folder (Wine %s)' % (state['name'], state['version'] or 'present', wine_host.wine_version()))
+            else:
+                msg = D3DCOMPILER_MISSING % {'wine': wine_host.wine_version(), 'folder': self.dest}
+                self.log('  NOTE: %s' % msg)
+                self.notes.append(msg)
+            self.state['d3dcompiler'] = 'found' if state['found'] else 'missing'; self.save()
+        except Exception as e:
+            self.log('  (the d3dcompiler_47.dll check did not run: %s)' % e)
 
     def copy_installer(self):
         """Keep a copy of this installer (the exe the player ran, MA2_INSTALLER_EXE) in the install folder, replacing an older copy.
@@ -3265,6 +3337,14 @@ class Installer:
             stamp['managed_by'] = 'recomplauncher'
         else:
             stamp['managed_by'] = 'installer'
+        if wine_host.is_wine(): stamp['host'] = 'wine'      # 1.2.1: installed under Wine/Proton (Linux); never written on Windows
+        else: stamp.pop('host', None)
+        if stamp['managed_by'] == 'recomplauncher' and wine_host.is_wine():
+            try:                                       # Messages "Update now" opens recomplauncher://game/<id> (see wine_host)
+                r = wine_host.register_launcher_link()
+                if r: self.log('  %s' % r)
+            except Exception as e:
+                self.log('  (the recomplauncher:// link was not registered: %s)' % e)
         try:
             low = self.lowmem_record()                 # 1.1.5: the game was built in low-memory mode (only then is the key written)
             if low: stamp['low_memory_build'] = low

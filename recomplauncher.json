@@ -28,10 +28,19 @@
         "license": { "name": "Microsoft Visual Studio license terms", "url": "https://visualstudio.microsoft.com/license-terms/" }
       },
       {
+        "id": "linux_build_tools",
+        "label": "Build tools for Linux (LLVM clang, Microsoft C++ runtime and Windows SDK)",
+        "note": "Needed to build the game through Proton. Downloaded once (about 1.5 GB) and checked file by file.",
+        "os": ["linux"],
+        "required": true,
+        "args": ["--install-build-tools"],
+        "license": { "name": "Microsoft C++ runtime and Windows SDK license terms", "url": "https://go.microsoft.com/fwlink/?LinkId=2086102" }
+      },
+      {
         "id": "ffmpeg",
         "label": "Download FFmpeg",
         "note": "Plays the cutscenes. Downloaded from gyan.dev during the build and checked file by file.",
-        "os": ["windows"],
+        "os": ["windows", "linux"],
         "required": true,
         "default": false,
         "args": []

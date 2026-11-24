@@ -1284,6 +1284,7 @@ class App:
                                        % (' and '.join(names) or 'a part the game needs'),
                                   primary=('OPEN VS INSTALLER', self.open_vsi), links=[('Check again', self.recheck_compiler)], details=comp.get('detail'),
                                   back=True, help=True)
+        if comp.get('clang'): return self.linux_tools_stop()       # 1.2.1: under Wine/Proton the LLVM toolchain, never the Build Tools
         sysdrive = os.environ.get('SystemDrive', 'C:') + '\\'
         try: free = shutil.disk_usage(sysdrive).free
         except OSError: free = None
@@ -1297,6 +1298,22 @@ class App:
                        primary=('INSTALL C++ TOOLS', self.install_tools), back=True, help=True,
                        links=[('License terms', lambda: self.web('https://visualstudio.microsoft.com/license-terms/')),
                               ('I\'ll install them myself', self.manual_tools)])
+
+    # 1.2.1 Linux (Wine/Proton): Microsoft's Build Tools do not install there, so the game is built with LLVM (clang) and the
+    # Microsoft C runtime and Windows SDK (xwin). The same flow as the Build Tools screen: one button, the licence named, then on.
+    # Texts: LINUX-STRINGS.md B1-B5 (PROPOSED, owner to approve).
+    LINUX_TOOLS_HEAD = 'Download the build tools for Linux'
+    LINUX_TOOLS_BODY = ('On Linux the game is built with LLVM (clang) and Microsoft\'s C++ runtime and Windows SDK. The installer downloads '
+                        'them once (about 1.5 GB) and checks every file. By continuing you accept Microsoft\'s license terms for the C++ '
+                        'runtime and Windows SDK.')
+
+    def linux_tools_stop(self):
+        import toolchain_fetch
+        self.show_stop(style='needs', icon='needs', kicker='ACTION NEEDED', head=self.LINUX_TOOLS_HEAD, body=self.LINUX_TOOLS_BODY,
+                       primary=('DOWNLOAD TOOLS', self.install_tools), back=True, help=True,
+                       links=[('License terms', lambda: self.web(toolchain_fetch.SPEC['xwin']['licence_url'])),
+                              ('LLVM license', lambda: self.web('https://llvm.org/LICENSE.txt'))],
+                       details=(self.facts.get('compiler') or {}).get('detail'))
 
     def web(self, url):
         import webbrowser
@@ -1324,8 +1341,13 @@ class App:
     def install_tools(self):
         """The one-click Build Tools install, exactly as the 1.1.3 Systems page ran it, then on into the game install."""
         self.tools_busy = True; self.tools_cancel = False
-        self.waiting('Installing Microsoft\'s C++ tools\u2026')
-        self.slow = 'Windows will ask for permission; Microsoft\'s own window shows its progress (10-30 minutes)'
+        linux = bool((self.facts.get('compiler') or {}).get('clang'))
+        if linux:
+            self.waiting('Downloading the build tools for Linux\u2026')
+            self.slow = 'About 1.5 GB, once; every file is checked'
+        else:
+            self.waiting('Installing Microsoft\'s C++ tools\u2026')
+            self.slow = 'Windows will ask for permission; Microsoft\'s own window shows its progress (10-30 minutes)'
         self.render()
         work = Path(os.environ.get('TEMP', '.')) / 'MA2-buildtools'
         logf = None
@@ -1339,7 +1361,7 @@ class App:
                 try: logf.write(line + '\n')
                 except (OSError, ValueError): pass
             self.q.put(('log', line))
-            if 'downloading' in line.lower(): self.q.put(('call', lambda: self.set_slow('Downloading Microsoft\'s installer')))
+            if 'downloading' in line.lower() and not linux: self.q.put(('call', lambda: self.set_slow('Downloading Microsoft\'s installer')))
         def go():
             try:
                 note('MechAssault 2 Expanded Installer, Build Tools one-click install, %s' % time.strftime('%Y-%m-%d %H:%M'))
@@ -1357,6 +1379,10 @@ class App:
             if isinstance(res, Exception):
                 if getattr(res, 'code', None) == 'reboot': return self.show_restart()
                 if getattr(res, 'kind', None) == 'cancelled': return self.go('setup')
+                if linux:
+                    return self.show_stop(style='failed', icon='bad', kicker='COULDN\'T FINISH', head='The build tools for Linux didn\'t download',
+                                          body='Check your internet connection and try again.', details=str(res),
+                                          primary=('TRY AGAIN', self.install_tools))
                 return self.show_stop(style='failed', icon='bad', kicker='COULDN\'T FINISH', head='Microsoft\'s C++ tools didn\'t install',
                                       body='Check your internet connection and try again, or install them yourself.', details=str(res),
                                       primary=('TRY AGAIN', self.install_tools), links=[('I\'ll install them myself', self.manual_tools)])
@@ -2559,6 +2585,7 @@ def main():
     try: print('ui: installer window %s, session %s' % (install.build_label(), precheck.session_id()), flush=True)
     except Exception: pass
     ldest = os.environ.get('MA2_RECOMPLAUNCHER_DEST', '').strip()
+    if ldest.startswith('/'): ldest = precheck.clean_path(ldest)      # Wine/Proton: RecompLauncher's /home/... as Z:\home\...
     if ldest and IMPORT_ERROR is None:
         # 1.2.0: started by RecompLauncher's Play (recomplauncher.json start.program's second entry) because the built game is not
         # in its folder: the window locked to that folder, as the --window setup step (Repair, Continue or Install there).
