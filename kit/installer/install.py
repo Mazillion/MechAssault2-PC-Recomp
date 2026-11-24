@@ -2801,8 +2801,30 @@ class Installer:
             script = root / 'build.cmd'
             try: lowmem = self.lowmem_include(root)    # '' unless the low-memory retry is active
             except Exception: lowmem = ''
-            if wine_host.use_clang():                  # 1.2.1 Wine/Proton: the LLVM toolchain file (never on Windows)
-                lowmem = ' "-DCMAKE_TOOLCHAIN_FILE=%s"' % wine_host.toolchain_file().as_posix() + lowmem
+            if wine_host.use_clang():
+                # 1.2.1 Wine/Proton (never on Windows): the LLVM toolchain, CMake and Ninja started straight from here with the
+                # toolchain's environment: Wine's cmd.exe has no code page 65001 and mis-runs "x || exit /b 1" after a failed
+                # command. The toolchain file is copied next to the build, so a kept build can configure again after this kit is
+                # gone. (The low-memory ladder's flags are MSVC's: not used here; fewer parallel compiles still are.)
+                cenv = dict(env); cenv.update(wine_host.toolchain_env(self.vs))
+                tc = root / 'wine-clang.cmake'
+                shutil.copy2(wine_host.toolchain_file(), tc)
+                try:
+                    self.run_cmd([str(self.cmake), '-S', str(src / 'game'), '-B', str(build), '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release',
+                                  '-DXBOXRECOMP_DIR=%s' % (src / 'runtime'), '-DCMAKE_MAKE_PROGRAM=%s' % self.ninja.as_posix(),
+                                  '-DCMAKE_TOOLCHAIN_FILE=%s' % tc.as_posix()], cwd=root, env=cenv, title='CMake')
+                    self.run_cmd([str(self.ninja), '-C', str(build), '-j', str(jobs), 'mechassault2_recomp'], cwd=root, env=cenv,
+                                 title='CMake + Ninja')
+                    break
+                except Stop as e:
+                    if e.kind == 'out_of_memory' and jobs > 1 and not incremental:
+                        jobs = max(1, jobs // 2) if jobs > 2 and not self.state.get('oom_jobs') else 1
+                        self.state['oom_jobs'] = jobs; self.save()
+                        self.log('  RECOVERY: the build ran out of memory; building again with %d parallel compile(s), keeping the finished files' % jobs)
+                        self.event('recovery', 'out of memory: build again with %d job(s)' % jobs)
+                        self.on_status('taking longer: low memory, building more slowly')
+                        continue
+                    raise
             script.write_text('\r\n'.join([
                 '@echo off',
                 'chcp 65001 >nul',                 # the script is UTF-8: paths under an accented user name

@@ -150,24 +150,33 @@ def toolchain_missing(root=None):
 
 
 def env_script(root, out):
-    """Write the batch file the build calls instead of vcvars64.bat: INCLUDE / LIB for clang-cl and lld-link (the Microsoft CRT and
-    SDK from xwin), LLVM first on PATH, and CMAKE_TOOLCHAIN_FILE naming wine-clang.cmake (the compilers, linker, resource
-    compiler and manifest tool). Returns `out`."""
+    """Write the batch file that stands where vcvars64.bat does: INCLUDE / LIB for clang-cl and lld-link (the Microsoft CRT and SDK
+    from xwin), LLVM first on PATH, MA2_LLVM / MA2_XWIN for wine-clang.cmake. For a maintainer's shell: the installer's build gets
+    the same values from toolchain_env() (Wine's cmd.exe is not used for the build). Returns `out`."""
     root = Path(root); x = root / 'xwin'
     inc = [x / 'crt/include', x / 'sdk/include/ucrt', x / 'sdk/include/um', x / 'sdk/include/shared', x / 'sdk/include/winrt']
     lib = [x / 'crt/lib/x86_64', x / 'sdk/lib/um/x86_64', x / 'sdk/lib/ucrt/x86_64']
-    tcfile = Path(__file__).resolve().parent / 'data' / 'wine-clang.cmake'
     lines = ['@echo off',
              'set "INCLUDE=%s"' % ';'.join(str(p) for p in inc),
              'set "LIB=%s"' % ';'.join(str(p) for p in lib),
              'set "PATH=%s;%%PATH%%"' % (root / 'llvm' / 'bin'),
              'set "MA2_LLVM=%s"' % (root / 'llvm').as_posix(),
              'set "MA2_XWIN=%s"' % x.as_posix(),
-             'set "CMAKE_TOOLCHAIN_FILE=%s"' % tcfile.as_posix(),
              'set "CC=" & set "CXX=" & set "RC="',
              'exit /b 0', '']
     Path(out).write_text('\r\n'.join(lines), encoding='utf-8')
     return Path(out)
+
+
+def toolchain_env(root):
+    """The environment the build needs (what env_script() sets), for a build started straight from Python: INCLUDE, LIB, MA2_LLVM,
+    MA2_XWIN, LLVM first on PATH."""
+    root = Path(root); x = root / 'xwin'
+    return {'INCLUDE': ';'.join(str(p) for p in (x / 'crt/include', x / 'sdk/include/ucrt', x / 'sdk/include/um', x / 'sdk/include/shared',
+                                                 x / 'sdk/include/winrt')),
+            'LIB': ';'.join(str(p) for p in (x / 'crt/lib/x86_64', x / 'sdk/lib/um/x86_64', x / 'sdk/lib/ucrt/x86_64')),
+            'MA2_LLVM': (root / 'llvm').as_posix(), 'MA2_XWIN': x.as_posix(),
+            'PATH': str(root / 'llvm' / 'bin') + os.pathsep + os.environ.get('PATH', '')}
 
 
 def find_toolchain():

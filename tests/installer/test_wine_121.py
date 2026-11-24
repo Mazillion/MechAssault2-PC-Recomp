@@ -43,9 +43,11 @@ class OnWindows(unittest.TestCase):
 
     def test_build_script_and_crt_are_msvc(self):
         src = (KIT / 'installer' / 'install.py').read_text(encoding='utf-8')
-        self.assertIn("if wine_host.use_clang():                  # 1.2.1 Wine/Proton", src)   # the toolchain file only under clang
+        body = src.split('    def build(self', 1)[1].split('    def assets(self', 1)[0]
+        clang, msvc = body.split("            if wine_host.use_clang():" + chr(10), 1)[1].split("            script.write_text(", 1)
+        self.assertIn('CMAKE_TOOLCHAIN_FILE', clang); self.assertNotIn('CMAKE_TOOLCHAIN_FILE', msvc)     # the toolchain file only under clang
+        self.assertIn("'chcp 65001 >nul'", msvc); self.assertIn("'call \"%s\" >nul || exit /b 1' % self.vcvars", msvc)   # 1.2.0's script
         self.assertIn("crt = [] if wine_host.use_clang() else sorted((self.vs / 'VC' / 'Redist'", src)
-        self.assertNotIn('CMAKE_TOOLCHAIN_FILE', src.split('def build(self', 1)[1].split("if wine_host.use_clang()", 1)[0])
 
     def test_space_plan_build_tools_8gb(self):
         src = (KIT / 'installer' / 'install.py').read_text(encoding='utf-8')
@@ -130,7 +132,7 @@ class UnderWine(unittest.TestCase):
         root = Path(tempfile.mkdtemp())
         try:
             text = wine_host.env_script(root, root / 'e.cmd').read_text(encoding='utf-8')
-            for k in ('INCLUDE=', 'LIB=', 'MA2_LLVM=', 'MA2_XWIN=', 'CMAKE_TOOLCHAIN_FILE=', 'exit /b 0'): self.assertIn(k, text)
+            for k in ('INCLUDE=', 'LIB=', 'MA2_LLVM=', 'MA2_XWIN=', 'exit /b 0'): self.assertIn(k, text)
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
