@@ -148,6 +148,70 @@ class Gate(unittest.TestCase):
         compile(release.SITECUSTOMIZE % {'hit': 'h.txt', 'faults': []}, 'sitecustomize.py', 'exec')
 
 
+class InstallerName(unittest.TestCase):
+    """1.2.0 (replaced in place): the installer is "MechAssault 2 Expanded Installer.exe", published on GitHub with dots for
+    spaces; the old name's copy in an install folder is replaced by an update."""
+    def test_names_agree_with_the_installer(self):
+        sys.path.insert(0, str(REPO / 'kit' / 'installer'))
+        try:
+            import selfupdate
+        finally:
+            sys.path.pop(0)
+        self.assertEqual(release.INSTALLER_NAME, 'MechAssault 2 Expanded Installer.exe')
+        self.assertEqual(release.INSTALLER_NAME, selfupdate.ASSET)
+        self.assertEqual(tuple(release.OLD_INSTALLER_NAMES), tuple(selfupdate.OLD_ASSETS))
+        self.assertEqual(release.published_name(release.INSTALLER_NAME), 'MechAssault.2.Expanded.Installer.exe')
+        self.assertEqual(release.published_name(release.INSTALLER_NAME), selfupdate.github_asset_name(selfupdate.ASSET))
+        for n in (release.INSTALLER_NAME,) + tuple(release.OLD_INSTALLER_NAMES):
+            self.assertTrue(release.match_any(n, release.IDENTITY), n)
+        self.assertEqual(release.FAULT_MAY_LACK, [release.INSTALLER_NAME])
+
+    def test_build_makes_this_name(self):
+        import build_release
+        if build_release.INSTALLER_EXE in release.OLD_INSTALLER_NAMES:
+            self.skipTest('tools/build_release.py still builds "%s" (its rename is a separate change)' % build_release.INSTALLER_EXE)
+        self.assertEqual(build_release.INSTALLER_EXE, release.INSTALLER_NAME)
+
+    def gate(self):
+        import types
+        return types.SimpleNamespace(cfg={'identity_files': [], 'ab_allowed_removed': []})
+
+    def test_ab_previous_copy_under_the_old_name(self):
+        old, new = release.OLD_INSTALLER_NAMES[0], release.INSTALLER_NAME
+        prev = {'MechAssault 2.exe': 'a', old: 'x'}
+        only_p, only_c, diff, det, bad = release.ab_verdict(self.gate(), prev, {'MechAssault 2.exe': 'a', new: 'y'}, None, None)
+        self.assertEqual((only_p, only_c, bad), ([old], [new], []))
+        self.assertIn('renamed', ' '.join(det))
+        # the new copy missing: the old one going away is a real removal
+        only_p, only_c, diff, det, bad = release.ab_verdict(self.gate(), prev, {'MechAssault 2.exe': 'a'}, None, None)
+        self.assertEqual(bad, [old])
+        self.assertEqual(release.ab_verdict(self.gate(), {'x.txt': 'a'}, {}, None, None)[4], ['x.txt'])
+
+    def test_suites_must_prove_the_dotted_download(self):
+        tmp = Path(tempfile.mkdtemp(prefix='release-test-'))
+        try:
+            log = tmp / 'suite.txt'
+            t = [tmp / 'test_a.py', tmp / (release.SELFUPDATE_SUITE + '.py')]
+            self.assertIn('missing', release.selfupdate_dotted_problem(t[:1], log))
+            self.assertIn('did not pass', release.selfupdate_dotted_problem(t, log))           # no log
+            name = release.SELFUPDATE_DOTTED_TEST
+            for text, ok in (('%s (__main__.AssetName.%s) ... ok\n' % (name, name), True),
+                             ('%s (__main__.AssetName.%s) ... <frozen os>:1: ResourceWarning: x\nResourceWarning: y\nok\n' % (name, name), True),
+                             ('%s (__main__.AssetName.%s) ... FAIL\ntest_b (__main__.X.test_b) ... ok\n' % (name, name), False),
+                             ('%s (__main__.AssetName.%s) ... skipped \'x\'\n' % (name, name), False),
+                             ('test_b (__main__.X.test_b) ... ok\n', False)):
+                log.write_text('$ py\n' + text, encoding='utf-8')
+                self.assertEqual(release.selfupdate_dotted_problem(t, log) == '', ok, text)
+            self.assertIn('MechAssault.2.Expanded.Installer.exe', release.selfupdate_dotted_problem(t[:1], log))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_the_suite_has_the_dotted_test(self):
+        src = (REPO / 'tests' / 'installer' / (release.SELFUPDATE_SUITE + '.py')).read_text(encoding='utf-8')
+        self.assertIn('def %s(self)' % release.SELFUPDATE_DOTTED_TEST, src)
+        self.assertIn('unittest.main(verbosity=2)', src)        # the gate reads the per-test lines
+
+
 class LauncherZip(unittest.TestCase):
     """The RecompLauncher zip (build_release step 6): its name, members, checks, privacy scan, and the gate step."""
     def setUp(self):
@@ -164,8 +228,8 @@ class LauncherZip(unittest.TestCase):
         z = self.br.make_launcher_zip(self.exe, self.prof, self.tmp / 'a.zip', '2026.11.30')
         import zipfile
         with zipfile.ZipFile(z) as zf:
-            self.assertEqual(sorted(zf.namelist()), ['MechAssault 2 Recomp Installer.exe', 'recomplauncher.json'])
-            self.assertEqual(zf.read('MechAssault 2 Recomp Installer.exe'), self.exe.read_bytes())
+            self.assertEqual(sorted(zf.namelist()), sorted([self.br.INSTALLER_EXE, 'recomplauncher.json']))
+            self.assertEqual(zf.read(self.br.INSTALLER_EXE), self.exe.read_bytes())
             self.assertEqual({i.date_time for i in zf.infolist()}, {(2026, 11, 30, 0, 0, 0)})
         again = self.br.make_launcher_zip(self.exe, self.prof, self.tmp / 'b.zip', '2026.11.30')
         self.assertEqual(z.read_bytes(), again.read_bytes())                        # same inputs, same zip

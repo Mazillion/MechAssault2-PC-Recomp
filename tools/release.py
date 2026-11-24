@@ -25,16 +25,23 @@ docs/releasing.md. Every program the gate starts runs without a window. Every in
 LOCALAPPDATA, TEMP, Documents and shortcut folders, and MA2_REPORT_RELAY pointing at a closed loopback port, so no
 test can send a report anywhere or touch your own settings, saves or shortcuts.
 """
-import argparse, ast, ctypes, datetime, difflib, hashlib, io, json, os, re, shutil, socket, subprocess, sys, time
+import argparse, ast, ctypes, datetime, difflib, hashlib, io, itertools, json, os, re, shutil, socket, subprocess, sys, time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 OUT = REPO / 'dist' / 'release'                  # sheets, sign-off (dist/ is ignored by git)
 SIGNOFF = OUT / 'signoff.json'
 NW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-INSTALLER_NAME = 'MechAssault 2 Recomp Installer.exe'
+INSTALLER_NAME = 'MechAssault 2 Expanded Installer.exe'          # = kit/installer/selfupdate.ASSET (tests/release checks they agree)
+OLD_INSTALLER_NAMES = ('MechAssault 2 Recomp Installer.exe',)    # = selfupdate.OLD_ASSETS: the name up to the first 1.2.0 upload
 SIGNED_END = '<!-- release.py: end of the signed part -->'
 MUTEX = 'Local\\MechAssault2RecompInstaller'      # installer-exe/stub.cpp: one installer per Windows session
+
+
+def published_name(name):
+    """The name GitHub gives an uploaded release asset (every character outside letters, digits and ._+- becomes '.'): the
+    installer goes up as INSTALLER_NAME and is downloaded as published_name(INSTALLER_NAME)."""
+    return re.sub(r'[^A-Za-z0-9._+-]', '.', name)
 
 
 # =====================================================================================================================
@@ -868,10 +875,13 @@ def load_config(path):
 
 IDENTITY = ['MechAssault 2.exe', 'MA2 Scenario Editor.exe', 'MA2 Report.exe', 'recomp-install.json', 'recomp-manifest.json',
             'README.txt', 'Controls.txt', 'Docs/*',                 # files that carry the version or the build identity
-            'MechAssault 2 Recomp Installer.exe']                   # 1.1.7+: the installer copy kept in the install folder
+            INSTALLER_NAME] + list(OLD_INSTALLER_NAMES)             # 1.1.7+: the installer copy kept in the install folder (any name)
 BUILD_IDENTITY = ['MechAssault 2.exe', 'recomp-install.json', 'recomp-manifest.json']   # differ between two builds of one source
 PLAYER_FILES = ['pc_settings.ini', 'saves/*', 'Saves/*']
-FAULT_MAY_LACK = ['MechAssault 2 Recomp Installer.exe']     # 1.1.7 self-update: the installer copy (fault run: may be missing)
+FAULT_MAY_LACK = [INSTALLER_NAME]                             # 1.1.7 self-update: the installer copy (fault run: may be missing)
+# 1.2.0: the self-update suite that must run in `suites`, and the test in it that proves the suites download through GitHub's
+# published (dotted) asset name (tests/installer/mock_update.py serves the asset only under that name).
+SELFUPDATE_SUITE, SELFUPDATE_DOTTED_TEST = 'test_v117_selfupdate', 'test_the_mock_is_like_github'
 
 
 class Gate:
@@ -1332,9 +1342,32 @@ def run_suites(g, pattern):
                 bad.append(t.stem)
         rows.append(line)
         say('   ' + line)
+    if pattern == 'test_*.py':
+        why = selfupdate_dotted_problem(tests, g.logs / ('suite-%s.txt' % SELFUPDATE_SUITE))
+        if why:
+            rows.append(why); say('   ' + why)
+            if SELFUPDATE_SUITE not in bad: bad.append(SELFUPDATE_SUITE)
     st = 'FAIL' if bad else 'WARN' if warn else 'PASS'
     return {'status': st, 'summary': '%d suite(s): %d failed%s' % (len(tests), len(bad), ', %d known failure(s)' % len(warn) if warn else ''),
             'details': rows}
+
+
+def selfupdate_dotted_problem(tests, log):
+    """Why the suites did not prove the self-update downloads GitHub's published (dotted) asset name ('' = they did): the
+    self-update suite must be among them and its log must show SELFUPDATE_DOTTED_TEST passing (unittest verbosity 2)."""
+    if SELFUPDATE_SUITE not in [Path(t).stem for t in tests]:
+        return '%s: missing (the self-update against the published asset name "%s" was not tested)' % (
+            SELFUPDATE_SUITE, published_name(INSTALLER_NAME))
+    text = log.read_text(encoding='utf-8', errors='replace') if Path(log).is_file() else ''
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if line.startswith(SELFUPDATE_DOTTED_TEST + ' ('):
+            block = [line] + list(itertools.takewhile(lambda l: not re.match(r'test_\w+ \(', l), lines[i + 1:]))
+            if any(l.rstrip() == 'ok' or l.rstrip().endswith(' ... ok') for l in block):
+                return ''
+            break
+    return '%s: %s did not pass (the suites must download through "%s")' % (
+        SELFUPDATE_SUITE, SELFUPDATE_DOTTED_TEST, published_name(INSTALLER_NAME))
 
 
 def st_suites(g):
@@ -1408,7 +1441,9 @@ def ab_verdict(g, prev_m, cand_m, base_prev, base_cand):
     det, bad = [], []
     for k in only_p:
         det.append('only in the previous release: ' + k)
-        if not match_any(k, g.cfg['ab_allowed_removed']):
+        if k in OLD_INSTALLER_NAMES and INSTALLER_NAME in only_c:
+            det[-1] += ' (the installer copy, renamed to %s)' % INSTALLER_NAME
+        elif not match_any(k, g.cfg['ab_allowed_removed']):
             bad.append(k)
     for k in only_c:
         det.append('new: ' + k)
@@ -1540,6 +1575,9 @@ def st_update(g):
         det += ['vs a fresh install, differs: %s' % k for k in other]
         if other:
             bad.append('%d file(s) differ from a fresh install beyond identity and player files' % len(other))
+    stale = [k for k in OLD_INSTALLER_NAMES if k in post]       # 1.2.0: an update replaces the copy under its old name
+    if stale:
+        bad.append('the installer copy under its old name is still there after the update: %s' % ', '.join(stale))
     lnk =sorted(p.relative_to(base / 'lnk').as_posix() for p in (base / 'lnk').rglob('*.lnk'))
     det.append('shortcuts made (redirected): %s' % ', '.join(lnk))
     return {'status': 'FAIL' if bad else 'PASS', 'summary': 'update from the previous release exit 0 in %.0f s: %d added, %d changed, %d removed%s'
