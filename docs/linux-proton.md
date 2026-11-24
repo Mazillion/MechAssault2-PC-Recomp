@@ -14,7 +14,7 @@ here has been run on a real Linux PC or a Steam Deck yet.**
 | C++ compiler | Visual Studio Build Tools (MSVC) | LLVM 18.1.8 (clang-cl, lld-link, llvm-rc, llvm-mt), the Microsoft CRT and Windows SDK laid out by xwin 0.10.0, CMake 3.31.6, Ninja 1.12.1, pinned in `kit/installer/data/toolchain.json` and kept in `%LOCALAPPDATA%\MechAssault2\Toolchain` inside the prefix |
 | Build Tools consent | "Install Microsoft's C++ tools" screen, `--install-build-tools` | "Download the build tools for Linux" screen, the same `--install-build-tools`; RecompLauncher shows the `linux_build_tools` tick |
 | C runtime | the VS redistributable DLLs copied beside the game | linked into the exe (`/MT`, `kit/installer/data/wine-clang.cmake`) |
-| d3dcompiler_47.dll | System32 | Wine/Proton 10+ (`wine_host.WINE_BUILTIN_D3DCOMPILER_MIN`): Wine's own. Older Wine: the player puts Microsoft's DLL in the game folder; the installer says so and checks. Never shipped. |
+| d3dcompiler_47.dll | System32 | a probe at install time compiles the game's three base shaders with the prefix's own d3dcompiler (`wine_host.probe_d3dcompiler`): they compile (GE-Proton 11) = nothing needed; any fails (Wine 9.0) = the player is asked to put Microsoft's DLL in the game folder, which is checked. Never shipped. |
 | Install stamp | `managed_by` | the same, plus `host: wine` |
 | Paths | Windows paths | `/home/...` (RecompLauncher's `{install}`) becomes `Z:\home\...` (`precheck.clean_path`, `wine_host.dos_path`) |
 | Reports | | system.txt, the support bundle and the report summary add `Running under: Proton (Wine x) on Linux y` |
