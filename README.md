@@ -4,7 +4,7 @@
 
 An unofficial PC port of MechAssault 2: Lone Wolf (Xbox, 2004). You need your own copy of the game to use it. There are no game files in this repo or in the releases.
 
-**This is an offline-focused version of the game.** The goal is to bring new and interesting ways to play MechAssault 2 on your own or with friends on the same PC. So far that means offline bot matches in every multiplayer mode, split screen, and a scenario editor for building your own missions and maps.
+**This is an offline-focused version of the game.** The goal is to bring new and interesting ways to play MechAssault 2 on your own or with friends on the same PC. So far that means offline bot matches in every multiplayer mode and a scenario editor for building your own missions and maps.
 
 <!-- trailer goes here -->
 
