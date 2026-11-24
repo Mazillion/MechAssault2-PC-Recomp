@@ -1,4 +1,4 @@
-"""The MechAssault 2 Recomp Installer window: a seven-page wizard (install.py does the work; precheck.py does the checks).
+"""The MechAssault 2 Expanded Installer window: a seven-page wizard (install.py does the work; precheck.py does the checks).
 
 Welcome - Systems - Disc - Location - Loadout - Install - Done, plus a failure screen. Next stays disabled until the page is
 valid and the reason shows in the status line; there are no modal errors (only "Stop installing?" asks).
@@ -7,7 +7,7 @@ import ctypes, faulthandler, os, sys, time, traceback               # the standa
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-TITLE = 'MechAssault 2 Recomp Installer'
+TITLE = 'MechAssault 2 Expanded Installer'
 STARTUP_LOG = (None, None)
 
 def startup_log():
@@ -72,7 +72,7 @@ FAILURES = {
     'build_failed': ('Compiling the game failed.', 'The build stopped without naming a compiler error. Low memory, a damaged Build Tools install, or '
                      'antivirus removing a file can do this. Try Resume once; if it fails again, {report}.'),
     'compile_error': ('Compiling the game failed.', 'The compiler or linker reported an error (below, and in the log). If the install folder\'s '
-                      'name has commas, brackets or other unusual characters, install to a simple folder such as C:\\Games\\MechAssault 2. '
+                      'name has commas, brackets or other unusual characters, install to a simple folder such as C:\\Games\\MechAssault 2 Expanded. '
                       'Otherwise try Resume once; if it fails again, {report}.'),
     'access_denied': ('Windows or your antivirus blocked a file.', 'If your antivirus reported a threat in this folder, restore the file or '
                       'allow the folder, then Resume. Controlled Folder Access can also cause this.'),
@@ -566,7 +566,7 @@ class Welcome(Page):
                     'from %s' % s['version'] if s.get('version') else 'an earlier version')
             text = 'MechAssault 2 Recomp %s is installed in %s. This installer is %s (build %s).' % (have, precheck.short(d, 60), install.PUBLIC_VERSION, install.BUILD)
             buttons = [('Update it', lambda: self.choose(d, 'update'), 'Primary.TButton'), ('Add enhanced content', lambda: self.choose(d, 'addons'), 'TButton'),
-                       ('Install somewhere else', lambda: self.choose(precheck.default_install_folder(), 'install'), 'TButton'),
+                       ('Install somewhere else', lambda: self.choose(precheck.default_install_folder(keep_old=False), 'install'), 'TButton'),
                        ('Uninstall', lambda: self.uninstall(d), 'Link.TButton'),
                        ('Collect diagnostics', lambda: self.diagnostics(d), 'Link.TButton')]
         elif rel == 'same':

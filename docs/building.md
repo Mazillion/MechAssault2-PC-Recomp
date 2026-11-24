@@ -2,7 +2,7 @@
 
 Two things can be built from this repository:
 
-1. **The release installer** (`dist/MechAssault 2 Recomp Installer.exe`): what players download. Building
+1. **The release installer** (`dist/MechAssault 2 Expanded Installer.exe`): what players download. Building
    it needs no game disc.
 2. **The game itself**, from your own disc: what the installer does on a player's PC. You need this to
    work on the game code.
@@ -43,7 +43,7 @@ yourself and pass the extracted folder: `py -3.13 tools\fetch_deps.py --from ffm
 2. verifies Capstone (and refuses to pack FFmpeg);
 3. builds the scenario editor (`editor/build.cmd`) into `kit/editor/`;
 4. builds the native installer stub (`installer-exe/build_stub.cmd`);
-5. packs `kit/` plus the running Python 3.13 into `dist/MechAssault 2 Recomp Installer.exe`
+5. packs `kit/` plus the running Python 3.13 into `dist/MechAssault 2 Expanded Installer.exe`
    (LZMS-compressed; the stub unpacks it with Windows' own Compression API);
 6. scans the built binaries for local paths and user/machine names (`tools/privacy_scan.py`) and writes
    `dist/SHA256SUMS.txt`.

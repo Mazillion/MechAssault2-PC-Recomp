@@ -1,6 +1,6 @@
 """MechAssault 2 Recomp installer: from your own MechAssault 2 disc image to the PC release.
 
-This runs inside "MechAssault 2 Recomp Installer.exe", the single-file installer, which carries this
+This runs inside "MechAssault 2 Expanded Installer.exe", the single-file installer, which carries this
 kit (a Python runtime, toolkit/, source/, patches/, assets/, defaults/, enhancer/) and unpacks it
 while it runs. No game data files are included: the game's program, art, sound and levels come from
 your own disc. Graphics shaders are compiled on your PC as you play;
@@ -29,7 +29,7 @@ toolkit, the way the PC release itself was made:
 The work folder (<install>/_work) keeps each finished step, so an interrupted install resumes when
 run again with the same folders. Running it again on a finished install adds optional content.
 
-  "MechAssault 2 Recomp Installer.exe" --xiso "MechAssault 2.xiso" --dest "C:/Games/MechAssault 2"
+  "MechAssault 2 Expanded Installer.exe" --xiso "MechAssault 2.xiso" --dest "C:/Games/MechAssault 2 Expanded"
         [--textures 2x,4x] [--videos] [--install-build-tools] [--jobs N] [--keep-work] [--allow-cpu]
         [--update] [--shortcuts desktop,start,editor] [--no-merge-settings] [--switch-textures] [--low-priority]
         [--ffmpeg <ffmpeg-9.0.2-full_build-shared.zip, for a PC without internet>]
@@ -43,7 +43,7 @@ run again with the same folders. Running it again on a finished install adds opt
   Exit code 0: installed. 1: stopped (an update puts the previous version back). 2: the game is installed, but optional
   content (enhanced textures or videos) failed; running the installer again resumes only that.
   Paths may be relative to the folder you run it from, and may be quoted.
-  (from cmd.exe use: start /wait "" "MechAssault 2 Recomp Installer.exe" ...)
+  (from cmd.exe use: start /wait "" "MechAssault 2 Expanded Installer.exe" ...)
 """
 import argparse, ctypes, hashlib, json, os, re, shutil, subprocess, sys, threading, time
 from pathlib import Path
@@ -733,6 +733,7 @@ def _vcall(obj, index, argtypes, *args):
 REPORT_EXE = 'MA2 Report.exe'                       # 1.1.6: the report helper (report-helper/ in the repo), beside the game
 REPORT_LNK = 'Report a problem (MechAssault 2).lnk'   # its Start menu entry (no arguments: the stub needs none either)
 INSTALLER_COPY = selfupdate.INSTALLER_COPY            # 1.1.7: a copy of the installer in the install folder ("Run the installer to update")
+OLD_INSTALLER_COPIES = selfupdate.OLD_INSTALLER_COPIES  # 1.2.0: its earlier names; replaced by INSTALLER_COPY on install, update and repair
 UPDATE_LNK = 'Update MechAssault 2.lnk'               # 1.1.7: its Start menu entry (with the game's Start menu entry)
 
 def create_shortcut(lnk, target, workdir, description='', icon=None):
@@ -922,7 +923,8 @@ def running_copy(dest):
     if not exe: return None
     try:
         p = Path(exe).resolve()
-        return p if p.name.lower() == INSTALLER_COPY.lower() and os.path.normcase(str(p.parent)) == os.path.normcase(str(Path(dest).resolve())) else None
+        names = {n.lower() for n in (INSTALLER_COPY,) + tuple(OLD_INSTALLER_COPIES)}     # 1.2.0: or a copy under an earlier name
+        return p if p.name.lower() in names and os.path.normcase(str(p.parent)) == os.path.normcase(str(Path(dest).resolve())) else None
     except OSError:
         return None
 
@@ -1346,7 +1348,7 @@ def manifest_files(dest):
     dest = Path(dest)
     out = []
     for p in sorted(dest.iterdir()):
-        if p.name == INSTALLER_COPY: continue       # 1.1.7: the installer copy is refreshed by every run, not a game file
+        if p.name == INSTALLER_COPY or p.name in OLD_INSTALLER_COPIES: continue   # 1.1.7: the installer copy is refreshed by every run, not a game file
         if p.is_file() and (p.suffix.lower() in ('.exe', '.dll') or p.name in ('README.txt', 'Controls.txt', 'pc_settings.ini', 'pc_settings.default.ini')):
             out.append(p.name)
     for top in ('Docs', 'Licenses', 'pc_assets'):
@@ -2016,7 +2018,7 @@ class Installer:
             self.dest.mkdir(parents=True, exist_ok=True)
             self.work.mkdir(exist_ok=True)
         except OSError as e:
-            raise Stop('Cannot create %s (%s). Choose a folder you can write to, e.g. C:\\Games\\MechAssault 2.'
+            raise Stop('Cannot create %s (%s). Choose a folder you can write to, e.g. C:\\Games\\MechAssault 2 Expanded.'
                        % (self.dest, e.strerror or e), 'access_denied')
         self.logfile = open(self.work / 'install.log', 'a', encoding='utf-8')
         self.state['options'] = self.opts
@@ -2223,7 +2225,7 @@ class Installer:
         if self.game_installed(): done |= {'extract', 'build'}
         if not self.game_installed():
             if str(self.dest).startswith('\\\\'):
-                raise Stop('The C++ tools cannot build in a network folder (%s). Install to a folder on this PC, e.g. C:\\Games\\MechAssault 2.' % self.dest, 'access_denied')
+                raise Stop('The C++ tools cannot build in a network folder (%s). Install to a folder on this PC, e.g. C:\\Games\\MechAssault 2 Expanded.' % self.dest, 'access_denied')
             fs = precheck.volume_fs(self.dest).upper()
             if fs.startswith('FAT'):
                 raise Stop('%s uses %s, which cannot hold the game build (files over 4 GB). Install to an NTFS drive.' % (self.dest.anchor, fs), 'disk_full')
@@ -2473,7 +2475,7 @@ class Installer:
             except OSError:
                 continue
         raise Stop('No folder with a plain path (letters, digits, spaces, - _ .) could be created for the C++ build. Install to a '
-                   'folder such as C:\\Games\\MechAssault 2.')
+                   'folder such as C:\\Games\\MechAssault 2 Expanded.')
 
     # -- low-memory build (1.1.5): only after an out-of-memory stop with one parallel compile; any error here = 1.1.4's stop
     LOWMEM_MAX = 40                                # retries in one build at most
@@ -2868,6 +2870,8 @@ class Installer:
         if self.unchanged: self.log('  %d file(s) were already up to date and were left as they are' % self.unchanged)
         try: self.copy_installer()                     # 1.1.7: the installer itself, so "Run the installer to update" has one to run
         except Exception as e: self.log('  (the installer was not copied into the install folder: %s)' % e)
+        try: self.retire_old_copies()                  # 1.2.0: the copy under its earlier name goes once the new one is there
+        except Exception as e: self.log('  (an older installer copy was not removed: %s)' % e)
         self.make_shortcuts()
 
     def copy_installer(self):
@@ -2890,6 +2894,26 @@ class Installer:
             raise
         self.log('  %s (kept here for later updates)' % INSTALLER_COPY)
         return True
+
+    def retire_old_copies(self):
+        """1.2.0: remove installer copies kept under an earlier name (OLD_INSTALLER_COPIES), but only once INSTALLER_COPY is in the
+        folder, and never the exe this installer runs from. Returns the names removed. The Start menu's Update MechAssault 2 is
+        pointed at the new copy by make_shortcuts."""
+        if not (self.dest / INSTALLER_COPY).is_file(): return []
+        me = os.environ.get('MA2_INSTALLER_EXE') or ''
+        gone = []
+        for name in OLD_INSTALLER_COPIES:
+            old = self.dest / name
+            if not old.is_file(): continue
+            try:
+                if me and os.path.normcase(str(Path(me).resolve())) == os.path.normcase(str(old.resolve())):
+                    self.log('  (%s is running, so it stays for now)' % name); continue
+            except OSError:
+                pass
+            retry_io(lambda: old.unlink(), 'remove %s' % name, self.log, owned=old)
+            self.log('  %s removed (replaced by %s)' % (name, INSTALLER_COPY))
+            gone.append(name)
+        return gone
 
     def copy_in(self, src, dst):
         """Copy one installer-owned file into the install folder, retrying while a scanner holds it (retry_io)."""
@@ -2950,8 +2974,10 @@ class Installer:
                 self.log('  (editor shortcut not created: %s)' % e)
         upd = self.dest / INSTALLER_COPY               # 1.1.7: Update MechAssault 2 in the Start menu (with the game's Start menu entry)
         try:
-            if 'start' in want and upd.is_file() and selfupdate.enabled():
-                base = known_folder('start')
+            had = [s for s in (precheck.read_stamp(self.dest) or {}).get('shortcuts') or []     # 1.2.0: an Update shortcut this install
+                   if isinstance(s, str) and Path(s).name == UPDATE_LNK and Path(s).is_file()]   # already has follows the renamed copy
+            if upd.is_file() and selfupdate.enabled() and ('start' in want or had):
+                base = known_folder('start') if 'start' in want else Path(had[0]).parent
                 create_shortcut(base / UPDATE_LNK, upd, self.dest, 'Check for a newer version of MechAssault 2 and update it')
                 made.append(str(base / UPDATE_LNK))
         except Exception as e:
@@ -3518,7 +3544,7 @@ def run_launcher(a, textures):
     return 0
 
 def main():
-    ap = argparse.ArgumentParser(prog='"MechAssault 2 Recomp Installer.exe"', description=__doc__,
+    ap = argparse.ArgumentParser(prog='"MechAssault 2 Expanded Installer.exe"', description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--xiso', help='MechAssault 2 disc image (.xiso/.iso)')
     ap.add_argument('--dest', help='install folder (empty, or an existing install to add options); optional with --diagnostics')

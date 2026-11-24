@@ -18,8 +18,8 @@ You have version {{VERSION}} (build {{BUILD}}).
 - Problem reports and the game's logs now say which power mode and power
   plan Windows is using and how fast the processor is running.
 - RecompLauncher: the game can be installed, updated and started from
-  RecompLauncher (look for "MechAssault 2: Lone Wolf Expanded (PC
-  Recomp)"). The standalone installer works as before.
+  RecompLauncher (look for "MechAssault 2: Lone Wolf Expanded"). The
+  standalone installer works as before.
 - Scenario editor: "Can it get here?" shows where each unit can and
   cannot reach on the map.
 - Installer: fixed a build failure on PCs where Visual Studio was

@@ -725,7 +725,7 @@ def scenario_extras():
     click(app, 'Install'); until(root, lambda: app.pages['install'].failed, 90)
     p = app.pages['install']; pump(root, 0.4); msg = p.fail_msg.cget('text')
     check('compile error: names the compiler or linker error', p.failed and p.failed[0] == 'compile_error' and 'compiler or linker reported an error' in msg, msg)
-    check('compile error: suggests a simple folder, does not lead with antivirus', 'C:\\Games\\MechAssault 2' in msg and 'antivirus' not in msg.lower(), msg)
+    check('compile error: suggests a simple folder, does not lead with antivirus', 'C:\\Games\\MechAssault 2 Expanded' in msg and 'antivirus' not in msg.lower(), msg)
     b = __import__('gui').FAILURES['build_failed'][1]
     check('build failed (no compiler error): antivirus is not the first suspect', not b.startswith('This is usually caused by antivirus'), b)
     os.environ.pop('MA2_FAKE_FAIL'); root.destroy()

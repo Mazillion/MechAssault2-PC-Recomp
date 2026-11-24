@@ -595,11 +595,11 @@ def scenario_stops():
     t = screen_text(app)
     check('stops: not enough space: CHOOSE DRIVE, a red total and the drive named', app.primary.text == 'CHOOSE DRIVE' and 'needs' in t and '3.0 GB' in t, t)
     owner_shot(root, '11-setup-not-enough-space.png')
-    r.findings = [precheck.Finding('error', 'notempty', 'This folder already has other files. Choose an empty folder or a new name.', str(d / 'x' / 'MechAssault 2'))]
+    r.findings = [precheck.Finding('error', 'notempty', 'This folder already has other files. Choose an empty folder or a new name.', str(d / 'x' / precheck.FOLDER_NAME))]
     app.render(); pump(root, 0.2)
     check('stops: a folder problem: CHOOSE FOLDER and a one-click fix link', app.primary.text == 'CHOOSE FOLDER' and 'fix' in app.w, screen_text(app))
     app.w['fix'].invoke(); until(root, lambda: app.folder is not None, 10)
-    check('stops: the fix link uses the folder inside', app.dest.endswith('MechAssault 2') and app.folder.ok, app.dest)
+    check('stops: the fix link uses the folder inside', app.dest.endswith(precheck.FOLDER_NAME) and app.folder.ok, app.dest)
     # Smart App Control: one neutral strip after the disc is ready
     app.facts['sac'] = 'enforce'; app.folder.findings = []; app.render(); pump(root, 0.2)
     check('stops: Smart App Control is one neutral strip with Learn more, INSTALL still works', gui.SAC_TEXT in screen_text(app) and 'sac' in app.w and app.primary.text == 'INSTALL' and app.primary.enabled)

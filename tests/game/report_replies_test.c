@@ -2,6 +2,7 @@
    Built and run by tests/installer/test_replies_120.py (cl /nologo report_replies_test.c), or by hand. Exit 0 = pass. */
 #include <stdio.h>
 #include <string.h>
+#include <wchar.h>
 #include "../../kit/source/game/src/pc_report_replies.h"
 #include "../../kit/source/game/src/pc_messages.h"
 #define MA2_UPDATE_NO_NETWORK
@@ -37,6 +38,16 @@ static int messages_tests(void)
     MCHECK(ma2_update_action(1, 0, 1) == MA2_UPDATE_RUN_INSTALLER);
     MCHECK(ma2_update_action(1, 0, 0) == MA2_UPDATE_RELEASES_PAGE);
     MCHECK(ma2_update_action(0, 0, 1) == MA2_UPDATE_HISTORY);
+    {   /* 1.2.0 rename: "Update now" starts the new-named copy, else the earlier-named one, else none */
+        int both[2] = {1, 1}, only_new[2] = {1, 0}, only_old[2] = {0, 1}, none[2] = {0, 0};
+        MCHECK(MA2_INSTALLER_COPY_COUNT == 2);
+        MCHECK(!wcscmp(MA2_INSTALLER_COPIES[0], L"MechAssault 2 Expanded Installer.exe"));
+        MCHECK(!wcscmp(MA2_INSTALLER_COPIES[1], L"MechAssault 2 Recomp Installer.exe"));
+        MCHECK(ma2_pick_installer_copy(both) == 0);
+        MCHECK(ma2_pick_installer_copy(only_new) == 0);
+        MCHECK(ma2_pick_installer_copy(only_old) == 1);
+        MCHECK(ma2_pick_installer_copy(none) == -1);
+    }
     {   /* reflow: a bullet's continuation lines join; new bullets and blank lines stay */
         char t[256] = "- Split screen is back. In the menus, choose Add Guest or\n  press START on a second controller.\n- Second bullet.\n\nAfter a blank line\n  joined too.";
         ma2_msg_reflow(t);

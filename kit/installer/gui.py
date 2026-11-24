@@ -1,4 +1,4 @@
-"""The MechAssault 2 PC Recomp Installer window (install.py does the work; precheck.py does the checks).
+"""The MechAssault 2 Expanded Installer window (install.py does the work; precheck.py does the checks).
 
 The common path is three screens: Setup (choose the disc, press Install), Installing, Done (LAUNCH). Everything else is a state of
 those: Install options and Troubleshooting pages, Update / Repair / Continue for an existing or interrupted install, and the
@@ -12,7 +12,7 @@ import ctypes, faulthandler, json, os, sys, time, traceback      # the standard 
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-TITLE = 'MechAssault 2 PC Recomp Installer'
+TITLE = 'MechAssault 2 Expanded Installer'
 APP_ID = 'MechAssault2.PCRecomp.Installer'
 STARTUP_LOG = (None, None)
 
@@ -74,7 +74,7 @@ TEX_NAMES = {'original': 'Original', '2x': 'HD', '4x': 'Ultra HD'}
 FAILED = {
     'build_failed': ('Building the game didn\'t finish', 'Something stopped the build. Your progress is saved, so try again.'),
     'compile_error': ('Building the game failed', 'The C++ tools reported an error. If the install folder\'s name has unusual characters, '
-                      'choose a simple one such as C:\\Games\\MechAssault 2. Otherwise try again.'),
+                      'choose a simple one such as C:\\Games\\MechAssault 2 Expanded. Otherwise try again.'),
     'access_denied': ('Windows or your antivirus blocked a file', 'If your antivirus reported a threat in the install folder and you trust '
                       'this game, restore the file from its protection history, then try again.'),
     'out_of_memory': ('This PC ran out of memory', 'Close other programs, especially web browsers and Discord.'
@@ -174,7 +174,7 @@ def __getattr__(name):
     raise AttributeError(name)
 
 def short_path(p, n):
-    """A long path cut at folder boundaries: C:\\Users\\...\\Games\\MechAssault 2 (never in the middle of a name)."""
+    """A long path cut at folder boundaries: C:\\Users\\...\\Games\\MechAssault 2 Expanded (never in the middle of a name)."""
     p = str(p)
     if len(p) <= n: return p
     parts = p.split('\\')
@@ -562,16 +562,16 @@ class App:
         if p: self.set_dest(p)
 
     def pick_folder(self):
-        """The folder picker; a folder with other things in it gets a new "MechAssault 2" folder inside it. None = cancelled."""
+        """The folder picker; a folder with other things in it gets a new "MechAssault 2 Expanded" folder inside it. None = cancelled."""
         p = filedialog.askdirectory(parent=self.root, title='Install folder', mustexist=False)
         if not p: return None
         p = os.path.normpath(p)
-        try:                       # a folder with other things in it: install into a new "MechAssault 2" folder inside it (no question asked)
+        try:                       # a folder with other things in it: install into a new "MechAssault 2 Expanded" folder inside it (no question asked)
             pp = Path(p)
             if pp.is_dir() and any(pp.iterdir()) and precheck.read_state(p) is None and not precheck.is_install(p) and pp.parent != pp:
-                p = str(pp / 'MechAssault 2')
+                p = str(pp / precheck.FOLDER_NAME)
             elif pp.parent == pp:
-                p = str(pp / 'Games' / 'MechAssault 2')
+                p = str(pp / 'Games' / precheck.FOLDER_NAME)
         except OSError:
             pass
         return p
@@ -607,7 +607,7 @@ class App:
             try: free = shutil.disk_usage(root).free
             except OSError: continue
             if free > need * 1.3 and (best is None or free > best[1]): best = (root, free)
-        return str(Path(best[0]) / 'Games' / 'MechAssault 2') if best else None
+        return str(Path(best[0]) / 'Games' / precheck.FOLDER_NAME) if best else None
 
     def set_texture(self, v):
         self.texture = v; self.check_dest(keep=True); self.render()
@@ -2340,7 +2340,7 @@ class App:
             if isinstance(res, Exception): self.notice = ('bad', 'The uninstall stopped: %s' % res)
             else: self.notice = ('info', res['text'])
             self.mode = self.mode_for(d)
-            if self.mode == 'install': self.dest = precheck.default_install_folder(); self.texture = 'original'; self.videos = False
+            if self.mode == 'install': self.dest = precheck.default_install_folder(keep_old=False); self.texture = 'original'; self.videos = False
             self.check_dest(); self.go('setup')
         self.bg(lambda: install.uninstall(d, wipe), done)
 

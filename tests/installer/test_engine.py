@@ -89,7 +89,7 @@ class Precheck(unittest.TestCase):
         self.assertIn('empty', c('').codes())
         r = c('"%s"' % (self.tmp / 'new one')); self.assertTrue(r.ok, r.codes()); self.assertEqual(r.existing, 'none')
         (self.tmp / 'full').mkdir(); (self.tmp / 'full' / 'x.txt').write_text('x')
-        r = c(str(self.tmp / 'full')); self.assertIn('notempty', r.codes()); self.assertTrue(r.suggest.endswith('MechAssault 2'))
+        r = c(str(self.tmp / 'full')); self.assertIn('notempty', r.codes()); self.assertTrue(r.suggest.endswith('MechAssault 2 Expanded'))
         r = c(str(self.tmp / ('José ' + 'x' * 5))); self.assertIn('tempbuild', r.codes())
         r = c(str(self.tmp / 'Lone Wolf (World) (En,Ja)' / 'MA2')); self.assertIn('tempbuild', r.codes()); self.assertTrue(r.ok, r.codes())
         self.assertNotIn('tempbuild', c(str(self.tmp / 'MechAssault 2 - plain_name.v2')).codes())

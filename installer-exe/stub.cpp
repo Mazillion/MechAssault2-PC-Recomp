@@ -1,4 +1,4 @@
-// MechAssault 2 Recomp Installer: the single-file installer's native shell.
+// MechAssault 2 Expanded Installer: the single-file installer's native shell.
 //
 // The kit (a Python runtime, the xboxrecomp toolkit, the PC release source and patch set, assets,
 // the Enhancer scripts and the installer itself) is appended to this exe by pack_installer.py:
@@ -37,7 +37,7 @@
 
 namespace fs = std::filesystem;
 
-static const wchar_t *TITLE = L"MechAssault 2 Recomp Installer";
+static const wchar_t *TITLE = L"MechAssault 2 Expanded Installer";
 
 struct Trailer { uint64_t offset, size; char id[16]; char magic[8]; };
 
@@ -184,7 +184,7 @@ static std::wstring export_startup_logs(const std::wstring &why) {
         fs::path base = fs::path(std::wstring(buf.data(), n)) / L"MechAssault2";
         std::error_code ec; fs::create_directories(base / L"Diagnostics", ec);
         if (g_log) fflush(g_log);
-        std::wstring text = L"MechAssault 2 Recomp Installer: start-up report\nReason: " + why + L"\n\n--- installer start log ---\n";
+        std::wstring text = L"MechAssault 2 Expanded Installer: start-up report\nReason: " + why + L"\n\n--- installer start log ---\n";
         if (!g_log_path.empty()) text += read_tail_utf8(g_log_path, 64 * 1024);
         fs::path newest; fs::file_time_type best{};
         for (fs::directory_iterator it(base / L"Logs", ec), end; !ec && it != end; it.increment(ec)) {
@@ -376,7 +376,7 @@ static void splash_draw(HWND h, Splash *s, HDC dc) {
         SelectObject(mem, f); SetTextColor(mem, c); RECT r2 = {x, y, W - S(90), y + S(40)}; DrawTextW(mem, str, -1, &r2, fmt | DT_NOPREFIX | DT_SINGLELINE);
     };
     text(s->kicker, K_AMBER, L"UNPACKING", S(24), S(18));
-    text(s->title, K_TEXT, L"MechAssault 2 Recomp Installer", S(24), S(34));
+    text(s->title, K_TEXT, L"MechAssault 2 Expanded Installer", S(24), S(34));
     wchar_t line[64]; swprintf(line, 64, L"Preparing... %d %%", pct);
     text(s->body, K_MUTED, line, S(24), S(72));
     // progress bar
@@ -586,7 +586,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     }
     INITCOMMONCONTROLSEX icc = {sizeof icc, ICC_PROGRESS_CLASS}; InitCommonControlsEx(&icc);
     open_stub_log();
-    slog(std::wstring(L"MechAssault 2 Recomp Installer starting (") + (console ? L"command line" : L"window") + L"), session " + session_id());
+    slog(std::wstring(L"MechAssault 2 Expanded Installer starting (") + (console ? L"command line" : L"window") + L"), session " + session_id());
 
     std::wstring caller_cwd(32768, L'\0');        // console runs keep the folder they were started in: relative paths mean what the user meant
     caller_cwd.resize(GetCurrentDirectoryW((DWORD)caller_cwd.size(), caller_cwd.data()));
@@ -600,7 +600,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
             slog(L"waiting for the installer that started this one to close");
             r = WaitForSingleObject(single, 120000);
         }
-        if (r != WAIT_OBJECT_0 && r != WAIT_ABANDONED) { fail(L"The MechAssault 2 Recomp Installer is already running.", console); return 1; }
+        if (r != WAIT_OBJECT_0 && r != WAIT_ABANDONED) { fail(L"The MechAssault 2 Expanded Installer is already running.", console); return 1; }
     }
     SetEnvironmentVariableW(L"MA2_HANDOFF_WAIT", nullptr);
 

@@ -10,6 +10,7 @@
 #pragma once
 #include <stdio.h>
 #include <string.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -176,6 +177,21 @@ static int ma2_update_action(int newer_than_installed, int from_recomplauncher, 
     if (!newer_than_installed) return MA2_UPDATE_HISTORY;
     if (from_recomplauncher) return MA2_UPDATE_IN_LAUNCHER;
     return installer_copy_exists ? MA2_UPDATE_RUN_INSTALLER : MA2_UPDATE_RELEASES_PAGE;
+}
+
+/* The installer copy "Update now" starts, in the install folder (kit/installer/selfupdate.py INSTALLER_COPY, OLD_INSTALLER_COPIES):
+   1.2.0 renamed it, and an install the new installer has not updated yet still has only the earlier name. */
+#define MA2_INSTALLER_COPY_COUNT 2
+static const wchar_t *const MA2_INSTALLER_COPIES[MA2_INSTALLER_COPY_COUNT] = {
+    L"MechAssault 2 Expanded Installer.exe",    /* 1.2.0 */
+    L"MechAssault 2 Recomp Installer.exe"       /* 1.1.7 to the first 1.2.0 build */
+};
+/* exists[i]: MA2_INSTALLER_COPIES[i] is in the folder. The first that exists (the newest name first), or -1 when none does. */
+static int ma2_pick_installer_copy(const int exists[MA2_INSTALLER_COPY_COUNT])
+{
+    int i;
+    for (i = 0; i < MA2_INSTALLER_COPY_COUNT; i++) if (exists[i]) return i;
+    return -1;
 }
 
 #ifdef __cplusplus

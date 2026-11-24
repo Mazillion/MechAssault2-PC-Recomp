@@ -49,10 +49,11 @@ THE INSTALLER WINDOW
 1. Install MechAssault 2 - drop your disc image on the box or browse for it
    (an .iso or .xiso file, or ma2.xbe in a folder copied from the disc).
    The installer checks it. Install to shows the install folder, by default
-   C:\Games\MechAssault 2, and the free space on that drive; Change picks
-   another. The folder must be empty or a previous install, and not a
-   protected, temporary or network folder; FAT32 drives are refused (use an
-   NTFS drive). Install options has the textures (Original, HD, Ultra HD),
+   C:\Games\MechAssault 2 Expanded, and the free space on that drive; Change
+   picks another. An earlier install keeps its own folder. The folder must
+   be empty or a previous install, and not a protected, temporary or
+   network folder; FAT32 drives are refused (use an NTFS drive). Install
+   options has the textures (Original, HD, Ultra HD),
    the upscaled movies (see below) and the shortcuts. Its
    Troubleshooting... page holds settings for when support asks, such as
    "Keep my PC responsive" (builds more slowly in the background; chosen
@@ -98,8 +99,8 @@ then deletes them. Until then, --rollback (see COMMAND LINE) goes back to the
 earlier version.
 
 The installer keeps a copy of itself in the install folder (MechAssault 2
-Recomp Installer.exe), and the Start menu gets "Update MechAssault 2" when you
-chose Start menu shortcuts. Run either one: when a newer version is out, it
+Expanded Installer.exe), and the Start menu gets "Update MechAssault 2" when
+you chose Start menu shortcuts. Run either one: when a newer version is out, it
 offers "Update to" that version. Only when you press it does it download the
 new installer from the project's GitHub releases page, check it against the
 published one and let it update your install. If anything goes wrong, nothing

@@ -772,12 +772,19 @@ static void reply_capture(bool on){pc_frontend_capture(on?1:0);if(game_window)Po
 static InboxMsg *inbox_cur_locked(){return inbox_sel>=0&&inbox_sel<(int)inbox.size()?&inbox[inbox_sel]:nullptr;}
 static bool reply_answering_locked(){InboxMsg *m=inbox_cur_locked();
     return m&&m->kind=="reply"&&m->can_answer&&!m->answered&&reply_outcome!=REPLY_SENT&&reply_outcome!=REPLY_SENT_LOGS&&reply_outcome!=REPLY_CLOSED;}
+// The installer copy in the install folder: its 1.2.0 name, else its earlier name (pc_messages.h); empty when there is none.
+static std::wstring installer_copy_path(){
+    std::wstring dir=msg_exe_dir();int exists[MA2_INSTALLER_COPY_COUNT];
+    for(int i=0;i<MA2_INSTALLER_COPY_COUNT;i++)exists[i]=GetFileAttributesW((dir+L"\\"+MA2_INSTALLER_COPIES[i]).c_str())!=INVALID_FILE_ATTRIBUTES;
+    int k=ma2_pick_installer_copy(exists);
+    return k<0?std::wstring():dir+L"\\"+MA2_INSTALLER_COPIES[k];
+}
 static int update_action_locked(const InboxMsg &m){
     static int managed=-1;   // who updates this install: recomp-install.json "managed_by", RECOMPLAUNCHER only as the fallback
     if(managed<0){std::string stamp=msg_read_text(msg_exe_dir()+L"\\recomp-install.json",65536);managed=ma2_managed_by_launcher(stamp.c_str(),getenv("RECOMPLAUNCHER")!=nullptr);
         fprintf(stderr,"[MSG] updates for this install come from %s\n",managed?"RecompLauncher":"the installer");}
     return ma2_update_action(msg_newer(m.key),managed,
-        GetFileAttributesW((msg_exe_dir()+L"\\MechAssault 2 Recomp Installer.exe").c_str())!=INVALID_FILE_ATTRIBUTES);
+        !installer_copy_path().empty());
 }
 static bool inbox_focus_ok_locked(int f){
     InboxMsg *m=inbox_cur_locked();
@@ -871,7 +878,8 @@ static void update_now_locked(const InboxMsg &m){
     if(a==MA2_UPDATE_IN_LAUNCHER){update_in_launcher_locked(m);return;}
     if(a==MA2_UPDATE_RELEASES_PAGE){ShellExecuteA(nullptr,"open",msg_releases_url,nullptr,nullptr,SW_SHOWNORMAL);fprintf(stderr,"[MSG] update %s: releases page opened\n",m.key.c_str());return;}
     if(a!=MA2_UPDATE_RUN_INSTALLER)return;
-    std::wstring dir=msg_exe_dir(),exe=dir+L"\\MechAssault 2 Recomp Installer.exe",cmd=L"\""+exe+L"\"";
+    std::wstring dir=msg_exe_dir(),exe=installer_copy_path(),cmd=L"\""+exe+L"\"";
+    if(exe.empty()){update_note=msg_text_update_failed;fprintf(stderr,"[MSG] update %s: the installer copy is gone\n",m.key.c_str());return;}
     std::vector<wchar_t> line(cmd.begin(),cmd.end());line.push_back(0);
     STARTUPINFOW si={};si.cb=sizeof si;PROCESS_INFORMATION pi={};
     SetEnvironmentVariableW(L"MA2_GAME_UPDATE",dir.c_str());   // the installer opens on this folder and starts its self-update

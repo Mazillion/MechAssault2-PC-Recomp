@@ -13,12 +13,12 @@ BEGIN
   BEGIN
     BLOCK "040904b0"
     BEGIN
-      VALUE "FileDescription", "MechAssault 2 Recomp Installer"
+      VALUE "FileDescription", "MechAssault 2 Expanded Installer"
       VALUE "ProductName", "MechAssault 2 PC Recomp (unofficial)"
       VALUE "FileVersion", MA2_VER_FILE
       VALUE "ProductVersion", MA2_VER_STR
       VALUE "ReleaseDate", MA2_VER_DATE
-      VALUE "OriginalFilename", "MechAssault 2 Recomp Installer.exe"
+      VALUE "OriginalFilename", "MechAssault 2 Expanded Installer.exe"
       VALUE "Comments", "Unofficial fan project. Not affiliated with or endorsed by Microsoft, Xbox, Day 1 Studios or the BattleTech/MechWarrior rights holders. MechAssault and Xbox are trademarks of their respective owners. No game data files are included: the game's program, art, sound and levels come from your own disc. Graphics shaders are compiled on your PC as you play; none come with the installer. Builds the PC version of MechAssault 2 from your own disc image with the xboxrecomp toolkit."
     END
   END

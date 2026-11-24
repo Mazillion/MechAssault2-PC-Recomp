@@ -390,9 +390,10 @@ class Manifest(unittest.TestCase):
 
     def test_start_falls_back_to_the_installer_in_the_release(self):
         s, p = self.m['start'], self.m['prepare']
-        self.assertEqual(s['program'][0], 'MechAssault 2/MechAssault 2.exe')     # tried first: Play starts the built game
-        self.assertEqual(s['program'][1:], p['program'])                       # the file in the zip: the Developer tab finds it
         dest = p['args'][p['args'].index('--dest') + 1]
+        self.assertEqual(s['program'][0], dest[len('{install}/'):] + '/MechAssault 2.exe')   # tried first: Play starts the built game
+        self.assertEqual(s['program'][1], 'MechAssault 2/MechAssault 2.exe')     # 1.2.0 rename: a setup made before it still plays
+        self.assertEqual(s['program'][2:], p['program'])                       # the file in the zip: the Developer tab finds it
         self.assertEqual(s['env']['MA2_RECOMPLAUNCHER_DEST'], dest)
         self.assertFalse(any(k.upper().startswith('RECOMPLAUNCHER') for k in s['env']))
         src = (REPO / 'kit' / 'installer' / 'gui.py').read_text(encoding='utf-8')

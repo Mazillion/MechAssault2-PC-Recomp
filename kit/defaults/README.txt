@@ -4,7 +4,7 @@ MechAssault 2 - PC recompilation, version {{VERSION}} (build {{BUILD}})
 Run "MechAssault 2.exe".
 
 This folder was built on this PC from your own MechAssault 2 disc by the
-MechAssault 2 Recomp Installer: the xboxrecomp toolkit translated the game's
+MechAssault 2 Expanded Installer: the xboxrecomp toolkit translated the game's
 Xbox program to C, the PC version's fixes and features were applied, and the
 result was compiled here. game_files holds the contents of your disc.
 
@@ -64,7 +64,7 @@ PC name and folder names removed.
 
 UPDATING AND UNINSTALLING
 -------------------------
-Updating: run the new "MechAssault 2 Recomp Installer.exe" and choose this
+Updating: run the new "MechAssault 2 Expanded Installer.exe" and choose this
 folder; it offers Update (no disc needed, your saves and settings are kept).
 
 Uninstalling: run the installer; its first page finds this install and offers
@@ -144,7 +144,7 @@ quote it in bug reports. Guide: Docs\Scenario editor.txt.
 ENHANCED CONTENT (OPTIONAL)
 ---------------------------
 2x/4x enhanced textures and 2x enhanced cutscene videos can be added at any
-time: run "MechAssault 2 Recomp Installer.exe" again, choose this folder and
+time: run "MechAssault 2 Expanded Installer.exe" again, choose this folder and
 tick the parts you want. Video Settings offers each one once it is installed.
 This needs an NVIDIA graphics card with 8 GB or more, an internet connection
 (several GB of AI software are downloaded) and hours of processing. The

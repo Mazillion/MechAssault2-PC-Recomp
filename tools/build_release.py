@@ -1,4 +1,4 @@
-"""Build the release: dist/MechAssault 2 Recomp Installer.exe and its RecompLauncher zip (+ SHA256SUMS.txt) from this repository.
+"""Build the release: dist/MechAssault 2 Expanded Installer.exe and its RecompLauncher zip (+ SHA256SUMS.txt) from this repository.
 
     py -3.13 tools/build_release.py [--build-dir D:\\ma2-build] [--skip-editor]
 
@@ -17,6 +17,7 @@ Steps (each stops the build on failure):
                 repository top) and the installer exe byte for byte, nothing else (never a pc_settings.ini: the launcher
                 unpacks every update over the install). The installer exe itself stays the release's main download.
   7. check      tools/privacy_scan.py over the built binaries and the zip, then SHA-256 + size of both into dist/SHA256SUMS.txt
+                (under the names GitHub publishes: MechAssault.2.Expanded.Installer.exe)
 
 The compile steps run in a copy of the sources under --build-dir (default %SystemDrive%\\MA2PubBuild) so
 no compiler ever sees your user-profile path: MSVC can embed the source folder in a binary.
@@ -30,8 +31,22 @@ REPO = Path(__file__).resolve().parents[1]
 DIST = REPO / 'dist'
 EDITOR_EXE = 'MA2 Scenario Editor.exe'
 REPORT_EXE = 'MA2 Report.exe'
-INSTALLER_EXE = 'MechAssault 2 Recomp Installer.exe'
+def _installer_name():
+    """The installer's file name: kit/installer/selfupdate.py ASSET, the one place it is set (standard library only)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('ma2_selfupdate_name', REPO / 'kit' / 'installer' / 'selfupdate.py')
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    return mod.ASSET
+
+INSTALLER_EXE = _installer_name()                # 1.2.0: MechAssault 2 Expanded Installer.exe
 LAUNCHER_JSON = 'recomplauncher.json'            # RecompLauncher's profile: how it installs, updates and starts the game
+
+
+def published_name(name):
+    """The name GitHub publishes an uploaded release asset under: every character other than letters, digits, '.', '-', '_'
+    and '+' becomes '.' (the same rule as kit/installer/selfupdate.py github_asset_name). SHA256SUMS.txt lists these names,
+    so `sha256sum -c SHA256SUMS.txt` works on the files as downloaded."""
+    return re.sub(r'[^A-Za-z0-9._+-]', '.', name)
 
 
 def launcher_zip_name(version):
@@ -61,6 +76,17 @@ def check_launcher_zip(path, exe):
                 if INSTALLER_EXE not in ((prof.get('start') or {}).get('program') or []):      # 1.2.0: a file the zip has
                     probs.append("recomplauncher.json: start.program must also list %r (the built game is not in the zip: "
                                  "without a file of the release there, RecompLauncher's Developer tab shows a red problem)" % INSTALLER_EXE)
+                args = (prof.get('prepare') or {}).get('args') or []          # 1.2.0 rename: one game folder everywhere
+                dest = args[args.index('--dest') + 1] if '--dest' in args[:-1] else None
+                start = prof.get('start') or {}
+                if not dest or not dest.startswith('{install}/'):
+                    probs.append('recomplauncher.json: prepare.args must have --dest {install}/<folder>')
+                else:
+                    if (start.get('env') or {}).get('MA2_RECOMPLAUNCHER_DEST') != dest:
+                        probs.append('recomplauncher.json: start.env.MA2_RECOMPLAUNCHER_DEST must be %r (prepare --dest)' % dest)
+                    game = dest[len('{install}/'):] + '/MechAssault 2.exe'
+                    if (start.get('program') or [None])[0] != game:
+                        probs.append('recomplauncher.json: start.program must start with %r (the game prepare builds)' % game)
             bad = z.testzip()
             if bad:
                 probs.append('damaged member %s' % bad)
@@ -249,7 +275,7 @@ def main():
     step('7 check')
     run([sys.executable, str(REPO / 'tools' / 'privacy_scan.py'), '--binaries', str(out), str(zpath),
          str(REPO / 'kit' / 'editor' / EDITOR_EXE), str(REPO / 'installer-exe' / 'stub.exe'), str(REPO / 'kit' / 'report' / REPORT_EXE)], REPO)
-    lines = ['%s *%s' % (sha(p), p.name) for p in (out, zpath)]
+    lines = ['%s *%s' % (sha(p), published_name(p.name)) for p in (out, zpath)]     # as GitHub publishes them (dots for spaces)
     (DIST / 'SHA256SUMS.txt').write_text('\n'.join(lines) + '\n', encoding='ascii')
     for p in (out, zpath):
         print('\n%s  %d bytes\nsha256 %s' % (p, p.stat().st_size, sha(p)))

@@ -1,4 +1,4 @@
-"""Make the single-file installer: dist/MechAssault 2 Recomp Installer.exe.
+"""Make the single-file installer: dist/MechAssault 2 Expanded Installer.exe.
 
   stub.exe (build_stub.cmd)  +  payload  +  trailer
 
@@ -16,7 +16,14 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 KIT = HERE.parent / 'kit'
 PYTHON = Path(os.environ.get('MA2_PYTHON_HOME') or sys.base_prefix)   # the Python 3.13 that gets bundled
-OUT = Path(os.environ['MA2_PACK_OUT']) if os.environ.get('MA2_PACK_OUT') else HERE.parent / 'dist' / 'MechAssault 2 Recomp Installer.exe'   # MA2_PACK_OUT: write elsewhere
+def _installer_name():
+    """The installer's file name: kit/installer/selfupdate.py ASSET, the one place it is set."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('ma2_selfupdate_name', KIT / 'installer' / 'selfupdate.py')
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    return mod.ASSET
+
+OUT = Path(os.environ['MA2_PACK_OUT']) if os.environ.get('MA2_PACK_OUT') else HERE.parent / 'dist' / _installer_name()   # MA2_PACK_OUT: write elsewhere
 KIT_DIRS = ['installer', 'toolkit', 'source', 'patches', 'assets', 'defaults', 'enhancer', 'editor', 'report']   # report: MA2 Report.exe (1.1.6)
 PY_FILES = ['python.exe', 'pythonw.exe', 'python3.dll', 'python313.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'LICENSE.txt']
 PY_DIRS = ['DLLs', 'Lib', 'tcl']

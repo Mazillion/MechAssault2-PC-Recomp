@@ -246,8 +246,28 @@ def _under(path, base):
         return False
     return p == b or p.startswith(b.rstrip('\\') + '\\')
 
-def default_install_folder():
-    """C:\\Games\\MechAssault 2 (on the system drive), else %LOCALAPPDATA%\\Programs\\MechAssault 2 if that can't be created."""
+FOLDER_NAME = 'MechAssault 2 Expanded'        # 1.2.0: the default folder name for NEW installs
+OLD_FOLDER_NAMES = ('MechAssault 2',)        # earlier default; installs there keep their folder and update in place
+
+def old_default_install():
+    """An install (finished or unfinished) in an earlier default folder (C:\\Games\\MechAssault 2 or
+    %LOCALAPPDATA%\\Programs\\MechAssault 2), for a PC whose installer.json is gone. None if there is none."""
+    drive = os.environ.get('SystemDrive', 'C:')
+    base = os.environ.get('LOCALAPPDATA') or str(Path.home() / 'AppData' / 'Local')
+    for name in OLD_FOLDER_NAMES:
+        for p in (Path(drive + '\\Games') / name, Path(base) / 'Programs' / name):
+            try:
+                if p.is_dir() and (is_install(p) or read_state(p) is not None): return str(p)
+            except OSError:
+                pass
+    return None
+
+def default_install_folder(keep_old=True):
+    """C:\\Games\\MechAssault 2 Expanded (on the system drive), else %LOCALAPPDATA%\\Programs\\MechAssault 2 Expanded if that
+    can't be created. An install already in an earlier default folder (old_default_install) wins unless keep_old is False
+    (Install somewhere else): it is never moved."""
+    old = old_default_install() if keep_old else None
+    if old: return old
     drive = os.environ.get('SystemDrive', 'C:')
     games = Path(drive + '\\Games')
     try:
@@ -255,11 +275,11 @@ def default_install_folder():
             probe = games if games.is_dir() else Path(drive + '\\')
             tmp = probe / ('.ma2probe%d' % os.getpid())
             tmp.write_bytes(b'x'); tmp.unlink()
-            return str(games / 'MechAssault 2')
+            return str(games / FOLDER_NAME)
     except OSError:
         pass
     base = os.environ.get('LOCALAPPDATA') or str(Path.home() / 'AppData' / 'Local')
-    return str(Path(base) / 'Programs' / 'MechAssault 2')
+    return str(Path(base) / 'Programs' / FOLDER_NAME)
 
 def _nearest_existing(p):
     p = Path(p)
@@ -306,20 +326,20 @@ def check_folder(text, need_bytes=0, enhanced=False, kit=None):
     if not raw:
         add('error', 'empty', 'Choose an install folder.'); return r
     if raw.startswith('\\\\') or raw.startswith('//'):
-        add('error', 'unc', 'The C++ tools cannot build in a network folder (\\\\server\\share). Choose a folder on this PC, e.g. C:\\Games\\MechAssault 2.'); return r
+        add('error', 'unc', 'The C++ tools cannot build in a network folder (\\\\server\\share). Choose a folder on this PC, e.g. C:\\Games\\MechAssault 2 Expanded.'); return r
     if not is_absolute(raw):
-        add('error', 'relative', 'Enter a full folder path, e.g. C:\\Games\\MechAssault 2'); return r
+        add('error', 'relative', 'Enter a full folder path, e.g. C:\\Games\\MechAssault 2 Expanded'); return r
     p = Path(raw)
     if re.search(r'[<>"|?*]', raw[2:]):
         add('error', 'badchars', 'A folder name can\'t contain < > " | ? *'); return r
     if p.parent == p:
-        add('error', 'driveroot', 'Choose a folder on the drive, not the drive itself. Try %s\\MechAssault 2.' % raw.rstrip('\\')); return r
+        add('error', 'driveroot', 'Choose a folder on the drive, not the drive itself. Try %s\\%s.' % (raw.rstrip('\\'), FOLDER_NAME)); return r
     pf = [os.environ.get(v) for v in ('ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'SystemRoot', 'windir')]
     if any(_under(raw, b) for b in pf):
-        add('error', 'protected', 'Windows protects this folder; the installer can\'t write there. Try C:\\Games\\MechAssault 2.'); return r
+        add('error', 'protected', 'Windows protects this folder; the installer can\'t write there. Try C:\\Games\\MechAssault 2 Expanded.'); return r
     temp = tempfile.gettempdir()
     if _under(raw, temp) or 'Temp1_' in raw or (kit and _under(raw, kit)):
-        add('error', 'temp', 'This folder is temporary: Windows or the installer deletes it. Choose a normal folder such as C:\\Games\\MechAssault 2.'); return r
+        add('error', 'temp', 'This folder is temporary: Windows or the installer deletes it. Choose a normal folder such as C:\\Games\\MechAssault 2 Expanded.'); return r
     ty = drive_type(raw)
     fs =volume_fs(raw).upper()
     if fs.startswith('FAT'):
@@ -328,7 +348,7 @@ def check_folder(text, need_bytes=0, enhanced=False, kit=None):
         add('warn', 'exfat', 'This drive uses exFAT: the install works, but NTFS (most internal drives) is more reliable.')
     if user_folder(raw):
         add('warn', 'userfolder', 'Your %s folder can be guarded by Controlled Folder Access or synced, which can block the build or the game. '
-            'A folder such as C:\\Games\\MechAssault 2 is better.' % user_folder(raw))
+            'A folder such as C:\\Games\\MechAssault 2 Expanded is better.' % user_folder(raw))
     if ty == 4:
         add('warn', 'network', 'Network folders are slow and may fail during the build.')
     elif ty == 5:
@@ -339,7 +359,7 @@ def check_folder(text, need_bytes=0, enhanced=False, kit=None):
         add('warn', 'removable', 'This is a removable drive. The build is slow and long; an internal drive is better.')
     od = [os.environ.get(v) for v in ('OneDrive', 'OneDriveConsumer', 'OneDriveCommercial')]
     if any(_under(raw, b) for b in od) or re.search(r'(?i)[\\/]OneDrive(\s-\s[^\\/]*)?([\\/]|$)', raw):
-        add('warn', 'onedrive', 'This folder syncs to OneDrive; 4 GB of game files would upload. Choose a folder outside OneDrive, e.g. C:\\Games\\MechAssault 2.')
+        add('warn', 'onedrive', 'This folder syncs to OneDrive; 4 GB of game files would upload. Choose a folder outside OneDrive, e.g. C:\\Games\\MechAssault 2 Expanded.')
     if (len(raw) > 150 and not long_paths_enabled()) or (enhanced and len(raw) > 80):
         add('warn', 'long', 'Long folder paths can break the compiler%s. Choose a shorter path.' % (' and the AI tools' if enhanced else ''))
     if not plain_path(os.path.normpath(raw)):
@@ -355,7 +375,7 @@ def check_folder(text, need_bytes=0, enhanced=False, kit=None):
             r.existing = 'install'; r.stamp = read_stamp(p)
         elif any(p.iterdir()):
             r.existing = 'other'
-            r.suggest = str(p / 'MechAssault 2')
+            r.suggest = str(p / FOLDER_NAME)
             add('error', 'notempty', 'This folder already has other files. Choose an empty folder or a new name.', r.suggest)
         else:
             r.existing = 'empty'
@@ -365,7 +385,7 @@ def check_folder(text, need_bytes=0, enhanced=False, kit=None):
         tmp = anchor / ('.ma2probe%d' % os.getpid())
         tmp.write_bytes(b'x'); tmp.unlink()
     except OSError:
-        add('error', 'readonly', 'Can\'t write to this folder (Access denied). Choose a folder you can write to, e.g. C:\\Games\\MechAssault 2.')
+        add('error', 'readonly', 'Can\'t write to this folder (Access denied). Choose a folder you can write to, e.g. C:\\Games\\MechAssault 2 Expanded.')
         return r
     try:
         r.free = shutil.disk_usage(anchor).free

@@ -1,4 +1,4 @@
-/* A stand-in for "MechAssault 2 Recomp Installer.exe" in a TEST install folder (never a real install): it only records
+/* A stand-in for "MechAssault 2 Expanded Installer.exe" (or the earlier "MechAssault 2 Recomp Installer.exe") in a TEST install folder (never a real install): it only records
    how the game started it (command line, working folder, MA2_GAME_UPDATE) in fake-installer-ran.txt beside itself and
    exits. Used to test the game's Messages "Update now" (tests/installer/test_replies_120.py, the in-game run). */
 #define WIN32_LEAN_AND_MEAN

@@ -12,10 +12,10 @@
     }
   ],
   "prepare": {
-    "program": ["MechAssault 2 Recomp Installer.exe"],
-    "args": ["--recomplauncher", "--xiso={input:game}", "--dest", "{install}/MechAssault 2"],
+    "program": ["MechAssault 2 Expanded Installer.exe"],
+    "args": ["--recomplauncher", "--xiso={input:game}", "--dest", "{install}/MechAssault 2 Expanded"],
     "label": "Building the game from your disc (about 15 to 30 minutes)",
-    "done": ["{install}/MechAssault 2/MechAssault 2.exe", "{install}/MechAssault 2/recomp-install.json"],
+    "done": ["{install}/MechAssault 2 Expanded/MechAssault 2.exe", "{install}/MechAssault 2 Expanded/recomp-install.json"],
     "keeps_copy": true,
     "options": [
       {
@@ -67,11 +67,11 @@
     ]
   },
   "start": {
-    "program": ["MechAssault 2/MechAssault 2.exe", "MechAssault 2 Recomp Installer.exe"],
-    "env": { "RECOMP_UPDATE_CHECK": "0", "MA2_RECOMPLAUNCHER_DEST": "{install}/MechAssault 2" }
+    "program": ["MechAssault 2 Expanded/MechAssault 2.exe", "MechAssault 2/MechAssault 2.exe", "MechAssault 2 Expanded Installer.exe"],
+    "env": { "RECOMP_UPDATE_CHECK": "0", "MA2_RECOMPLAUNCHER_DEST": "{install}/MechAssault 2 Expanded" }
   },
   "folders": {
-    "game": [{ "path": "{install}/MechAssault 2" }],
+    "game": [{ "path": "{install}/MechAssault 2 Expanded" }],
     "saves": [{ "path": "{local}/MechAssault2/Saved Games" }],
     "logs": [{ "path": "{local}/MechAssault2/Logs" }]
   },
@@ -87,7 +87,7 @@
       "format": "ini",
       "file": [
         { "path": "{local}/MechAssault2/pc_settings.ini", "if": "{local}/MechAssault2/pc_settings.ini" },
-        { "path": "{install}/MechAssault 2/pc_settings.ini" }
+        { "path": "{install}/MechAssault 2 Expanded/pc_settings.ini" }
       ]
     }
   ],

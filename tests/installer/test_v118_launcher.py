@@ -270,13 +270,14 @@ class Manifest(unittest.TestCase):
 
     def test_programs_and_paths_match_the_installer(self):
         p, s = self.m['prepare'], self.m['start']
-        self.assertEqual(p['program'], ['MechAssault 2 Recomp Installer.exe'])
-        self.assertEqual(s['program'], ['MechAssault 2/MechAssault 2.exe', 'MechAssault 2 Recomp Installer.exe'])   # 1.2.0: the second is in the zip
+        self.assertEqual(p['program'], [selfupdate.ASSET])                     # 1.2.0 rename: MechAssault 2 Expanded Installer.exe
+        self.assertEqual(s['program'], ['MechAssault 2 Expanded/MechAssault 2.exe', 'MechAssault 2/MechAssault 2.exe',   # the old folder:
+                                        selfupdate.ASSET])                              # setups made before the rename still play; the last is in the zip
         self.assertIn('--recomplauncher', p['args'])
         self.assertIn('--xiso={input:game}', p['args'])                       # one argument: keeps_copy leaves it out
         self.assertTrue(p['keeps_copy'])
         dest = p['args'][p['args'].index('--dest') + 1]
-        self.assertEqual(dest, '{install}/MechAssault 2')
+        self.assertEqual(dest, '{install}/' + precheck.FOLDER_NAME)
         self.assertEqual(self.m['folders']['game'][0]['path'], dest)
         self.assertEqual(sorted(p['done']), sorted([dest + '/MechAssault 2.exe', dest + '/' + precheck.STAMP]))
 

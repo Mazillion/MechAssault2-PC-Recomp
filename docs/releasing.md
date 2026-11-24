@@ -100,16 +100,16 @@ Every release has two downloads, built together by `tools/build_release.py` into
 
 | File | For |
 |:--|:--|
-| `MechAssault 2 Recomp Installer.exe` | players who download the installer themselves. The release text, the README and every post point to it: it is never renamed or replaced by the zip |
+| `MechAssault 2 Expanded Installer.exe` | players who download the installer themselves. The release text, the README and every post point to it: the zip never replaces it (1.2.0 renamed it from `MechAssault 2 Recomp Installer.exe`; kit/installer/selfupdate.py ASSET is the one place the name is set) |
 | `MechAssault2-PC-Recomp-v<version>-Windows-x64.zip` | [RecompLauncher](https://recomplauncher.com), which installs and updates the game from our GitHub releases. It holds exactly two files: `recomplauncher.json` (from the top of the repository) and the same installer exe, byte for byte |
 
 RecompLauncher unpacks each new release over the player's install folder, then runs the setup step that
 `recomplauncher.json` names: the installer with `--recomplauncher`, which builds the game into
-`MechAssault 2\` inside that folder, updates it from the kept build, or does nothing when that version is already there.
+`MechAssault 2 Expanded\` inside that folder (`MechAssault 2\` before the 1.2.0 rename), updates it from the kept build, or does nothing when that version is already there.
 So the zip must never carry a `pc_settings.ini` or anything else a player changes; `build_release.py` and the gate's
 `launcher_zip` step refuse any other member. Keep `recomplauncher.json` in step with the game: a renamed settings key,
 exe or install file is renamed there too (`tests/installer/test_v118_launcher.py` checks the names it uses).
-`start.program` lists the built `MechAssault 2/MechAssault 2.exe` first and the installer second: RecompLauncher plays the
+`start.program` lists the built `MechAssault 2 Expanded/MechAssault 2.exe` first, the pre-rename `MechAssault 2/MechAssault 2.exe` second and the installer last: RecompLauncher plays the
 first one that exists, and its Developer tab marks a profile red when none of them is in the release folder (the game exists
 only after setup). Started that way, the installer opens its window locked to the launcher's folder
 (`MA2_RECOMPLAUNCHER_DEST` in `start.env`). The setup option `installer_window` adds `--window`: the setup step shows the

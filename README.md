@@ -83,7 +83,7 @@ It has been tested mainly on a desktop with an RTX 3090 and an i9-12900K, and to
 
 Steps:
 
-1. Download `MechAssault 2 Recomp Installer.exe` from [Releases](https://github.com/Mazillion/MechAssault2-PC-Recomp/releases/latest).
+1. Download `MechAssault 2 Expanded Installer.exe` from [Releases](https://github.com/Mazillion/MechAssault2-PC-Recomp/releases/latest).
 2. Run it and point it at your disc dump.
 3. Wait while it builds the game. This takes around 15 minutes on a decent 8-core CPU, and an hour or more with 4 cores or 8 GB of memory.
 4. Launch MechAssault 2 from the shortcut.
