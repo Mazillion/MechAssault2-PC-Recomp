@@ -34,7 +34,7 @@ Commands:
     python triage.py get-logs MA2-XXXXXX N   download the logs the player attached to answer N
     python triage.py draft-issue MA2-XXXXXX   write a PUBLIC issue draft (Markdown, never posted) from the report's
                                          text and summary, with private details removed; read it before using it
-    python triage.py announce 1.1.8 --installer "MechAssault 2 Recomp Installer.exe" [--notice "..."]
+    python triage.py announce 1.1.8 --installer "MechAssault 2 Expanded Installer.exe" [--notice "..."]
                                          after publishing a release on GitHub: tell every player's game and installer
                                          that 1.1.8 is out. Hashes the installer file, checks the GitHub release
                                          (published, not a draft or pre-release, same installer size), shows a
@@ -547,7 +547,13 @@ def get_logs(relay, rid, n, out):
 
 GITHUB_REPO = "Mazillion/MechAssault2-PC-Recomp"
 GITHUB_API = "https://api.github.com"
-INSTALLER_ASSET = "MechAssault 2 Recomp Installer.exe"
+# The relay's "asset" field is a LABEL, not the file name. The live relay (src/worker.js INSTALLER_ASSET) accepts and returns only
+# "MechAssault 2 Recomp Installer.exe", and 1.1.7 installers require exactly that string, so announce keeps posting it: changing it
+# would need a relay deploy and would stop every 1.1.7 installer from updating. 1.2.0+ installers accept this label or the new name;
+# the label never chooses the file (they try the published names below themselves).
+INSTALLER_ASSET = "MechAssault 2 Recomp Installer.exe"           # the label POSTed as "asset" (the relay's accepted label)
+INSTALLER_NAME = "MechAssault 2 Expanded Installer.exe"          # the installer's file name since 1.2.0 (replaced in place)
+OLD_INSTALLER_NAMES = ("MechAssault 2 Recomp Installer.exe",)    # its earlier name (v1.1.7 and the first v1.2.0 upload)
 ANNOUNCE_VERSION = re.compile(r"^\d{1,4}\.\d{1,4}\.\d{1,4}$")
 ANNOUNCE_QUESTION = "Announce this to every player? [y/N] "
 UNDO_QUESTION = "Go back to the previous announcement? [y/N] "
@@ -592,6 +598,17 @@ def published_asset_name(name):
     return re.sub(r"[^A-Za-z0-9._+-]", ".", name)
 
 
+def installer_asset_names():
+    """Every name the release's installer asset may have, in order of preference: the new name as GitHub publishes it and as
+    uploaded, then the old name the same way (the same order the installer's self-update tries)."""
+    out = []
+    for n in (INSTALLER_NAME,) + OLD_INSTALLER_NAMES:
+        for c in (published_asset_name(n), n):
+            if c not in out:
+                out.append(c)
+    return out
+
+
 def release_problems(rel, version, sha, size):
     """Why this release must not be announced yet (empty = fine)."""
     if not rel:
@@ -602,11 +619,13 @@ def release_problems(rel, version, sha, size):
     if rel.get("prerelease"):
         out.append("the release is marked as a pre-release")
     # GitHub stores an uploaded asset under its own name: every character other than letters, digits, ".", "-", "_" and "+" becomes
-    # "." ("MechAssault 2 Recomp Installer.exe" -> "MechAssault.2.Recomp.Installer.exe"). The relay's "asset" stays the label above.
-    names = (INSTALLER_ASSET, published_asset_name(INSTALLER_ASSET))
-    assets = [a for a in rel.get("assets") or [] if a.get("name") in names]
+    # "." ("MechAssault 2 Expanded Installer.exe" -> "MechAssault.2.Expanded.Installer.exe"). The new or the old name, published or
+    # raw, is accepted (first match in installer_asset_names() order). The relay's "asset" stays the label INSTALLER_ASSET.
+    names = installer_asset_names()
+    assets = sorted((a for a in rel.get("assets") or [] if a.get("name") in names), key=lambda a: names.index(a.get("name")))
     if not assets:
-        out.append(f'the release has no asset named "{published_asset_name(INSTALLER_ASSET)}" (uploaded as "{INSTALLER_ASSET}")')
+        out.append(f'the release has no asset named "{published_asset_name(INSTALLER_NAME)}" (uploaded as "{INSTALLER_NAME}") '
+                   f'or "{published_asset_name(OLD_INSTALLER_NAMES[0])}"')
     else:
         a = assets[0]
         if a.get("state", "uploaded") != "uploaded":
@@ -668,8 +687,8 @@ def announce(make_relay, version, installer, notice="", yes=False, force=False, 
         raise SystemExit("Give the release number as X.Y.Z, for example: announce 1.1.8 --installer <file>")
     if not installer or not os.path.isfile(installer):
         raise SystemExit("Give the release's installer file with --installer (the exe you uploaded to the release)")
-    if os.path.basename(installer) != INSTALLER_ASSET:
-        print(f'Note: the file is named "{os.path.basename(installer)}"; the release asset must be "{INSTALLER_ASSET}".')
+    if os.path.basename(installer) not in (INSTALLER_NAME,) + OLD_INSTALLER_NAMES:
+        print(f'Note: the file is named "{os.path.basename(installer)}"; the release asset must be "{INSTALLER_NAME}".')
     sha, size = file_facts(installer)
     notes = ""
     path = changelog or DEFAULT_CHANGELOG

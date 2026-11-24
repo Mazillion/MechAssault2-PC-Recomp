@@ -25,8 +25,11 @@ PORT = 8798
 BASE = f"http://127.0.0.1:{PORT}"
 KEY = "local-owner-key"
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
-ASSET = "MechAssault 2 Recomp Installer.exe"
-PUBLISHED = "MechAssault.2.Recomp.Installer.exe"   # how GitHub names the uploaded ASSET (v1.1.7, v1.2.0)
+ASSET = "MechAssault 2 Expanded Installer.exe"       # the installer's file name since 1.2.0 (replaced in place)
+PUBLISHED = "MechAssault.2.Expanded.Installer.exe"  # how GitHub names the uploaded ASSET
+OLD_ASSET = "MechAssault 2 Recomp Installer.exe"    # the name up to the first 1.2.0 upload
+OLD_PUBLISHED = "MechAssault.2.Recomp.Installer.exe"  # how GitHub named it (v1.1.7, v1.2.0)
+LABEL = OLD_ASSET                                   # the relay's "asset" label: unchanged (1.1.7 installers require it exactly)
 
 
 class FakeGitHub:
@@ -128,14 +131,37 @@ def main():
             res, out, asked = run(argv)
             assert words in str(res), res; checks += 1
 
-        # GitHub's naming rule, and the name as uploaded is accepted too.
+        # GitHub's naming rule for both names; the installer asset is found under the new or the old name, published or as
+        # uploaded (a release published before the rename still announces), and the label posted stays the old name.
         assert triage.published_asset_name(ASSET) == PUBLISHED; checks += 1
+        assert triage.published_asset_name(OLD_ASSET) == OLD_PUBLISHED; checks += 1
+        assert triage.installer_asset_names() == [PUBLISHED, ASSET, OLD_PUBLISHED, OLD_ASSET], triage.installer_asset_names(); checks += 1
+        assert triage.INSTALLER_ASSET == LABEL; checks += 1
+        for name in (ASSET, OLD_PUBLISHED, OLD_ASSET):
+            gh.releases.clear()
+            gh.release("1.1.8", size, asset=name, digest="sha256:" + sha)
+            res, out, asked = run(["announce", "1.1.8", "--installer", exe], ["n"])
+            assert res == "Not announced." and asked == [triage.ANNOUNCE_QUESTION], (name, res, out); checks += 1
+            assert "Note: the file is named" not in out, out
+        # both names on one release: the new one is checked (a wrong size on the old copy does not matter)
         gh.releases.clear()
-        gh.release("1.1.8", size, asset=ASSET, digest="sha256:" + sha)
+        gh.release("1.1.8", size, digest="sha256:" + sha)
+        gh.releases["v1.1.8"]["assets"].insert(0, {"name": OLD_PUBLISHED, "size": size + 7, "state": "uploaded"})
         res, out, asked = run(["announce", "1.1.8", "--installer", exe], ["n"])
         assert res == "Not announced." and asked == [triage.ANNOUNCE_QUESTION], (res, out); checks += 1
+        # an installer file under the old name: no note; under another name: the note names the new file name
+        old_exe = os.path.join(tmp, OLD_ASSET)
+        with open(old_exe, "wb") as f:
+            f.write(data)
+        res, out, asked = run(["announce", "1.1.8", "--installer", old_exe], ["n"])
+        assert res == "Not announced." and "Note: the file is named" not in out, (res, out); checks += 1
+        odd = os.path.join(tmp, "renamed.exe")
+        with open(odd, "wb") as f:
+            f.write(data)
+        res, out, asked = run(["announce", "1.1.8", "--installer", odd], ["n"])
+        assert res == "Not announced." and f'the release asset must be "{ASSET}"' in out, (res, out); checks += 1
 
-        # A good release: the summary, the question; "n" changes nothing.
+        # A good release (only "MechAssault.2.Expanded.Installer.exe", as GitHub publishes it): the summary, the question; "n" changes nothing.
         gh.releases.clear()
         gh.release("1.1.8", size, digest="sha256:" + sha)
         res, out, asked = run(["announce", "1.1.8", "--installer", exe], ["n"])
@@ -153,7 +179,7 @@ def main():
         assert res == 0, (res, out); checks += 1
         live = latest()
         assert live == {"ok": True, "latest": "1.1.8", "notice": "Please update to 1.1.8.", "sha256": sha, "size": size,
-                        "asset": ASSET}, live; checks += 1
+                        "asset": LABEL}, live; checks += 1         # the old name: the label the relay accepts (it refuses others)
         assert "Announced 1.1.8" in out; checks += 1
         assert "Changes   (none)" in out, out; checks += 1          # the repo Changelog has no 1.1.8 section
 
@@ -185,6 +211,7 @@ def main():
             os.environ.update(MA2_SELF_UPDATE_TEST="1", MA2_UPDATE_RELAY=BASE)
             r = selfupdate.check("1.1.7")
             assert r["ok"] and (r["latest"], r["sha256"], r["size"]) == ("1.1.8", sha, size), r; checks += 1
+            assert triage.INSTALLER_ASSET in selfupdate.ASSET_LABELS and selfupdate.ASSET == triage.INSTALLER_NAME; checks += 1
             assert selfupdate.check("1.1.8")["cause"] == "current"; checks += 1
         else:
             print("test_announce: kit/installer not beside relay/, the installer's view was not checked")

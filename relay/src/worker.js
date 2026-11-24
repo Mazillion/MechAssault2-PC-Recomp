@@ -1232,8 +1232,11 @@ export async function handleOpen(request, env, url) {
 // UPDATE_NOTICE are used (the 1.1.7 first-deploy behaviour). sha256 + size describe the release's installer asset
 // (INSTALLER_ASSET on the GitHub release v<latest>): the installer downloads that file from GitHub only and runs it only
 // when its SHA-256 and size equal these values, so GitHub and this relay (two channels) must agree.
-// INSTALLER_ASSET is the label the clients expect in "asset"; GitHub publishes the file as "MechAssault.2.Recomp.Installer.exe"
-// (spaces become dots), which 1.2.1+ installers download first. 1.1.7 / 1.2.0 installers ask for the name with spaces (404).
+// INSTALLER_ASSET is a LABEL, not the file name: 1.1.7 installers require exactly this string in "asset", so it stays (and
+// triage.py announce keeps posting it). The installer file is "MechAssault 2 Expanded Installer.exe" since the 1.2.0 in-place
+// fix; GitHub publishes it as "MechAssault.2.Expanded.Installer.exe" (spaces become dots). Fixed installers accept this label or
+// the new name and try, on a 404 only: the new name published, as uploaded, then this old name published
+// ("MechAssault.2.Recomp.Installer.exe") and as uploaded. 1.1.7 and the first 1.2.0 ask only for the old name with spaces (404).
 export const INSTALLER_ASSET = "MechAssault 2 Recomp Installer.exe";
 export const INSTALLER_MIN_BYTES = 1024 * 1024;
 export const INSTALLER_MAX_BYTES = 200 * 1024 * 1024;
