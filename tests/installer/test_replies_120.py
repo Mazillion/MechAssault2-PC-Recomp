@@ -6,7 +6,7 @@ Runs the real installer window (hidden, off screen, tests/installer/rig.py) agai
 (relay/test/local-relay.mjs, node on PATH): a report sent with a reply key, the developer's reply through the owner API, the
 window started, the answer sent. Nothing leaves this PC. With --shots, pictures of each state are saved there.
 """
-import json, os, subprocess, sys, tempfile, time, unittest, urllib.request
+import json, os, re, subprocess, sys, tempfile, time, unittest, urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -21,6 +21,11 @@ os.environ['MA2_REPORT_RELAY'] = BASE
 import rig                                                     # noqa: E402  (sets LOCALAPPDATA to a temp folder, off-screen window)
 from rig import pump, until, snap                              # noqa: E402
 import report, precheck                                        # noqa: E402
+import install as _install                                     # noqa: E402
+
+# the release the mock announces: one patch above this build (a fixed '1.2.1' stopped being newer once VERSION reached it)
+_core = [int(x) for x in re.match(r'(\d+)\.(\d+)\.(\d+)', _install.PUBLIC_VERSION).groups()]
+NEXT = '%d.%d.%d' % (_core[0], _core[1], _core[2] + 1)
 
 gui = rig.gui
 
@@ -190,7 +195,7 @@ class BothAtStart(Replies):
         import shutil, mock_update, install
         game_files = Path(os.environ.get('MA2_TEST_GAME_FILES') or '')
         if not (game_files / 'ma2.xbe').is_file(): self.skipTest('set MA2_TEST_GAME_FILES=<extracted disc folder> (a dummy install needs ma2.xbe)')
-        srv = mock_update.MockUpdate(b'MZ' + os.urandom(2 * 1024 * 1024), latest='1.2.1').start()
+        srv = mock_update.MockUpdate(b'MZ' + os.urandom(2 * 1024 * 1024), latest=NEXT).start()
         saved = {k: os.environ.get(k) for k in ('MA2_SELF_UPDATE', 'MA2_SELF_UPDATE_TEST', 'MA2_UPDATE_RELAY', 'MA2_SELF_UPDATE_GITHUB')}
         os.environ.update(MA2_SELF_UPDATE='1', MA2_SELF_UPDATE_TEST='1', MA2_UPDATE_RELAY=srv.base, MA2_SELF_UPDATE_GITHUB=srv.base)
         try:
@@ -202,7 +207,7 @@ class BothAtStart(Replies):
             d = Path(os.environ['LOCALAPPDATA']) / 'MechAssault2'; d.mkdir(parents=True, exist_ok=True)
             (d / 'installer.json').write_text(json.dumps({'dest': str(dest)}))
             rid = self.send_report()
-            owner('/v1/report/%s/reply' % rid, {'text': 'Thanks for the report. Version 1.2.1 fixes this crash: please update and tell me if it still happens.'})
+            owner('/v1/report/%s/reply' % rid, {'text': 'Thanks for the report. Version %s fixes this crash: please update and tell me if it still happens.' % NEXT})
             root, app = rig.make()
             try:
                 self.assertTrue(until(root, lambda: app.screen == 'reply', 20), app.screen)
@@ -213,8 +218,8 @@ class BothAtStart(Replies):
                 self.assertTrue(until(root, lambda: 'selfupdate' in app.w, 15))
                 pump(root, 0.3)
                 t = screen_text(app)
-                self.assertIn(gui.SU_OFFER % '1.2.1', t)
-                self.assertEqual(app.w['selfupdate'].text, gui.SU_LINK % '1.2.1')
+                self.assertIn(gui.SU_OFFER % NEXT, t)
+                self.assertEqual(app.w['selfupdate'].text, gui.SU_LINK % NEXT)
                 shot(root, 'installer-6-after-close-the-update-offer.png')
             finally:
                 root.destroy()
@@ -250,7 +255,7 @@ class UpdateRoute(unittest.TestCase):
         import shutil, mock_update, install, selfupdate
         game_files = Path(os.environ.get('MA2_TEST_GAME_FILES') or '')
         if not (game_files / 'ma2.xbe').is_file(): self.skipTest('set MA2_TEST_GAME_FILES=<extracted disc folder> (a dummy install needs ma2.xbe)')
-        srv = mock_update.MockUpdate(b'MZ' + os.urandom(2 * 1024 * 1024), latest='1.2.1').start()
+        srv = mock_update.MockUpdate(b'MZ' + os.urandom(2 * 1024 * 1024), latest=NEXT).start()
         saved = {k: os.environ.get(k) for k in ('MA2_SELF_UPDATE', 'MA2_SELF_UPDATE_TEST', 'MA2_UPDATE_RELAY', 'MA2_SELF_UPDATE_GITHUB', 'MA2_GAME_UPDATE')}
         launched = []
         real = selfupdate.launch
