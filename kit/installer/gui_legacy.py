@@ -85,6 +85,7 @@ FAILURES = {
                         'or a damaged download does not work), then press Resume.'),
     'gpu': ('PyTorch does not support this graphics card yet.', 'The enhanced content cannot be made on this PC; the game itself is not affected. Run the installer again without enhanced content.'),
     'disc': ('The disc image is damaged or could not be read.', 'Choose the image again (Choose disc image), or dump the disc again.'),
+    'folder': ('The install folder changed.', 'Choose an empty folder (Where to install), then press Resume.'),     # 1.2.1 TN6DL3
     'unexpected': ('Something unexpected went wrong.', 'Press Resume to try again. If it keeps happening, {report}.'),
     'extras': ('MechAssault 2 is installed and ready to play.',
                'Only the enhanced content was not finished. Close the installer and play, or press Resume to try the enhanced content again.'),
@@ -1382,6 +1383,7 @@ class Install(Page):
             kind = self.failed[0]
             if kind == 'compiler': out.append(('Systems check', lambda: self.leave('systems'), 'TButton', True))
             if kind == 'disc': out.append(('Choose disc image', lambda: self.leave('disc'), 'TButton', True))
+            if kind == 'folder': out.append(('Where to install', lambda: self.leave('location'), 'TButton', True))
             if precheck.MA2_SUPPORT_URL: out.append(('Report a problem', self.report_problem, 'TButton', True))     # D-11: hidden until a URL is set
             return out + [('Resume', self.resume, 'Primary.TButton', True)]
         return [('Cancel', self.stop, 'TButton', not self.finished)]

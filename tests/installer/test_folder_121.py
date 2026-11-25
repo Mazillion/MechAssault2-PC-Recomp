@@ -275,5 +275,27 @@ class DumpNote(Base):
         self.assertFalse(any('dump was asked for' in n for n in plain['notes']))
 
 
+class Legacy(unittest.TestCase):
+    """The classic window (gui_legacy.py): a 'folder' stop has its own owner-approved heading and advice (11-25) and a Where to install
+    button back to the Location page, not "Something unexpected went wrong."."""
+    def test_folder_failure_entry_and_button(self):
+        import gui_legacy
+        self.assertEqual(gui_legacy.FAILURES['folder'],
+                         ('The install folder changed.', 'Choose an empty folder (Where to install), then press Resume.'))
+        left = []
+        fake = mock.Mock(failed=('folder', 'The folder is not empty.'))
+        fake.leave = left.append
+        with mock.patch.object(gui_legacy.precheck, 'MA2_SUPPORT_URL', ''):
+            out = gui_legacy.Install.buttons(fake, True)
+        names = [b[0] for b in out]
+        self.assertIn('Where to install', names)
+        self.assertEqual(names[-1], 'Resume')
+        dict((b[0], b[1]) for b in out)['Where to install']()
+        self.assertEqual(left, ['location'])
+        fake.failed = ('unexpected', 'x')
+        with mock.patch.object(gui_legacy.precheck, 'MA2_SUPPORT_URL', ''):
+            self.assertNotIn('Where to install', [b[0] for b in gui_legacy.Install.buttons(fake, True)])
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
