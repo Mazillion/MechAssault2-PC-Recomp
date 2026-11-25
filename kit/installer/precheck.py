@@ -9,7 +9,7 @@
    merge_ini                  add-only merge of new settings keys into a user's pc_settings.ini
    support_bundle             text for "Copy log" (user name replaced by default)
 """
-import ctypes, hashlib, json, os, re, shutil, struct, sys, tempfile, time
+import ctypes, hashlib, itertools, json, os, re, shutil, struct, sys, tempfile, threading, time
 from pathlib import Path
 
 GB = 1024 ** 3
@@ -270,6 +270,37 @@ def old_default_install():
                 pass
     return None
 
+PROBE_PREFIX = '.ma2probe'          # the write test's own file: never counted as the player's files, never left behind
+_probe_n = itertools.count(1)
+
+def is_probe(name):
+    """A write-test file of this installer (.ma2probe...): not something the player put in the folder."""
+    return str(name).startswith(PROBE_PREFIX)
+
+def can_write(folder):
+    """True when a file can be made in `folder`. 1.2.1 (TN6DL3): the probe file's name is new on every call (process, thread and
+    a counter), so checks running at the same time never share one file; it is made with O_EXCL and always removed again."""
+    tmp = os.path.join(str(folder), '%s%d-%d-%d' % (PROBE_PREFIX, os.getpid(), threading.get_ident(), next(_probe_n)))
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_BINARY', 0))
+    except OSError:
+        return False
+    ok = True
+    try:
+        os.write(fd, b'x')
+    except OSError:
+        ok = False
+    finally:
+        os.close(fd)
+        for _ in range(20):                  # an antivirus scan can hold a new file for a moment: try again, never leave it
+            try:
+                os.unlink(tmp); break
+            except FileNotFoundError:
+                break
+            except OSError:
+                time.sleep(0.05)
+    return ok
+
 def default_install_folder(keep_old=True):
     """C:\\Games\\MechAssault 2 Expanded (on the system drive), else %LOCALAPPDATA%\\Programs\\MechAssault 2 Expanded if that
     can't be created. An install already in an earlier default folder (old_default_install) wins unless keep_old is False
@@ -281,9 +312,7 @@ def default_install_folder(keep_old=True):
     try:
         if games.is_dir() or not os.path.lexists(games):
             probe = games if games.is_dir() else Path(drive + '\\')
-            tmp = probe / ('.ma2probe%d' % os.getpid())
-            tmp.write_bytes(b'x'); tmp.unlink()
-            return str(games / FOLDER_NAME)
+            if can_write(probe): return str(games / FOLDER_NAME)
     except OSError:
         pass
     base = os.environ.get('LOCALAPPDATA') or str(Path.home() / 'AppData' / 'Local')
@@ -325,6 +354,8 @@ def user_folder(path):
     for name in ('Documents', 'Desktop', 'Downloads'):
         if _under(str(path), str(home / name)): return name
     return ''
+
+READONLY_TEXT = 'Can\'t write to this folder (Access denied). Choose a folder you can write to, e.g. C:\\Games\\MechAssault 2 Expanded.'
 
 def check_folder(text, need_bytes=0, enhanced=False, kit=None):
     """Everything worth saying about an install folder, as a FolderReport (never raises)."""
@@ -381,7 +412,7 @@ def check_folder(text, need_bytes=0, enhanced=False, kit=None):
             r.existing = 'unfinished'; r.state = state
         elif is_install(p):
             r.existing = 'install'; r.stamp = read_stamp(p)
-        elif any(p.iterdir()):
+        elif any(not is_probe(c.name) for c in p.iterdir()):        # (another check's write test is not the player's file)
             r.existing = 'other'
             r.suggest = str(p / FOLDER_NAME)
             add('error', 'notempty', 'This folder already has other files. Choose an empty folder or a new name.', r.suggest)
@@ -389,11 +420,8 @@ def check_folder(text, need_bytes=0, enhanced=False, kit=None):
             r.existing = 'empty'
     # writable?
     anchor = _nearest_existing(p)
-    try:
-        tmp = anchor / ('.ma2probe%d' % os.getpid())
-        tmp.write_bytes(b'x'); tmp.unlink()
-    except OSError:
-        add('error', 'readonly', 'Can\'t write to this folder (Access denied). Choose a folder you can write to, e.g. C:\\Games\\MechAssault 2 Expanded.')
+    if not can_write(anchor):
+        add('error', 'readonly', READONLY_TEXT)
         return r
     try:
         r.free = shutil.disk_usage(anchor).free
