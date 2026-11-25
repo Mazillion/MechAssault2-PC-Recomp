@@ -5,6 +5,8 @@ trailer, PE security directory pointing at it, 8-byte padding before it).
 """
 import ctypes, lzma, os, random, shutil, struct, subprocess, sys, tempfile, unittest
 from pathlib import Path
+sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
+import isolate                                             # noqa: E402  (11-25: never the real %LOCALAPPDATA%\MechAssault2; first, before any installer import)
 
 REPO = Path(__file__).resolve().parents[2]
 STUB = REPO / 'installer-exe' / 'stub.exe'

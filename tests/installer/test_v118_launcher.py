@@ -7,6 +7,8 @@ Optional: MA2_TEST_RECOMPLAUNCHER_SCHEMA=<the schema from recomplauncher.com> al
 import json, os, re, shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
 from unittest import mock
+sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
+import isolate                                             # noqa: E402  (11-25: never the real %LOCALAPPDATA%\MechAssault2; first, before any installer import)
 
 WORK = Path(__file__).resolve().parents[1]
 REPO = WORK.parent

@@ -14,6 +14,8 @@ switches (collect, zip, send): each ends in a saved zip or a clear "not saved", 
 """
 import ctypes, ctypes.wintypes as wt, json, os, re, shutil, struct, subprocess, sys, tempfile, time, unittest, zipfile
 from pathlib import Path
+sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
+import isolate                                             # noqa: E402  (11-25: never the real %LOCALAPPDATA%\MechAssault2; first, before any installer import)
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]

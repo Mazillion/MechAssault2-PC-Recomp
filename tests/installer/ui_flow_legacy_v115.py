@@ -3,6 +3,8 @@ out-of-memory stop's advice. The 1.1.3 flow itself stays in ui_flow_legacy.py, u
   python -B ui_flow_legacy_v115.py
 """
 import json, os, sys
+sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
+import isolate                                             # noqa: E402  (11-25: never the real %LOCALAPPDATA%\MechAssault2; first, before any installer import)
 import ui_flow_legacy as F                                   # sets MA2_UI_MODULE=gui_legacy before the rig loads the window
 from ui_flow_legacy import rig, pump, until, snap, check, SHOTS, WORK
 

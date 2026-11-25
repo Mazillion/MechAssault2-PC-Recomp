@@ -5,6 +5,8 @@ sent (the version only), the off switches, and each new method failing safe. No 
 Run with the kit's Python:  python -B test_v117_selfupdate.py
 """
 import io, json, os, re, shutil, subprocess, sys, tempfile, unittest
+sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
+import isolate                                             # noqa: E402  (11-25: never the real %LOCALAPPDATA%\MechAssault2; first, before any installer import)
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock

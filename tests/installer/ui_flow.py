@@ -6,6 +6,8 @@ The classic 1.1.3 window keeps its own flow: ui_flow_legacy.py.
 """
 import json, os, shutil, sys, tempfile, time
 from pathlib import Path
+sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
+import isolate                                             # noqa: E402  (11-25: never the real %LOCALAPPDATA%\MechAssault2; first, before any installer import)
 import rig
 from rig import WORK, pump, until, snap
 import precheck, install, ui_theme, ui_win, ui_kit, progress

@@ -4,6 +4,8 @@ new window cannot start). Replays the wizard against a recorded install log (no 
 """
 import json, os, shutil, sys, tempfile, time
 from pathlib import Path
+sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
+import isolate                                             # noqa: E402  (11-25: never the real %LOCALAPPDATA%\MechAssault2; first, before any installer import)
 os.environ['MA2_UI_MODULE'] = 'gui_legacy'               # the rig loads gui_legacy.py under the name 'gui'
 import rig
 from rig import WORK, pump, until, snap

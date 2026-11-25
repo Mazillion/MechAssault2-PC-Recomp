@@ -3,6 +3,8 @@ Run with the kit's Python:  python -B test_engine.py
 """
 import hashlib, json, os, re, shutil, struct, subprocess, sys, tempfile, time, unittest
 from pathlib import Path
+sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
+import isolate                                             # noqa: E402  (11-25: never the real %LOCALAPPDATA%\MechAssault2; first, before any installer import)
 
 WORK = Path(__file__).resolve().parents[1]
 KIT = WORK.parent / 'kit'

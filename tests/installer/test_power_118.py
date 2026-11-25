@@ -6,6 +6,8 @@ and tests/game/power_state_test.c when the MSVC x64 tools are found (else those 
 """
 import subprocess, sys, tempfile, unittest
 from pathlib import Path
+sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
+import isolate                                             # noqa: E402  (11-25: never the real %LOCALAPPDATA%\MechAssault2; first, before any installer import)
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]

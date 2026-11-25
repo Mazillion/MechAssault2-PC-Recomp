@@ -5,6 +5,8 @@ damaged data without crashing. Method 2 is what lets the installer unpack under 
 """
 import lzma, os, random, shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
+sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
+import isolate                                             # noqa: E402  (11-25: never the real %LOCALAPPDATA%\MechAssault2; first, before any installer import)
 
 REPO = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent

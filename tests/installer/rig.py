@@ -11,7 +11,8 @@ WORK = Path(__file__).resolve().parents[1]
 KIT = WORK.parent / 'kit'
 sys.path.insert(0, str(KIT / 'installer'))
 (WORK / 'tmp').mkdir(exist_ok=True)
-os.environ.setdefault('LOCALAPPDATA', tempfile.mkdtemp(prefix='ma2ux-ui-local-', dir=str(WORK / 'tmp')))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import isolate                                           # noqa: E402  (LOCALAPPDATA: a tests/tmp folder unless a runner set one; never the real one)
 os.environ.setdefault('MA2_SHORTCUT_DIR', tempfile.mkdtemp(prefix='ma2ux-ui-lnk-', dir=str(WORK / 'tmp')))
 os.environ.setdefault('MA2_UI_DISC_SEARCH', '')          # never look through the real Downloads / Desktop for disc images
 os.environ.pop('MA2_INSTALLER_EXE', None)                 # never add a real sign-in (RunOnce) entry
