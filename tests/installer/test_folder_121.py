@@ -16,6 +16,7 @@ from unittest import mock
 
 WORK = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import isolate                                                               # noqa: E402  (never the real %LOCALAPPDATA%\MechAssault2; first)
 import rig                                                                   # noqa: E402  (transparent, off-screen window)
 from rig import pump, until                                                  # noqa: E402
 import precheck, install, selfupdate                                         # noqa: E402
