@@ -13,7 +13,10 @@ KIT = REPO / 'kit'
 sys.path.insert(0, str(KIT / 'installer')); sys.path.insert(0, str(REPO / 'tools')); sys.path.insert(0, str(Path(__file__).resolve().parent))
 (WORK / 'tmp').mkdir(exist_ok=True)
 os.environ['LOCALAPPDATA'] = tempfile.mkdtemp(prefix='ma2ux-local-', dir=str(WORK / 'tmp'))      # never touch the real settings/logs
-os.environ.pop('MA2_REPORT_RELAY', None)
+# 11-25 (REPORTS-1124 G2): never leave MA2_REPORT_RELAY empty. Removing it here at import made report.relay_url() fall back to
+# the real relay for every suite imported earlier in the same process (test_replies_120 sent 3 reports to production).
+# A closed loopback port instead; the two tests that need it unset remove it for themselves.
+os.environ['MA2_REPORT_RELAY'] = 'http://127.0.0.1:9'
 import precheck, install, report, privacy_scan                                # noqa: E402
 from mock_relay import MockRelay, parse_multipart                            # noqa: E402
 import test_v115                                                             # noqa: E402  (its build fakes)
@@ -273,7 +276,8 @@ class Client(Tmp):
         self.relay.mode = 'redirect'; r = self.send(); self.assertFalse(r['ok']); self.assertEqual(len(self.relay.requests), 2)
 
     def test_unset_relay_sends_nothing(self):
-        with mock.patch.object(report, 'CONFIG', self.tmp / 'none.json'):
+        with mock.patch.object(report, 'CONFIG', self.tmp / 'none.json'), mock.patch.dict(os.environ):
+            os.environ.pop('MA2_REPORT_RELAY', None)
             self.assertEqual(report.relay_url(), ''); self.assertFalse(report.available())
             r = report.send(self.zip)
         self.assertEqual((r['ok'], r['cause']), (False, 'unset')); self.assertEqual(self.relay.requests, [])
@@ -291,7 +295,8 @@ class Client(Tmp):
 
     def test_relay_address_rules(self):
         cfg = self.tmp / 'report.json'
-        with mock.patch.object(report, 'CONFIG', cfg):
+        with mock.patch.object(report, 'CONFIG', cfg), mock.patch.dict(os.environ):
+            os.environ.pop('MA2_REPORT_RELAY', None)
             cfg.write_text('{"relay_url": "https://relay.example.org/"}'); self.assertEqual(report.relay_url(), 'https://relay.example.org')
             cfg.write_text('{"relay_url": "http://relay.example.org"}'); self.assertEqual(report.relay_url(), '')          # https only
             cfg.write_text('not json'); self.assertEqual(report.relay_url(), '')

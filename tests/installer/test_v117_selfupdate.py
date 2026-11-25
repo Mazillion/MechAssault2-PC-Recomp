@@ -15,9 +15,12 @@ sys.path.insert(0, str(REPO / 'kit' / 'installer'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 (WORK / 'tmp').mkdir(exist_ok=True)
 os.environ['LOCALAPPDATA'] = tempfile.mkdtemp(prefix='ma2ux-local-', dir=str(WORK / 'tmp'))
-for v in ('MA2_SELF_UPDATE', 'MA2_SELF_UPDATE_TEST', 'MA2_UPDATE_RELAY', 'MA2_REPORT_RELAY', 'MA2_SELF_UPDATE_GITHUB',
+for v in ('MA2_SELF_UPDATE', 'MA2_SELF_UPDATE_TEST', 'MA2_UPDATE_RELAY', 'MA2_SELF_UPDATE_GITHUB',
           'MA2_INSTALLER_EXE', 'MA2_SELF_UPDATE_DEST', 'MA2_HANDOFF_WAIT'):
     os.environ.pop(v, None)
+# 11-25 (REPORTS-1124 G2): MA2_REPORT_RELAY is never removed at import (that sent other suites' test reports in the same
+# process to the real relay); a closed loopback port instead. Tests that need it unset remove it inside os.environ's patch.
+os.environ['MA2_REPORT_RELAY'] = 'http://127.0.0.1:9'
 import selfupdate, install, precheck                         # noqa: E402
 from mock_update import MockUpdate, ASSET, OLD_ASSET, RELAY_LABEL   # noqa: E402
 

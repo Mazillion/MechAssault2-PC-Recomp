@@ -17,6 +17,13 @@ KEY = 'local-owner-key'
 NO_WINDOW = 0x08000000
 SHOTS = None
 os.environ['MA2_REPORT_RELAY'] = BASE
+# 11-25 (REPORTS-1124 G2): this module-level setting is not enough. Run in one process with other suites
+# (py -m unittest test_v117_selfupdate test_replies_120 test_reliability test_v116), test_v116 removed MA2_REPORT_RELAY
+# at import before these tests ran, report.relay_url() fell back to data/report.json, and 3 reports reached the
+# production relay. Every test class here that talks to a relay now sets the variable again for each test (LocalRelay),
+# points report.CONFIG at a file that does not exist (a lost override means "not set up", never the real relay), and
+# passes url=BASE explicitly when it sends. The reports keep build "test", which the real relay refuses.
+NO_CONFIG = Path(tempfile.gettempdir()) / 'ma2-replies-no-report-config.json'
 
 import rig                                                     # noqa: E402  (sets LOCALAPPDATA to a temp folder, off-screen window)
 from rig import pump, until, snap                              # noqa: E402
@@ -53,10 +60,22 @@ def shot(root, name):
         snap(root, SHOTS / name)
 
 
-class Replies(unittest.TestCase):
+class LocalRelay(unittest.TestCase):
+    """Each test: MA2_REPORT_RELAY = the local relay, report.CONFIG = no file (both restored afterwards)."""
+    def setUp(self):
+        from unittest import mock
+        p1 = mock.patch.dict(os.environ, {'MA2_REPORT_RELAY': BASE})
+        p2 = mock.patch.object(report, 'CONFIG', NO_CONFIG)
+        p1.start(); p2.start()
+        self.addCleanup(p2.stop); self.addCleanup(p1.stop)
+        self.assertEqual(report.relay_url(), BASE)
+
+
+class Replies(LocalRelay):
     @classmethod
     def setUpClass(cls):
-        cls.relay = subprocess.Popen(['node', str(REPO / 'relay' / 'test' / 'local-relay.mjs'), str(PORT)], cwd=str(REPO / 'relay'), env=dict(os.environ, PER_IP_PER_HOUR='50'),
+        cls.relay = subprocess.Popen(['node', str(REPO / 'relay' / 'test' / 'local-relay.mjs'), str(PORT)], cwd=str(REPO / 'relay'),
+                                     env=dict(os.environ, PER_IP_PER_HOUR='50', ACCEPT_TEST_BUILDS='on'),
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=NO_WINDOW)
         assert cls.relay.stdout.readline().decode().startswith('LISTENING')
         cls.tmp = Path(tempfile.mkdtemp(prefix='ma2-replies-', dir=str(REPO / 'tests' / 'tmp')))
@@ -69,10 +88,20 @@ class Replies(unittest.TestCase):
         zp = self.tmp / 'r.zip'
         import zipfile
         with zipfile.ZipFile(zp, 'w') as z: z.writestr('system.txt', 'Version: 1.2.0\n')
-        res = report.make_and_send(str(self.tmp / 'no-install'), str(self.tmp / 'out'), 'The build stopped at the link step.',
-                                   'install-fail', 'build:link', 'installer', '1.2.0', 'test', [], 'build', 'link failed', [])
+        targets, real = [], report.send
+        def spy(*a, **k):
+            targets.append(k.get('url')); return real(*a, **k)
+        report.send = spy
+        try:
+            res = report.make_and_send(str(self.tmp / 'no-install'), str(self.tmp / 'out'), 'The build stopped at the link step.',
+                                       'install-fail', 'build:link', 'installer', '1.2.0', 'test', [], 'build', 'link failed', [], url=BASE)
+        finally:
+            report.send = real
+        self.assertEqual(targets, [BASE], 'sent to the local relay only')
         self.assertTrue(res['sent'] and res['sent']['ok'], res['sent'])
-        return res['sent']['id']
+        rid = res['sent']['id']
+        self.assertEqual(owner('/v1/report/%s/info' % rid).get('build'), 'test', 'the local relay holds the report')
+        return rid
 
     def test_1_make_and_send_keeps_the_key(self):
         rid = self.send_report()
@@ -230,7 +259,7 @@ class BothAtStart(Replies):
                 else: os.environ[k] = v
 
 
-class UpdateRoute(unittest.TestCase):
+class UpdateRoute(LocalRelay):
     """1.2.0 Messages "Update now": the install stamp says who updates the folder; the installer copy started by the game
     opens on that folder and starts its self-update by itself."""
     def stamp_after(self, launcher, old=None):
