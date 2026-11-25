@@ -189,7 +189,8 @@ BUILD_TOOLS_ARGS = ['--passive', '--wait', '--norestart', '--nocache',
 class Stop(Exception):
     """A problem the user can act on; the message says what. `kind` picks the wizard's failure advice:
     cancelled, disk_full, compiler, build_failed, access_denied, network, ffmpeg_mismatch, disc, gpu, out_of_memory, unexpected,
-    compile_error (the compiler or linker named the error), and extras (the game is installed; only optional content failed or was cancelled; `cause` is the original kind)."""
+    compile_error (the compiler or linker named the error), folder (1.2.1: the install folder can't be used as it is now, e.g. files
+    arrived in it after the window checked it: the window goes back to Setup with its folder notice), and extras (the game is installed; only optional content failed or was cancelled; `cause` is the original kind)."""
     def __init__(self, message, kind='unexpected', code=None, cause=None):
         super().__init__(message)
         self.kind, self.code, self.cause = kind, code, cause
@@ -2056,9 +2057,16 @@ class Installer:
                     self.log('This installer is newer than the one that started this install. Your extracted disc files are kept; '
                              'the build starts again (about 15 minutes).')
         else:
-            if not created and any(p.name != '_work' for p in self.dest.iterdir()) and not is_install(self.dest):
+            if not created and not self.dest.is_dir():
+                raise Stop('That is a file, not a folder.', 'folder', 'notdir')          # (check_folder's words)
+            try:                                   # (a write test of the window's folder check is not the player's file)
+                other = any(p.name != '_work' and not precheck.is_probe(p.name) for p in self.dest.iterdir()) if not created else False
+            except OSError as e:
+                self.log('  the install folder could not be read: %s' % e)
+                raise Stop(precheck.READONLY_TEXT, 'folder', 'readonly')
+            if other and not is_install(self.dest):
                 raise Stop('The install folder %s is not empty. Choose an empty folder (or an existing '
-                           'MechAssault 2 Expanded install to add optional content).' % self.dest)
+                           'MechAssault 2 Expanded install to add optional content).' % self.dest, 'folder', 'notempty')
             existing = is_install(self.dest)
             if self.update and not existing:
                 raise Stop('There is no MechAssault 2 Expanded install in %s to update.' % self.dest)
