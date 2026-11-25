@@ -1198,7 +1198,8 @@ def collect_diagnostics(dest, out_dir, version='', kit_id='', gpus=None, include
         for f in newest(list(logs.glob(pattern))) if logs.is_dir() else []: add_text('logs/' + f.name, f)
     if include_dump and logs.is_dir():
         dumps = newest(list(logs.glob('crash-*.dmp')) + list(logs.glob('hang-*.dmp')))
-        if not dumps: notes.append('a dump was asked for but none exists')
+        if not dumps:      # 1.2.1 (TN6DL3): a sent report always looks for a dump (nobody asked): only Collect diagnostics says so
+            if not name_prefix.startswith('MA2-report'): notes.append('a dump was asked for but none exists')
         elif dumps[0].stat().st_size > dump_limit: notes.append('%s skipped: larger than %d MB' % (dumps[0].name, dump_limit // MB))
         elif scrub:
             try:
