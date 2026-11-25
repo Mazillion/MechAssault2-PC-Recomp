@@ -1268,6 +1268,8 @@ class App:
     def begin(self):
         """Primary on Setup / Update / Repair / Continue: the checks the 1.1.3 Systems page did, then the install."""
         self.notice = None
+        r = self.recheck_folder()                     # 1.2.1 (TN6DL3): the folder can change between Setup's check and this press
+        if r is not None and not r.ok: return self.folder_back(r)
         act = self.action()
         if act == 'resume' or act == 'addons': return self.start()
         try:
@@ -1283,6 +1285,30 @@ class App:
             self.bg(install.compiler_state, self.after_compiler)
         else:
             self.after_compiler(comp)
+
+    FOLDER_RECHECK_WAIT = 3.0                         # seconds; a slow (network) folder: the engine's own check is the backstop
+
+    def recheck_folder(self):
+        """precheck.check_folder on the chosen folder now (as check_dest asks it), waiting at most FOLDER_RECHECK_WAIT seconds.
+        The FolderReport, or None when it did not answer in time or failed (then the install goes on: the engine checks too)."""
+        text, need, enhanced = self.dest, self.need_bytes(), self.texture != 'original' or self.videos
+        box = {}
+        def run():
+            try: box['r'] = precheck.check_folder(text, need, enhanced, install.KIT)
+            except Exception as e: print('ui: the folder check before installing failed: %s' % e, flush=True)
+        t = threading.Thread(target=run, daemon=True); t.start(); t.join(self.FOLDER_RECHECK_WAIT)
+        return box.get('r')
+
+    def folder_back(self, r):
+        """The install folder can't be used as it is now: back to Setup with its folder notice (setup_strip: the problem, and the
+        fix link when there is one), nothing started. A later folder check still running is dropped (the token)."""
+        self.dest_token += 1
+        self.folder = r
+        err = r.first_error()
+        print('ui: the install folder changed since it was checked (%s); back to Setup' % (err.code if err else '?'), flush=True)
+        self.taskbar.set('none')
+        self.go('setup', focus='fix' if err and err.fix and not self.launcher else 'primary')
+        self.attention()
 
     def after_compiler(self, comp):
         if isinstance(comp, Exception):
@@ -1696,6 +1722,12 @@ class App:
             self.mode = self.mode_for(self.dest)
             self.image = precheck.ImageResult(False, 'disc', msg, 'The disc image could not be read')
             self.attention(); return self.go('setup', focus='zone' if self.mode == 'install' else 'disc_change')
+        if kind == 'folder':                      # 1.2.1 (TN6DL3): the folder filled (or became unusable) after Setup checked it
+            self.mode = self.mode_for(self.dest)
+            r = self.recheck_folder()
+            if r is not None and not r.ok: return self.folder_back(r)
+            self.check_dest()                     # (fine again by now: Setup as it is, the engine's words in the log)
+            return self.go('setup')
         if kind == 'disk_full':
             drive = os.path.splitdrive(precheck.clean_path(self.dest))[0] or 'the install drive'
             return self.show_stop(style='needs', icon='needs', kicker='ACTION NEEDED', head='Free up space on %s' % drive,
