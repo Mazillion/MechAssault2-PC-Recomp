@@ -666,6 +666,7 @@ def scenario_tools():
         import collections
         U = collections.namedtuple('usage', 'total used free'); realdu = shutil.disk_usage
         root, app = rig.make(); ready_disc(root, app, d); app.facts['compiler'] = None
+        app.recheck_folder = lambda: None         # (1.2.1: Install re-checks the folder; this fake makes EVERY drive full, the folder's too)
         shutil.disk_usage = lambda p: U(100 * precheck.GB, 97 * precheck.GB, 3 * precheck.GB)
         try:
             app.primary.invoke(); run_to(root, app, 'stop', 20); pump(root, 0.2)
