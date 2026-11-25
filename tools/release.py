@@ -1696,9 +1696,16 @@ def hooked_kit(g, exe, temp, hit, faults):
         p = kit / name
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(blob)
-    sp = kit / 'python' / 'Lib' / 'site-packages'
-    sp.mkdir(parents=True, exist_ok=True)
-    (sp / 'sitecustomize.py').write_text(SITECUSTOMIZE % {'hit': str(hit), 'faults': faults}, encoding='utf-8')
+    hook = SITECUSTOMIZE % {'hit': str(hit), 'faults': faults}
+    own = kit / 'python' / 'Lib' / 'sitecustomize.py'
+    if own.is_file():
+        # 1.2.1: the kit ships python/Lib/sitecustomize.py (the Wine CopyFile2 fix). Lib comes before site-packages on
+        # sys.path, so a hook in site-packages never loads; the hook goes after the kit's own code in the same file.
+        own.write_text(own.read_text(encoding='utf-8') + '\n\n' + hook, encoding='utf-8')
+    else:
+        sp = kit / 'python' / 'Lib' / 'site-packages'
+        sp.mkdir(parents=True, exist_ok=True)
+        (sp / 'sitecustomize.py').write_text(hook, encoding='utf-8')
     (kit / '.unpacked').write_bytes(b'')
     return kit
 
@@ -1713,6 +1720,10 @@ def st_fault(g):
         return {'status': 'SKIP', 'summary': 'not available in this kit (no tests/installer/gate_faults.json)'}
     faults = json.loads(fj.read_text(encoding='utf-8'))['faults']
     r = fault_run(g, exe, faults, 'fault')
+    if not r['patched']:
+        # The hooks never loaded: running each fault alone would only repeat that (25 installs, about 10 hours).
+        return {'status': 'FAIL', 'summary': 'the fault hooks never loaded (hooked runs: 0); hooked install exit %d, --diagnostics exit %d'
+                % (r['code'], r['dcode']), 'details': r['det']}
     if r['not_fired']:
         # A fault that raises can stop the code before a later hooked method is reached (plan_reuse calls fingerprint,
         # reuse_mode and write_cache; copy_installer calls selfupdate.enabled). Each of those gets a hooked install of its own.
