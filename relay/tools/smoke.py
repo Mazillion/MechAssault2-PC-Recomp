@@ -6,7 +6,8 @@
     python smoke.py --relay ... dailycap              same, for the daily cap (deploy staging with a small cap first)
 
 Every test report has kind "manual", text "SMOKE TEST" and a zip with one small text file (plus random filler for
---size), so it is easy to recognise and close in the reports repo.
+--size), so it is easy to recognise and close in the reports repo. Build "deploy-check": the relay refuses the builds
+"test" and "smoke" with 403 (test traffic), so `send` with build smoke would no longer be accepted.
 """
 import argparse
 import io
@@ -39,7 +40,7 @@ def send(relay, size_mb=0, text="SMOKE TEST", version="1.1.6"):
     req = urllib.request.Request(relay.rstrip("/") + "/v1/report", data=b"".join(parts), method="POST", headers={
         "Content-Type": f"multipart/form-data; boundary={boundary}",
         "User-Agent": "ma2-smoke",
-        "X-MA2-Client": "helper", "X-MA2-Version": version, "X-MA2-Build": "smoke",
+        "X-MA2-Client": "helper", "X-MA2-Version": version, "X-MA2-Build": "deploy-check",   # the relay refuses build "smoke" / "test" (11-25)
         "X-MA2-Kind": "manual", "X-MA2-Signature": "smoke test",
     })
     try:

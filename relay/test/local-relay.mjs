@@ -9,6 +9,7 @@
 //       LATEST_SHA256, LATEST_SIZE, UPDATE_NOTICE, MIN_VERSION, ISSUE_PLAYER_TEXT, DELETE_ISSUES  (as on the Worker)
 // Extra test-only routes: GET /__mock/issues  -> the issues the mock GitHub received; GET /__mock/comments -> its comments.
 //       REPLY_POLLS_PER_HOUR (1.2.0 reply checks)
+//       ACCEPT_TEST_BUILDS = on   take reports with build "test" / "smoke" (the real relay refuses them with 403)
 import http from "node:http";
 import worker from "../src/worker.js";
 import { makeEnv, MockCtx, MockGitHub } from "./mocks.mjs";
@@ -16,7 +17,7 @@ import { makeEnv, MockCtx, MockGitHub } from "./mocks.mjs";
 const port = parseInt(process.argv[2] || "8787", 10);
 const over = {};
 for (const k of ["OWNER_KEY", "DAILY_CAP", "PER_IP_PER_HOUR", "MAX_UPLOAD_BYTES", "ACCEPT_REPORTS", "NOTICE", "OFF_MESSAGE",
-  "LATEST_VERSION", "LATEST_SHA256", "LATEST_SIZE", "UPDATE_NOTICE", "MIN_VERSION", "ISSUE_PLAYER_TEXT", "DELETE_ISSUES", "REPLY_POLLS_PER_HOUR"])
+  "LATEST_VERSION", "LATEST_SHA256", "LATEST_SIZE", "UPDATE_NOTICE", "MIN_VERSION", "ISSUE_PLAYER_TEXT", "DELETE_ISSUES", "REPLY_POLLS_PER_HOUR", "ACCEPT_TEST_BUILDS"])
   if (process.env[k] !== undefined) over[k] = process.env[k];
 over.PUBLIC_URL = `http://127.0.0.1:${port}`;
 const env = makeEnv({ OWNER_KEY: "local-owner-key", ...over });

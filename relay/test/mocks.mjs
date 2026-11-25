@@ -273,6 +273,39 @@ export function tinyZip(extra = 0) {
   return out;
 }
 
+// A real zip (stored members, local headers + central directory) of {name: text}, as the clients make them.
+export function zipOf(files) {
+  const enc = new TextEncoder();
+  const local = [], central = [];
+  let off = 0;
+  for (const [n, t] of Object.entries(files)) {
+    const name = enc.encode(n), data = enc.encode(t);
+    const lfh = new Uint8Array(30 + name.length);
+    const l = new DataView(lfh.buffer);
+    l.setUint32(0, 0x04034b50, true); l.setUint16(4, 20, true);
+    l.setUint32(18, data.length, true); l.setUint32(22, data.length, true); l.setUint16(26, name.length, true);
+    lfh.set(name, 30);
+    const cdh = new Uint8Array(46 + name.length);
+    const c = new DataView(cdh.buffer);
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true);
+    c.setUint32(20, data.length, true); c.setUint32(24, data.length, true); c.setUint16(28, name.length, true);
+    c.setUint32(42, off, true);
+    cdh.set(name, 46);
+    local.push(lfh, data); central.push(cdh);
+    off += lfh.length + data.length;
+  }
+  const cdSize = central.reduce((a, x) => a + x.length, 0);
+  const eocd = new Uint8Array(22);
+  const e = new DataView(eocd.buffer);
+  e.setUint32(0, 0x06054b50, true); e.setUint16(8, central.length, true); e.setUint16(10, central.length, true);
+  e.setUint32(12, cdSize, true); e.setUint32(16, off, true);
+  const parts = [...local, ...central, eocd];
+  const out = new Uint8Array(parts.reduce((a, x) => a + x.length, 0));
+  let p = 0;
+  for (const x of parts) { out.set(x, p); p += x.length; }
+  return out;
+}
+
 // Builds a real multipart request with an explicit Content-Length, as the clients send it.
 export async function reportRequest({
   ip = "203.0.113.7",

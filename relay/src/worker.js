@@ -94,6 +94,14 @@ const MAX_POLL = 20;            // {id, secret} pairs per /v1/replies call
 const REFRESH_DAYS = 45;        // a live conversation's objects are re-written at this age (the lifecycle rule is at 60)
 const REFRESH_PER_RUN = 50;
 const COMMENTS_PER_RUN = 20;
+// Test traffic (11-25): the test suites send build "test" and tools/smoke.py sent build "smoke". The relay refuses both
+// (403, nothing stored, no issue), so a test that loses its local mock relay can never file a report here. Only the
+// local test harness (test/local-relay.mjs) sets ACCEPT_TEST_BUILDS = "on"; neither wrangler file has it.
+const TEST_BUILDS = /^(test|smoke)$/i;
+const testBuild = (env, build) => TEST_BUILDS.test(String(build ?? "").trim()) && String(env.ACCEPT_TEST_BUILDS || "").toLowerCase() !== "on";
+// An empty helper report (11-25): automated malware-analysis sandboxes run MA2 Report.exe on its own and press Send.
+// Their reports are kept in R2 like any other, but open no issue and no conversation (see quietReport).
+const QUIET_ZIP_MAX = 64 * 1024;
 
 const MSG = {
   off: "Reports are switched off right now. Your report was saved on your PC.",
@@ -102,6 +110,7 @@ const MSG = {
   big: "The report is too large to send. It was saved on your PC.",
   bad: "The report could not be read by the server. It was saved on your PC.",
   store: "The server could not store the report. It was saved on your PC; please try again later.",
+  test: "This report service does not take test reports. The report was saved on your PC.",
 };
 
 // ---------------------------------------------------------------- helpers
@@ -170,6 +179,44 @@ function cleanMeta(m) {
   if (!/^[0-9A-Za-z.+\-]{1,32}$/.test(out.version)) return { error: "bad version" };
   if (!/^[0-9A-Za-z.+\-]{0,64}$/.test(out.build)) return { error: "bad build id" };
   return { meta: out };
+}
+
+// The member names of a zip, from its central directory; null when the directory cannot be read.
+export function zipNames(b) {
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  let e = -1;
+  for (let i = b.length - 22; i >= 0 && i >= b.length - 22 - 65535; i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) {
+      e = i;
+      break;
+    }
+  }
+  if (e < 0) return null;
+  const count = dv.getUint16(e + 10, true);
+  let p = dv.getUint32(e + 16, true);
+  const names = [];
+  for (let n = 0; n < count; n++) {
+    if (p + 46 > e || dv.getUint32(p, true) !== 0x02014b50) return null;
+    const nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true);
+    if (p + 46 + nl > e) return null;
+    names.push(new TextDecoder().decode(b.subarray(p + 46, p + 46 + nl)));
+    p += 46 + nl + xl + cl;
+  }
+  return names;
+}
+
+// G1 (REPORTS-1124): a report from MA2 Report.exe run on its own on a machine with no game, the sandbox pattern
+// (client helper, kind manual, no words, "Installed: no recomp-install.json ...", "Game log: none", and a zip that
+// holds system.txt and nothing else). Stored like any report; no GitHub issue and no conversation. Anything more
+// (text, an install, a log, any other file in the zip, another client or kind) opens an issue as before.
+export async function quietReport(meta, text, summary, zip) {
+  if (meta.client !== "helper" || meta.kind !== "manual") return false;
+  if (String(text ?? "").trim() !== "") return false;
+  const s = String(summary ?? "");
+  if (!/^Installed: no recomp-install\.json /m.test(s) || !/^Game log: none\s*$/m.test(s)) return false;
+  if (!zip || zip.size > QUIET_ZIP_MAX) return false;
+  const names = zipNames(new Uint8Array(await zip.arrayBuffer()));
+  return !!names && names.length === 1 && names[0].toLowerCase() === "system.txt";
 }
 
 function versionLess(a, b) {
@@ -580,6 +627,7 @@ async function handleUpload(request, env, ctx) {
   // Reject wrong client kinds before spending the rate budget or reading the body.
   if (hdr.client !== null && !CLIENTS.has(hdr.client.trim().toLowerCase())) return fail(400, MSG.bad);
   if (hdr.kind !== null && !KINDS.has(hdr.kind.trim().toLowerCase())) return fail(400, MSG.bad);
+  if (hdr.build !== null && testBuild(env, hdr.build)) return fail(403, MSG.test);
 
   const ip = request.headers.get("cf-connecting-ip") || "unknown";
   let admit;
@@ -616,6 +664,7 @@ async function handleUpload(request, env, ctx) {
   });
   if (checked.error) return fail(400, MSG.bad);
   const meta = checked.meta;
+  if (testBuild(env, meta.build)) return fail(403, MSG.test);
 
   const zip = form.get("zip");
   if (!zip || typeof zip === "string" || typeof zip.arrayBuffer !== "function") return fail(400, MSG.bad);
@@ -640,6 +689,7 @@ async function handleUpload(request, env, ctx) {
   const live = await currentLatest(env);
   if (env.MIN_VERSION && versionLess(meta.version, env.MIN_VERSION))
     return fail(503, env.UPDATE_NOTICE || live.notice || MSG.off);
+  const quiet = await quietReport(meta, text, summary, zip);
 
   const now = new Date();
   const month = monthOf(now);
@@ -653,31 +703,34 @@ async function handleUpload(request, env, ctx) {
     }
     if (!id) return fail(500, MSG.store);
     const received = now.toISOString();
-    const custom = { ...meta, received, issue: "pending" };
+    const custom = { ...meta, received, issue: quiet ? "none" : "pending" };
     await env.REPORTS.put(key, zip, {
       httpMetadata: { contentType: "application/zip" },
       customMetadata: custom,
     });
-    const rec = { id, key, received, ...meta, text, summary, zip_bytes: zip.size, replies: !!secret };
+    const rec = { id, key, received, ...meta, text, summary, zip_bytes: zip.size, replies: !!secret && !quiet };
+    if (quiet) rec.issue = "none";
     await env.REPORTS.put(`reports/${month}/${id}.json`, JSON.stringify(rec), {
       httpMetadata: { contentType: "application/json" },
     });
-    if (secret)
+    if (secret && !quiet)
       await writeConv(env, { v: 1, id, key, received, last: received, secret_hash: await sha256hex(secret), messages: [] });
-    const marker = {
-      id,
-      received,
-      title: issueTitle(id, meta),
-      body: issueBody(rec, env),
-      labels: [meta.kind, `v${meta.version}`, meta.client],
-      attempts: 0,
-    };
-    await env.REPORTS.put(`pending/${id}.json`, JSON.stringify(marker), {
-      httpMetadata: { contentType: "application/json" },
-    });
-    // The player gets the id now; the issue is opened after the reply. If that fails the marker stays and the
-    // cron trigger retries it, so an expired token or a GitHub outage never loses a report.
-    ctx.waitUntil(openIssue(env, marker));
+    if (!quiet) {
+      const marker = {
+        id,
+        received,
+        title: issueTitle(id, meta),
+        body: issueBody(rec, env),
+        labels: [meta.kind, `v${meta.version}`, meta.client],
+        attempts: 0,
+      };
+      await env.REPORTS.put(`pending/${id}.json`, JSON.stringify(marker), {
+        httpMetadata: { contentType: "application/json" },
+      });
+      // The player gets the id now; the issue is opened after the reply. If that fails the marker stays and the
+      // cron trigger retries it, so an expired token or a GitHub outage never loses a report.
+      ctx.waitUntil(openIssue(env, marker));
+    }
   } catch (e) {
     return fail(500, MSG.store);
   }
@@ -1494,7 +1547,7 @@ async function handleOwner(request, env, url) {
           out.push({
             id, key: o.key, bytes: o.size, received: cm.received || new Date(o.uploaded).toISOString(),
             client: cm.client, version: cm.version, build: cm.build, kind: cm.kind, signature: cm.signature,
-            issue: pending.has(id) ? "pending" : "opened",
+            issue: pending.has(id) ? "pending" : cm.issue === "none" ? "none" : "opened",
           });
         }
         c = l.truncated ? l.cursor : undefined;
