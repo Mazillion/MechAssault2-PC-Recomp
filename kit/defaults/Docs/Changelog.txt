@@ -6,9 +6,10 @@ You have version {{VERSION}} (build {{BUILD}}).
 
 1.2.1
 -----
-- Linux: the installer and the game run under Proton
-  (tested with GE-Proton 11), on their own or through RecompLauncher.
-  The first build downloads about 1.7 GB of build tools.
+- Linux support added. The installer and the game now run under
+  Proton (tested with GE-Proton 11), either on their own or through
+  RecompLauncher. The first install downloads about 1.7 GB of build
+  tools.
 
 1.2.0
 -----
